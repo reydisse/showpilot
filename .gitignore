@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.wrangler/
+.open-next/
+.vinxi/
+.output/
+*.local
+.env
+.env.*
+!.env.example
+.dev.vars
+**/src/generated/
+.turbo/
+.DS_Store
+vite.config.timestamp_*

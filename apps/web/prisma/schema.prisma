@@ -1,0 +1,365 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id            String       @id
+  name          String
+  email         String
+  emailVerified Boolean      @default(false)
+  image         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  members       Member[]
+  invitations   Invitation[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganizationId String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id          String       @id
+  name        String
+  slug        String
+  logo        String?
+  createdAt   DateTime
+  metadata    String?
+  members     Member[]
+  invitations Invitation[]
+
+  // App relations
+  crewMembers        CrewMember[]
+  checklistTemplates ChecklistTemplate[]
+  checklistEntries   ChecklistEntry[]
+  cueSheets          CueSheet[]
+  incidents          Incident[]
+  micAssignments     MicAssignment[]
+  equipment          Equipment[]
+  notifications      Notification[]
+  devices            Device[]
+  appSettings        AppSetting[]
+  graphicTemplates   GraphicTemplate[]
+  streamDestinations StreamDestination[]
+  liveInputs         LiveInput[]
+  chatMessages       ChatMessage[]
+
+  @@unique([slug])
+  @@map("organization")
+}
+
+model Member {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
+}
+
+// ─── App Models ──────────────────────────────────────────────
+
+model CrewMember {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  memberId     String
+  name         String
+  role         String
+  photoUrl     String       @default("")
+  isOnline     Boolean      @default(false)
+  lastCheckIn  DateTime?
+  lastCheckOut DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@unique([orgId, memberId])
+  @@index([orgId, name])
+  @@map("crew_member")
+}
+
+model ChecklistTemplate {
+  id        String           @id @default(cuid())
+  orgId     String
+  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  label     String
+  category  String           // audio | video | stream | lighting | general
+  sortOrder Int              @default(0)
+  createdAt DateTime         @default(now())
+  entries   ChecklistEntry[]
+
+  @@index([orgId, sortOrder])
+  @@map("checklist_template")
+}
+
+model ChecklistEntry {
+  id          String            @id @default(cuid())
+  orgId       String
+  organization Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  templateId  String
+  template    ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  serviceDate String
+  checked     Boolean           @default(false)
+  checkedBy   String?
+  checkedAt   DateTime?
+
+  @@index([orgId, serviceDate])
+  @@index([templateId])
+  @@map("checklist_entry")
+}
+
+model CueSheet {
+  id                String       @id @default(cuid())
+  orgId             String
+  organization      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  cueNumber         Int
+  rundownItem       String
+  cameraAssignments String       @default("")
+  notes             String       @default("")
+  serviceDate       String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([orgId, serviceDate])
+  @@map("cue_sheet")
+}
+
+model Incident {
+  id          String       @id @default(cuid())
+  orgId       String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  category    String       // audio | video | stream | lighting | other
+  severity    String       // low | medium | high
+  description String
+  reportedBy  String
+  serviceDate String
+  timestamp   DateTime     @default(now())
+
+  @@index([orgId, serviceDate])
+  @@map("incident")
+}
+
+model MicAssignment {
+  id              String       @id @default(cuid())
+  orgId           String
+  organization    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  channel         Int
+  label           String
+  micType         String       // wireless-handheld | wireless-lav | wired | headset | di-box | other
+  micModel        String       @default("")
+  notes           String       @default("")
+  gainDb          Float?
+  phantom         Boolean      @default(false)
+  muted           Boolean      @default(false)
+  group           String       @default("other") // vocals | band | playback | sfx | other
+  mixerConsole    String       @default("")
+  mixerChannel    Int?
+  mixerChannelType String      @default("")
+  serviceDate     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([orgId, serviceDate])
+  @@map("mic_assignment")
+}
+
+model Equipment {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name         String
+  category     String       // audio | video | lighting | streaming | comms | other
+  status       String       @default("operational") // operational | needs-repair | out-of-service | in-repair
+  location     String       @default("")
+  serialNumber String       @default("")
+  notes        String       @default("")
+  lastServiced DateTime?
+  nextService  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([orgId])
+  @@map("equipment")
+}
+
+model Notification {
+  id        String       @id @default(cuid())
+  orgId     String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  type      String
+  severity  String       @default("info") // info | warning | critical
+  title     String
+  message   String
+  target    String       @default("all") // all | tech-manager | audio | production-manager | show
+  source    String       @default("")
+  createdAt DateTime     @default(now())
+  dismissed Boolean      @default(false)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@map("notification")
+}
+
+model Device {
+  id          String       @id @default(cuid())
+  orgId       String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name        String
+  category    String       // mixer | streaming | timer | automation | video | comms
+  adapterType String       @default("")
+  settings    String       @default("{}") // JSON string
+  enabled     Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([orgId])
+  @@map("device")
+}
+
+model AppSetting {
+  id    String       @id @default(cuid())
+  orgId String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key   String
+  value String
+
+  @@unique([orgId, key])
+  @@map("app_setting")
+}
+
+model GraphicTemplate {
+  id        String       @id @default(cuid())
+  orgId     String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  title     String
+  subtitle  String       @default("")
+  style     String       @default("{}") // JSON: font, colors, position, animation
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([orgId])
+  @@map("graphic_template")
+}
+
+model StreamDestination {
+  id        String       @id @default(cuid())
+  orgId     String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  platform  String       // youtube | facebook | twitch | custom
+  rtmpUrl   String       @default("")
+  streamKey String       @default("")
+  enabled   Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  @@index([orgId])
+  @@map("stream_destination")
+}
+
+model LiveInput {
+  id         String       @id @default(cuid())
+  orgId      String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  cfInputId  String       @default("")
+  cfInputUid String       @default("")
+  name       String
+  rtmpUrl    String       @default("")
+  rtmpKey    String       @default("")
+  srtUrl     String       @default("")
+  status     String       @default("idle") // idle | connected | streaming
+  createdAt  DateTime     @default(now())
+
+  @@unique([orgId, cfInputId])
+  @@index([orgId])
+  @@map("live_input")
+}
+
+model ChatMessage {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  message      String
+  senderName   String
+  createdAt    DateTime     @default(now())
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@map("chat_message")
+}

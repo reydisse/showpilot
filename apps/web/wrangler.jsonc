@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "showpilot",
+	"compatibility_date": "2026-02-28",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "src/server.ts",
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "showpilot-db",
+			"database_id": "local"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "STORAGE",
+			"bucket_name": "showpilot-storage"
+		}
+	]
+}

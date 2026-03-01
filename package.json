@@ -1,0 +1,20 @@
+{
+  "name": "showpilot",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @showpilot/web dev",
+    "build": "pnpm --filter @showpilot/web build",
+    "deploy": "pnpm --filter @showpilot/web deploy",
+    "db:generate": "pnpm --filter @showpilot/web db:generate",
+    "db:migrate": "pnpm --filter @showpilot/web db:migrate"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "prisma",
+      "@prisma/engines",
+      "esbuild",
+      "workerd",
+      "sharp"
+    ]
+  }
+}
