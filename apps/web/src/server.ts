@@ -1,7 +1,9 @@
 import handler from "@tanstack/react-start/server-entry";
 
-// Durable Objects will be exported here in Phase 4
-// export { RealtimeHub } from "./durable-objects/realtime-hub";
+// Durable Objects
+export { ChatRelay } from "./durable-objects/ChatRelay";
+export { RundownRelay } from "./durable-objects/RundownRelay";
+export { LowerThirdsRelay } from "./durable-objects/LowerThirdsRelay";
 
 export default {
   fetch: handler.fetch,

@@ -3,6 +3,11 @@
 // Runtime types generated with workerd@1.20260305.0 2025-09-02 nodejs_compat
 declare namespace Cloudflare {
 	interface Env {
+		DB: D1Database;
+		STORAGE: R2Bucket;
+		CHAT_RELAY: DurableObjectNamespace;
+		RUNDOWN_RELAY: DurableObjectNamespace;
+		LOWER_THIRDS_RELAY: DurableObjectNamespace;
 	}
 }
 interface Env extends Cloudflare.Env {}

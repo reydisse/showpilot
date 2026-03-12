@@ -19,5 +19,27 @@
 			"binding": "STORAGE",
 			"bucket_name": "showpilot-storage"
 		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CHAT_RELAY",
+				"class_name": "ChatRelay"
+			},
+			{
+				"name": "RUNDOWN_RELAY",
+				"class_name": "RundownRelay"
+			},
+			{
+				"name": "LOWER_THIRDS_RELAY",
+				"class_name": "LowerThirdsRelay"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": ["ChatRelay", "RundownRelay", "LowerThirdsRelay"]
+		}
 	]
 }
