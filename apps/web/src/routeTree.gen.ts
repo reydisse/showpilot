@@ -13,10 +13,14 @@ import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SlugIndexRouteImport } from './routes/$slug/index'
+import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
+import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
+import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
+import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
@@ -52,6 +56,11 @@ const SlugIndexRoute = SlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SlugRoute,
 } as any)
+const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
+  id: '/overlay/$orgSlug',
+  path: '/overlay/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -67,9 +76,24 @@ const SlugShowRoute = SlugShowRouteImport.update({
   path: '/show',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugSettingsRoute = SlugSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugRundownRoute = SlugRundownRouteImport.update({
+  id: '/rundown',
+  path: '/rundown',
+  getParentRoute: () => SlugRoute,
+} as any)
 const SlugCheckinRoute = SlugCheckinRouteImport.update({
   id: '/checkin',
   path: '/checkin',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugChatRoute = SlugChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugAdminRoute = SlugAdminRouteImport.update({
@@ -155,10 +179,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRouteWithChildren
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
+  '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -178,10 +206,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRouteWithChildren
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
+  '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -204,10 +236,14 @@ export interface FileRoutesById {
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRouteWithChildren
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/setup': typeof AuthSetupRoute
+  '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -230,10 +266,14 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/$slug/admin'
+    | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/rundown'
+    | '/$slug/settings'
     | '/$slug/show'
     | '/login'
     | '/setup'
+    | '/overlay/$orgSlug'
     | '/$slug/'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -253,10 +293,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$slug/admin'
+    | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/rundown'
+    | '/$slug/settings'
     | '/$slug/show'
     | '/login'
     | '/setup'
+    | '/overlay/$orgSlug'
     | '/$slug'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -278,10 +322,14 @@ export interface FileRouteTypes {
     | '/$slug'
     | '/_auth'
     | '/$slug/admin'
+    | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/rundown'
+    | '/$slug/settings'
     | '/$slug/show'
     | '/_auth/login'
     | '/_auth/setup'
+    | '/overlay/$orgSlug'
     | '/$slug/'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -303,6 +351,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -336,6 +385,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugIndexRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/overlay/$orgSlug': {
+      id: '/overlay/$orgSlug'
+      path: '/overlay/$orgSlug'
+      fullPath: '/overlay/$orgSlug'
+      preLoaderRoute: typeof OverlayOrgSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth/setup': {
       id: '/_auth/setup'
       path: '/setup'
@@ -357,11 +413,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugShowRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/settings': {
+      id: '/$slug/settings'
+      path: '/settings'
+      fullPath: '/$slug/settings'
+      preLoaderRoute: typeof SlugSettingsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/rundown': {
+      id: '/$slug/rundown'
+      path: '/rundown'
+      fullPath: '/$slug/rundown'
+      preLoaderRoute: typeof SlugRundownRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/checkin': {
       id: '/$slug/checkin'
       path: '/checkin'
       fullPath: '/$slug/checkin'
       preLoaderRoute: typeof SlugCheckinRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/chat': {
+      id: '/$slug/chat'
+      path: '/chat'
+      fullPath: '/$slug/chat'
+      preLoaderRoute: typeof SlugChatRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/admin': {
@@ -499,7 +576,10 @@ const SlugStreamingGraphicsRouteWithChildren =
 
 interface SlugRouteChildren {
   SlugAdminRoute: typeof SlugAdminRoute
+  SlugChatRoute: typeof SlugChatRoute
   SlugCheckinRoute: typeof SlugCheckinRoute
+  SlugRundownRoute: typeof SlugRundownRoute
+  SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRouteWithChildren
   SlugIndexRoute: typeof SlugIndexRoute
   SlugDashboardAudioRoute: typeof SlugDashboardAudioRoute
@@ -517,7 +597,10 @@ interface SlugRouteChildren {
 
 const SlugRouteChildren: SlugRouteChildren = {
   SlugAdminRoute: SlugAdminRoute,
+  SlugChatRoute: SlugChatRoute,
   SlugCheckinRoute: SlugCheckinRoute,
+  SlugRundownRoute: SlugRundownRoute,
+  SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRouteWithChildren,
   SlugIndexRoute: SlugIndexRoute,
   SlugDashboardAudioRoute: SlugDashboardAudioRoute,
@@ -551,6 +634,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

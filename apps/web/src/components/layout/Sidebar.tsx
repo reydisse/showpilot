@@ -24,6 +24,8 @@ import {
   Moon,
   Settings,
   MonitorPlay,
+  MessageSquare,
+  Timer,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
@@ -37,6 +39,8 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { icon: ListMusic, label: "Show", path: "show" },
   { icon: MonitorPlay, label: "Show Board", path: "show/board" },
+  { icon: Timer, label: "Rundown", path: "rundown" },
+  { icon: MessageSquare, label: "Chat", path: "chat" },
   { icon: UserCheck, label: "Check-in", path: "checkin" },
   { icon: Users, label: "Team", path: "admin" },
 ];
@@ -352,6 +356,16 @@ export function Sidebar() {
               />
             ))}
           </div>
+        </div>
+
+        {/* Settings link pinned to bottom */}
+        <div className="shrink-0 border-t border-board-border px-2.5 py-3">
+          <NavLink
+            item={{ icon: Settings, label: "Settings", path: "settings" }}
+            slug={slug!}
+            collapsed={collapsed}
+            active={isActive("settings")}
+          />
         </div>
       </aside>
 
