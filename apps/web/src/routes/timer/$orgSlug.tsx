@@ -4,11 +4,11 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { getPrisma } from "@/lib/db";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
-// ─── Server Function: Get Rundown State by Org Slug ──────────
+// ─── Server Functions ────────────────────────────────────────
 
 const getRundownStateBySlug = createServerFn({ method: "GET" })
   .inputValidator((data: { orgSlug: string; serviceDate: string }) => data)
-  .handler(async ({ data }): Promise<RundownState | null> => {
+  .handler(async ({ data }): Promise<{ state: RundownState; message: string } | null> => {
     const prisma = getPrisma();
 
     const org = await prisma.organization.findUnique({
@@ -16,21 +16,20 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
     });
     if (!org) return null;
 
-    const [itemsSetting, timerSetting] = await Promise.all([
+    const [itemsSetting, timerSetting, messageSetting] = await Promise.all([
       prisma.appSetting.findUnique({
         where: {
-          orgId_key: {
-            orgId: org.id,
-            key: `rundown-items:${data.serviceDate}`,
-          },
+          orgId_key: { orgId: org.id, key: `rundown-items:${data.serviceDate}` },
         },
       }),
       prisma.appSetting.findUnique({
         where: {
-          orgId_key: {
-            orgId: org.id,
-            key: `rundown-timer:${data.serviceDate}`,
-          },
+          orgId_key: { orgId: org.id, key: `rundown-timer:${data.serviceDate}` },
+        },
+      }),
+      prisma.appSetting.findUnique({
+        where: {
+          orgId_key: { orgId: org.id, key: `rundown-message:${data.serviceDate}` },
         },
       }),
     ]);
@@ -53,7 +52,10 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       ? JSON.parse(timerSetting.value)
       : { ...defaultTimer, serverTime: Date.now() };
 
-    return { items, timer };
+    return {
+      state: { items, timer },
+      message: messageSetting?.value ?? "",
+    };
   });
 
 // ─── Route ───────────────────────────────────────────────────
@@ -65,6 +67,9 @@ export const Route = createFileRoute("/timer/$orgSlug")({
 // ─── Types ───────────────────────────────────────────────────
 
 type ViewMode = "timer" | "minimal" | "stage";
+
+/** OnTime-style color phases */
+type TimerPhase = "normal" | "warning" | "danger" | "overtime";
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -125,7 +130,56 @@ function computeRemaining(
   return currentItem.duration - elapsed;
 }
 
-// ─── Styles (inline, self-contained) ─────────────────────────
+/**
+ * OnTime-style phase calculation:
+ * - normal:  > 2 minutes remaining
+ * - warning: <= 2 minutes remaining (amber)
+ * - danger:  <= 30 seconds remaining (red, slow blink)
+ * - overtime: negative remaining (red, fast blink)
+ */
+function getTimerPhase(remaining: number, playback: string): TimerPhase {
+  if (playback === "stop") return "normal";
+  if (remaining < 0) return "overtime";
+  if (remaining <= 30_000) return "danger";
+  if (remaining <= 120_000) return "warning";
+  return "normal";
+}
+
+// ─── Phase Colors ────────────────────────────────────────────
+
+const PHASE_COLORS: Record<TimerPhase, {
+  timer: string;
+  bg: string;
+  accent: string;
+  progressFill: string;
+}> = {
+  normal: {
+    timer: "#ffffff",
+    bg: "#0a0a0a",
+    accent: "#ffc107",
+    progressFill: "#ffc107",
+  },
+  warning: {
+    timer: "#f59e0b",
+    bg: "#0a0a0a",
+    accent: "#f59e0b",
+    progressFill: "#f59e0b",
+  },
+  danger: {
+    timer: "#ef4444",
+    bg: "#0a0a0a",
+    accent: "#ef4444",
+    progressFill: "#ef4444",
+  },
+  overtime: {
+    timer: "#ef4444",
+    bg: "#1a0000",
+    accent: "#ef4444",
+    progressFill: "#ef4444",
+  },
+};
+
+// ─── Styles ──────────────────────────────────────────────────
 
 const COLORS = {
   bg: "#0a0a0a",
@@ -133,12 +187,11 @@ const COLORS = {
   muted: "#666666",
   accent: "#ffc107",
   danger: "#ef4444",
+  warning: "#f59e0b",
+  green: "#22c55e",
   progressBg: "#222222",
-  progressFill: "#ffc107",
   barBg: "rgba(255,255,255,0.04)",
   nextBg: "rgba(255,255,255,0.03)",
-  messageBg: "rgba(255,193,7,0.12)",
-  messageBorder: "#ffc107",
 } as const;
 
 const TIMER_CSS = `
@@ -155,10 +208,41 @@ const TIMER_CSS = `
     color: ${COLORS.text};
   }
 
-  @keyframes pulse-overtime {
+  @keyframes blink-slow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  @keyframes blink-fast {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.0; }
+  }
+
+  @keyframes blink-bg {
+    0%, 100% { background-color: #1a0000; }
+    50% { background-color: #300000; }
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { text-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+    50% { text-shadow: 0 0 60px rgba(239, 68, 68, 0.8), 0 0 120px rgba(239, 68, 68, 0.4); }
+  }
+
+  @keyframes message-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
   }
+
+  .phase-normal {}
+  .phase-warning { animation: none; }
+  .phase-danger { animation: blink-slow 1s ease-in-out infinite; }
+  .phase-overtime { animation: blink-fast 0.5s ease-in-out infinite; }
+
+  .bg-overtime { animation: blink-bg 1s ease-in-out infinite; }
+
+  .glow-overtime { animation: pulse-glow 1s ease-in-out infinite; }
+
+  .message-bar { animation: message-pulse 2s ease-in-out infinite; }
 `;
 
 // ─── Main Component ──────────────────────────────────────────
@@ -175,19 +259,21 @@ function TimerKioskPage() {
   }, []);
 
   const [state, setState] = useState<RundownState | null>(null);
+  const [stageMessage, setStageMessage] = useState("");
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
 
-  // Poll server every 1s
+  // Poll server every 500ms for responsiveness
   const poll = useCallback(async () => {
     try {
       const result = await getRundownStateBySlug({
         data: { orgSlug, serviceDate: serviceDate.current },
       });
       if (result) {
-        setState(result);
+        setState(result.state);
+        setStageMessage(result.message);
         setConnected(true);
       } else {
         setConnected(false);
@@ -199,7 +285,7 @@ function TimerKioskPage() {
 
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 1000);
+    const interval = setInterval(poll, 500);
     return () => clearInterval(interval);
   }, [poll]);
 
@@ -239,9 +325,10 @@ function TimerKioskPage() {
 
   const elapsed = timer ? computeElapsed(timer, now) : 0;
   const remaining = timer ? computeRemaining(timer, currentItem, now) : 0;
-  const isOvertime = remaining < 0 && timer?.playback === "play";
   const duration = currentItem?.duration ?? 0;
   const progress = duration > 0 ? Math.min(1, elapsed / duration) : 0;
+  const phase = timer ? getTimerPhase(remaining, timer.playback) : "normal";
+  const phaseColors = PHASE_COLORS[phase];
 
   const displayTime = useMemo(() => {
     if (!timer || !currentItem) return "00:00";
@@ -266,79 +353,58 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (viewMode === "minimal") {
-    return renderMinimalView(displayTime, isOvertime);
+    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} stageMessage={stageMessage} />;
   }
 
   if (viewMode === "stage") {
-    return renderStageView(
-      currentItem,
-      nextItem,
-      displayTime,
-      isOvertime,
-      timer
+    return (
+      <StageView
+        currentItem={currentItem}
+        nextItem={nextItem}
+        displayTime={displayTime}
+        phase={phase}
+        phaseColors={phaseColors}
+        timer={timer}
+        stageMessage={stageMessage}
+      />
     );
   }
 
-  return renderTimerView(
-    currentItem,
-    nextItem,
-    displayTime,
-    isOvertime,
-    progress,
-    timer,
-    now,
-    connected,
-    totalElapsed
+  return (
+    <FullTimerView
+      currentItem={currentItem}
+      nextItem={nextItem}
+      displayTime={displayTime}
+      phase={phase}
+      phaseColors={phaseColors}
+      progress={progress}
+      timer={timer}
+      now={now}
+      connected={connected}
+      totalElapsed={totalElapsed}
+      stageMessage={stageMessage}
+    />
   );
 }
 
 // ─── Minimal View ────────────────────────────────────────────
 
-function renderMinimalView(displayTime: string, isOvertime: boolean) {
+function MinimalView({
+  displayTime,
+  phase,
+  phaseColors,
+  stageMessage,
+}: {
+  displayTime: string;
+  phase: TimerPhase;
+  phaseColors: typeof PHASE_COLORS.normal;
+  stageMessage: string;
+}) {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
       <div
-        style={{
-          width: "100vw",
-          height: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: COLORS.bg,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "'Inter', monospace",
-            fontSize: "min(20vw, 20vh)",
-            fontWeight: 700,
-            fontVariantNumeric: "tabular-nums",
-            letterSpacing: "-0.02em",
-            color: isOvertime ? COLORS.danger : COLORS.text,
-            animation: isOvertime ? "pulse-overtime 1s ease-in-out infinite" : "none",
-          }}
-        >
-          {displayTime}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ─── Stage View ──────────────────────────────────────────────
-
-function renderStageView(
-  currentItem: RundownItem | null,
-  nextItem: RundownItem | null,
-  displayTime: string,
-  isOvertime: boolean,
-  timer: NativeTimerState | null
-) {
-  return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
-      <div
+        className={phase === "overtime" ? "bg-overtime" : ""}
         style={{
           width: "100vw",
           height: "100vh",
@@ -346,15 +412,119 @@ function renderStageView(
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          background: COLORS.bg,
-          padding: "5vh 5vw",
-          gap: "4vh",
+          background: phaseColors.bg,
         }}
       >
+        <div
+          className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
+          style={{
+            fontFamily: "'Inter', monospace",
+            fontSize: "min(20vw, 20vh)",
+            fontWeight: 700,
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "-0.02em",
+            color: phaseColors.timer,
+          }}
+        >
+          {displayTime}
+        </div>
+
+        {/* Stage message */}
+        {stageMessage && (
+          <div
+            className="message-bar"
+            style={{
+              marginTop: "4vh",
+              padding: "1.5vh 4vw",
+              background: "rgba(255, 193, 7, 0.15)",
+              border: "2px solid rgba(255, 193, 7, 0.4)",
+              borderRadius: "8px",
+              maxWidth: "80vw",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "min(4vw, 4vh)",
+                fontWeight: 600,
+                color: COLORS.accent,
+                textAlign: "center",
+              }}
+            >
+              {stageMessage}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Stage View ──────────────────────────────────────────────
+
+function StageView({
+  currentItem,
+  nextItem,
+  displayTime,
+  phase,
+  phaseColors,
+  timer,
+  stageMessage,
+}: {
+  currentItem: RundownItem | null;
+  nextItem: RundownItem | null;
+  displayTime: string;
+  phase: TimerPhase;
+  phaseColors: typeof PHASE_COLORS.normal;
+  timer: NativeTimerState | null;
+  stageMessage: string;
+}) {
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
+      <div
+        className={phase === "overtime" ? "bg-overtime" : ""}
+        style={{
+          width: "100vw",
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: phaseColors.bg,
+          padding: "3vh 5vw",
+          gap: "2vh",
+        }}
+      >
+        {/* Stage message (top priority — shown above everything) */}
+        {stageMessage && (
+          <div
+            className="message-bar"
+            style={{
+              padding: "2vh 4vw",
+              background: "rgba(255, 193, 7, 0.15)",
+              border: "3px solid rgba(255, 193, 7, 0.5)",
+              borderRadius: "12px",
+              maxWidth: "90vw",
+              width: "100%",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "min(5vw, 6vh)",
+                fontWeight: 700,
+                color: COLORS.accent,
+              }}
+            >
+              {stageMessage}
+            </div>
+          </div>
+        )}
+
         {/* Current item title */}
         <div
           style={{
-            fontSize: "min(5vw, 5vh)",
+            fontSize: "min(4vw, 4.5vh)",
             fontWeight: 600,
             color: COLORS.text,
             textAlign: "center",
@@ -369,15 +539,15 @@ function renderStageView(
 
         {/* Timer */}
         <div
+          className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
           style={{
             fontFamily: "'Inter', monospace",
-            fontSize: "min(18vw, 30vh)",
+            fontSize: stageMessage ? "min(14vw, 22vh)" : "min(18vw, 30vh)",
             fontWeight: 700,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-0.02em",
             lineHeight: 1,
-            color: isOvertime ? COLORS.danger : COLORS.text,
-            animation: isOvertime ? "pulse-overtime 1s ease-in-out infinite" : "none",
+            color: phaseColors.timer,
           }}
         >
           {currentItem ? displayTime : "--:--"}
@@ -388,24 +558,36 @@ function renderStageView(
           <div
             style={{
               fontSize: "min(2vw, 2.5vh)",
-              fontWeight: 500,
+              fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.15em",
-              color: timer.playback === "play"
-                ? COLORS.accent
-                : timer.playback === "pause"
-                  ? COLORS.accent
-                  : COLORS.muted,
-              opacity: timer.playback === "stop" ? 0.5 : 1,
+              padding: "0.5vh 2vw",
+              borderRadius: "6px",
+              background:
+                phase === "overtime"
+                  ? "rgba(239, 68, 68, 0.2)"
+                  : timer.playback === "play"
+                    ? "rgba(34, 197, 94, 0.12)"
+                    : timer.playback === "pause"
+                      ? "rgba(255, 193, 7, 0.12)"
+                      : "rgba(255,255,255,0.05)",
+              color:
+                phase === "overtime"
+                  ? COLORS.danger
+                  : timer.playback === "play"
+                    ? COLORS.green
+                    : timer.playback === "pause"
+                      ? COLORS.accent
+                      : COLORS.muted,
             }}
           >
-            {timer.playback === "play"
-              ? isOvertime
-                ? "OVERTIME"
-                : "RUNNING"
-              : timer.playback === "pause"
-                ? "PAUSED"
-                : "STOPPED"}
+            {phase === "overtime"
+              ? "OVERTIME"
+              : timer.playback === "play"
+                ? "RUNNING"
+                : timer.playback === "pause"
+                  ? "PAUSED"
+                  : "STOPPED"}
           </div>
         )}
 
@@ -416,7 +598,7 @@ function renderStageView(
               display: "flex",
               alignItems: "center",
               gap: "min(2vw, 1.5rem)",
-              marginTop: "2vh",
+              marginTop: "1vh",
             }}
           >
             <span
@@ -456,32 +638,48 @@ function renderStageView(
   );
 }
 
-// ─── Full Timer View ─────────────────────────────────────────
+// ─── Full Timer View (OnTime-style) ─────────────────────────
 
-function renderTimerView(
-  currentItem: RundownItem | null,
-  nextItem: RundownItem | null,
-  displayTime: string,
-  isOvertime: boolean,
-  progress: number,
-  timer: NativeTimerState | null,
-  now: number,
-  connected: boolean,
-  totalElapsed: number
-) {
+function FullTimerView({
+  currentItem,
+  nextItem,
+  displayTime,
+  phase,
+  phaseColors,
+  progress,
+  timer,
+  now,
+  connected,
+  totalElapsed,
+  stageMessage,
+}: {
+  currentItem: RundownItem | null;
+  nextItem: RundownItem | null;
+  displayTime: string;
+  phase: TimerPhase;
+  phaseColors: typeof PHASE_COLORS.normal;
+  progress: number;
+  timer: NativeTimerState | null;
+  now: number;
+  connected: boolean;
+  totalElapsed: number;
+  stageMessage: string;
+}) {
   const clockTime = formatClockHHMMSS(new Date(now));
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
       <div
+        className={phase === "overtime" ? "bg-overtime" : ""}
         style={{
           width: "100vw",
           height: "100vh",
           display: "flex",
           flexDirection: "column",
-          background: COLORS.bg,
+          background: phaseColors.bg,
           overflow: "hidden",
+          transition: "background-color 0.3s ease",
         }}
       >
         {/* ── Top Bar ── */}
@@ -492,7 +690,7 @@ function renderTimerView(
             justifyContent: "space-between",
             padding: "1.5vh 3vw",
             background: COLORS.barBg,
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            borderBottom: `1px solid ${phase === "overtime" ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.06)"}`,
             flexShrink: 0,
           }}
         >
@@ -509,7 +707,7 @@ function renderTimerView(
             {clockTime}
           </div>
 
-          {/* Playback state + connection */}
+          {/* Playback state badge + connection */}
           <div
             style={{
               display: "flex",
@@ -521,30 +719,38 @@ function renderTimerView(
               <div
                 style={{
                   fontSize: "min(1.4vw, 1.8vh)",
-                  fontWeight: 600,
+                  fontWeight: 700,
                   textTransform: "uppercase",
                   letterSpacing: "0.12em",
-                  color:
-                    timer.playback === "play"
-                      ? isOvertime
-                        ? COLORS.danger
-                        : "#22c55e"
-                      : COLORS.accent,
-                  padding: "0.3vh 1vw",
+                  padding: "0.4vh 1.2vw",
                   borderRadius: "4px",
+                  color:
+                    phase === "overtime" || phase === "danger"
+                      ? "#ffffff"
+                      : phase === "warning"
+                        ? "#000000"
+                        : "#ffffff",
                   background:
-                    timer.playback === "play"
-                      ? isOvertime
-                        ? "rgba(239,68,68,0.15)"
-                        : "rgba(34,197,94,0.12)"
-                      : "rgba(255,193,7,0.12)",
+                    phase === "overtime"
+                      ? COLORS.danger
+                      : phase === "danger"
+                        ? "rgba(239,68,68,0.8)"
+                        : phase === "warning"
+                          ? COLORS.warning
+                          : timer.playback === "play"
+                            ? COLORS.green
+                            : COLORS.accent,
                 }}
               >
-                {timer.playback === "play"
-                  ? isOvertime
-                    ? "OVERTIME"
-                    : "LIVE"
-                  : "PAUSED"}
+                {phase === "overtime"
+                  ? "OVERTIME"
+                  : phase === "danger"
+                    ? "ENDING"
+                    : phase === "warning"
+                      ? "WARNING"
+                      : timer.playback === "play"
+                        ? "LIVE"
+                        : "PAUSED"}
               </div>
             )}
             <div
@@ -552,14 +758,41 @@ function renderTimerView(
                 width: "10px",
                 height: "10px",
                 borderRadius: "50%",
-                background: connected ? "#22c55e" : COLORS.danger,
+                background: connected ? COLORS.green : COLORS.danger,
                 boxShadow: connected
-                  ? "0 0 6px rgba(34,197,94,0.5)"
-                  : "0 0 6px rgba(239,68,68,0.5)",
+                  ? `0 0 6px rgba(34,197,94,0.5)`
+                  : `0 0 6px rgba(239,68,68,0.5)`,
               }}
             />
           </div>
         </div>
+
+        {/* ── Stage Message Bar ── */}
+        {stageMessage && (
+          <div
+            className="message-bar"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "1.5vh 3vw",
+              background: "rgba(255, 193, 7, 0.12)",
+              borderBottom: "2px solid rgba(255, 193, 7, 0.3)",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                fontSize: "min(3vw, 3.5vh)",
+                fontWeight: 700,
+                color: COLORS.accent,
+                textAlign: "center",
+              }}
+            >
+              {stageMessage}
+            </div>
+          </div>
+        )}
 
         {/* ── Main Timer Area ── */}
         <div
@@ -599,7 +832,7 @@ function renderTimerView(
                 fontWeight: 600,
                 textTransform: "uppercase",
                 letterSpacing: "0.15em",
-                color: COLORS.accent,
+                color: phaseColors.accent,
                 opacity: 0.8,
               }}
             >
@@ -607,34 +840,33 @@ function renderTimerView(
             </div>
           )}
 
-          {/* Timer display */}
+          {/* Timer display — with phase-based blink + glow */}
           <div
+            className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
             style={{
               fontFamily: "'Inter', monospace",
-              fontSize: "min(16vw, 22vh)",
+              fontSize: stageMessage ? "min(14vw, 18vh)" : "min(16vw, 22vh)",
               fontWeight: 700,
               fontVariantNumeric: "tabular-nums",
               letterSpacing: "-0.02em",
               lineHeight: 1,
-              color: isOvertime ? COLORS.danger : COLORS.text,
-              animation: isOvertime
-                ? "pulse-overtime 1s ease-in-out infinite"
-                : "none",
+              color: phaseColors.timer,
               marginTop: "1vh",
               marginBottom: "1vh",
+              transition: "color 0.3s ease",
             }}
           >
             {currentItem ? displayTime : "--:--"}
           </div>
 
-          {/* Progress bar */}
+          {/* Progress bar — color matches phase */}
           {currentItem && currentItem.duration > 0 && (
             <div
               style={{
                 width: "min(70vw, 800px)",
-                height: "min(0.8vh, 6px)",
+                height: "min(1vh, 8px)",
                 background: COLORS.progressBg,
-                borderRadius: "3px",
+                borderRadius: "4px",
                 overflow: "hidden",
                 flexShrink: 0,
               }}
@@ -643,9 +875,9 @@ function renderTimerView(
                 style={{
                   width: `${Math.min(100, progress * 100)}%`,
                   height: "100%",
-                  background: isOvertime ? COLORS.danger : COLORS.progressFill,
-                  borderRadius: "3px",
-                  transition: "width 0.3s linear",
+                  background: phaseColors.progressFill,
+                  borderRadius: "4px",
+                  transition: "width 0.3s linear, background-color 0.3s ease",
                 }}
               />
             </div>
@@ -662,7 +894,7 @@ function renderTimerView(
               gap: "min(2vw, 1.5rem)",
               padding: "2vh 3vw",
               background: COLORS.nextBg,
-              borderTop: "1px solid rgba(255,255,255,0.04)",
+              borderTop: `1px solid ${phase === "overtime" ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)"}`,
               flexShrink: 0,
             }}
           >
@@ -711,7 +943,7 @@ function renderTimerView(
             justifyContent: "space-between",
             padding: "1.2vh 3vw",
             background: COLORS.barBg,
-            borderTop: "1px solid rgba(255,255,255,0.06)",
+            borderTop: `1px solid ${phase === "overtime" ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.06)"}`,
             flexShrink: 0,
           }}
         >

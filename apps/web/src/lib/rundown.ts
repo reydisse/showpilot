@@ -87,3 +87,27 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
     });
     return { ok: true };
   });
+
+function rundownMessageKey(serviceDate: string) {
+  return `rundown-message:${serviceDate}`;
+}
+
+/**
+ * Persist a stage message for an org on a specific service date.
+ */
+export const saveRundownMessage = createServerFn({ method: "POST" })
+  .inputValidator((data: { orgId: string; serviceDate: string; message: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const key = rundownMessageKey(data.serviceDate);
+    if (!data.message) {
+      await prisma.appSetting.deleteMany({ where: { orgId: data.orgId, key } });
+    } else {
+      await prisma.appSetting.upsert({
+        where: { orgId_key: { orgId: data.orgId, key } },
+        update: { value: data.message },
+        create: { orgId: data.orgId, key, value: data.message },
+      });
+    }
+    return { ok: true };
+  });

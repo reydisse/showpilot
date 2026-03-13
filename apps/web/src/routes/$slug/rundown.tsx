@@ -25,7 +25,13 @@ import {
   X,
   Monitor,
 } from "lucide-react";
-import { getRundownState, saveRundownItems } from "@/lib/rundown";
+import {
+  getRundownState,
+  saveRundownItems,
+  saveRundownTimer,
+  saveRundownMessage,
+} from "@/lib/rundown";
+import type { NativeTimerState } from "@/types/rundown";
 import { getTodayDateString } from "@/lib/utils";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
@@ -42,13 +48,6 @@ interface RundownItem {
   status: ItemStatus;
   sortOrder: number;
   hardStop: boolean;
-}
-
-interface TimerState {
-  playback: "stop" | "play" | "pause";
-  currentItemId: string | null;
-  elapsed: number;
-  startedAt: number | null;
 }
 
 const TYPE_CONFIG: Record<ItemType, { label: string; icon: React.ElementType; color: string }> = {
@@ -90,21 +89,47 @@ function formatDisplayDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** Build a NativeTimerState from local state for DB persistence */
+function buildNativeTimer(
+  playback: "stop" | "play" | "pause",
+  currentItemId: string | null,
+  elapsed: number,
+  startedAt: number | null,
+): NativeTimerState {
+  return {
+    playback,
+    currentItemId,
+    elapsed,
+    startedAt,
+    pausedAt: playback === "pause" ? Date.now() : null,
+    mode: "count-down",
+    serverTime: Date.now(),
+  };
+}
+
 export const Route = createFileRoute("/$slug/rundown")({
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
-    return { orgId: context.orgId, slug: context.slug, today, initialItems: state.items };
+    return { orgId: context.orgId, slug: context.slug, today, initialState: state };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, today, initialItems } = Route.useLoaderData();
+  const { orgId, slug, today, initialState } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(today);
-  const [items, setItems] = useState<RundownItem[]>(initialItems);
-  const [timer, setTimer] = useState<TimerState>({
-    playback: "stop", currentItemId: null, elapsed: 0, startedAt: null,
+  const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
+  const [timer, setTimer] = useState<{
+    playback: "stop" | "play" | "pause";
+    currentItemId: string | null;
+    elapsed: number;
+    startedAt: number | null;
+  }>({
+    playback: initialState.timer.playback,
+    currentItemId: initialState.timer.currentItemId,
+    elapsed: initialState.timer.elapsed,
+    startedAt: initialState.timer.startedAt,
   });
   const [showAddForm, setShowAddForm] = useState(false);
   const [displayTime, setDisplayTime] = useState(0);
@@ -113,12 +138,23 @@ function RundownPage() {
   const [loading, setLoading] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const rafRef = useRef<number>(0);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveItemsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persist timer to DB immediately (not debounced — kiosk needs it fast)
+  const persistTimer = useCallback((
+    playback: "stop" | "play" | "pause",
+    currentItemId: string | null,
+    elapsed: number,
+    startedAt: number | null,
+  ) => {
+    const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt);
+    saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch(() => {});
+  }, [orgId, serviceDate]);
 
   // Auto-save items on change (debounced)
   const persistItems = useCallback((newItems: RundownItem[]) => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
+    if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
+    saveItemsTimeoutRef.current = setTimeout(() => {
       saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch(() => {});
     }, 1000);
   }, [orgId, serviceDate]);
@@ -136,9 +172,13 @@ function RundownPage() {
     setLoading(true);
     try {
       const state = await getRundownState({ data: { orgId, serviceDate: date } });
-      setItems(state.items);
-      // Reset timer when switching dates
-      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+      setItems(state.items as RundownItem[]);
+      setTimer({
+        playback: state.timer.playback,
+        currentItemId: state.timer.currentItemId,
+        elapsed: state.timer.elapsed,
+        startedAt: state.timer.startedAt,
+      });
       setDisplayTime(0);
     } catch {
       // Keep current
@@ -175,23 +215,28 @@ function RundownPage() {
         i.id === itemId ? { ...i, status: "live" as ItemStatus } : i
       )
     );
-    setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: Date.now() });
+    const now = Date.now();
+    setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: now });
     setDisplayTime(0);
-  }, [updateItems]);
+    persistTimer("play", itemId, 0, now);
+  }, [updateItems, persistTimer]);
 
   const handlePause = useCallback(() => {
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
       setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
       setDisplayTime(newElapsed);
+      persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [timer]);
+  }, [timer, persistTimer]);
 
   const handleResume = useCallback(() => {
     if (timer.playback === "pause") {
-      setTimer({ ...timer, playback: "play", startedAt: Date.now() });
+      const now = Date.now();
+      setTimer({ ...timer, playback: "play", startedAt: now });
+      persistTimer("play", timer.currentItemId, timer.elapsed, now);
     }
-  }, [timer]);
+  }, [timer, persistTimer]);
 
   const handleStop = useCallback(() => {
     updateItems((prev) =>
@@ -201,7 +246,8 @@ function RundownPage() {
     );
     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
     setDisplayTime(0);
-  }, [timer.currentItemId, updateItems]);
+    persistTimer("stop", null, 0, null);
+  }, [timer.currentItemId, updateItems, persistTimer]);
 
   const handleNext = useCallback(() => {
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
@@ -224,7 +270,8 @@ function RundownPage() {
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
     setDisplayTime(0);
-  }, [updateItems]);
+    persistTimer("stop", null, 0, null);
+  }, [updateItems, persistTimer]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     const item: RundownItem = {
@@ -261,8 +308,15 @@ function RundownPage() {
   const handleSendMessage = () => {
     if (message.trim()) {
       setActiveMessage(message.trim());
+      // Persist message so kiosk can see it
+      saveRundownMessage({ data: { orgId, serviceDate, message: message.trim() } }).catch(() => {});
       setMessage("");
     }
+  };
+
+  const handleClearMessage = () => {
+    setActiveMessage("");
+    saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch(() => {});
   };
 
   // Keyboard shortcuts
@@ -374,7 +428,7 @@ function RundownPage() {
           <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
           <p className="text-sm font-medium text-amber-300 flex-1">{activeMessage}</p>
           <button
-            onClick={() => setActiveMessage("")}
+            onClick={handleClearMessage}
             className="p-1 rounded text-amber-400 hover:text-amber-200 transition-colors"
           >
             <X className="w-3.5 h-3.5" />
@@ -404,7 +458,7 @@ function RundownPage() {
                   {timer.playback === "stop" ? "Stopped" : timer.playback === "play" ? "Playing" : "Paused"}
                 </span>
                 {isOvertime && (
-                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto">Overtime</span>
+                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
                 )}
               </div>
 
