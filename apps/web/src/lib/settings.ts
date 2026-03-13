@@ -79,6 +79,40 @@ export const regenerateApiKey = createServerFn({ method: "POST" })
     return key;
   });
 
+// ─── Active Adapters ────────────────────────────────────────
+
+export type RundownAdapterType = "native" | "ontime" | "propresenter" | "planning-center";
+export type ChatAdapterType = "native" | "slack" | "mattermost" | "teams" | "discord";
+
+export interface ActiveAdapters {
+  rundown: RundownAdapterType;
+  chat: ChatAdapterType;
+}
+
+/**
+ * Resolve which adapters are active for an org.
+ * Defaults to "native" for everything.
+ */
+export const getActiveAdapters = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgId: string }) => data)
+  .handler(async ({ data }): Promise<ActiveAdapters> => {
+    const prisma = getPrisma();
+    const settings = await prisma.appSetting.findMany({
+      where: {
+        orgId: data.orgId,
+        key: { in: ["rundown-adapter", "chat-adapter"] },
+      },
+    });
+    const map: Record<string, string> = {};
+    for (const s of settings) {
+      map[s.key] = s.value;
+    }
+    return {
+      rundown: (map["rundown-adapter"] as RundownAdapterType) || "native",
+      chat: (map["chat-adapter"] as ChatAdapterType) || "native",
+    };
+  });
+
 // ─── Danger Zone ────────────────────────────────────────────
 
 export const deleteOrgSettings = createServerFn({ method: "POST" })
