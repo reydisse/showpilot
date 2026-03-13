@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { RundownItem, RundownState, NativeTimerState, ItemType, ItemStatus } from "@/types/rundown";
+import type { RundownItem, RundownState, NativeTimerState, ItemStatus } from "@/types/rundown";
 import { saveRundownItems, saveRundownTimer } from "@/lib/rundown";
 
 interface UseRundownOptions {
   orgId: string;
+  serviceDate: string;
   initialState?: RundownState;
 }
 
@@ -45,7 +46,7 @@ function generateId(): string {
  * Manages rundown items, timer state with requestAnimationFrame for smooth
  * display, and debounced persistence to the server via server functions.
  */
-export function useRundown({ orgId, initialState }: UseRundownOptions): UseRundownReturn {
+export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptions): UseRundownReturn {
   const [items, setItems] = useState<RundownItem[]>(initialState?.items ?? []);
   const [timer, setTimer] = useState<NativeTimerState>(initialState?.timer ?? defaultTimer);
   const [displayTime, setDisplayTime] = useState(0);
@@ -125,24 +126,24 @@ export function useRundown({ orgId, initialState }: UseRundownOptions): UseRundo
     (newItems: RundownItem[]) => {
       if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
       saveItemsTimeoutRef.current = setTimeout(() => {
-        saveRundownItems({ data: { orgId, items: newItems } }).catch(() => {
+        saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch(() => {
           // Silent fail — optimistic UI, server will catch up
         });
       }, 1000);
     },
-    [orgId],
+    [orgId, serviceDate],
   );
 
   const persistTimer = useCallback(
     (newTimer: NativeTimerState) => {
       if (saveTimerTimeoutRef.current) clearTimeout(saveTimerTimeoutRef.current);
       saveTimerTimeoutRef.current = setTimeout(() => {
-        saveRundownTimer({ data: { orgId, timer: newTimer } }).catch(() => {
+        saveRundownTimer({ data: { orgId, serviceDate, timer: newTimer } }).catch(() => {
           // Silent fail
         });
       }, 1000);
     },
-    [orgId],
+    [orgId, serviceDate],
   );
 
   // Cleanup timeouts on unmount

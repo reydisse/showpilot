@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SlugIndexRouteImport } from './routes/$slug/index'
+import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -55,6 +56,11 @@ const SlugIndexRoute = SlugIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SlugRoute,
+} as any)
+const TimerOrgSlugRoute = TimerOrgSlugRouteImport.update({
+  id: '/timer/$orgSlug',
+  path: '/timer/$orgSlug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
   id: '/overlay/$orgSlug',
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
+  '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -214,6 +221,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
+  '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
+  '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
   '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/overlay/$orgSlug'
+    | '/timer/$orgSlug'
     | '/$slug/'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -301,6 +311,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/setup'
     | '/overlay/$orgSlug'
+    | '/timer/$orgSlug'
     | '/$slug'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -330,6 +341,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/setup'
     | '/overlay/$orgSlug'
+    | '/timer/$orgSlug'
     | '/$slug/'
     | '/$slug/dashboard/audio'
     | '/$slug/dashboard/devices'
@@ -352,6 +364,7 @@ export interface RootRouteChildren {
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
+  TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -384,6 +397,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/'
       preLoaderRoute: typeof SlugIndexRouteImport
       parentRoute: typeof SlugRoute
+    }
+    '/timer/$orgSlug': {
+      id: '/timer/$orgSlug'
+      path: '/timer/$orgSlug'
+      fullPath: '/timer/$orgSlug'
+      preLoaderRoute: typeof TimerOrgSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/overlay/$orgSlug': {
       id: '/overlay/$orgSlug'
@@ -635,6 +655,7 @@ const rootRouteChildren: RootRouteChildren = {
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
+  TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

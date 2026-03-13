@@ -234,7 +234,7 @@ function RundownItemRow({
   index,
   totalItems,
   isLive,
-  isPlaying,
+  isPlaying: _isPlaying,
   onStart,
   onMoveUp,
   onMoveDown,
@@ -402,10 +402,11 @@ function RundownItemRow({
 
 interface RundownPanelProps {
   orgId: string;
+  serviceDate: string;
   initialState?: RundownState;
 }
 
-export function RundownPanel({ orgId, initialState }: RundownPanelProps) {
+export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelProps) {
   const {
     items,
     timer,
@@ -414,7 +415,6 @@ export function RundownPanel({ orgId, initialState }: RundownPanelProps) {
     currentItem,
     nextItem,
     addItem,
-    updateItem,
     removeItem,
     reorderItems,
     start,
@@ -422,7 +422,7 @@ export function RundownPanel({ orgId, initialState }: RundownPanelProps) {
     stop,
     next,
     setTimerMode,
-  } = useRundown({ orgId, initialState });
+  } = useRundown({ orgId, serviceDate, initialState });
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());

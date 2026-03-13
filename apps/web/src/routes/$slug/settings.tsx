@@ -1,5 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSidebar } from "@/components/layout/SidebarContext";
 import {
   Building2,
   Users,
@@ -84,9 +85,15 @@ const NAV_ITEMS: NavItem[] = [
 function SettingsPage() {
   const { settings, members, orgId, slug, org } = Route.useLoaderData();
   const router = useRouter();
+  const { setCollapsed } = useSidebar();
   const [activeSection, setActiveSection] = useState<SectionId>("organization");
   const [localSettings, setLocalSettings] =
     useState<Record<string, string>>(settings);
+
+  // Auto-collapse sidebar when settings page is opened
+  useEffect(() => {
+    setCollapsed(true);
+  }, [setCollapsed]);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -1217,7 +1224,7 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
 
 function DangerSection({
   org,
-  router,
+  router: _router,
 }: SectionProps & { router: ReturnType<typeof useRouter> }) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);

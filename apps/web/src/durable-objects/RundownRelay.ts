@@ -85,7 +85,7 @@ export class RundownRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
     try {
       const parsed = JSON.parse(data as string) as {
         type: string;

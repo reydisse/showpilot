@@ -1,6 +1,4 @@
 import { Link, useLocation, useParams } from "@tanstack/react-router";
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   ListMusic,
   UserCheck,
@@ -102,128 +100,48 @@ function NavLink({
   );
 }
 
-function GearMenu({ collapsed }: { collapsed: boolean }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+function QuickActions({ collapsed }: { collapsed: boolean }) {
   const { toggle, fullscreen, toggleFullscreen } = useSidebar();
   const { theme, toggleTheme } = useTheme();
 
-  // Position the menu relative to the button using fixed coords
-  useEffect(() => {
-    if (!open || !btnRef.current) return;
-    const rect = btnRef.current.getBoundingClientRect();
-    setMenuPos({
-      top: rect.bottom + 6,
-      left: Math.max(8, rect.left),
-    });
-  }, [open, collapsed]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        btnRef.current && !btnRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open]);
-
   return (
-    <div>
+    <div className={`flex items-center ${collapsed ? "flex-col gap-1" : "gap-1"}`}>
       <button
-        ref={btnRef}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleTheme}
         type="button"
-        aria-label="Settings"
-        className={`p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer ${
-          open ? "bg-board-border/50 text-board-text" : ""
-        }`}
+        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
       >
-        <Settings className="w-4 h-4" />
+        {theme === "dark" ? (
+          <Sun className="w-3.5 h-3.5" />
+        ) : (
+          <Moon className="w-3.5 h-3.5" />
+        )}
       </button>
-
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-50 bg-board-card border border-board-border rounded-xl shadow-lg py-1"
-          style={{ top: menuPos.top, left: menuPos.left, minWidth: 180 }}
-        >
-          {/* Theme toggle */}
-          <button
-            onClick={() => {
-              toggleTheme();
-              setOpen(false);
-            }}
-            type="button"
-            className="flex items-center gap-3 px-3 py-2.5 w-full text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
-          >
-            {theme === "dark" ? (
-              <Sun className="w-[18px] h-[18px] shrink-0" />
-            ) : (
-              <Moon className="w-[18px] h-[18px] shrink-0" />
-            )}
-            <span className="text-sm font-medium whitespace-nowrap">
-              {theme === "dark" ? "Light Mode" : "Dark Mode"}
-            </span>
-          </button>
-
-          {/* Fullscreen toggle */}
-          <button
-            onClick={() => {
-              toggleFullscreen();
-              setOpen(false);
-            }}
-            type="button"
-            className="flex items-center gap-3 px-3 py-2.5 w-full text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
-          >
-            {fullscreen ? (
-              <Minimize className="w-[18px] h-[18px] shrink-0" />
-            ) : (
-              <Maximize className="w-[18px] h-[18px] shrink-0" />
-            )}
-            <span className="text-sm font-medium whitespace-nowrap">
-              {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-            </span>
-          </button>
-
-          {/* Collapse sidebar toggle */}
-          <button
-            onClick={() => {
-              toggle();
-              setOpen(false);
-            }}
-            type="button"
-            className="flex items-center gap-3 px-3 py-2.5 w-full text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
-          >
-            {collapsed ? (
-              <ChevronsRight className="w-[18px] h-[18px] shrink-0" />
-            ) : (
-              <ChevronsLeft className="w-[18px] h-[18px] shrink-0" />
-            )}
-            <span className="text-sm font-medium whitespace-nowrap">
-              {collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            </span>
-          </button>
-        </div>,
-        document.body
-      )}
+      <button
+        onClick={toggleFullscreen}
+        type="button"
+        title={fullscreen ? "Exit Fullscreen" : "Fullscreen"}
+        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+      >
+        {fullscreen ? (
+          <Minimize className="w-3.5 h-3.5" />
+        ) : (
+          <Maximize className="w-3.5 h-3.5" />
+        )}
+      </button>
+      <button
+        onClick={toggle}
+        type="button"
+        title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+      >
+        {collapsed ? (
+          <ChevronsRight className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        )}
+      </button>
     </div>
   );
 }
@@ -269,7 +187,7 @@ export function Sidebar() {
             </span>
           )}
           <div className={collapsed ? "" : "ml-auto"}>
-            <GearMenu collapsed={collapsed} />
+            <QuickActions collapsed={collapsed} />
           </div>
         </div>
 

@@ -2,8 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
-const RUNDOWN_ITEMS_KEY = "rundown-items";
-const RUNDOWN_TIMER_KEY = "rundown-timer";
+function rundownItemsKey(serviceDate: string) {
+  return `rundown-items:${serviceDate}`;
+}
+
+function rundownTimerKey(serviceDate: string) {
+  return `rundown-timer:${serviceDate}`;
+}
 
 const defaultTimer: NativeTimerState = {
   playback: "stop",
@@ -16,20 +21,19 @@ const defaultTimer: NativeTimerState = {
 };
 
 /**
- * Get the current rundown state (items + timer) for an org.
- * Reads from AppSetting with keys "rundown-items" and "rundown-timer".
+ * Get the rundown state for an org on a specific service date.
  */
 export const getRundownState = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }): Promise<RundownState> => {
     const prisma = getPrisma();
 
     const [itemsSetting, timerSetting] = await Promise.all([
       prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_ITEMS_KEY } },
+        where: { orgId_key: { orgId: data.orgId, key: rundownItemsKey(data.serviceDate) } },
       }),
       prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_TIMER_KEY } },
+        where: { orgId_key: { orgId: data.orgId, key: rundownTimerKey(data.serviceDate) } },
       }),
     ]);
 
@@ -45,19 +49,19 @@ export const getRundownState = createServerFn({ method: "GET" })
   });
 
 /**
- * Persist rundown items for an org.
- * Upserts into AppSetting with key "rundown-items".
+ * Persist rundown items for an org on a specific service date.
  */
 export const saveRundownItems = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; items: RundownItem[] }) => data)
+  .inputValidator((data: { orgId: string; serviceDate: string; items: RundownItem[] }) => data)
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const key = rundownItemsKey(data.serviceDate);
     await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_ITEMS_KEY } },
+      where: { orgId_key: { orgId: data.orgId, key } },
       update: { value: JSON.stringify(data.items) },
       create: {
         orgId: data.orgId,
-        key: RUNDOWN_ITEMS_KEY,
+        key,
         value: JSON.stringify(data.items),
       },
     });
@@ -65,19 +69,19 @@ export const saveRundownItems = createServerFn({ method: "POST" })
   });
 
 /**
- * Persist timer state for an org.
- * Upserts into AppSetting with key "rundown-timer".
+ * Persist timer state for an org on a specific service date.
  */
 export const saveRundownTimer = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; timer: NativeTimerState }) => data)
+  .inputValidator((data: { orgId: string; serviceDate: string; timer: NativeTimerState }) => data)
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const key = rundownTimerKey(data.serviceDate);
     await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_TIMER_KEY } },
+      where: { orgId_key: { orgId: data.orgId, key } },
       update: { value: JSON.stringify(data.timer) },
       create: {
         orgId: data.orgId,
-        key: RUNDOWN_TIMER_KEY,
+        key,
         value: JSON.stringify(data.timer),
       },
     });

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { MessageSquare, AlertCircle, Radio, Terminal, Type } from "lucide-react";
+import { MessageSquare, AlertCircle, Radio, Terminal } from "lucide-react";
 import { getChatMessages, sendChatMessage } from "@/lib/chat";
 
 type MessageType = "text" | "alert" | "cue" | "system";
