@@ -118,6 +118,88 @@ function ppSlideKey(serviceDate: string) {
   return `rundown-ppslide:${serviceDate}`;
 }
 
+/**
+ * Server-side proxy to fetch current slide from PP7 REST API.
+ * Runs on the server to bypass browser CORS restrictions.
+ * Tries multiple PP7 API endpoints since versions differ.
+ */
+export const pollProPresenterSlide = createServerFn({ method: "GET" })
+  .inputValidator((data: { host: string; port: number }) => data)
+  .handler(async ({ data }): Promise<PPSlidePayload | null> => {
+    const { host, port } = data;
+    const base = `http://${host}:${port}`;
+    const timeout = 2000;
+
+    // Try multiple PP7 REST endpoints in order of likelihood
+    const endpoints = [
+      "/v1/stage/layout_map",
+      "/v1/presentation/slide_index",
+      "/v1/status/slide",
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(`${base}${endpoint}`, {
+          signal: AbortSignal.timeout(timeout),
+        });
+        if (!res.ok) continue;
+        const data = await res.json() as Record<string, unknown>;
+
+        // Try to extract useful text from the response
+        const text = extractTextFromPPResponse(data);
+        if (text) {
+          return {
+            text,
+            notes: (data.notes as string) || "",
+            presentationName: (data.presentation_name as string) || (data.presentation as string) || "",
+            isScripture: false,
+            updatedAt: Date.now(),
+          };
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  });
+
+/** Extract text content from various PP7 REST API response formats */
+function extractTextFromPPResponse(data: Record<string, unknown>): string {
+  // Direct text fields
+  if (typeof data.text === "string" && data.text) return data.text;
+  if (typeof data.slide_text === "string" && data.slide_text) return data.slide_text;
+
+  // Nested slide object
+  if (data.slide && typeof data.slide === "object") {
+    const slide = data.slide as Record<string, unknown>;
+    if (typeof slide.text === "string") return slide.text;
+  }
+
+  // Current slide in presentation context
+  if (data.current && typeof data.current === "object") {
+    const current = data.current as Record<string, unknown>;
+    if (typeof current.text === "string") return current.text;
+  }
+
+  // Array of slides — find current
+  if (Array.isArray(data.slides)) {
+    const idx = typeof data.current_index === "number" ? data.current_index : 0;
+    const slide = (data.slides as Array<Record<string, unknown>>)[idx];
+    if (slide && typeof slide.text === "string") return slide.text;
+  }
+
+  // Layout map response (stage display)
+  if (Array.isArray(data.ary)) {
+    const texts: string[] = [];
+    for (const item of data.ary as Array<Record<string, unknown>>) {
+      if (typeof item.txt === "string" && item.txt) texts.push(item.txt);
+    }
+    if (texts.length > 0) return texts.join("\n");
+  }
+
+  return "";
+}
+
 export interface PPSlidePayload {
   text: string;
   notes: string;

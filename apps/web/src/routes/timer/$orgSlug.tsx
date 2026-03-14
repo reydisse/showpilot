@@ -770,7 +770,7 @@ function StageView({
         )}
 
         {/* PP Slide content — shown when no priority message */}
-        {showPPSlide && !stageMessage && <PPSlideDisplay slide={ppSlide} size="large" />}
+        {showPPSlide && <PPSlideDisplay slide={ppSlide} size="large" />}
 
         {/* Current item title */}
         {!isPriority && !showPPSlide && (

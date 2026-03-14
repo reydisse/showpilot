@@ -177,6 +177,7 @@ function RundownPage() {
   const [ppEnabled, setPpEnabled] = useState(false);
   const [ppHost, setPpHost] = useState("");
   const [ppPort, setPpPort] = useState(50001);
+  const [ppPassword, setPpPassword] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
@@ -190,8 +191,10 @@ function RundownPage() {
     getOrgSettings({ data: { orgId } }).then((settings) => {
       const host = settings["propresenter-host"] || "";
       const port = parseInt(settings["propresenter-port"] || "50001", 10);
+      const pwd = settings["propresenter-password"] || "";
       setPpHost(host);
       setPpPort(port);
+      setPpPassword(pwd);
     }).catch(() => {});
   }, [orgId]);
 
@@ -217,6 +220,7 @@ function RundownPage() {
   const pp = useProPresenter({
     host: ppHost,
     port: ppPort,
+    password: ppPassword,
     enabled: ppEnabled,
     onSlideChange: handlePPSlideChange,
   });
@@ -918,9 +922,31 @@ function RundownPage() {
                         </p>
                       </div>
                     ) : (
-                      <p className="text-[10px] text-board-muted/40 italic">
-                        Waiting for slide content from ProPresenter...
-                      </p>
+                      <div>
+                        <p className="text-[10px] text-board-muted/40 italic">
+                          Waiting for slide content from ProPresenter...
+                        </p>
+                        {/* Debug info — helps troubleshoot why slides aren't appearing */}
+                        {pp.debugInfo && (
+                          <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">
+                            <p className="text-[9px] font-medium text-board-muted/60 uppercase tracking-wider">Debug</p>
+                            <div className="text-[9px] text-board-muted/50 font-mono space-y-0.5">
+                              <p>WS: {pp.debugInfo.wsConnected ? "open" : "closed"} | msgs: {pp.debugInfo.wsMessagesReceived}</p>
+                              {pp.debugInfo.lastWsMessage && (
+                                <p className="truncate max-w-full" title={pp.debugInfo.lastWsMessage}>
+                                  Last WS: {pp.debugInfo.lastWsMessage.slice(0, 80)}
+                                </p>
+                              )}
+                              <p>Poll: {pp.debugInfo.pollingActive ? "active" : "inactive"} | ok: {pp.debugInfo.pollSuccessCount}</p>
+                              {pp.debugInfo.lastPollResult && (
+                                <p className="truncate max-w-full" title={pp.debugInfo.lastPollResult}>
+                                  Poll: {pp.debugInfo.lastPollResult.slice(0, 80)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </>
                 )}

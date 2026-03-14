@@ -759,6 +759,14 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
                   saveSetting={saveSetting}
                 />
               </FieldGroup>
+              <FieldGroup label="Stage Display Password">
+                <SettingInput
+                  settingKey="propresenter-password"
+                  placeholder="(leave blank if none)"
+                  getSetting={getSetting}
+                  saveSetting={saveSetting}
+                />
+              </FieldGroup>
               <SettingToggle
                 settingKey="propresenter-pull-order"
                 label="Pull service order from ProPresenter"
