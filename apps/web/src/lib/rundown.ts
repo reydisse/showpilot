@@ -211,46 +211,51 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
     const base = `http://${host}:${port}`;
     const timeout = 3000;
 
-    // PP7 API endpoints vary by version. Try multiple known paths.
-    const endpointSets: { endpoints: string[]; method: string }[] = (() => {
+    // PP7 API endpoints vary by version — try multiple known paths and methods.
+    const endpoints: { path: string; method: string }[] = (() => {
       switch (command) {
         case "next":
           return [
-            { endpoints: ["/v1/trigger/next"], method: "GET" },
-            { endpoints: ["/v1/presentation/active/focus/next"], method: "GET" },
+            { path: "/v1/trigger/next", method: "GET" },
+            { path: "/v1/trigger/next", method: "POST" },
+            { path: "/v1/presentation/active/focus/next", method: "GET" },
           ];
         case "previous":
           return [
-            { endpoints: ["/v1/trigger/previous"], method: "GET" },
-            { endpoints: ["/v1/presentation/active/focus/previous"], method: "GET" },
+            { path: "/v1/trigger/previous", method: "GET" },
+            { path: "/v1/trigger/previous", method: "POST" },
+            { path: "/v1/presentation/active/focus/previous", method: "GET" },
           ];
         case "clear":
           return [
-            { endpoints: ["/v1/clear/layer/slide"], method: "GET" },
-            { endpoints: ["/v1/clear/slide"], method: "GET" },
-            { endpoints: ["/v1/clear/layer/all"], method: "GET" },
+            { path: "/v1/clear/layer/slide", method: "GET" },
+            { path: "/v1/clear/layer/slide", method: "DELETE" },
+            { path: "/v1/clear/slide", method: "GET" },
+            { path: "/v1/clear/all", method: "GET" },
           ];
       }
     })();
 
+    const errors: string[] = [];
     try {
-      for (const { endpoints, method } of endpointSets) {
-        for (const endpoint of endpoints) {
-          try {
-            const res = await fetch(`${base}${endpoint}`, {
-              method,
-              signal: AbortSignal.timeout(timeout),
-            });
-            // 200 or 204 = success
-            if (res.ok || res.status === 204) {
-              return { ok: true };
-            }
-          } catch {
-            continue;
+      for (const { path, method } of endpoints) {
+        try {
+          const url = `${base}${path}`;
+          const res = await fetch(url, {
+            method,
+            signal: AbortSignal.timeout(timeout),
+          });
+          // Any 2xx = success
+          if (res.status >= 200 && res.status < 300) {
+            return { ok: true };
           }
+          errors.push(`${method} ${path} → ${res.status}`);
+        } catch (e) {
+          errors.push(`${method} ${path} → ${e}`);
+          continue;
         }
       }
-      return { ok: false, error: "No PP7 API endpoint responded. Check API Port in Settings." };
+      return { ok: false, error: `No endpoint worked (port ${port}): ${errors.join("; ")}` };
     } catch (err) {
       return { ok: false, error: String(err) };
     }
@@ -274,7 +279,13 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
     const prisma = getPrisma();
     const key = ppSlideKey(data.serviceDate);
     if (!data.slide) {
-      await prisma.appSetting.deleteMany({ where: { orgId: data.orgId, key } });
+      // Upsert a "cleared" marker so kiosk sees null immediately on next poll
+      // (deleteMany has a race with polling — kiosk might read stale data)
+      await prisma.appSetting.upsert({
+        where: { orgId_key: { orgId: data.orgId, key } },
+        update: { value: "null" },
+        create: { orgId: data.orgId, key, value: "null" },
+      });
     } else {
       await prisma.appSetting.upsert({
         where: { orgId_key: { orgId: data.orgId, key } },

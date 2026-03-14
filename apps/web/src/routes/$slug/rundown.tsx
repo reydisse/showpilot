@@ -181,6 +181,7 @@ function RundownPage() {
   const [ppPassword, setPpPassword] = useState("");
   const [ppApiPort, setPpApiPort] = useState(0);
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
+  const [ppCmdError, setPpCmdError] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
@@ -917,31 +918,53 @@ function RundownPage() {
                     {/* PP Control Buttons */}
                     {pp.status === "connected" && (
                       ppCuesEnabled && ppApiPort ? (
-                        <div className="flex items-center gap-1.5 mb-2">
-                          <button
-                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "previous" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
-                            title="Previous slide"
-                          >
-                            <SkipBack className="w-3 h-3" />
-                            Prev
-                          </button>
-                          <button
-                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "next" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
-                            title="Next slide"
-                          >
-                            Next
-                            <SkipForward className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "clear" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
-                            title="Clear all layers"
-                          >
-                            <X className="w-3 h-3" />
-                            Clear
-                          </button>
+                        <div className="mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                setPpCmdError("");
+                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "previous" } })
+                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
+                                  .catch(e => setPpCmdError(String(e)));
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                              title="Previous slide"
+                            >
+                              <SkipBack className="w-3 h-3" />
+                              Prev
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPpCmdError("");
+                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "next" } })
+                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
+                                  .catch(e => setPpCmdError(String(e)));
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                              title="Next slide"
+                            >
+                              Next
+                              <SkipForward className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPpCmdError("");
+                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "clear" } })
+                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
+                                  .catch(e => setPpCmdError(String(e)));
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
+                              title="Clear all layers"
+                            >
+                              <X className="w-3 h-3" />
+                              Clear
+                            </button>
+                          </div>
+                          {ppCmdError && (
+                            <p className="text-[9px] text-red-400/80 mt-1 font-mono truncate" title={ppCmdError}>
+                              {ppCmdError}
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <p className="text-[9px] text-board-muted/40 mb-2">

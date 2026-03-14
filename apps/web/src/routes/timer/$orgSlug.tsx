@@ -60,7 +60,7 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       ? JSON.parse(timerSetting.value)
       : { ...defaultTimer, serverTime: Date.now() };
 
-    const ppSlide: PPSlidePayload | null = ppSlideSetting
+    const ppSlide: PPSlidePayload | null = ppSlideSetting && ppSlideSetting.value !== "null"
       ? JSON.parse(ppSlideSetting.value)
       : null;
 
