@@ -772,6 +772,19 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
                 saveSetting={saveSetting}
                 warning="This gives ShowPilot control over your ProPresenter. Only enable if your TD is aware."
               />
+              <div className="mt-3 pt-3 border-t border-board-border">
+                <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Stage Display</p>
+                <p className="text-xs text-board-muted/50 mb-2">
+                  Stream live lyrics and scripture from ProPresenter to stage kiosk displays.
+                  Enable in the rundown page when ready to stream during a service.
+                </p>
+                <SettingToggle
+                  settingKey="propresenter-stage-display"
+                  label="Enable PP slide streaming to stage display"
+                  getSetting={getSetting}
+                  saveSetting={saveSetting}
+                />
+              </div>
             </div>
           </IntegrationCard>
 

@@ -2,13 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { getPrisma } from "@/lib/db";
+import { getClockFormatBySlug } from "@/lib/settings";
+import { formatClockFull, type ClockFormat } from "@/lib/utils";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+import type { PPSlidePayload } from "@/lib/rundown";
 
 // ─── Server Functions ────────────────────────────────────────
 
 const getRundownStateBySlug = createServerFn({ method: "GET" })
   .inputValidator((data: { orgSlug: string; serviceDate: string }) => data)
-  .handler(async ({ data }): Promise<{ state: RundownState; message: string } | null> => {
+  .handler(async ({ data }): Promise<{ state: RundownState; message: string; ppSlide: PPSlidePayload | null } | null> => {
     const prisma = getPrisma();
 
     const org = await prisma.organization.findUnique({
@@ -16,7 +19,7 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
     });
     if (!org) return null;
 
-    const [itemsSetting, timerSetting, messageSetting] = await Promise.all([
+    const [itemsSetting, timerSetting, messageSetting, ppSlideSetting] = await Promise.all([
       prisma.appSetting.findUnique({
         where: {
           orgId_key: { orgId: org.id, key: `rundown-items:${data.serviceDate}` },
@@ -30,6 +33,11 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       prisma.appSetting.findUnique({
         where: {
           orgId_key: { orgId: org.id, key: `rundown-message:${data.serviceDate}` },
+        },
+      }),
+      prisma.appSetting.findUnique({
+        where: {
+          orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.serviceDate}` },
         },
       }),
     ]);
@@ -52,9 +60,14 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       ? JSON.parse(timerSetting.value)
       : { ...defaultTimer, serverTime: Date.now() };
 
+    const ppSlide: PPSlidePayload | null = ppSlideSetting
+      ? JSON.parse(ppSlideSetting.value)
+      : null;
+
     return {
       state: { items, timer },
       message: messageSetting?.value ?? "",
+      ppSlide,
     };
   });
 
@@ -102,12 +115,7 @@ function formatDurationShort(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatClockHHMMSS(date: Date): string {
-  const h = String(date.getHours()).padStart(2, "0");
-  const m = String(date.getMinutes()).padStart(2, "0");
-  const s = String(date.getSeconds()).padStart(2, "0");
-  return `${h}:${m}:${s}`;
-}
+
 
 function computeElapsed(timer: NativeTimerState, now: number): number {
   if (timer.playback === "stop") return timer.elapsed;
@@ -233,6 +241,11 @@ const TIMER_CSS = `
     50% { opacity: 0.7; }
   }
 
+  @keyframes progress-sweep {
+    0% { width: 0%; opacity: 0.5; }
+    100% { opacity: 1; }
+  }
+
   .phase-normal {}
   .phase-warning { animation: none; }
   .phase-danger { animation: blink-slow 1s ease-in-out infinite; }
@@ -260,10 +273,34 @@ function TimerKioskPage() {
 
   const [state, setState] = useState<RundownState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
+  const [messagePriority, setMessagePriority] = useState(false);
+  const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [clockFormat, setClockFormat] = useState<ClockFormat>("12hr");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
+
+  // Fetch clock format once
+  useEffect(() => {
+    getClockFormatBySlug({ data: { orgSlug } }).then(setClockFormat).catch(() => {});
+  }, [orgSlug]);
+
+  // Track fullscreen state
+  useEffect(() => {
+    const handleChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handleChange);
+    return () => document.removeEventListener("fullscreenchange", handleChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, []);
 
   // Poll server every 500ms for responsiveness
   const poll = useCallback(async () => {
@@ -273,7 +310,16 @@ function TimerKioskPage() {
       });
       if (result) {
         setState(result.state);
-        setStageMessage(result.message);
+        // Parse priority flag from message
+        if (result.message.startsWith("!!PRIORITY!!")) {
+          setStageMessage(result.message.slice(12));
+          setMessagePriority(true);
+        } else {
+          setStageMessage(result.message);
+          setMessagePriority(false);
+        }
+        // PP slide data
+        setPpSlide(result.ppSlide);
         setConnected(true);
       } else {
         setConnected(false);
@@ -294,7 +340,9 @@ function TimerKioskPage() {
     let running = true;
     const tick = () => {
       if (!running) return;
-      setNow(Date.now());
+      const n = Date.now();
+      setNow(n);
+
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -325,10 +373,13 @@ function TimerKioskPage() {
 
   const elapsed = timer ? computeElapsed(timer, now) : 0;
   const remaining = timer ? computeRemaining(timer, currentItem, now) : 0;
-  const duration = currentItem?.duration ?? 0;
-  const progress = duration > 0 ? Math.min(1, elapsed / duration) : 0;
   const phase = timer ? getTimerPhase(remaining, timer.playback) : "normal";
   const phaseColors = PHASE_COLORS[phase];
+
+  // Progress percentage — computed at 60fps from RAF-driven `now`
+  const progress = currentItem && currentItem.duration > 0
+    ? Math.min(100, (elapsed / currentItem.duration) * 100)
+    : 0;
 
   const displayTime = useMemo(() => {
     if (!timer || !currentItem) return "00:00";
@@ -353,7 +404,7 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (viewMode === "minimal") {
-    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} stageMessage={stageMessage} />;
+    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />;
   }
 
   if (viewMode === "stage") {
@@ -366,6 +417,11 @@ function TimerKioskPage() {
         phaseColors={phaseColors}
         timer={timer}
         stageMessage={stageMessage}
+        messagePriority={messagePriority}
+        ppSlide={ppSlide}
+        isFullscreen={isFullscreen}
+        toggleFullscreen={toggleFullscreen}
+        progress={progress}
       />
     );
   }
@@ -377,12 +433,17 @@ function TimerKioskPage() {
       displayTime={displayTime}
       phase={phase}
       phaseColors={phaseColors}
-      progress={progress}
       timer={timer}
       now={now}
       connected={connected}
       totalElapsed={totalElapsed}
       stageMessage={stageMessage}
+      messagePriority={messagePriority}
+      ppSlide={ppSlide}
+      clockFormat={clockFormat}
+      isFullscreen={isFullscreen}
+      toggleFullscreen={toggleFullscreen}
+      progress={progress}
     />
   );
 }
@@ -393,13 +454,29 @@ function MinimalView({
   displayTime,
   phase,
   phaseColors,
+  currentItem,
   stageMessage,
+  messagePriority,
+  ppSlide,
+  isFullscreen,
+  toggleFullscreen,
+  progress,
 }: {
   displayTime: string;
   phase: TimerPhase;
   phaseColors: typeof PHASE_COLORS.normal;
+  currentItem: RundownItem | null;
   stageMessage: string;
+  messagePriority: boolean;
+  ppSlide: PPSlidePayload | null;
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
+  progress: number;
 }) {
+  const isPriority = messagePriority && stageMessage;
+  // PP slide takes over the priority space when active and no priority message
+  const showPPSlide = ppSlide && ppSlide.text && !isPriority;
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
@@ -415,22 +492,77 @@ function MinimalView({
           background: phaseColors.bg,
         }}
       >
+        {/* Priority message — highest priority */}
+        {isPriority && (
+          <div
+            className="message-bar"
+            style={{
+              marginBottom: "3vh",
+              padding: "2vh 4vw",
+              background: "rgba(255, 193, 7, 0.2)",
+              border: "3px solid rgba(255, 193, 7, 0.5)",
+              borderRadius: "12px",
+              maxWidth: "85vw",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "min(12vw, 14vh)",
+                fontWeight: 700,
+                color: COLORS.accent,
+                textAlign: "center",
+                lineHeight: 1.1,
+              }}
+            >
+              {stageMessage}
+            </div>
+          </div>
+        )}
+
+        {/* PP Slide content — shown when no priority message */}
+        {showPPSlide && <PPSlideDisplay slide={ppSlide} size="large" />}
+
         <div
           className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
           style={{
             fontFamily: "'Inter', monospace",
-            fontSize: "min(20vw, 20vh)",
+            fontSize: isPriority || showPPSlide ? "min(8vw, 8vh)" : "min(20vw, 20vh)",
             fontWeight: 700,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-0.02em",
-            color: phaseColors.timer,
+            color: isPriority || showPPSlide ? "rgba(255,255,255,0.5)" : phaseColors.timer,
+            transition: "font-size 0.4s ease",
           }}
         >
           {displayTime}
         </div>
 
-        {/* Stage message */}
-        {stageMessage && (
+        {/* Progress bar */}
+        {currentItem && currentItem.duration > 0 && (
+          <div
+            style={{
+              width: "min(60vw, 600px)",
+              height: "min(0.6vh, 5px)",
+              background: COLORS.progressBg,
+              borderRadius: "3px",
+              overflow: "hidden",
+              marginTop: "3vh",
+            }}
+          >
+            <div
+              style={{
+                width: `${progress}%`,
+                height: "100%",
+                background: phaseColors.progressFill,
+                borderRadius: "3px",
+                transition: "none",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Non-priority stage message */}
+        {stageMessage && !isPriority && !showPPSlide && (
           <div
             className="message-bar"
             style={{
@@ -454,8 +586,109 @@ function MinimalView({
             </div>
           </div>
         )}
+
+        {/* Fullscreen button */}
+        <FullscreenButton isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />
       </div>
     </>
+  );
+}
+
+// ─── Fullscreen Button ──────────────────────────────────────
+
+function FullscreenButton({ isFullscreen, toggleFullscreen }: { isFullscreen: boolean; toggleFullscreen: () => void }) {
+  return (
+    <button
+      onClick={toggleFullscreen}
+      style={{
+        position: "fixed",
+        bottom: "2vh",
+        right: "2vw",
+        padding: "0.8vh 1.5vw",
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "8px",
+        color: "rgba(255,255,255,0.4)",
+        fontSize: "min(1.2vw, 1.5vh)",
+        fontWeight: 500,
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+        zIndex: 50,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+        e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+        e.currentTarget.style.color = "rgba(255,255,255,0.4)";
+      }}
+    >
+      {isFullscreen ? "⤡ Exit Fullscreen" : "⤢ Fullscreen"}
+    </button>
+  );
+}
+
+// ─── PP Slide Display ────────────────────────────────────────
+
+function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" | "small" }) {
+  const isLarge = size === "large";
+  const lines = slide.text.split("\n").filter(Boolean);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: isLarge ? "1.5vh" : "0.5vh",
+        maxWidth: "90vw",
+        textAlign: "center",
+      }}
+    >
+      {/* Presentation name / reference */}
+      {(slide.presentationName || slide.notes) && (
+        <div
+          style={{
+            fontSize: isLarge ? "min(2vw, 2.5vh)" : "min(1.2vw, 1.5vh)",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: "rgba(255, 255, 255, 0.5)",
+          }}
+        >
+          {slide.presentationName}
+          {slide.notes && slide.presentationName ? " — " : ""}
+          {slide.notes}
+        </div>
+      )}
+
+      {/* Slide text */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: isLarge ? "0.8vh" : "0.3vh",
+        }}
+      >
+        {lines.map((line, i) => (
+          <div
+            key={i}
+            style={{
+              fontSize: isLarge
+                ? lines.length <= 2 ? "min(8vw, 10vh)" : lines.length <= 4 ? "min(5vw, 7vh)" : "min(3.5vw, 5vh)"
+                : "min(2vw, 2.5vh)",
+              fontWeight: 600,
+              color: "#ffffff",
+              lineHeight: 1.2,
+            }}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -469,6 +702,11 @@ function StageView({
   phaseColors,
   timer,
   stageMessage,
+  messagePriority,
+  ppSlide,
+  isFullscreen,
+  toggleFullscreen,
+  progress,
 }: {
   currentItem: RundownItem | null;
   nextItem: RundownItem | null;
@@ -477,7 +715,15 @@ function StageView({
   phaseColors: typeof PHASE_COLORS.normal;
   timer: NativeTimerState | null;
   stageMessage: string;
+  messagePriority: boolean;
+  ppSlide: PPSlidePayload | null;
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
+  progress: number;
 }) {
+  const isPriority = messagePriority && stageMessage;
+  const showPPSlide = ppSlide && ppSlide.text && !isPriority;
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
@@ -495,14 +741,14 @@ function StageView({
           gap: "2vh",
         }}
       >
-        {/* Stage message (top priority — shown above everything) */}
+        {/* Stage message — large when priority */}
         {stageMessage && (
           <div
             className="message-bar"
             style={{
-              padding: "2vh 4vw",
-              background: "rgba(255, 193, 7, 0.15)",
-              border: "3px solid rgba(255, 193, 7, 0.5)",
+              padding: isPriority ? "3vh 4vw" : "2vh 4vw",
+              background: isPriority ? "rgba(255, 193, 7, 0.2)" : "rgba(255, 193, 7, 0.15)",
+              border: `3px solid rgba(255, 193, 7, ${isPriority ? "0.6" : "0.5"})`,
               borderRadius: "12px",
               maxWidth: "90vw",
               width: "100%",
@@ -511,9 +757,11 @@ function StageView({
           >
             <div
               style={{
-                fontSize: "min(5vw, 6vh)",
+                fontSize: isPriority ? "min(10vw, 14vh)" : "min(5vw, 6vh)",
                 fontWeight: 700,
                 color: COLORS.accent,
+                lineHeight: 1.1,
+                transition: "font-size 0.4s ease",
               }}
             >
               {stageMessage}
@@ -521,37 +769,66 @@ function StageView({
           </div>
         )}
 
-        {/* Current item title */}
-        <div
-          style={{
-            fontSize: "min(4vw, 4.5vh)",
-            fontWeight: 600,
-            color: COLORS.text,
-            textAlign: "center",
-            maxWidth: "90vw",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {currentItem?.title ?? "No Active Item"}
-        </div>
+        {/* PP Slide content — shown when no priority message */}
+        {showPPSlide && !stageMessage && <PPSlideDisplay slide={ppSlide} size="large" />}
 
-        {/* Timer */}
+        {/* Current item title */}
+        {!isPriority && !showPPSlide && (
+          <div
+            style={{
+              fontSize: "min(4vw, 4.5vh)",
+              fontWeight: 600,
+              color: COLORS.text,
+              textAlign: "center",
+              maxWidth: "90vw",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {currentItem?.title ?? "No Active Item"}
+          </div>
+        )}
+
+        {/* Timer — small when priority or PP slide */}
         <div
           className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
           style={{
             fontFamily: "'Inter', monospace",
-            fontSize: stageMessage ? "min(14vw, 22vh)" : "min(18vw, 30vh)",
+            fontSize: isPriority || showPPSlide ? "min(6vw, 8vh)" : stageMessage ? "min(14vw, 22vh)" : "min(18vw, 30vh)",
             fontWeight: 700,
             fontVariantNumeric: "tabular-nums",
             letterSpacing: "-0.02em",
             lineHeight: 1,
-            color: phaseColors.timer,
+            color: isPriority ? "rgba(255,255,255,0.5)" : phaseColors.timer,
+            transition: "font-size 0.4s ease",
           }}
         >
           {currentItem ? displayTime : "--:--"}
         </div>
+
+        {/* Progress bar */}
+        {currentItem && currentItem.duration > 0 && (
+          <div
+            style={{
+              width: "min(70vw, 800px)",
+              height: "min(0.8vh, 6px)",
+              background: COLORS.progressBg,
+              borderRadius: "4px",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${progress}%`,
+                height: "100%",
+                background: phaseColors.progressFill,
+                borderRadius: "4px",
+                transition: "none",
+              }}
+            />
+          </div>
+        )}
 
         {/* Playback state indicator */}
         {timer && (
@@ -633,6 +910,9 @@ function StageView({
             </span>
           </div>
         )}
+
+        {/* Fullscreen button */}
+        <FullscreenButton isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />
       </div>
     </>
   );
@@ -646,26 +926,36 @@ function FullTimerView({
   displayTime,
   phase,
   phaseColors,
-  progress,
   timer,
   now,
   connected,
   totalElapsed,
   stageMessage,
+  messagePriority,
+  ppSlide,
+  clockFormat,
+  isFullscreen,
+  toggleFullscreen,
+  progress,
 }: {
   currentItem: RundownItem | null;
   nextItem: RundownItem | null;
   displayTime: string;
   phase: TimerPhase;
   phaseColors: typeof PHASE_COLORS.normal;
-  progress: number;
   timer: NativeTimerState | null;
   now: number;
   connected: boolean;
   totalElapsed: number;
   stageMessage: string;
+  messagePriority: boolean;
+  ppSlide: PPSlidePayload | null;
+  clockFormat: ClockFormat;
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
+  progress: number;
 }) {
-  const clockTime = formatClockHHMMSS(new Date(now));
+  const clockTime = formatClockFull(new Date(now), clockFormat);
 
   return (
     <>
@@ -775,18 +1065,23 @@ function FullTimerView({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              padding: "1.5vh 3vw",
-              background: "rgba(255, 193, 7, 0.12)",
-              borderBottom: "2px solid rgba(255, 193, 7, 0.3)",
-              flexShrink: 0,
+              padding: messagePriority ? "3vh 3vw" : "1.5vh 3vw",
+              background: messagePriority ? "rgba(255, 193, 7, 0.18)" : "rgba(255, 193, 7, 0.12)",
+              borderBottom: `2px solid rgba(255, 193, 7, ${messagePriority ? "0.5" : "0.3"})`,
+              flexShrink: messagePriority ? 0 : 0,
+              flex: messagePriority ? 1 : undefined,
+              minHeight: messagePriority ? 0 : undefined,
+              transition: "all 0.4s ease",
             }}
           >
             <div
               style={{
-                fontSize: "min(3vw, 3.5vh)",
+                fontSize: messagePriority ? "min(8vw, 12vh)" : "min(3vw, 3.5vh)",
                 fontWeight: 700,
                 color: COLORS.accent,
                 textAlign: "center",
+                lineHeight: 1.1,
+                transition: "font-size 0.4s ease",
               }}
             >
               {stageMessage}
@@ -794,38 +1089,60 @@ function FullTimerView({
           </div>
         )}
 
+        {/* ── PP Slide Bar ── */}
+        {ppSlide && ppSlide.text && !(messagePriority && stageMessage) && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "3vh 3vw",
+              background: "rgba(255, 255, 255, 0.04)",
+              borderBottom: "2px solid rgba(255, 255, 255, 0.08)",
+              flex: 1,
+              minHeight: 0,
+              transition: "all 0.4s ease",
+            }}
+          >
+            <PPSlideDisplay slide={ppSlide} size="large" />
+          </div>
+        )}
+
         {/* ── Main Timer Area ── */}
         <div
           style={{
-            flex: 1,
+            flex: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? undefined : 1,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            padding: "2vh 3vw",
-            gap: "1.5vh",
+            padding: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? "1vh 3vw" : "2vh 3vw",
+            gap: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? "0.5vh" : "1.5vh",
             minHeight: 0,
+            transition: "all 0.4s ease",
           }}
         >
-          {/* Current item title */}
-          <div
-            style={{
-              fontSize: "min(3.5vw, 4vh)",
-              fontWeight: 600,
-              color: currentItem ? COLORS.text : COLORS.muted,
-              textAlign: "center",
-              maxWidth: "85vw",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              opacity: currentItem ? 1 : 0.6,
-            }}
-          >
-            {currentItem?.title ?? "No Active Item"}
-          </div>
+          {/* Current item title — hidden in priority/PP mode */}
+          {!(messagePriority && stageMessage) && !(ppSlide && ppSlide.text) && (
+            <div
+              style={{
+                fontSize: "min(3.5vw, 4vh)",
+                fontWeight: 600,
+                color: currentItem ? COLORS.text : COLORS.muted,
+                textAlign: "center",
+                maxWidth: "85vw",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                opacity: currentItem ? 1 : 0.6,
+              }}
+            >
+              {currentItem?.title ?? "No Active Item"}
+            </div>
+          )}
 
-          {/* Item type badge */}
-          {currentItem && (
+          {/* Item type badge — hidden in priority/PP mode */}
+          {currentItem && !(messagePriority && stageMessage) && !(ppSlide && ppSlide.text) && (
             <div
               style={{
                 fontSize: "min(1.2vw, 1.5vh)",
@@ -840,26 +1157,30 @@ function FullTimerView({
             </div>
           )}
 
-          {/* Timer display — with phase-based blink + glow */}
+          {/* Timer display — smaller when priority/PP active */}
           <div
             className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
             style={{
               fontFamily: "'Inter', monospace",
-              fontSize: stageMessage ? "min(14vw, 18vh)" : "min(16vw, 22vh)",
+              fontSize: (messagePriority && stageMessage) || (ppSlide && ppSlide.text)
+                ? "min(6vw, 8vh)"
+                : stageMessage
+                  ? "min(14vw, 18vh)"
+                  : "min(16vw, 22vh)",
               fontWeight: 700,
               fontVariantNumeric: "tabular-nums",
               letterSpacing: "-0.02em",
               lineHeight: 1,
-              color: phaseColors.timer,
-              marginTop: "1vh",
-              marginBottom: "1vh",
-              transition: "color 0.3s ease",
+              color: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? "rgba(255,255,255,0.5)" : phaseColors.timer,
+              marginTop: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? "0" : "1vh",
+              marginBottom: (messagePriority && stageMessage) || (ppSlide && ppSlide.text) ? "0" : "1vh",
+              transition: "font-size 0.4s ease, color 0.3s ease",
             }}
           >
             {currentItem ? displayTime : "--:--"}
           </div>
 
-          {/* Progress bar — color matches phase */}
+          {/* Progress bar — color matches phase, resets on item change */}
           {currentItem && currentItem.duration > 0 && (
             <div
               style={{
@@ -873,11 +1194,11 @@ function FullTimerView({
             >
               <div
                 style={{
-                  width: `${Math.min(100, progress * 100)}%`,
+                  width: `${progress}%`,
                   height: "100%",
                   background: phaseColors.progressFill,
                   borderRadius: "4px",
-                  transition: "width 0.3s linear, background-color 0.3s ease",
+                  transition: "none",
                 }}
               />
             </div>
@@ -978,17 +1299,45 @@ function FullTimerView({
             </span>
           </div>
 
-          {/* ShowPilot branding */}
-          <div
-            style={{
-              fontSize: "min(1vw, 1.2vh)",
-              fontWeight: 500,
-              color: "rgba(255,255,255,0.2)",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}
-          >
-            ShowPilot
+          <div style={{ display: "flex", alignItems: "center", gap: "1.5vw" }}>
+            {/* ShowPilot branding */}
+            <div
+              style={{
+                fontSize: "min(1vw, 1.2vh)",
+                fontWeight: 500,
+                color: "rgba(255,255,255,0.2)",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              ShowPilot
+            </div>
+
+            {/* Fullscreen toggle */}
+            <button
+              onClick={toggleFullscreen}
+              style={{
+                padding: "0.4vh 1vw",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "4px",
+                color: "rgba(255,255,255,0.35)",
+                fontSize: "min(1vw, 1.2vh)",
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+                e.currentTarget.style.color = "rgba(255,255,255,0.6)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                e.currentTarget.style.color = "rgba(255,255,255,0.35)";
+              }}
+            >
+              {isFullscreen ? "⤡ Exit" : "⤢ Fullscreen"}
+            </button>
           </div>
         </div>
       </div>
