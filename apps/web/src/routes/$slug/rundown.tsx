@@ -179,6 +179,7 @@ function RundownPage() {
   const [ppHost, setPpHost] = useState("");
   const [ppPort, setPpPort] = useState(50001);
   const [ppPassword, setPpPassword] = useState("");
+  const [ppApiPort, setPpApiPort] = useState(0);
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
@@ -194,10 +195,12 @@ function RundownPage() {
       const host = settings["propresenter-host"] || "";
       const port = parseInt(settings["propresenter-port"] || "50001", 10);
       const pwd = settings["propresenter-password"] || "";
+      const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
       const cues = settings["propresenter-send-cues"] === "true";
       setPpHost(host);
       setPpPort(port);
       setPpPassword(pwd);
+      setPpApiPort(apiPort);
       setPpCuesEnabled(cues);
     }).catch(() => {});
   }, [orgId]);
@@ -224,6 +227,7 @@ function RundownPage() {
   const pp = useProPresenter({
     host: ppHost,
     port: ppPort,
+    apiPort: ppApiPort || undefined,
     password: ppPassword,
     enabled: ppEnabled,
     onSlideChange: handlePPSlideChange,
@@ -910,34 +914,40 @@ function RundownPage() {
                       </span>
                     </div>
 
-                    {/* PP Control Buttons — only if cue sending is enabled in settings */}
-                    {pp.status === "connected" && ppCuesEnabled && (
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <button
-                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "previous" } })}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
-                          title="Previous slide"
-                        >
-                          <SkipBack className="w-3 h-3" />
-                          Prev
-                        </button>
-                        <button
-                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "next" } })}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
-                          title="Next slide"
-                        >
-                          Next
-                          <SkipForward className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "clear" } })}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
-                          title="Clear all layers"
-                        >
-                          <X className="w-3 h-3" />
-                          Clear
-                        </button>
-                      </div>
+                    {/* PP Control Buttons */}
+                    {pp.status === "connected" && (
+                      ppCuesEnabled && ppApiPort ? (
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <button
+                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "previous" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                            title="Previous slide"
+                          >
+                            <SkipBack className="w-3 h-3" />
+                            Prev
+                          </button>
+                          <button
+                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "next" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                            title="Next slide"
+                          >
+                            Next
+                            <SkipForward className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "clear" } }).then(r => { if (!r.ok) console.error("[PP cmd]", r.error); })}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
+                            title="Clear all layers"
+                          >
+                            <X className="w-3 h-3" />
+                            Clear
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[9px] text-board-muted/40 mb-2">
+                          {!ppCuesEnabled ? "Enable \"Send cues\" in Settings → ProPresenter to control slides" : "Set API Port in Settings → ProPresenter to control slides"}
+                        </p>
+                      )
                     )}
 
                     {/* Current slide preview */}

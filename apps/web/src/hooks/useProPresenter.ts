@@ -10,8 +10,10 @@ import { pollProPresenterSlide } from "@/lib/rundown";
 interface UseProPresenterOptions {
   /** PP host IP/hostname from org settings */
   host: string;
-  /** PP port from org settings */
+  /** PP stage display port (default 50001) */
   port: number;
+  /** PP API port (Remote Control port, for REST polling fallback) */
+  apiPort?: number;
   /** Stage display password */
   password?: string;
   /** Whether PP streaming is enabled */
@@ -63,6 +65,7 @@ async function serverPollPP(host: string, port: number): Promise<PPSlideData | n
 export function useProPresenter({
   host,
   port,
+  apiPort,
   password,
   enabled,
   onSlideChange,
@@ -106,13 +109,15 @@ export function useProPresenter({
     });
 
     clientRef.current = client;
-    client.connect(serverPollPP);
+    // Poll using API port if available, fall back to stage display port
+    const pollPort = apiPort || port;
+    client.connect((h, _p) => serverPollPP(h, pollPort));
 
     return () => {
       client.disconnect();
       clientRef.current = null;
     };
-  }, [enabled, host, port, password]);
+  }, [enabled, host, port, apiPort, password]);
 
   const connect = useCallback(() => {
     if (clientRef.current) {
@@ -137,8 +142,9 @@ export function useProPresenter({
       },
     });
     clientRef.current = client;
-    client.connect(serverPollPP);
-  }, [host, port, password]);
+    const pollPort = apiPort || port;
+    client.connect((h, _p) => serverPollPP(h, pollPort));
+  }, [host, port, apiPort, password]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {

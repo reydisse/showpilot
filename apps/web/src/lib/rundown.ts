@@ -211,37 +211,46 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
     const base = `http://${host}:${port}`;
     const timeout = 3000;
 
-    try {
-      let endpoint: string;
-      let method = "GET";
-
+    // PP7 API endpoints vary by version. Try multiple known paths.
+    const endpointSets: { endpoints: string[]; method: string }[] = (() => {
       switch (command) {
         case "next":
-          // PP7 API: trigger next slide
-          endpoint = "/v1/presentation/active/focus/next";
-          method = "GET";
-          break;
+          return [
+            { endpoints: ["/v1/trigger/next"], method: "GET" },
+            { endpoints: ["/v1/presentation/active/focus/next"], method: "GET" },
+          ];
         case "previous":
-          // PP7 API: trigger previous slide
-          endpoint = "/v1/presentation/active/focus/previous";
-          method = "GET";
-          break;
+          return [
+            { endpoints: ["/v1/trigger/previous"], method: "GET" },
+            { endpoints: ["/v1/presentation/active/focus/previous"], method: "GET" },
+          ];
         case "clear":
-          // PP7 API: clear all layers
-          endpoint = "/v1/clear/layer/all";
-          method = "GET";
-          break;
+          return [
+            { endpoints: ["/v1/clear/layer/slide"], method: "GET" },
+            { endpoints: ["/v1/clear/slide"], method: "GET" },
+            { endpoints: ["/v1/clear/layer/all"], method: "GET" },
+          ];
       }
+    })();
 
-      const res = await fetch(`${base}${endpoint}`, {
-        method,
-        signal: AbortSignal.timeout(timeout),
-      });
-
-      if (!res.ok) {
-        return { ok: false, error: `PP returned ${res.status}` };
+    try {
+      for (const { endpoints, method } of endpointSets) {
+        for (const endpoint of endpoints) {
+          try {
+            const res = await fetch(`${base}${endpoint}`, {
+              method,
+              signal: AbortSignal.timeout(timeout),
+            });
+            // 200 or 204 = success
+            if (res.ok || res.status === 204) {
+              return { ok: true };
+            }
+          } catch {
+            continue;
+          }
+        }
       }
-      return { ok: true };
+      return { ok: false, error: "No PP7 API endpoint responded. Check API Port in Settings." };
     } catch (err) {
       return { ok: false, error: String(err) };
     }

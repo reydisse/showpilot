@@ -759,6 +759,17 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
                   saveSetting={saveSetting}
                 />
               </FieldGroup>
+              <FieldGroup label="API Port (Remote Control)">
+                <SettingInput
+                  settingKey="propresenter-api-port"
+                  placeholder="1025"
+                  getSetting={getSetting}
+                  saveSetting={saveSetting}
+                />
+                <p className="text-[9px] text-board-muted/40 mt-1">
+                  Found in PP Preferences → Network → "Network Port". Different from Stage Display port.
+                </p>
+              </FieldGroup>
               <FieldGroup label="Stage Display Password">
                 <SettingInput
                   settingKey="propresenter-password"
