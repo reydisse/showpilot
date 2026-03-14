@@ -41,6 +41,7 @@ import {
   saveRundownTimer,
   saveRundownMessage,
   saveProPresenterSlide,
+  sendProPresenterCommand,
   listSavedRundowns,
   saveRundownTemplate,
   loadSavedRundown,
@@ -178,6 +179,7 @@ function RundownPage() {
   const [ppHost, setPpHost] = useState("");
   const [ppPort, setPpPort] = useState(50001);
   const [ppPassword, setPpPassword] = useState("");
+  const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
@@ -192,9 +194,11 @@ function RundownPage() {
       const host = settings["propresenter-host"] || "";
       const port = parseInt(settings["propresenter-port"] || "50001", 10);
       const pwd = settings["propresenter-password"] || "";
+      const cues = settings["propresenter-send-cues"] === "true";
       setPpHost(host);
       setPpPort(port);
       setPpPassword(pwd);
+      setPpCuesEnabled(cues);
     }).catch(() => {});
   }, [orgId]);
 
@@ -679,7 +683,7 @@ function RundownPage() {
       ) : (
         <div className="flex-1 overflow-hidden flex gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full">
           {/* Left: Timer + Controls + Message */}
-          <div className="w-[360px] shrink-0 flex flex-col gap-4">
+          <div className="w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar">
             {/* Timer */}
             <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
               <div className="flex items-center gap-2 mb-2">
@@ -905,6 +909,36 @@ function RundownPage() {
                          pp.status === "error" ? (pp.error || "Connection failed") : "Disconnected"}
                       </span>
                     </div>
+
+                    {/* PP Control Buttons — only if cue sending is enabled in settings */}
+                    {pp.status === "connected" && ppCuesEnabled && (
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <button
+                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "previous" } })}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                          title="Previous slide"
+                        >
+                          <SkipBack className="w-3 h-3" />
+                          Prev
+                        </button>
+                        <button
+                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "next" } })}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                          title="Next slide"
+                        >
+                          Next
+                          <SkipForward className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => sendProPresenterCommand({ data: { host: ppHost, port: ppPort, command: "clear" } })}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
+                          title="Clear all layers"
+                        >
+                          <X className="w-3 h-3" />
+                          Clear
+                        </button>
+                      </div>
+                    )}
 
                     {/* Current slide preview */}
                     {ppCurrentSlide && ppCurrentSlide.text ? (

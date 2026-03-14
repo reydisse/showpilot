@@ -200,6 +200,53 @@ function extractTextFromPPResponse(data: Record<string, unknown>): string {
   return "";
 }
 
+/**
+ * Send a command to ProPresenter via its REST API (server-side to bypass CORS).
+ * Commands: next, previous, clear
+ */
+export const sendProPresenterCommand = createServerFn({ method: "POST" })
+  .inputValidator((data: { host: string; port: number; command: "next" | "previous" | "clear" }) => data)
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const { host, port, command } = data;
+    const base = `http://${host}:${port}`;
+    const timeout = 3000;
+
+    try {
+      let endpoint: string;
+      let method = "GET";
+
+      switch (command) {
+        case "next":
+          // PP7 API: trigger next slide
+          endpoint = "/v1/presentation/active/focus/next";
+          method = "GET";
+          break;
+        case "previous":
+          // PP7 API: trigger previous slide
+          endpoint = "/v1/presentation/active/focus/previous";
+          method = "GET";
+          break;
+        case "clear":
+          // PP7 API: clear all layers
+          endpoint = "/v1/clear/layer/all";
+          method = "GET";
+          break;
+      }
+
+      const res = await fetch(`${base}${endpoint}`, {
+        method,
+        signal: AbortSignal.timeout(timeout),
+      });
+
+      if (!res.ok) {
+        return { ok: false, error: `PP returned ${res.status}` };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
 export interface PPSlidePayload {
   text: string;
   notes: string;

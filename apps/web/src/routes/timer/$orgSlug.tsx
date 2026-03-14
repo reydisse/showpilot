@@ -647,23 +647,6 @@ function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" 
         textAlign: "center",
       }}
     >
-      {/* Presentation name / reference */}
-      {(slide.presentationName || slide.notes) && (
-        <div
-          style={{
-            fontSize: isLarge ? "min(2vw, 2.5vh)" : "min(1.2vw, 1.5vh)",
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "rgba(255, 255, 255, 0.5)",
-          }}
-        >
-          {slide.presentationName}
-          {slide.notes && slide.presentationName ? " — " : ""}
-          {slide.notes}
-        </div>
-      )}
-
       {/* Slide text */}
       <div
         style={{
@@ -688,6 +671,24 @@ function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" 
           </div>
         ))}
       </div>
+
+      {/* Scripture reference / presentation name — below the text */}
+      {(slide.presentationName || slide.notes) && (
+        <div
+          style={{
+            fontSize: isLarge ? "min(2vw, 2.5vh)" : "min(1.2vw, 1.5vh)",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: "rgba(255, 255, 255, 0.5)",
+            marginTop: isLarge ? "1vh" : "0.3vh",
+          }}
+        >
+          {slide.presentationName}
+          {slide.notes && slide.presentationName ? " — " : ""}
+          {slide.notes}
+        </div>
+      )}
     </div>
   );
 }
