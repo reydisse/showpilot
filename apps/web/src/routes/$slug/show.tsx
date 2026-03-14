@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Flame,
   WifiOff,
@@ -14,14 +14,13 @@ import {
   UserPlus,
   LayoutDashboard,
   ArrowRight,
-  SkipForward,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
 import { getChatMessages, sendChatMessage } from "@/lib/chat";
-import { getRundownState, saveRundownTimer } from "@/lib/rundown";
-import { getActiveAdapters, type RundownAdapterType } from "@/lib/settings";
-import { getTodayDateString } from "@/lib/utils";
+import { getRundownState } from "@/lib/rundown";
+import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
+import { getTodayDateString, formatTime, type ClockFormat } from "@/lib/utils";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
@@ -55,10 +54,11 @@ const TYPE_COLORS: Record<ItemType, string> = {
 export const Route = createFileRoute("/$slug/show")({
   loader: async ({ context }) => {
     const today = getTodayDateString();
-    const [members, adapters, chatMessages] = await Promise.all([
+    const [members, adapters, chatMessages, clockFormat] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
       getActiveAdapters({ data: { orgId: context.orgId } }),
       getChatMessages({ data: { orgId: context.orgId, limit: 50 } }),
+      getClockFormat({ data: { orgId: context.orgId } }),
     ]);
 
     // Load rundown data based on adapter
@@ -90,6 +90,7 @@ export const Route = createFileRoute("/$slug/show")({
       orgId: context.orgId,
       slug: context.slug,
       serviceDate: today,
+      clockFormat,
     };
   },
   component: ShowPage,
@@ -267,7 +268,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members, ontimeState, nativeRundown, rundownAdapter,
-    initialChat, orgId, slug, serviceDate,
+    initialChat, orgId, slug, serviceDate, clockFormat,
   } = Route.useLoaderData();
 
   const activeMembers = members.filter((m) => m.isOnline);
@@ -282,6 +283,7 @@ function ShowPage() {
         initialChat={initialChat}
         orgId={orgId}
         slug={slug}
+        clockFormat={clockFormat}
       />
     );
   }
@@ -296,6 +298,7 @@ function ShowPage() {
       orgId={orgId}
       slug={slug}
       serviceDate={serviceDate}
+      clockFormat={clockFormat}
     />
   );
 }
@@ -310,6 +313,7 @@ function ShowPageWithNative({
   orgId,
   slug,
   serviceDate,
+  clockFormat,
 }: {
   initialRundown: RundownState | null;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -318,6 +322,7 @@ function ShowPageWithNative({
   orgId: string;
   slug: string;
   serviceDate: string;
+  clockFormat: ClockFormat;
 }) {
   const [items, setItems] = useState<RundownItem[]>(initialRundown?.items ?? []);
   const [timer, setTimer] = useState<NativeTimerState>(
@@ -332,16 +337,26 @@ function ShowPageWithNative({
   const isPlaying = timer.playback === "play";
   const isPaused = timer.playback === "pause";
 
-  // Persist timer immediately
-  const persistTimer = useCallback((t: NativeTimerState) => {
-    saveRundownTimer({ data: { orgId, serviceDate, timer: t } }).catch(() => {});
+  // Poll for state changes from the rundown operator page
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const state = await getRundownState({ data: { orgId, serviceDate } });
+        setItems(state.items);
+        setTimer(state.timer);
+      } catch {}
+    };
+    const interval = setInterval(poll, 1000);
+    return () => clearInterval(interval);
   }, [orgId, serviceDate]);
 
-  // RAF for smooth timer
+  // RAF for smooth timer display
   useEffect(() => {
     const tick = () => {
       if (timer.playback === "play" && timer.startedAt) {
         setDisplayTime(timer.elapsed + (Date.now() - timer.startedAt));
+      } else {
+        setDisplayTime(timer.elapsed);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -365,87 +380,6 @@ function ShowPageWithNative({
     prevPlayback.current = timer.playback;
   }, [timer.playback]);
 
-  const handleStart = useCallback((itemId: string) => {
-    setItems((prev) => prev.map((i) =>
-      i.status === "live" ? { ...i, status: "complete" as const } :
-      i.id === itemId ? { ...i, status: "live" as const } : i
-    ));
-    const now = Date.now();
-    const newTimer: NativeTimerState = {
-      playback: "play", currentItemId: itemId, elapsed: 0,
-      startedAt: now, pausedAt: null, mode: "count-down", serverTime: now,
-    };
-    setTimer(newTimer);
-    setDisplayTime(0);
-    persistTimer(newTimer);
-  }, [persistTimer]);
-
-  const handlePause = useCallback(() => {
-    if (timer.playback === "play" && timer.startedAt) {
-      const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
-      const newTimer: NativeTimerState = {
-        ...timer, playback: "pause", elapsed: newElapsed,
-        startedAt: null, pausedAt: Date.now(), serverTime: Date.now(),
-      };
-      setTimer(newTimer);
-      setDisplayTime(newElapsed);
-      persistTimer(newTimer);
-    }
-  }, [timer, persistTimer]);
-
-  const handleResume = useCallback(() => {
-    if (timer.playback === "pause") {
-      const now = Date.now();
-      const newTimer: NativeTimerState = {
-        ...timer, playback: "play", startedAt: now, pausedAt: null, serverTime: now,
-      };
-      setTimer(newTimer);
-      persistTimer(newTimer);
-    }
-  }, [timer, persistTimer]);
-
-  const handleStop = useCallback(() => {
-    setItems((prev) => prev.map((i) =>
-      i.id === timer.currentItemId ? { ...i, status: "complete" as const } : i
-    ));
-    const newTimer: NativeTimerState = {
-      playback: "stop", currentItemId: null, elapsed: 0,
-      startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
-    };
-    setTimer(newTimer);
-    setDisplayTime(0);
-    persistTimer(newTimer);
-  }, [timer.currentItemId, persistTimer]);
-
-  const handleNext = useCallback(() => {
-    const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
-    if (currentIdx >= 0) {
-      setItems((prev) => prev.map((i, idx) =>
-        idx === currentIdx ? { ...i, status: "complete" as const } : i
-      ));
-    }
-    const next = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
-    if (next) handleStart(next.id);
-    else handleStop();
-  }, [items, timer.currentItemId, handleStart, handleStop]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
-      if (e.key === " ") {
-        e.preventDefault();
-        if (isPlaying) handlePause();
-        else if (isPaused) handleResume();
-        else { const first = items.find((i) => i.status !== "complete"); if (first) handleStart(first.id); }
-      }
-      if (e.key === "n" || e.key === "N") handleNext();
-      if (e.key === "s" || e.key === "S") handleStop();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isPlaying, isPaused, items, handlePause, handleResume, handleStart, handleNext, handleStop]);
-
   if (members.length === 0) return <EmptyState slug={slug} />;
 
   return (
@@ -457,7 +391,7 @@ function ShowPageWithNative({
           <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
           <div className="flex items-center gap-4">
             <span className="text-xs text-board-muted tabular-nums">
-              {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              {formatTime(new Date(), clockFormat)}
             </span>
             <div className="flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
@@ -471,9 +405,9 @@ function ShowPageWithNative({
         {/* Main */}
         <main className="flex-1 overflow-hidden px-8 py-5">
           <div className="flex gap-6 h-full max-w-[1400px] mx-auto">
-            {/* Left: Timer + Controls + Chat */}
+            {/* Left: Timer (read-only) + Chat */}
             <div className="w-[400px] shrink-0 flex flex-col gap-5 h-full">
-              {/* Timer */}
+              {/* Timer display — read-only, no controls */}
               <div className={`p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
                 <div className="flex items-center gap-2 mb-2">
                   {isPlaying ? (
@@ -523,42 +457,13 @@ function ShowPageWithNative({
                 )}
               </div>
 
-              {/* Timer controls */}
-              <div className="flex gap-2 shrink-0">
-                {isPlaying ? (
-                  <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
-                    <Pause className="w-4 h-4" /> Pause
-                  </button>
-                ) : isPaused ? (
-                  <button onClick={handleResume} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors">
-                    <Play className="w-4 h-4" /> Resume
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => { const first = items.find((i) => i.status !== "complete"); if (first) handleStart(first.id); }}
-                    disabled={items.length === 0}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                  >
-                    <Play className="w-4 h-4" /> Start
-                  </button>
-                )}
-                <button onClick={handleNext} disabled={timer.playback === "stop"}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40">
-                  <SkipForward className="w-4 h-4" />
-                </button>
-                <button onClick={handleStop} disabled={timer.playback === "stop"}
-                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40">
-                  <Square className="w-4 h-4" />
-                </button>
-              </div>
-
               {/* Chat */}
               <div className="flex-1 min-h-0 p-4 rounded-xl bg-board-card border border-board-border">
                 <ChatPanel orgId={orgId} initialMessages={initialChat} />
               </div>
             </div>
 
-            {/* Right: Rundown */}
+            {/* Right: Rundown (read-only) */}
             <div className="flex-1 min-w-0 flex flex-col h-full">
               <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
                 Rundown
@@ -589,7 +494,7 @@ function ShowPageWithNative({
                             ? "bg-fire-500/8 border-fire-500/25"
                             : isComplete
                               ? "bg-board-card/30 border-board-border/30 opacity-60"
-                              : "bg-board-card/50 border-board-border/50 hover:border-board-border"
+                              : "bg-board-card/50 border-board-border/50"
                         }`}
                       >
                         <div className={`w-2 h-2 rounded-full shrink-0 ${
@@ -613,16 +518,6 @@ function ShowPageWithNative({
                             {formatDuration(event.duration)}
                           </p>
                         </div>
-
-                        {!isCurrent && !isComplete && (
-                          <button
-                            onClick={() => handleStart(event.id)}
-                            className="p-1 rounded text-board-muted hover:text-green-400 transition-colors shrink-0"
-                            title="Start this item"
-                          >
-                            <Play className="w-3 h-3" />
-                          </button>
-                        )}
 
                         {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
                       </div>
@@ -650,6 +545,7 @@ function ShowPageWithOntime({
   initialChat,
   orgId,
   slug,
+  clockFormat,
 }: {
   ontimeState: OntimeRuntimeState;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -657,6 +553,7 @@ function ShowPageWithOntime({
   initialChat: Awaited<ReturnType<typeof getChatMessages>>;
   orgId: string;
   slug: string;
+  clockFormat: ClockFormat;
 }) {
   const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
   const currentId = ontime.eventNow?.id;
@@ -691,7 +588,7 @@ function ShowPageWithOntime({
           <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
           <div className="flex items-center gap-4">
             <span className="text-xs text-board-muted tabular-nums">
-              {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              {formatTime(new Date(), clockFormat)}
             </span>
             <div className="flex items-center gap-1.5">
               {ontime.connected ? (

@@ -3,6 +3,7 @@ import { Pencil, Trash2, UserPlus, Users, Search, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { deleteCrewMember } from "@/lib/data";
 import { MemberForm } from "./MemberForm";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Member } from "@/types";
 import {
   DEPARTMENTS,
@@ -166,6 +167,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<ViewFilter>("all");
   const [search, setSearch] = useState("");
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const grouped = useMemo(() => {
     const groups: Record<RoleDepartment, Member[]> = {
@@ -200,7 +202,12 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
   }, [activeFilter, members, grouped, search]);
 
   const handleDelete = async (member: Member) => {
-    if (!confirm(`Remove ${member.name} from the production board?`)) return;
+    const ok = await confirm({
+      title: "Remove team member",
+      description: `Remove ${member.name} from the production board? This action cannot be undone.`,
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
     setDeleting(member.id);
     try {
       await deleteCrewMember({ data: { id: member.id } });
@@ -382,6 +389,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
           onSaved={() => router.invalidate()}
         />
       )}
+      {ConfirmDialogEl}
     </div>
   );
 }

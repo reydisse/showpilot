@@ -36,7 +36,7 @@ interface NavItem {
 
 const mainNav: NavItem[] = [
   { icon: ListMusic, label: "Show", path: "show" },
-  { icon: MonitorPlay, label: "Show Board", path: "show/board" },
+  { icon: MonitorPlay, label: "Show Board", path: "board" },
   { icon: Timer, label: "Rundown", path: "rundown" },
   { icon: MessageSquare, label: "Chat", path: "chat" },
   { icon: UserCheck, label: "Check-in", path: "checkin" },

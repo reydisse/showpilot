@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucid
 import { useRouter } from "@tanstack/react-router";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { getTodayDateString, formatTime } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -49,6 +50,7 @@ function IncidentsPage() {
   const [serviceDate, setServiceDate] = useState(getTodayDateString);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
@@ -65,7 +67,12 @@ function IncidentsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this incident?")) return;
+    const ok = await confirm({
+      title: "Delete incident",
+      description: "Delete this incident? This action cannot be undone.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await deleteIncident({ data: { id } });
     router.invalidate();
   };
@@ -154,6 +161,7 @@ function IncidentsPage() {
           </form>
         )}
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }

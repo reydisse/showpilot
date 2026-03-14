@@ -11,6 +11,7 @@ import {
   deleteChecklistTemplate,
 } from "@/lib/data";
 import { getTodayDateString } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -75,8 +76,15 @@ function ChecklistPage() {
     }
   };
 
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+
   const handleDeleteTemplate = async (id: string) => {
-    if (!confirm("Delete this checklist item?")) return;
+    const ok = await confirm({
+      title: "Delete checklist item",
+      description: "Delete this checklist item? This action cannot be undone.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await deleteChecklistTemplate({ data: { id } });
     router.invalidate();
   };
@@ -163,6 +171,7 @@ function ChecklistPage() {
           </button>
         </form>
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }

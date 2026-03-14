@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react
 import { useRouter } from "@tanstack/react-router";
 import { getCueSheets, addCueSheet, updateCueSheet, deleteCueSheet } from "@/lib/data";
 import { getTodayDateString } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -40,6 +41,7 @@ function CueSheetsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<CueItem | null>(null);
   const [form, setForm] = useState({ rundownItem: "", cameraAssignments: "", notes: "" });
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
@@ -70,7 +72,12 @@ function CueSheetsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this cue?")) return;
+    const ok = await confirm({
+      title: "Delete cue",
+      description: "Delete this cue? This action cannot be undone.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await deleteCueSheet({ data: { id } });
     router.invalidate();
   };
@@ -166,6 +173,7 @@ function CueSheetsPage() {
           </form>
         )}
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }

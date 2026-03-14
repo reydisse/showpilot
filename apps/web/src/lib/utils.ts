@@ -5,10 +5,35 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatTime(date: Date): string {
+export type ClockFormat = "12hr" | "24hr";
+
+export function formatTime(date: Date, clockFormat: ClockFormat = "12hr"): string {
+  if (clockFormat === "24hr") {
+    return date.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  }
   return date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** Full clock with seconds — for timer kiosk top bar */
+export function formatClockFull(date: Date, clockFormat: ClockFormat = "12hr"): string {
+  if (clockFormat === "24hr") {
+    const h = String(date.getHours()).padStart(2, "0");
+    const m = String(date.getMinutes()).padStart(2, "0");
+    const s = String(date.getSeconds()).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  }
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
     hour12: true,
   });
 }

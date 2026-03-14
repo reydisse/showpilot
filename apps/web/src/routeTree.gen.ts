@@ -22,12 +22,13 @@ import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
 import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
+import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
+import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
 import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
 import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
-import { Route as SlugShowBoardRouteImport } from './routes/$slug/show/board'
 import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
 import { Route as SlugProductionCueSheetsRouteImport } from './routes/$slug/production/cue-sheets'
 import { Route as SlugProductionChecklistRouteImport } from './routes/$slug/production/checklist'
@@ -102,6 +103,11 @@ const SlugChatRoute = SlugChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugBoardRoute = SlugBoardRouteImport.update({
+  id: '/board',
+  path: '/board',
+  getParentRoute: () => SlugRoute,
+} as any)
 const SlugAdminRoute = SlugAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -117,6 +123,11 @@ const SlugStreamingPlatformsRoute = SlugStreamingPlatformsRouteImport.update({
   path: '/streaming/platforms',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugStreamingLtPreviewRoute = SlugStreamingLtPreviewRouteImport.update({
+  id: '/streaming/lt-preview',
+  path: '/streaming/lt-preview',
+  getParentRoute: () => SlugRoute,
+} as any)
 const SlugStreamingHealthRoute = SlugStreamingHealthRouteImport.update({
   id: '/streaming/health',
   path: '/streaming/health',
@@ -126,11 +137,6 @@ const SlugStreamingGraphicsRoute = SlugStreamingGraphicsRouteImport.update({
   id: '/streaming/graphics',
   path: '/streaming/graphics',
   getParentRoute: () => SlugRoute,
-} as any)
-const SlugShowBoardRoute = SlugShowBoardRouteImport.update({
-  id: '/board',
-  path: '/board',
-  getParentRoute: () => SlugShowRoute,
 } as any)
 const SlugProductionIncidentsRoute = SlugProductionIncidentsRouteImport.update({
   id: '/production/incidents',
@@ -185,11 +191,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
-  '/$slug/show': typeof SlugShowRouteWithChildren
+  '/$slug/show': typeof SlugShowRoute
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -203,9 +210,9 @@ export interface FileRoutesByFullPath {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
-  '/$slug/show/board': typeof SlugShowBoardRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -213,11 +220,12 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
-  '/$slug/show': typeof SlugShowRouteWithChildren
+  '/$slug/show': typeof SlugShowRoute
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -231,9 +239,9 @@ export interface FileRoutesByTo {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
-  '/$slug/show/board': typeof SlugShowBoardRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -244,11 +252,12 @@ export interface FileRoutesById {
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
-  '/$slug/show': typeof SlugShowRouteWithChildren
+  '/$slug/show': typeof SlugShowRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/setup': typeof AuthSetupRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -262,9 +271,9 @@ export interface FileRoutesById {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
-  '/$slug/show/board': typeof SlugShowBoardRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -275,6 +284,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/$slug/admin'
+    | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/rundown'
@@ -293,9 +303,9 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
-    | '/$slug/show/board'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/$slug/streaming/graphics/overlay'
@@ -303,6 +313,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/$slug/admin'
+    | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/rundown'
@@ -321,9 +332,9 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
-    | '/$slug/show/board'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/$slug/streaming/graphics/overlay'
@@ -333,6 +344,7 @@ export interface FileRouteTypes {
     | '/$slug'
     | '/_auth'
     | '/$slug/admin'
+    | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/rundown'
@@ -351,9 +363,9 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
-    | '/$slug/show/board'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/$slug/streaming/graphics/overlay'
@@ -461,6 +473,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugChatRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/board': {
+      id: '/$slug/board'
+      path: '/board'
+      fullPath: '/$slug/board'
+      preLoaderRoute: typeof SlugBoardRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/admin': {
       id: '/$slug/admin'
       path: '/admin'
@@ -482,6 +501,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugStreamingPlatformsRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/streaming/lt-preview': {
+      id: '/$slug/streaming/lt-preview'
+      path: '/streaming/lt-preview'
+      fullPath: '/$slug/streaming/lt-preview'
+      preLoaderRoute: typeof SlugStreamingLtPreviewRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/streaming/health': {
       id: '/$slug/streaming/health'
       path: '/streaming/health'
@@ -495,13 +521,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/streaming/graphics'
       preLoaderRoute: typeof SlugStreamingGraphicsRouteImport
       parentRoute: typeof SlugRoute
-    }
-    '/$slug/show/board': {
-      id: '/$slug/show/board'
-      path: '/board'
-      fullPath: '/$slug/show/board'
-      preLoaderRoute: typeof SlugShowBoardRouteImport
-      parentRoute: typeof SlugShowRoute
     }
     '/$slug/production/incidents': {
       id: '/$slug/production/incidents'
@@ -569,18 +588,6 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface SlugShowRouteChildren {
-  SlugShowBoardRoute: typeof SlugShowBoardRoute
-}
-
-const SlugShowRouteChildren: SlugShowRouteChildren = {
-  SlugShowBoardRoute: SlugShowBoardRoute,
-}
-
-const SlugShowRouteWithChildren = SlugShowRoute._addFileChildren(
-  SlugShowRouteChildren,
-)
-
 interface SlugStreamingGraphicsRouteChildren {
   SlugStreamingGraphicsOverlayRoute: typeof SlugStreamingGraphicsOverlayRoute
 }
@@ -596,11 +603,12 @@ const SlugStreamingGraphicsRouteWithChildren =
 
 interface SlugRouteChildren {
   SlugAdminRoute: typeof SlugAdminRoute
+  SlugBoardRoute: typeof SlugBoardRoute
   SlugChatRoute: typeof SlugChatRoute
   SlugCheckinRoute: typeof SlugCheckinRoute
   SlugRundownRoute: typeof SlugRundownRoute
   SlugSettingsRoute: typeof SlugSettingsRoute
-  SlugShowRoute: typeof SlugShowRouteWithChildren
+  SlugShowRoute: typeof SlugShowRoute
   SlugIndexRoute: typeof SlugIndexRoute
   SlugDashboardAudioRoute: typeof SlugDashboardAudioRoute
   SlugDashboardDevicesRoute: typeof SlugDashboardDevicesRoute
@@ -612,16 +620,18 @@ interface SlugRouteChildren {
   SlugProductionIncidentsRoute: typeof SlugProductionIncidentsRoute
   SlugStreamingGraphicsRoute: typeof SlugStreamingGraphicsRouteWithChildren
   SlugStreamingHealthRoute: typeof SlugStreamingHealthRoute
+  SlugStreamingLtPreviewRoute: typeof SlugStreamingLtPreviewRoute
   SlugStreamingPlatformsRoute: typeof SlugStreamingPlatformsRoute
 }
 
 const SlugRouteChildren: SlugRouteChildren = {
   SlugAdminRoute: SlugAdminRoute,
+  SlugBoardRoute: SlugBoardRoute,
   SlugChatRoute: SlugChatRoute,
   SlugCheckinRoute: SlugCheckinRoute,
   SlugRundownRoute: SlugRundownRoute,
   SlugSettingsRoute: SlugSettingsRoute,
-  SlugShowRoute: SlugShowRouteWithChildren,
+  SlugShowRoute: SlugShowRoute,
   SlugIndexRoute: SlugIndexRoute,
   SlugDashboardAudioRoute: SlugDashboardAudioRoute,
   SlugDashboardDevicesRoute: SlugDashboardDevicesRoute,
@@ -633,6 +643,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugProductionIncidentsRoute: SlugProductionIncidentsRoute,
   SlugStreamingGraphicsRoute: SlugStreamingGraphicsRouteWithChildren,
   SlugStreamingHealthRoute: SlugStreamingHealthRoute,
+  SlugStreamingLtPreviewRoute: SlugStreamingLtPreviewRoute,
   SlugStreamingPlatformsRoute: SlugStreamingPlatformsRoute,
 }
 

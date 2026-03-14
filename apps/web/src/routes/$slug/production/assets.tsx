@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { Package, Plus, Search, X, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { getEquipment, addEquipment, updateEquipment, deleteEquipment } from "@/lib/data";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type EquipmentItem = {
   id: string;
@@ -38,6 +39,7 @@ function AssetsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<EquipmentItem | null>(null);
   const [form, setForm] = useState({ name: "", category: "Audio", status: "operational", location: "", serialNumber: "", notes: "" });
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const filtered = useMemo(() => {
     if (!search.trim()) return equipment;
@@ -64,7 +66,12 @@ function AssetsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this item?")) return;
+    const ok = await confirm({
+      title: "Delete item",
+      description: "Delete this equipment item? This action cannot be undone.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await deleteEquipment({ data: { id } });
     router.invalidate();
   };
@@ -166,6 +173,7 @@ function AssetsPage() {
           </button>
         </form>
       )}
+      {ConfirmDialogEl}
     </div>
   );
 }

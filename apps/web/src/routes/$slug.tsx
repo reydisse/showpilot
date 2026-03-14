@@ -1,4 +1,9 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useMatchRoute,
+} from "@tanstack/react-router";
 import { getSession, getOrgBySlug, setActiveOrg } from "@/lib/session";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
@@ -33,6 +38,19 @@ export const Route = createFileRoute("/$slug")({
 });
 
 function OrgLayout() {
+  const matchRoute = useMatchRoute();
+  const isBoard = matchRoute({ to: "/$slug/board" });
+
+  if (isBoard) {
+    return (
+      <ThemeProvider>
+        <div className="h-screen bg-board-bg overflow-auto">
+          <Outlet />
+        </div>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AppShell>

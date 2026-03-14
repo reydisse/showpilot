@@ -113,6 +113,32 @@ export const getActiveAdapters = createServerFn({ method: "GET" })
     };
   });
 
+// ─── Clock Format ────────────────────────────────────────────
+
+export const getClockFormat = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgId: string }) => data)
+  .handler(async ({ data }): Promise<"12hr" | "24hr"> => {
+    const prisma = getPrisma();
+    const setting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "clock-format" } },
+    });
+    return (setting?.value as "12hr" | "24hr") || "12hr";
+  });
+
+export const getClockFormatBySlug = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgSlug: string }) => data)
+  .handler(async ({ data }): Promise<"12hr" | "24hr"> => {
+    const prisma = getPrisma();
+    const org = await prisma.organization.findUnique({
+      where: { slug: data.orgSlug },
+    });
+    if (!org) return "12hr";
+    const setting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: org.id, key: "clock-format" } },
+    });
+    return (setting?.value as "12hr" | "24hr") || "12hr";
+  });
+
 // ─── Danger Zone ────────────────────────────────────────────
 
 export const deleteOrgSettings = createServerFn({ method: "POST" })
