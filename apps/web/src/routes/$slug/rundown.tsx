@@ -347,6 +347,7 @@ function RundownPage() {
     : timer.elapsed;
   const remaining = currentItem ? currentItem.duration - elapsed : 0;
   const isOvertime = remaining < 0;
+  const isWarning = !isOvertime && remaining <= 120000; // ≤2 minutes
 
   // Detect item change for progress bar reset animation
   // progressReset=true → animate shrink to 0, then after 350ms start filling
@@ -716,7 +717,7 @@ function RundownPage() {
                 <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
                   <div
                     id="rundown-progress-fill"
-                    className={`h-full rounded-full ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
+                    className={`h-full rounded-full ${isOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
                     style={{ width: "0%" }}
                   />
                 </div>
@@ -1178,7 +1179,7 @@ function RundownPage() {
                           <div className="h-0.5 w-full bg-board-border/20">
                             <div
                               id="rundown-item-progress"
-                              className={`h-full ${isItemOvertime ? "bg-red-500" : "bg-fire-500"}`}
+                              className={`h-full ${isItemOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
                               style={{ width: "0%" }}
                             />
                           </div>

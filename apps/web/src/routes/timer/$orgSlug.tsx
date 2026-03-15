@@ -82,7 +82,7 @@ export const Route = createFileRoute("/timer/$orgSlug")({
 type ViewMode = "timer" | "minimal" | "stage";
 
 /** OnTime-style color phases */
-type TimerPhase = "normal" | "warning" | "danger" | "overtime";
+type TimerPhase = "normal" | "alert" | "danger" | "overtime";
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ function computeRemaining(
 /**
  * OnTime-style phase calculation:
  * - normal:  > 2 minutes remaining
- * - warning: <= 2 minutes remaining (amber)
+ * - alert: <= 2 minutes remaining (amber)
  * - danger:  <= 30 seconds remaining (red, slow blink)
  * - overtime: negative remaining (red, fast blink)
  */
@@ -149,7 +149,7 @@ function getTimerPhase(remaining: number, playback: string): TimerPhase {
   if (playback === "stop") return "normal";
   if (remaining < 0) return "overtime";
   if (remaining <= 30_000) return "danger";
-  if (remaining <= 120_000) return "warning";
+  if (remaining <= 120_000) return "alert";
   return "normal";
 }
 
@@ -165,9 +165,9 @@ const PHASE_COLORS: Record<TimerPhase, {
     timer: "#ffffff",
     bg: "#0a0a0a",
     accent: "#ffc107",
-    progressFill: "#ffc107",
+    progressFill: "#ffffff",
   },
-  warning: {
+  alert: {
     timer: "#f59e0b",
     bg: "#0a0a0a",
     accent: "#f59e0b",
@@ -195,7 +195,7 @@ const COLORS = {
   muted: "#666666",
   accent: "#ffc107",
   danger: "#ef4444",
-  warning: "#f59e0b",
+  alert: "#f59e0b",
   green: "#22c55e",
   progressBg: "#222222",
   barBg: "rgba(255,255,255,0.04)",
@@ -247,7 +247,7 @@ const TIMER_CSS = `
   }
 
   .phase-normal {}
-  .phase-warning { animation: none; }
+  .phase-alert { animation: none; }
   .phase-danger { animation: blink-slow 1s ease-in-out infinite; }
   .phase-overtime { animation: blink-fast 0.5s ease-in-out infinite; }
 
@@ -1018,7 +1018,7 @@ function FullTimerView({
                   color:
                     phase === "overtime" || phase === "danger"
                       ? "#ffffff"
-                      : phase === "warning"
+                      : phase === "alert"
                         ? "#000000"
                         : "#ffffff",
                   background:
@@ -1026,8 +1026,8 @@ function FullTimerView({
                       ? COLORS.danger
                       : phase === "danger"
                         ? "rgba(239,68,68,0.8)"
-                        : phase === "warning"
-                          ? COLORS.warning
+                        : phase === "alert"
+                          ? COLORS.alert
                           : timer.playback === "play"
                             ? COLORS.green
                             : COLORS.accent,
@@ -1037,8 +1037,8 @@ function FullTimerView({
                   ? "OVERTIME"
                   : phase === "danger"
                     ? "ENDING"
-                    : phase === "warning"
-                      ? "WARNING"
+                    : phase === "alert"
+                      ? "ATTENTION"
                       : timer.playback === "play"
                         ? "LIVE"
                         : "PAUSED"}

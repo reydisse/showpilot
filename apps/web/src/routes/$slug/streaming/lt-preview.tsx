@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
   Sliders,
-  Move,
 } from "lucide-react";
 
 export const Route = createFileRoute("/$slug/streaming/lt-preview")({
@@ -726,9 +725,8 @@ function ControlPanel({
           </div>
         </div>
 
-        <p className="text-[9px] text-board-muted/50 mt-1.5 flex items-center gap-1">
-          <Move className="w-2.5 h-2.5" />
-          Or drag directly on the viewport
+        <p className="text-[9px] text-board-muted/50 mt-1.5">
+          Use the grid or coordinate fields to set position.
         </p>
       </div>
 
@@ -774,47 +772,10 @@ function TemplatePreviewPage() {
   const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES>("person");
   const [controls, setControls] = useState<Controls>(DEFAULT_CONTROLS);
   const [showControls, setShowControls] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const template = TEMPLATES[currentIndex];
   const sampleKeys = Object.keys(SAMPLES) as (keyof typeof SAMPLES)[];
-
-  // ─── Drag handling ─────────────────────────────────────────
-  const updatePosFromMouse = useCallback(
-    (clientX: number, clientY: number) => {
-      const el = viewportRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-      const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
-      setControls((prev) => ({ ...prev, posX: Math.round(x), posY: Math.round(y) }));
-    },
-    []
-  );
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      // Only start drag on right-click or when holding Alt/Option key, or regular click
-      e.preventDefault();
-      setIsDragging(true);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      updatePosFromMouse(e.clientX, e.clientY);
-    },
-    [updatePosFromMouse]
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!isDragging) return;
-      updatePosFromMouse(e.clientX, e.clientY);
-    },
-    [isDragging, updatePosFromMouse]
-  );
-
-  const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
 
   const next = () => {
     setVisible(false);
@@ -833,7 +794,7 @@ function TemplatePreviewPage() {
   };
 
   const toggle = () => {
-    if (!isDragging) setVisible((v) => !v);
+    setVisible((v) => !v);
   };
 
   const sample = SAMPLES[sampleKey];
@@ -888,6 +849,16 @@ function TemplatePreviewPage() {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={toggle}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    visible
+                      ? "bg-green-500/15 text-green-400 border border-green-500/25"
+                      : "bg-board-bg text-board-muted border border-board-border hover:text-board-text"
+                  }`}
+                >
+                  {visible ? "On Air" : "Off Air"}
+                </button>
                 <span className="text-xs text-board-muted font-mono">
                   {currentIndex + 1}/{TEMPLATES.length}
                 </span>
@@ -909,15 +880,8 @@ function TemplatePreviewPage() {
             {/* Preview viewport — 16:9 OBS canvas with drag support */}
             <div
               ref={viewportRef}
-              className={`relative w-full rounded-xl overflow-hidden border border-board-border select-none ${
-                isDragging ? "cursor-grabbing" : "cursor-crosshair"
-              }`}
+              className="relative w-full rounded-xl overflow-hidden border border-board-border select-none cursor-default"
               style={{ aspectRatio: "16 / 9", background: "#111" }}
-              onClick={toggle}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
             >
               {/* Grid overlay */}
               <div
@@ -943,7 +907,7 @@ function TemplatePreviewPage() {
                   left: `${controls.posX}%`,
                   top: `${controls.posY}%`,
                   transform: "translate(-50%, -50%)",
-                  opacity: isDragging ? 0.6 : 0.15,
+                  opacity: 0.15,
                 }}
               >
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-fire-500" />
@@ -958,22 +922,13 @@ function TemplatePreviewPage() {
 
               {/* Status */}
               <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none">
-                {isDragging && (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-fire-500/20">
-                    <Move className="w-2.5 h-2.5 text-fire-400" />
-                    <span className="text-[10px] text-fire-400 font-mono">
-                      {Math.round(controls.posX)},{Math.round(controls.posY)}
-                    </span>
-                  </div>
-                )}
-                {!isDragging && visible && (
+                {visible ? (
                   <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/20">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                     <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">on air</span>
                   </div>
-                )}
-                {!isDragging && !visible && (
-                  <span className="text-[10px] text-white/20 font-mono uppercase tracking-widest">click to show</span>
+                ) : (
+                  <span className="text-[10px] text-white/20 font-mono uppercase tracking-widest">off air</span>
                 )}
               </div>
             </div>
