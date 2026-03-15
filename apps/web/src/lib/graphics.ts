@@ -95,3 +95,21 @@ export const getActiveGraphic = createServerFn({ method: "GET" })
     });
     return template;
   });
+
+export const getActiveGraphicBySlug = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgSlug: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const org = await prisma.organization.findUnique({
+      where: { slug: data.orgSlug },
+    });
+    if (!org) return null;
+    const setting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: org.id, key: "active-graphic" } },
+    });
+    if (!setting) return null;
+    const template = await prisma.graphicTemplate.findUnique({
+      where: { id: setting.value },
+    });
+    return template;
+  });

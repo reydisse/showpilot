@@ -106,7 +106,7 @@ function GraphicsPage() {
     router.invalidate();
   };
 
-  const overlayUrl = `/${slug}/streaming/graphics/overlay`;
+  const overlayUrl = `/overlay/${slug}`;
 
   const types: (GraphicType | "all")[] = [
     "all",
@@ -324,6 +324,7 @@ function GraphicsPage() {
           <GraphicFormModal
             existing={editTemplate}
             orgId={orgId}
+            activeId={activeId}
             onClose={() => {
               setShowForm(false);
               setEditTemplate(null);
@@ -348,6 +349,7 @@ function GraphicFormModal({
 }: {
   existing: { id: string; name: string; title: string; subtitle: string; style: string } | null;
   orgId: string;
+  activeId: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -382,6 +384,11 @@ function GraphicFormModal({
           },
         },
       });
+      // Re-trigger if this graphic is currently on air so overlay picks up changes
+      if (activeId === existing.id) {
+        await setActiveGraphic({ data: { orgId, graphicId: null } });
+        await setActiveGraphic({ data: { orgId, graphicId: existing.id } });
+      }
     } else {
       await addGraphicTemplate({
         data: {

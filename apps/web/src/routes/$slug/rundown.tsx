@@ -213,6 +213,11 @@ function RundownPage() {
       saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch(() => {});
       return;
     }
+    // Only relay actual slide content (lyrics, scripture) — skip timers, clocks, counters
+    const trimmedText = slide.text.trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return; // "00:05:30", "5:30"
+    if (/^[\d:.\-\s]+$/.test(trimmedText)) return; // purely numeric/clock content
+    if (trimmedText.length < 3) return; // too short to be real content
     const payload: PPSlidePayload = {
       text: slide.text,
       notes: slide.notes,

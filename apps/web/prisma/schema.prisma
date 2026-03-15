@@ -320,15 +320,17 @@ model GraphicTemplate {
 }
 
 model StreamDestination {
-  id        String       @id @default(cuid())
-  orgId     String
+  id          String       @id @default(cuid())
+  orgId       String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  name      String
-  platform  String       // youtube | facebook | twitch | custom
-  rtmpUrl   String       @default("")
-  streamKey String       @default("")
-  enabled   Boolean      @default(true)
-  createdAt DateTime     @default(now())
+  name        String
+  platform    String       // youtube | facebook | twitch | custom
+  rtmpUrl     String       @default("")
+  streamKey   String       @default("")
+  enabled     Boolean      @default(true)
+  cfOutputId  String       @default("") // Cloudflare Stream Connect output ID
+  liveInputId String       @default("") // Which live input this is connected to
+  createdAt   DateTime     @default(now())
 
   @@index([orgId])
   @@map("stream_destination")

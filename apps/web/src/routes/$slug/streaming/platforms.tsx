@@ -9,6 +9,12 @@ import {
   EyeOff,
   ToggleLeft,
   ToggleRight,
+  Zap,
+  ZapOff,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Link,
 } from "lucide-react";
 import {
   getStreamDestinations,
@@ -16,7 +22,10 @@ import {
   updateStreamDestination,
   deleteStreamDestination,
   toggleStreamDestination,
+  connectDestinationsToInput,
+  disconnectAllDestinations,
 } from "@/lib/stream-destinations";
+import { getLiveInputs } from "@/lib/stream";
 
 type Platform = "youtube" | "facebook" | "twitch" | "custom";
 
@@ -48,22 +57,27 @@ const PLATFORM_CONFIG: Record<
 
 export const Route = createFileRoute("/$slug/streaming/platforms")({
   loader: async ({ context }) => {
-    const destinations = await getStreamDestinations({
-      data: { orgId: context.orgId },
-    });
-    return { destinations, orgId: context.orgId };
+    const [destinations, inputs] = await Promise.all([
+      getStreamDestinations({ data: { orgId: context.orgId } }),
+      getLiveInputs({ data: { orgId: context.orgId } }),
+    ]);
+    return { destinations, inputs, orgId: context.orgId };
   },
   component: PlatformsPage,
 });
 
 function PlatformsPage() {
-  const { destinations, orgId } = Route.useLoaderData();
+  const { destinations, inputs, orgId } = Route.useLoaderData();
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editDest, setEditDest] = useState<typeof destinations[0] | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
+  const [goingLive, setGoingLive] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   const activeCount = destinations.filter((d) => d.enabled).length;
+  const connectedCount = destinations.filter((d) => d.cfOutputId).length;
+  const hasInputs = inputs.length > 0;
 
   const handleToggle = async (id: string, currentEnabled: boolean) => {
     await toggleStreamDestination({ data: { id, enabled: !currentEnabled } });
@@ -87,6 +101,31 @@ function PlatformsPage() {
     });
   };
 
+  const handleGoLive = async () => {
+    if (!hasInputs) return;
+    setGoingLive(true);
+    try {
+      await connectDestinationsToInput({
+        data: { orgId, liveInputId: inputs[0].id },
+      });
+    } catch (err) {
+      console.error("Failed to go live:", err);
+    }
+    setGoingLive(false);
+    router.invalidate();
+  };
+
+  const handleStopAll = async () => {
+    setStopping(true);
+    try {
+      await disconnectAllDestinations({ data: { orgId } });
+    } catch (err) {
+      console.error("Failed to stop:", err);
+    }
+    setStopping(false);
+    router.invalidate();
+  };
+
   return (
     <div className="h-full overflow-auto">
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
@@ -96,23 +135,82 @@ function PlatformsPage() {
               Multi-Platform
             </h1>
             <p className="text-xs text-board-muted mt-0.5">
-              Manage streaming destinations
+              Simulcast to multiple streaming platforms
             </p>
           </div>
-          <button
-            onClick={() => {
-              setEditDest(null);
-              setShowForm(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-            Add Destination
-          </button>
+          <div className="flex items-center gap-2">
+            {connectedCount > 0 ? (
+              <button
+                onClick={handleStopAll}
+                disabled={stopping}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+              >
+                {stopping ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ZapOff className="w-3.5 h-3.5" />
+                )}
+                Stop All
+              </button>
+            ) : (
+              <button
+                onClick={handleGoLive}
+                disabled={goingLive || !hasInputs || activeCount === 0}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                title={!hasInputs ? "Create a live input on Stream Health first" : activeCount === 0 ? "Enable at least one destination" : ""}
+              >
+                {goingLive ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5" />
+                )}
+                Go Live
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setEditDest(null);
+                setShowForm(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add Destination
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="p-6 max-w-3xl mx-auto space-y-5">
+        {/* Status banner */}
+        {connectedCount > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
+              <span className="text-sm font-medium text-fire-500">
+                Simulcasting to {connectedCount} destination{connectedCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <button
+              onClick={handleStopAll}
+              disabled={stopping}
+              className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
+            >
+              Stop All
+            </button>
+          </div>
+        )}
+
+        {/* No input warning */}
+        {!hasInputs && destinations.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+            <Link className="w-4 h-4 text-yellow-400 shrink-0" />
+            <p className="text-xs text-yellow-400">
+              No live input configured. Create one on the Stream Health page to enable simulcasting.
+            </p>
+          </div>
+        )}
+
         {/* Summary */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -122,8 +220,13 @@ function PlatformsPage() {
             </span>
           </div>
           <span className="text-xs text-board-muted">
-            {activeCount} active
+            {activeCount} enabled
           </span>
+          {connectedCount > 0 && (
+            <span className="text-xs text-fire-500 font-medium">
+              {connectedCount} connected
+            </span>
+          )}
         </div>
 
         {/* Destinations list */}
@@ -153,14 +256,17 @@ function PlatformsPage() {
               const platformCfg =
                 PLATFORM_CONFIG[dest.platform as Platform] ?? PLATFORM_CONFIG.custom;
               const keyRevealed = revealedKeys.has(dest.id);
+              const isConnected = !!dest.cfOutputId;
 
               return (
                 <div
                   key={dest.id}
                   className={`rounded-xl border p-5 transition-all ${
-                    dest.enabled
-                      ? "bg-board-card border-board-border"
-                      : "bg-board-card/50 border-board-border/50 opacity-60"
+                    isConnected
+                      ? "bg-fire-500/5 border-fire-500/20"
+                      : dest.enabled
+                        ? "bg-board-card border-board-border"
+                        : "bg-board-card/50 border-board-border/50 opacity-60"
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -173,6 +279,12 @@ function PlatformsPage() {
                       <p className="text-sm font-semibold text-board-text">
                         {dest.name}
                       </p>
+                      {isConnected && (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-fire-500">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Connected
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1">
                       <button
@@ -240,16 +352,20 @@ function PlatformsPage() {
         {/* Info */}
         <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-2">
-            Multi-Streaming
+            How It Works
           </p>
           <div className="space-y-1.5 text-xs text-board-muted">
             <p>
-              Add your streaming platform credentials here. When connected to a
-              Cloudflare Stream live input, enabled destinations receive the
-              stream via Stream Connect (simulcasting).
+              <strong className="text-board-text">1.</strong> Add your streaming platform credentials (RTMP URL + stream key).
             </p>
             <p>
-              Configure live inputs on the Stream Health page first.
+              <strong className="text-board-text">2.</strong> Enable the destinations you want to stream to.
+            </p>
+            <p>
+              <strong className="text-board-text">3.</strong> Hit <strong className="text-fire-500">Go Live</strong> to start simulcasting via Cloudflare Stream Connect.
+            </p>
+            <p className="text-board-muted/50 mt-2">
+              Make sure you have a live input configured on the Stream Health page and your encoder is sending to it.
             </p>
           </div>
         </div>

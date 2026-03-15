@@ -24,6 +24,7 @@ import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
+import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
 import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
@@ -112,6 +113,11 @@ const SlugAdminRoute = SlugAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => SlugRoute,
+} as any)
+const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
+  id: '/api/overlay/$orgSlug',
+  path: '/api/overlay/$orgSlug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -215,6 +221,7 @@ export interface FileRoutesByFullPath {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesByTo {
@@ -244,6 +251,7 @@ export interface FileRoutesByTo {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesById {
@@ -276,6 +284,7 @@ export interface FileRoutesById {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRouteTypes {
@@ -308,6 +317,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/overlay/$orgSlug'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -337,6 +347,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/overlay/$orgSlug'
     | '/$slug/streaming/graphics/overlay'
   id:
     | '__root__'
@@ -368,6 +379,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/overlay/$orgSlug'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesById: FileRoutesById
 }
@@ -378,6 +390,7 @@ export interface RootRouteChildren {
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -486,6 +499,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/admin'
       preLoaderRoute: typeof SlugAdminRouteImport
       parentRoute: typeof SlugRoute
+    }
+    '/api/overlay/$orgSlug': {
+      id: '/api/overlay/$orgSlug'
+      path: '/api/overlay/$orgSlug'
+      fullPath: '/api/overlay/$orgSlug'
+      preLoaderRoute: typeof ApiOverlayOrgSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -668,6 +688,7 @@ const rootRouteChildren: RootRouteChildren = {
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -104,13 +104,13 @@ export class ProPresenterClient {
           acn: "ath",
         }));
 
-        // Start polling fallback after 3 seconds if no slide data via WS
-        setTimeout(() => {
-          if (!this.destroyed && !this.wsSlideReceived && this.pollFn) {
-            console.log("[PP] No WS slide data after 3s, starting REST polling fallback");
-            this.startPolling();
-          }
-        }, 3000);
+        // Always start REST polling alongside WS.
+        // WS often only sends timer messages, not slide content.
+        // If WS delivers a real slide, polling will be stopped.
+        if (this.pollFn) {
+          console.log("[PP] Starting REST polling alongside WS");
+          this.startPolling();
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -331,11 +331,21 @@ export class ProPresenterClient {
     }
 
     // ary (array of fields) — PP7 stage display format
+    // Filter out timer/clock fields to only get slide content
     if (Array.isArray(data.ary)) {
       const texts: string[] = [];
       for (const field of data.ary as Array<Record<string, unknown>>) {
-        if (typeof field.txt === "string" && field.txt) texts.push(field.txt);
-        if (typeof field.text === "string" && field.text) texts.push(field.text);
+        // Skip timer fields
+        const acn = field.acn as string | undefined;
+        if (acn === "tmr") continue;
+        const txt = (typeof field.txt === "string" && field.txt) ? field.txt
+          : (typeof field.text === "string" && field.text) ? field.text
+          : null;
+        if (txt) {
+          // Skip timer-formatted strings (e.g. "00:05:30", "5:30")
+          if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(txt.trim())) continue;
+          texts.push(txt);
+        }
       }
       if (texts.length > 0) return texts.join("\n");
     }
@@ -346,6 +356,8 @@ export class ProPresenterClient {
       if (typeof val === "string" && val.length > 3 && val.length < 2000) {
         // Skip fields that look like IDs, timestamps, or status codes
         if (/^[0-9a-f-]+$/i.test(val) || /^\d+$/.test(val)) continue;
+        // Skip timer-formatted strings
+        if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(val.trim())) continue;
         return val;
       }
       // One-level deep object scan

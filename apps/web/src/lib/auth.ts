@@ -23,6 +23,7 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   return betterAuth({
+    trustedOrigins: ["http://192.168.2.73:5173"],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
     plugins: [
       organization({

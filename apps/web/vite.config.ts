@@ -13,6 +13,14 @@ import tailwindcss from '@tailwindcss/vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 
 const config = defineConfig({
+  server: {
+    allowedHosts: 'all',
+    host: true,
+    cors: true,
+    hmr: {
+      host: '192.168.2.73',
+    },
+  },
   plugins: [
     devtools(),
     cloudflare({ viteEnvironment: { name: 'ssr' } }),

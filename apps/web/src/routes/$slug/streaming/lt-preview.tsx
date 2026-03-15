@@ -1,13 +1,25 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useState, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
   Sliders,
+  Play,
+  Square,
+  Save,
 } from "lucide-react";
+import {
+  addGraphicTemplate,
+  setActiveGraphic,
+  getActiveGraphic,
+} from "@/lib/graphics";
 
 export const Route = createFileRoute("/$slug/streaming/lt-preview")({
+  loader: async ({ context }) => {
+    const active = await getActiveGraphic({ data: { orgId: context.orgId } });
+    return { orgId: context.orgId, activeId: active?.id ?? null };
+  },
   component: TemplatePreviewPage,
 });
 
@@ -767,11 +779,19 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
+  const { orgId, activeId: initialActiveId } = Route.useLoaderData();
+  const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visible, setVisible] = useState(true);
-  const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES>("person");
+  const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES | "custom">("person");
   const [controls, setControls] = useState<Controls>(DEFAULT_CONTROLS);
   const [showControls, setShowControls] = useState(true);
+  const [customPrimary, setCustomPrimary] = useState("");
+  const [customSecondary, setCustomSecondary] = useState("");
+  const [activeId, setActiveId] = useState<string | null>(initialActiveId);
+  const [saving, setSaving] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const template = TEMPLATES[currentIndex];
@@ -797,7 +817,66 @@ function TemplatePreviewPage() {
     setVisible((v) => !v);
   };
 
-  const sample = SAMPLES[sampleKey];
+  const getCurrentText = () => {
+    if (sampleKey === "custom") {
+      return { primary: customPrimary || "Preview Text", secondary: customSecondary };
+    }
+    return SAMPLES[sampleKey];
+  };
+
+  const handleSave = async () => {
+    const text = getCurrentText();
+    if (!text.primary.trim()) return;
+    setSaving(true);
+    await addGraphicTemplate({
+      data: {
+        orgId,
+        name: text.primary.trim(),
+        title: text.primary.trim(),
+        subtitle: text.secondary?.trim() ?? "",
+        style: JSON.stringify({ type: "lower-third", styleName: "default", templateId: template.id }),
+      },
+    });
+    setSaving(false);
+    setSavedMsg("Saved to library");
+    setTimeout(() => setSavedMsg(""), 2000);
+    router.invalidate();
+  };
+
+  const handlePushLive = async () => {
+    const text = getCurrentText();
+    if (!text.primary.trim()) return;
+    setPushing(true);
+    // Clear first so the overlay detects a change even if same text
+    if (activeId) {
+      await setActiveGraphic({ data: { orgId, graphicId: null } });
+    }
+    // Save with full controls so the overlay can render exactly what's previewed
+    const created = await addGraphicTemplate({
+      data: {
+        orgId,
+        name: text.primary.trim(),
+        title: text.primary.trim(),
+        subtitle: text.secondary?.trim() ?? "",
+        style: JSON.stringify({
+          type: "lower-third",
+          templateId: template.id,
+          controls,
+        }),
+      },
+    });
+    await setActiveGraphic({ data: { orgId, graphicId: created.id } });
+    setActiveId(created.id);
+    setPushing(false);
+    router.invalidate();
+  };
+
+  const handleClearLive = async () => {
+    await setActiveGraphic({ data: { orgId, graphicId: null } });
+    setActiveId(null);
+  };
+
+  const sample = getCurrentText();
 
   return (
     <div className="h-full overflow-auto bg-board-bg">
@@ -833,6 +912,16 @@ function TemplatePreviewPage() {
             {/* Top controls */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 overflow-x-auto">
+                <button
+                  onClick={() => setSampleKey("custom")}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                    sampleKey === "custom"
+                      ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
+                      : "text-board-muted hover:text-board-text border border-transparent"
+                  }`}
+                >
+                  Custom
+                </button>
                 {sampleKeys.map((key) => (
                   <button
                     key={key}
@@ -875,6 +964,64 @@ function TemplatePreviewPage() {
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
+            </div>
+
+            {/* Custom text inputs */}
+            {sampleKey === "custom" && (
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={customPrimary}
+                  onChange={(e) => setCustomPrimary(e.target.value)}
+                  placeholder="Primary text (name, title, verse...)"
+                  className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                />
+                <input
+                  type="text"
+                  value={customSecondary}
+                  onChange={(e) => setCustomSecondary(e.target.value)}
+                  placeholder="Secondary text (optional)"
+                  className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                />
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePushLive}
+                disabled={pushing || (sampleKey === "custom" && !customPrimary.trim())}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+              >
+                <Play className="w-3.5 h-3.5" />
+                {pushing ? "Pushing..." : "Push Live"}
+              </button>
+              {activeId && (
+                <button
+                  onClick={handleClearLive}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={saving || (sampleKey === "custom" && !customPrimary.trim())}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {saving ? "Saving..." : "Save to Library"}
+              </button>
+              {savedMsg && (
+                <span className="text-xs text-green-400 font-medium">{savedMsg}</span>
+              )}
+              {activeId && (
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
+                  <span className="text-xs font-medium text-fire-500">On Air</span>
+                </div>
+              )}
             </div>
 
             {/* Preview viewport — 16:9 OBS canvas with drag support */}

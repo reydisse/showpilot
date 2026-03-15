@@ -131,10 +131,13 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
     const timeout = 2000;
 
     // Try multiple PP7 REST endpoints in order of likelihood
+    // Note: /v1/stage/layout_map returns stage display fields including timers,
+    // so we try slide-specific endpoints first.
     const endpoints = [
-      "/v1/stage/layout_map",
-      "/v1/presentation/slide_index",
+      "/v1/presentation/active",
       "/v1/status/slide",
+      "/v1/presentation/slide_index",
+      "/v1/stage/layout_map",
     ];
 
     for (const endpoint of endpoints) {
@@ -188,11 +191,19 @@ function extractTextFromPPResponse(data: Record<string, unknown>): string {
     if (slide && typeof slide.text === "string") return slide.text;
   }
 
-  // Layout map response (stage display)
+  // Layout map response (stage display) — filter out timer/clock fields
   if (Array.isArray(data.ary)) {
     const texts: string[] = [];
     for (const item of data.ary as Array<Record<string, unknown>>) {
-      if (typeof item.txt === "string" && item.txt) texts.push(item.txt);
+      if (typeof item.txt === "string" && item.txt) {
+        // Skip timer-like content (e.g. "00:05:30", "5:30", countdown values)
+        const trimmed = item.txt.trim();
+        if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) continue;
+        // Skip stage display field labels (e.g. "Current Slide", "Next Slide", "Clock")
+        const acn = item.acn as string | undefined;
+        if (acn === "tmr" || acn === "cs" || acn === "ns") continue;
+        texts.push(trimmed);
+      }
     }
     if (texts.length > 0) return texts.join("\n");
   }
