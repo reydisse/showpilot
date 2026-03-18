@@ -14,12 +14,10 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 
 const config = defineConfig({
   server: {
-    allowedHosts: 'all',
+    allowedHosts: true,
     host: true,
     cors: true,
-    hmr: {
-      host: '192.168.2.73',
-    },
+    hmr: false,
   },
   plugins: [
     devtools(),

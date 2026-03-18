@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { getSessionWithOrg } from "@/lib/session";
+import { getSessionWithOrg, getUserInvitations } from "@/lib/session";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
@@ -10,8 +10,12 @@ export const Route = createFileRoute("/")({
       throw redirect({ to: `/${result.org.slug}` });
     }
 
-    // If logged in but no org, go to setup
+    // If logged in but no org, check for pending invitations
     if (result?.user) {
+      const invitations = await getUserInvitations();
+      if (invitations.length > 0) {
+        throw redirect({ to: "/invitations" });
+      }
       throw redirect({ to: "/setup" });
     }
 

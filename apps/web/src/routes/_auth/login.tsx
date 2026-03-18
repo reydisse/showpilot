@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import { getUserInvitations } from "@/lib/session";
 
 export const Route = createFileRoute("/_auth/login")({
   component: LoginPage,
@@ -28,7 +29,13 @@ function LoginPage() {
           name,
         });
         if (error) throw new Error(error.message);
-        navigate({ to: "/setup" });
+        // Check if user has pending invitations
+        const invitations = await getUserInvitations();
+        if (invitations.length > 0) {
+          navigate({ to: "/invitations" });
+        } else {
+          navigate({ to: "/setup" });
+        }
       } else {
         const { error } = await authClient.signIn.email({
           email,

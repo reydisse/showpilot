@@ -11,7 +11,7 @@
 		{
 			"binding": "DB",
 			"database_name": "showpilot-db",
-			"database_id": "local"
+			"database_id": "2bdc2789-489e-44e7-85a1-652b8e2f133c"
 		}
 	],
 	"r2_buckets": [
@@ -39,7 +39,7 @@
 	"migrations": [
 		{
 			"tag": "v1",
-			"new_classes": ["ChatRelay", "RundownRelay", "LowerThirdsRelay"]
+			"new_sqlite_classes": ["ChatRelay", "RundownRelay", "LowerThirdsRelay"]
 		}
 	]
 }

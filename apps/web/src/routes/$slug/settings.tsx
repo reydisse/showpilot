@@ -1,6 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useState, useCallback, useEffect } from "react";
-import { useSidebar } from "@/components/layout/SidebarContext";
+import { useState, useCallback } from "react";
 import {
   Building2,
   Users,
@@ -22,6 +21,7 @@ import {
   Eye,
   EyeOff,
   ChevronRight,
+  ArrowLeft,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
@@ -31,6 +31,7 @@ import {
   getOrgMembers,
   regenerateApiKey,
 } from "@/lib/settings";
+import { authClient } from "@/lib/auth-client";
 
 // ─── Route ──────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ export const Route = createFileRoute("/$slug/settings")({
       orgId: context.orgId,
       slug: context.slug,
       org: context.org,
+      role: context.role,
     };
   },
   component: SettingsPage,
@@ -83,18 +85,44 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Main Component ─────────────────────────────────────────
 
 function SettingsPage() {
-  const { settings, members, orgId, slug, org } = Route.useLoaderData();
+  const { settings, members, orgId, slug, org, role } = Route.useLoaderData();
   const router = useRouter();
-  const { setCollapsed } = useSidebar();
   const [activeSection, setActiveSection] = useState<SectionId>("organization");
   const [localSettings, setLocalSettings] =
     useState<Record<string, string>>(settings);
-
-  // Auto-collapse sidebar when settings page is opened
-  useEffect(() => {
-    setCollapsed(true);
-  }, [setCollapsed]);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Permission checks using Better Auth access control
+  const typedRole = role as "owner" | "admin" | "pm" | "tm" | "stageManager" | "member";
+  const canEditSettings = authClient.organization.checkRolePermission({
+    permissions: { settings: ["update"] },
+    role: typedRole,
+  });
+  const canDeleteOrg = authClient.organization.checkRolePermission({
+    permissions: { organization: ["delete"] },
+    role: typedRole,
+  });
+  const canManageMembers = authClient.organization.checkRolePermission({
+    permissions: { member: ["create"] },
+    role: typedRole,
+  });
+  const canManageKiosk = authClient.organization.checkRolePermission({
+    permissions: { kiosk: ["create"] },
+    role: typedRole,
+  });
+  const canViewIntegrations = authClient.organization.checkRolePermission({
+    permissions: { integrations: ["read"] },
+    role: typedRole,
+  });
+
+  // Filter nav items based on permissions
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.id === "danger") return canDeleteOrg;
+    if (item.id === "team") return canManageMembers;
+    if (item.id === "integrations") return canViewIntegrations;
+    if (item.id === "api") return canEditSettings;
+    return true; // organization, production, lowerthirds, notifications visible to all
+  });
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -122,11 +150,15 @@ function SettingsPage() {
       {/* Left sidebar nav */}
       <nav className="w-56 shrink-0 border-r border-board-border bg-board-bg overflow-y-auto">
         <div className="p-4">
-          <h2 className="text-xs font-medium uppercase tracking-widest text-board-muted/50 mb-3">
-            Settings
-          </h2>
+          <button
+            onClick={() => router.history.back()}
+            className="flex items-center gap-2 text-sm text-board-muted hover:text-board-text transition-colors mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back</span>
+          </button>
           <div className="space-y-0.5">
-            {NAV_ITEMS.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
               return (

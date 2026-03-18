@@ -199,6 +199,16 @@
   animation: scroll-left 30s linear infinite;
 }
 
+/* ── Safe area padding for mobile devices (notch, home indicator) ── */
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

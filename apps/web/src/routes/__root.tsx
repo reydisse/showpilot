@@ -4,6 +4,8 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { registerServiceWorker } from "@/lib/notifications";
 
 import appCss from "../styles.css?url";
 
@@ -11,11 +13,16 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "theme-color", content: "#0a0a0a" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { title: "ShowPilot" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.json" },
+      { rel: "apple-touch-icon", href: "/logo192.png" },
       {
         rel: "preconnect",
         href: "https://fonts.googleapis.com",
@@ -50,5 +57,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  // Register service worker for push notifications + PWA
+  useEffect(() => {
+    registerServiceWorker();
+  }, []);
+
   return <Outlet />;
 }

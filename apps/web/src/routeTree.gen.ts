@@ -15,11 +15,15 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SlugIndexRouteImport } from './routes/$slug/index'
 import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
+import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AuthInvitationsRouteImport } from './routes/_auth/invitations'
+import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
 import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
+import { Route as SlugCrewChatRouteImport } from './routes/$slug/crew-chat'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
@@ -69,6 +73,11 @@ const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
   path: '/overlay/$orgSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
+  id: '/invite/$invitationId',
+  path: '/invite/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -78,6 +87,16 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => AuthRoute,
+} as any)
+const AuthInvitationsRoute = AuthInvitationsRouteImport.update({
+  id: '/invitations',
+  path: '/invitations',
+  getParentRoute: () => AuthRoute,
+} as any)
+const SlugTeamRoute = SlugTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => SlugRoute,
 } as any)
 const SlugShowRoute = SlugShowRouteImport.update({
   id: '/show',
@@ -92,6 +111,11 @@ const SlugSettingsRoute = SlugSettingsRouteImport.update({
 const SlugRundownRoute = SlugRundownRouteImport.update({
   id: '/rundown',
   path: '/rundown',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugCrewChatRoute = SlugCrewChatRouteImport.update({
+  id: '/crew-chat',
+  path: '/crew-chat',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugCheckinRoute = SlugCheckinRouteImport.update({
@@ -200,11 +224,15 @@ export interface FileRoutesByFullPath {
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/team': typeof SlugTeamRoute
+  '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
@@ -230,11 +258,15 @@ export interface FileRoutesByTo {
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/team': typeof SlugTeamRoute
+  '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
   '/setup': typeof AuthSetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
@@ -263,11 +295,15 @@ export interface FileRoutesById {
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
+  '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/team': typeof SlugTeamRoute
+  '/_auth/invitations': typeof AuthInvitationsRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/setup': typeof AuthSetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
@@ -296,11 +332,15 @@ export interface FileRouteTypes {
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/crew-chat'
     | '/$slug/rundown'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/team'
+    | '/invitations'
     | '/login'
     | '/setup'
+    | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug/'
@@ -326,11 +366,15 @@ export interface FileRouteTypes {
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/crew-chat'
     | '/$slug/rundown'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/team'
+    | '/invitations'
     | '/login'
     | '/setup'
+    | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug'
@@ -358,11 +402,15 @@ export interface FileRouteTypes {
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
+    | '/$slug/crew-chat'
     | '/$slug/rundown'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/team'
+    | '/_auth/invitations'
     | '/_auth/login'
     | '/_auth/setup'
+    | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug/'
@@ -387,6 +435,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -437,6 +486,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OverlayOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invite/$invitationId': {
+      id: '/invite/$invitationId'
+      path: '/invite/$invitationId'
+      fullPath: '/invite/$invitationId'
+      preLoaderRoute: typeof InviteInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth/setup': {
       id: '/_auth/setup'
       path: '/setup'
@@ -450,6 +506,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRoute
+    }
+    '/_auth/invitations': {
+      id: '/_auth/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof AuthInvitationsRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/$slug/team': {
+      id: '/$slug/team'
+      path: '/team'
+      fullPath: '/$slug/team'
+      preLoaderRoute: typeof SlugTeamRouteImport
+      parentRoute: typeof SlugRoute
     }
     '/$slug/show': {
       id: '/$slug/show'
@@ -470,6 +540,13 @@ declare module '@tanstack/react-router' {
       path: '/rundown'
       fullPath: '/$slug/rundown'
       preLoaderRoute: typeof SlugRundownRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/crew-chat': {
+      id: '/$slug/crew-chat'
+      path: '/crew-chat'
+      fullPath: '/$slug/crew-chat'
+      preLoaderRoute: typeof SlugCrewChatRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/checkin': {
@@ -626,9 +703,11 @@ interface SlugRouteChildren {
   SlugBoardRoute: typeof SlugBoardRoute
   SlugChatRoute: typeof SlugChatRoute
   SlugCheckinRoute: typeof SlugCheckinRoute
+  SlugCrewChatRoute: typeof SlugCrewChatRoute
   SlugRundownRoute: typeof SlugRundownRoute
   SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRoute
+  SlugTeamRoute: typeof SlugTeamRoute
   SlugIndexRoute: typeof SlugIndexRoute
   SlugDashboardAudioRoute: typeof SlugDashboardAudioRoute
   SlugDashboardDevicesRoute: typeof SlugDashboardDevicesRoute
@@ -649,9 +728,11 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugBoardRoute: SlugBoardRoute,
   SlugChatRoute: SlugChatRoute,
   SlugCheckinRoute: SlugCheckinRoute,
+  SlugCrewChatRoute: SlugCrewChatRoute,
   SlugRundownRoute: SlugRundownRoute,
   SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRoute,
+  SlugTeamRoute: SlugTeamRoute,
   SlugIndexRoute: SlugIndexRoute,
   SlugDashboardAudioRoute: SlugDashboardAudioRoute,
   SlugDashboardDevicesRoute: SlugDashboardDevicesRoute,
@@ -670,11 +751,13 @@ const SlugRouteChildren: SlugRouteChildren = {
 const SlugRouteWithChildren = SlugRoute._addFileChildren(SlugRouteChildren)
 
 interface AuthRouteChildren {
+  AuthInvitationsRoute: typeof AuthInvitationsRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthSetupRoute: typeof AuthSetupRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
+  AuthInvitationsRoute: AuthInvitationsRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthSetupRoute: AuthSetupRoute,
 }
@@ -685,6 +768,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

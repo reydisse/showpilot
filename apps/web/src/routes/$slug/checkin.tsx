@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Flame,
@@ -8,6 +8,9 @@ import {
   XCircle,
   LogIn,
   LogOut,
+  MessageSquare,
+  Timer,
+  X,
 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { getCrewMembers, checkInByMemberId } from "@/lib/data";
@@ -26,13 +29,13 @@ type ViewMode = "code-entry" | "browse-all";
 export const Route = createFileRoute("/$slug/checkin")({
   loader: async ({ context }) => {
     const members = await getCrewMembers({ data: { orgId: context.orgId } });
-    return { members: members as Member[], orgId: context.orgId };
+    return { members: members as Member[], orgId: context.orgId, slug: context.slug };
   },
   component: CheckInPage,
 });
 
 function CheckInPage() {
-  const { members, orgId } = Route.useLoaderData();
+  const { members, orgId, slug } = Route.useLoaderData();
   const router = useRouter();
   const [mode, setMode] = useState<ViewMode>("code-entry");
   const [code, setCode] = useState("");
@@ -49,8 +52,9 @@ function CheckInPage() {
     inputRef.current?.focus();
   }, []);
 
+  // Only auto-reset on error, not on success (user picks action)
   useEffect(() => {
-    if (result || error) {
+    if (error) {
       timerRef.current = setTimeout(() => {
         resetState();
         router.invalidate();
@@ -59,7 +63,7 @@ function CheckInPage() {
         if (timerRef.current) clearTimeout(timerRef.current);
       };
     }
-  }, [result, error, resetState, router]);
+  }, [error, resetState, router]);
 
   useEffect(() => {
     if (mode === "code-entry") inputRef.current?.focus();
@@ -210,9 +214,37 @@ function CheckInPage() {
                   {result.isOnline ? "Checked In" : "Checked Out"}
                 </div>
 
-                <p className="text-xs text-board-muted/60 pt-2">
-                  Returning to entry screen...
-                </p>
+                {/* Post check-in actions */}
+                {result.isOnline && (
+                  <div className="space-y-2 pt-2 w-full max-w-xs mx-auto">
+                    <Link
+                      to={`/${slug}/crew-chat`}
+                      search={{ name: result.name }}
+                      className="flex items-center justify-center gap-2.5 w-full px-5 py-3.5 rounded-2xl bg-fire-500 text-white font-semibold text-base hover:bg-fire-600 transition-colors"
+                    >
+                      <MessageSquare className="w-5 h-5" />
+                      Join Production Chat
+                    </Link>
+                    <Link
+                      to={`/${slug}/rundown`}
+                      className="flex items-center justify-center gap-2.5 w-full px-5 py-3.5 rounded-2xl bg-board-card border border-board-border text-board-text font-medium text-base hover:bg-board-border/50 transition-colors"
+                    >
+                      <Timer className="w-5 h-5" />
+                      View Rundown
+                    </Link>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    resetState();
+                    router.invalidate();
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs text-board-muted/60 hover:text-board-muted transition-colors pt-1"
+                >
+                  <X className="w-3 h-3" />
+                  {result.isOnline ? "Done" : "Back to check-in"}
+                </button>
               </div>
             )}
 

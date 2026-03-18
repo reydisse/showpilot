@@ -1,4 +1,5 @@
-import { Link, useLocation, useParams } from "@tanstack/react-router";
+import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
+import { OrgSwitcher } from "./OrgSwitcher";
 import {
   ListMusic,
   UserCheck,
@@ -40,7 +41,7 @@ const mainNav: NavItem[] = [
   { icon: Timer, label: "Rundown", path: "rundown" },
   { icon: MessageSquare, label: "Chat", path: "chat" },
   { icon: UserCheck, label: "Check-in", path: "checkin" },
-  { icon: Users, label: "Team", path: "admin" },
+  { icon: Users, label: "Team", path: "team" },
 ];
 
 const productionNav: NavItem[] = [
@@ -150,6 +151,15 @@ export function Sidebar() {
   const { collapsed, fullscreen } = useSidebar();
   const { pathname } = useLocation();
   const { slug } = useParams({ strict: false });
+  let org: { id: string; name: string; slug: string; logo: string | null } | null = null;
+  try {
+    const ctx = useRouteContext({ from: "/$slug" });
+    org = ctx.org;
+  } catch {
+    // Not inside /$slug route
+  }
+
+  const isSettings = pathname === `/${slug}/settings`;
 
   const isActive = (path: string) => {
     const fullPath = `/${slug}/${path}`;
@@ -157,7 +167,7 @@ export function Sidebar() {
     return pathname.startsWith(fullPath);
   };
 
-  const w = fullscreen ? 0 : collapsed ? 68 : 240;
+  const w = fullscreen || isSettings ? 0 : collapsed ? 68 : 240;
 
   return (
     <>
@@ -165,7 +175,7 @@ export function Sidebar() {
       <aside
         style={{ width: w, transition: "width 200ms ease-in-out" }}
         className={`fixed top-0 left-0 h-screen z-30 bg-board-card border-r border-board-border flex flex-col overflow-hidden ${
-          fullscreen ? "pointer-events-none opacity-0" : "opacity-100"
+          fullscreen || isSettings ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
         {/* Logo + Gear */}
@@ -190,6 +200,13 @@ export function Sidebar() {
             <QuickActions collapsed={collapsed} />
           </div>
         </div>
+
+        {/* Org Switcher */}
+        {org && (
+          <div className={`border-b border-board-border ${collapsed ? "px-1.5 py-2" : "px-2.5 py-2"}`}>
+            <OrgSwitcher currentOrg={org} collapsed={collapsed} />
+          </div>
+        )}
 
         {/* Scrollable nav area */}
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
