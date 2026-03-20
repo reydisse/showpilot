@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Play,
@@ -140,6 +141,7 @@ function buildNativeTimer(
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
@@ -590,19 +592,19 @@ function RundownPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3 md:gap-4">
             <div>
-              <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
+              <h1 className="text-base md:text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
                 Rundown
               </h1>
-              <p className="text-xs text-board-muted mt-0.5">
+              <p className="text-[10px] md:text-xs text-board-muted mt-0.5">
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
             {/* Date switcher */}
-            <div className="flex items-center gap-1 ml-4">
+            <div className="flex items-center gap-1 ml-2 md:ml-4">
               <button
                 onClick={() => handleDateChange(-1)}
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
@@ -623,7 +625,7 @@ function RundownPage() {
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -631,7 +633,7 @@ function RundownPage() {
                 setCopiedUrl(true);
                 setTimeout(() => setCopiedUrl(false), 2000);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
               title="Copy timer kiosk URL"
             >
               <Monitor className="w-3 h-3" />
@@ -640,7 +642,7 @@ function RundownPage() {
             </button>
             <button
               onClick={() => setShowLoadModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
               title="Load from previous date or saved template"
             >
               <FolderOpen className="w-3 h-3" />
@@ -649,7 +651,7 @@ function RundownPage() {
             <button
               onClick={() => setShowSaveModal(true)}
               disabled={items.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40"
               title="Save as reusable template"
             >
               <Save className="w-3 h-3" />
@@ -657,17 +659,17 @@ function RundownPage() {
             </button>
             <button
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
             >
               <RotateCcw className="w-3 h-3" />
               Reset
             </button>
             <button
               onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px] md:min-h-0"
             >
               <Plus className="w-3 h-3" />
-              Add Item
+              Add
             </button>
           </div>
         </div>
@@ -692,9 +694,9 @@ function RundownPage() {
           Loading rundown...
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full">
+        <div className="flex-1 overflow-hidden flex flex-col md:flex-row gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 max-w-[1400px] mx-auto w-full">
           {/* Left: Timer + Controls + Message */}
-          <div className="w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar">
+          <div className="w-full md:w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar">
             {/* Timer */}
             <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
               <div className="flex items-center gap-2 mb-2">

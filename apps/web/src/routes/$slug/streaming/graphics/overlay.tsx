@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect } from "react";
 import { getActiveGraphic } from "@/lib/graphics";
 
 export const Route = createFileRoute(
   "/$slug/streaming/graphics/overlay"
 )({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     return { orgId: context.orgId };
   },

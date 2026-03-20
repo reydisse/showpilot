@@ -19,7 +19,7 @@ interface IntegrationCardProps {
   status?: ConnectionStatus;
   onConnect: () => void | Promise<void>;
   onDisconnect: () => void | Promise<void>;
-  onTest?: () => void | Promise<void>;
+  onTest?: () => Promise<{ ok: boolean; error?: string } | void>;
   disabled?: boolean;
   comingSoon?: boolean;
   children?: React.ReactNode;
@@ -61,6 +61,8 @@ export function IntegrationCard({
 }: IntegrationCardProps) {
   const [testing, setTesting] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   const statusConfig = STATUS_CONFIG[status];
   const StatusIcon = statusConfig.icon;
@@ -86,10 +88,22 @@ export function IntegrationCard({
   const handleTest = async () => {
     if (!onTest) return;
     setTesting(true);
+    setTestResult(null);
+    setTestError(null);
     try {
-      await onTest();
+      const result = await onTest();
+      if (result && typeof result === "object" && "ok" in result) {
+        setTestResult(result.ok ? "success" : "error");
+        if (!result.ok && result.error) setTestError(result.error);
+      } else {
+        setTestResult("success");
+      }
+    } catch (err) {
+      setTestResult("error");
+      setTestError(err instanceof Error ? err.message : "Connection failed");
     } finally {
       setTesting(false);
+      setTimeout(() => { setTestResult(null); setTestError(null); }, 5000);
     }
   };
 
@@ -127,6 +141,13 @@ export function IntegrationCard({
             </span>
           </div>
 
+          {/* Test error message */}
+          {testError && (
+            <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+              <p className="text-[11px] text-red-300 break-all">{testError}</p>
+            </div>
+          )}
+
           {/* Action buttons */}
           <div className="flex items-center gap-2">
             {!connected ? (
@@ -160,14 +181,24 @@ export function IntegrationCard({
                   <button
                     onClick={handleTest}
                     disabled={testing}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 ${
+                      testResult === "success"
+                        ? "border-green-500/30 text-green-400 bg-green-500/10"
+                        : testResult === "error"
+                          ? "border-red-500/30 text-red-400 bg-red-500/10"
+                          : "border-board-border text-board-muted hover:text-board-text hover:bg-board-border/50"
+                    }`}
                   >
                     {testing ? (
                       <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : testResult === "success" ? (
+                      <CheckCircle className="w-3 h-3" />
+                    ) : testResult === "error" ? (
+                      <XCircle className="w-3 h-3" />
                     ) : (
                       <FlaskConical className="w-3 h-3" />
                     )}
-                    Test
+                    {testResult === "success" ? "Connected" : testResult === "error" ? "Failed" : "Test"}
                   </button>
                 )}
               </>

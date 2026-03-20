@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
   Radio,
@@ -56,6 +57,7 @@ const PLATFORM_CONFIG: Record<
 };
 
 export const Route = createFileRoute("/$slug/streaming/platforms")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const [destinations, inputs] = await Promise.all([
       getStreamDestinations({ data: { orgId: context.orgId } }),

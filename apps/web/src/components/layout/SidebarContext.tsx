@@ -7,6 +7,10 @@ interface SidebarContextValue {
   fullscreen: boolean;
   toggleFullscreen: () => void;
   exitFullscreen: () => void;
+  mobileOpen: boolean;
+  setMobileOpen: (value: boolean) => void;
+  toggleMobile: () => void;
+  isMobile: boolean;
 }
 
 const SidebarContext = createContext<SidebarContextValue>({
@@ -16,6 +20,10 @@ const SidebarContext = createContext<SidebarContextValue>({
   fullscreen: false,
   toggleFullscreen: () => {},
   exitFullscreen: () => {},
+  mobileOpen: false,
+  setMobileOpen: () => {},
+  toggleMobile: () => {},
+  isMobile: false,
 });
 
 function getInitialCollapsed(): boolean {
@@ -27,9 +35,33 @@ function getInitialCollapsed(): boolean {
   }
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isMobile;
+}
+
 export function SidebarProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsedState] = useState(getInitialCollapsed);
   const [fullscreen, setFullscreen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Close mobile drawer on route change (location change)
+  useEffect(() => {
+    if (mobileOpen) setMobileOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleMobile = useCallback(() => {
+    setMobileOpen((prev) => !prev);
+  }, []);
 
   // Sync with browser fullscreen API changes (e.g. user presses Esc)
   useEffect(() => {
@@ -74,7 +106,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
 
   return (
     <SidebarContext.Provider
-      value={{ collapsed, setCollapsed, toggle, fullscreen, toggleFullscreen, exitFullscreen }}
+      value={{ collapsed, setCollapsed, toggle, fullscreen, toggleFullscreen, exitFullscreen, mobileOpen, setMobileOpen, toggleMobile, isMobile }}
     >
       {children}
     </SidebarContext.Provider>

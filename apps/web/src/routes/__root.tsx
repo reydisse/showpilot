@@ -10,6 +10,8 @@ import { registerServiceWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
+  pendingMs: 100, // show pending state after 100ms (avoids flash on fast navigations)
+  pendingMinMs: 200, // keep it visible for at least 200ms to avoid flicker
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -21,6 +23,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "icon", type: "image/svg+xml", href: "/showpilot-logo.svg" },
       { rel: "manifest", href: "/manifest.json" },
       { rel: "apple-touch-icon", href: "/logo192.png" },
       {

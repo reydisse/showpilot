@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -36,6 +37,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 const CATEGORIES = ["Audio", "Video", "Lighting", "Network", "Power", "Software", "Hardware", "Other"];
 
 export const Route = createFileRoute("/$slug/production/incidents")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const incidents = await getIncidents({ data: { orgId: context.orgId, serviceDate: today } });

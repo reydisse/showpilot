@@ -1,4 +1,5 @@
-import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { Link, useLocation, useNavigate, useParams, useRouteContext } from "@tanstack/react-router";
 import { OrgSwitcher } from "./OrgSwitcher";
 import {
   ListMusic,
@@ -25,9 +26,11 @@ import {
   MonitorPlay,
   MessageSquare,
   Timer,
+  LogOut,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
+import { authClient } from "@/lib/auth-client";
 
 interface NavItem {
   icon: React.ElementType;
@@ -80,7 +83,7 @@ function NavLink({
     <Link
       to={`/${slug}/${item.path}`}
       title={item.label}
-      className={`flex items-center rounded-lg transition-colors relative ${
+      className={`flex items-center rounded-lg transition-colors relative min-h-[44px] ${
         collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
       } ${
         active
@@ -147,8 +150,32 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function LogoutButton({ collapsed }: { collapsed: boolean }) {
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await authClient.signOut();
+    navigate({ to: "/login" });
+  }
+
+  return (
+    <button
+      onClick={handleLogout}
+      title="Sign out"
+      className={`flex items-center rounded-lg transition-colors w-full text-board-muted hover:bg-red-500/10 hover:text-red-400 ${
+        collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
+      }`}
+    >
+      <LogOut className="w-[18px] h-[18px] shrink-0" />
+      {!collapsed && (
+        <span className="text-sm font-medium whitespace-nowrap">Sign out</span>
+      )}
+    </button>
+  );
+}
+
 export function Sidebar() {
-  const { collapsed, fullscreen } = useSidebar();
+  const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } = useSidebar();
   const { pathname } = useLocation();
   const { slug } = useParams({ strict: false });
   let org: { id: string; name: string; slug: string; logo: string | null } | null = null;
@@ -159,6 +186,12 @@ export function Sidebar() {
     // Not inside /$slug route
   }
 
+  // Close drawer on navigation
+  useEffect(() => {
+    if (mobileOpen) setMobileOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const isSettings = pathname === `/${slug}/settings`;
 
   const isActive = (path: string) => {
@@ -167,152 +200,201 @@ export function Sidebar() {
     return pathname.startsWith(fullPath);
   };
 
-  const w = fullscreen || isSettings ? 0 : collapsed ? 68 : 240;
+  const hidden = fullscreen || isSettings;
+  const w = hidden ? 0 : collapsed ? 68 : 240;
 
+  // Mobile: overlay drawer
+  if (isMobile) {
+    return (
+      <>
+        {/* Backdrop */}
+        {mobileOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
+        {/* Slide-in drawer */}
+        <aside
+          className={`fixed top-0 left-0 h-screen w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {/* Drawer uses expanded layout (collapsed=false) */}
+          {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, isSettings: false })}
+        </aside>
+      </>
+    );
+  }
+
+  // Desktop: fixed sidebar + spacer
   return (
     <>
-      {/* Fixed sidebar */}
       <aside
         style={{ width: w, transition: "width 200ms ease-in-out" }}
         className={`fixed top-0 left-0 h-screen z-30 bg-board-card border-r border-board-border flex flex-col overflow-hidden ${
-          fullscreen || isSettings ? "pointer-events-none opacity-0" : "opacity-100"
+          hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        {/* Logo + Gear */}
-        <div
-          className={`py-5 flex items-center overflow-hidden ${
-            collapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"
-          }`}
-        >
-          <img
-            src="/showpilot-logo.svg"
-            alt="ShowPilot"
-            width={24}
-            height={24}
-            className="shrink-0"
-          />
-          {!collapsed && (
-            <span className="text-base font-semibold text-fire-500 whitespace-nowrap tracking-tight">
-              ShowPilot
-            </span>
-          )}
-          <div className={collapsed ? "" : "ml-auto"}>
-            <QuickActions collapsed={collapsed} />
-          </div>
-        </div>
-
-        {/* Org Switcher */}
-        {org && (
-          <div className={`border-b border-board-border ${collapsed ? "px-1.5 py-2" : "px-2.5 py-2"}`}>
-            <OrgSwitcher currentOrg={org} collapsed={collapsed} />
-          </div>
-        )}
-
-        {/* Scrollable nav area */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
-          {/* Main nav */}
-          <div className="px-2.5 space-y-0.5">
-            {mainNav.map((item) => (
-              <NavLink
-                key={item.path}
-                item={item}
-                slug={slug!}
-                collapsed={collapsed}
-                active={isActive(item.path)}
-              />
-            ))}
-          </div>
-
-          {/* Divider + Production section */}
-          <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-            {!collapsed ? (
-              <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                Production
-              </p>
-            ) : (
-              <div className="h-px bg-board-border" />
-            )}
-          </div>
-
-          <div className="px-2.5 space-y-0.5">
-            {productionNav.map((item) => (
-              <NavLink
-                key={item.path}
-                item={item}
-                slug={slug!}
-                collapsed={collapsed}
-                active={isActive(item.path)}
-              />
-            ))}
-          </div>
-
-          {/* Divider + Streaming section */}
-          <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-            {!collapsed ? (
-              <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                Streaming
-              </p>
-            ) : (
-              <div className="h-px bg-board-border" />
-            )}
-          </div>
-
-          <div className="px-2.5 space-y-0.5">
-            {streamingNav.map((item) => (
-              <NavLink
-                key={item.path}
-                item={item}
-                slug={slug!}
-                collapsed={collapsed}
-                active={isActive(item.path)}
-              />
-            ))}
-          </div>
-
-          {/* Divider + Dashboards section */}
-          <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-            {!collapsed ? (
-              <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                Dashboards
-              </p>
-            ) : (
-              <div className="h-px bg-board-border" />
-            )}
-          </div>
-
-          <div className="px-2.5 space-y-0.5">
-            {dashboardNav.map((item) => (
-              <NavLink
-                key={item.path}
-                item={item}
-                slug={slug!}
-                collapsed={collapsed}
-                active={isActive(item.path)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Settings link pinned to bottom */}
-        <div className="shrink-0 border-t border-board-border px-2.5 py-3">
-          <NavLink
-            item={{ icon: Settings, label: "Settings", path: "settings" }}
-            slug={slug!}
-            collapsed={collapsed}
-            active={isActive("settings")}
-          />
-        </div>
+        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, isSettings })}
       </aside>
 
       {/* Spacer div to push main content right */}
       <div
-        className="shrink-0"
+        className="shrink-0 hidden md:block"
         style={{
           width: w,
           minWidth: w,
           transition: "width 200ms ease-in-out, min-width 200ms ease-in-out",
         }}
       />
+    </>
+  );
+}
+
+/** Shared sidebar content — used by both desktop sidebar and mobile drawer */
+function renderSidebarContent({
+  collapsed,
+  org,
+  slug,
+  isActive,
+  isSettings,
+}: {
+  collapsed: boolean;
+  org: { id: string; name: string; slug: string; logo: string | null } | null;
+  slug: string;
+  isActive: (path: string) => boolean;
+  isSettings: boolean;
+}) {
+  return (
+    <>
+      {/* Logo + Gear */}
+      <div
+        className={`py-5 flex items-center overflow-hidden ${
+          collapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"
+        }`}
+      >
+        <img
+          src="/showpilot-logo.svg"
+          alt="ShowPilot"
+          width={24}
+          height={24}
+          className="shrink-0"
+        />
+        {!collapsed && (
+          <span className="text-base font-semibold text-fire-500 whitespace-nowrap tracking-tight">
+            ShowPilot
+          </span>
+        )}
+        {!collapsed && (
+          <div className="ml-auto">
+            <QuickActions collapsed={collapsed} />
+          </div>
+        )}
+      </div>
+
+      {/* Org Switcher */}
+      {org && (
+        <div className={`border-b border-board-border ${collapsed ? "px-1.5 py-2" : "px-2.5 py-2"}`}>
+          <OrgSwitcher currentOrg={org} collapsed={collapsed} />
+        </div>
+      )}
+
+      {/* Scrollable nav area */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
+        {/* Main nav */}
+        <div className="px-2.5 space-y-0.5">
+          {mainNav.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              slug={slug}
+              collapsed={collapsed}
+              active={isActive(item.path)}
+            />
+          ))}
+        </div>
+
+        {/* Divider + Production section */}
+        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+          {!collapsed ? (
+            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+              Production
+            </p>
+          ) : (
+            <div className="h-px bg-board-border" />
+          )}
+        </div>
+
+        <div className="px-2.5 space-y-0.5">
+          {productionNav.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              slug={slug}
+              collapsed={collapsed}
+              active={isActive(item.path)}
+            />
+          ))}
+        </div>
+
+        {/* Divider + Streaming section */}
+        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+          {!collapsed ? (
+            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+              Streaming
+            </p>
+          ) : (
+            <div className="h-px bg-board-border" />
+          )}
+        </div>
+
+        <div className="px-2.5 space-y-0.5">
+          {streamingNav.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              slug={slug}
+              collapsed={collapsed}
+              active={isActive(item.path)}
+            />
+          ))}
+        </div>
+
+        {/* Divider + Dashboards section */}
+        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+          {!collapsed ? (
+            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+              Dashboards
+            </p>
+          ) : (
+            <div className="h-px bg-board-border" />
+          )}
+        </div>
+
+        <div className="px-2.5 space-y-0.5">
+          {dashboardNav.map((item) => (
+            <NavLink
+              key={item.path}
+              item={item}
+              slug={slug}
+              collapsed={collapsed}
+              active={isActive(item.path)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Settings + Logout pinned to bottom */}
+      <div className="shrink-0 border-t border-board-border px-2.5 py-3 space-y-0.5">
+        <NavLink
+          item={{ icon: Settings, label: "Settings", path: "settings" }}
+          slug={slug}
+          collapsed={collapsed}
+          active={isActive("settings")}
+        />
+        <LogoutButton collapsed={collapsed} />
+      </div>
     </>
   );
 }

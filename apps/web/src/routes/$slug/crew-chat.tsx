@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MessageSquare,
@@ -26,6 +27,7 @@ const MESSAGE_STYLES: Record<
 };
 
 export const Route = createFileRoute("/$slug/crew-chat")({
+  pendingComponent: () => <BoardSkeleton />,
   validateSearch: (search: Record<string, unknown>) => ({
     name: (search.name as string) || "",
   }),

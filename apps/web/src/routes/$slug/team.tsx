@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
   Users,
@@ -32,6 +33,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Member } from "@/types";
 
 export const Route = createFileRoute("/$slug/team")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const [orgMembers, invitations, crewMembers] = await Promise.all([
       getOrgMembers({ data: { orgId: context.orgId } }),

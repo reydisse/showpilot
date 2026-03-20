@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
@@ -20,6 +21,7 @@ import type { Member } from "@/types";
 const MEMBERS_PER_PAGE = 8;
 
 export const Route = createFileRoute("/$slug/board")({
+  pendingComponent: () => <BoardSkeleton />,
   loader: async ({ context }) => {
     const [members, clockFormat] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
@@ -56,26 +58,26 @@ function BoardHeader({ clockFormat }: { clockFormat: ClockFormat }) {
   });
 
   return (
-    <header className="flex items-center justify-between px-4 sm:px-6 py-5">
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-fire-500/20 to-fire-800/10 border border-fire-500/20 flex items-center justify-center">
-          <Flame className="w-7 h-7 text-fire-500" />
+    <header className="flex items-center justify-between px-4 sm:px-6 py-3 md:py-5">
+      <div className="flex items-center gap-3 md:gap-4">
+        <div className="w-9 h-9 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-fire-500/20 to-fire-800/10 border border-fire-500/20 flex items-center justify-center">
+          <Flame className="w-5 h-5 md:w-7 md:h-7 text-fire-500" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold font-[family-name:var(--font-display)] tracking-tight">
+          <h1 className="text-lg md:text-3xl font-bold font-[family-name:var(--font-display)] tracking-tight">
             <span className="text-fire-500">ShowPilot</span>{" "}
-            <span className="text-board-text">Production</span>
+            <span className="text-board-text hidden sm:inline">Production</span>
           </h1>
-          <p className="text-board-muted text-sm tracking-widest uppercase">
+          <p className="text-board-muted text-xs md:text-sm tracking-widest uppercase hidden sm:block">
             Production Board
           </p>
         </div>
       </div>
       <div className="text-right">
-        <p className="text-3xl font-bold font-[family-name:var(--font-display)] text-board-text tabular-nums">
+        <p className="text-xl md:text-3xl font-bold font-[family-name:var(--font-display)] text-board-text tabular-nums">
           {formattedTime}
         </p>
-        <p className="text-sm text-board-muted">{formattedDate}</p>
+        <p className="text-xs md:text-sm text-board-muted hidden sm:block">{formattedDate}</p>
       </div>
     </header>
   );
@@ -92,13 +94,13 @@ function MemberCard({ member }: { member: Member }) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center p-6 rounded-2xl transition-all duration-700 bg-board-card border ${
+      className={`flex flex-col items-center justify-center p-3 md:p-6 rounded-xl md:rounded-2xl transition-all duration-700 bg-board-card border ${
         member.isOnline
           ? "border-fire-500/30 animate-ember-glow"
           : "border-board-border opacity-50"
       }`}
     >
-      <div className="relative w-[110px] h-[110px]">
+      <div className="relative w-[70px] h-[70px] md:w-[110px] md:h-[110px]">
         {member.photoUrl ? (
           <img
             src={member.photoUrl}
@@ -106,21 +108,21 @@ function MemberCard({ member }: { member: Member }) {
             className="w-full h-full rounded-full object-cover"
           />
         ) : (
-          <div className="w-full h-full rounded-full bg-board-border flex items-center justify-center text-3xl font-bold text-board-muted font-[family-name:var(--font-display)]">
+          <div className="w-full h-full rounded-full bg-board-border flex items-center justify-center text-xl md:text-3xl font-bold text-board-muted font-[family-name:var(--font-display)]">
             {initials}
           </div>
         )}
         <span
-          className={`absolute bottom-1 right-1 h-5 w-5 rounded-full border-[3px] border-board-card ${
+          className={`absolute bottom-0.5 right-0.5 md:bottom-1 md:right-1 h-4 w-4 md:h-5 md:w-5 rounded-full border-2 md:border-[3px] border-board-card ${
             member.isOnline ? "bg-green-500 animate-pulse-glow" : "bg-gray-600"
           }`}
         />
       </div>
 
-      <h3 className="mt-4 text-xl font-semibold font-[family-name:var(--font-display)] text-board-text text-center leading-tight">
+      <h3 className="mt-2 md:mt-4 text-sm md:text-xl font-semibold font-[family-name:var(--font-display)] text-board-text text-center leading-tight">
         {member.name}
       </h3>
-      <p className="mt-1 text-base text-board-muted text-center">
+      <p className="mt-0.5 md:mt-1 text-xs md:text-base text-board-muted text-center">
         {member.role}
       </p>
     </div>
@@ -132,7 +134,7 @@ function MemberCard({ member }: { member: Member }) {
 function MemberGrid({ members }: { members: Member[] }) {
   return (
     <div className="w-full h-full flex items-center justify-center px-4 sm:px-6">
-      <div className="grid grid-cols-4 gap-5 w-full max-w-[1600px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 w-full max-w-[1600px]">
         {members.map((member) => (
           <MemberCard key={member.id} member={member} />
         ))}
@@ -374,18 +376,20 @@ function ShowBoardPage() {
       <Carousel pages={pages} currentPage={currentPage} />
 
       {/* Footer: QR code + nav + page dots */}
-      <footer className="px-4 sm:px-6 py-4 flex items-center justify-between border-t border-board-border">
-        <QRCodePanel slug={slug} />
+      <footer className="px-4 sm:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3 border-t border-board-border">
+        <div className="hidden md:block">
+          <QRCodePanel slug={slug} />
+        </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 md:gap-6 w-full md:w-auto justify-center md:justify-end">
           <div className="flex items-center gap-2">
             <Link
               to="/$slug/show"
               params={{ slug }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors"
+              className="flex items-center gap-2 px-3 md:px-4 py-2.5 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[44px]"
             >
               <ListMusic className="w-4 h-4 text-fire-500" />
-              <span className="text-sm font-semibold text-board-text">
+              <span className="text-sm font-semibold text-board-text hidden sm:inline">
                 Show Flow
               </span>
             </Link>
@@ -393,32 +397,32 @@ function ShowBoardPage() {
             <button
               onClick={toggleFullscreen}
               aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer"
+              className="flex items-center gap-2 px-3 md:px-4 py-2.5 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[44px]"
             >
               {isFullscreen ? (
                 <Minimize className="w-4 h-4 text-fire-500" />
               ) : (
                 <Maximize className="w-4 h-4 text-fire-500" />
               )}
-              <span className="text-sm font-semibold text-board-text">
-                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              <span className="text-sm font-semibold text-board-text hidden sm:inline">
+                {isFullscreen ? "Exit" : "Fullscreen"}
               </span>
             </button>
           </div>
 
           {/* Page dots */}
           {totalPages > 1 && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 md:gap-3">
               {Array.from({ length: totalPages }).map((_, i) => (
                 <span
                   key={i}
-                  className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                  className={`w-2 h-2 md:w-2.5 md:h-2.5 rounded-full transition-all duration-300 ${
                     i === currentPage ? "bg-fire-500 scale-125" : "bg-board-border"
                   }`}
                 />
               ))}
-              <span className="text-xs text-board-muted ml-2">
-                {currentPage + 1} / {totalPages}
+              <span className="text-xs text-board-muted ml-1">
+                {currentPage + 1}/{totalPages}
               </span>
             </div>
           )}

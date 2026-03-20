@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
   Wrench,
   AlertTriangle,
@@ -50,6 +51,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const [equipment, devices, incidents, templates, entries] = await Promise.all([

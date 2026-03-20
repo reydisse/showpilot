@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useRef } from "react";
 import {
   Flame,
@@ -52,6 +53,7 @@ const TYPE_COLORS: Record<ItemType, string> = {
 // ─── Route ───────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/show")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const [members, adapters, chatMessages, clockFormat] = await Promise.all([

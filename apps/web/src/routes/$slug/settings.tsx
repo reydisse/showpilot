@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useCallback } from "react";
 import {
   Building2,
@@ -31,11 +32,13 @@ import {
   getOrgMembers,
   regenerateApiKey,
 } from "@/lib/settings";
+import { testChatConnection } from "@/lib/chat-proxy";
 import { authClient } from "@/lib/auth-client";
 
 // ─── Route ──────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/settings")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const [settings, members] = await Promise.all([
       getOrgSettings({ data: { orgId: context.orgId } }),
@@ -146,18 +149,18 @@ function SettingsPage() {
   const sectionProps = { orgId, slug, org, getSetting, saveSetting, members };
 
   return (
-    <div className="h-full flex overflow-hidden">
-      {/* Left sidebar nav */}
-      <nav className="w-56 shrink-0 border-r border-board-border bg-board-bg overflow-y-auto">
-        <div className="p-4">
+    <div className="h-full flex flex-col md:flex-row overflow-hidden">
+      {/* Settings nav — horizontal scroll on mobile, vertical sidebar on desktop */}
+      <nav className="shrink-0 border-b md:border-b-0 md:border-r border-board-border bg-board-bg md:w-56 md:overflow-y-auto">
+        <div className="p-3 md:p-4">
           <button
             onClick={() => router.history.back()}
-            className="flex items-center gap-2 text-sm text-board-muted hover:text-board-text transition-colors mb-4"
+            className="flex items-center gap-2 text-sm text-board-muted hover:text-board-text transition-colors mb-3 md:mb-4 min-h-[44px] md:min-h-0"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
-          <div className="space-y-0.5">
+          <div className="flex md:flex-col gap-1.5 md:gap-0.5 overflow-x-auto hide-scrollbar pb-1 md:pb-0">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
@@ -165,7 +168,7 @@ function SettingsPage() {
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  className={`flex items-center gap-2 md:gap-2.5 px-3 py-2 rounded-lg text-xs md:text-sm transition-colors whitespace-nowrap min-h-[44px] md:min-h-0 md:w-full ${
                     isActive
                       ? "bg-fire-500/15 text-fire-500"
                       : item.id === "danger"
@@ -183,8 +186,8 @@ function SettingsPage() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto p-6">
+      <main className="flex-1 overflow-y-auto min-h-0">
+        <div className="max-w-3xl mx-auto p-4 md:p-6">
           {activeSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}
@@ -513,7 +516,7 @@ function TeamSection({ members }: SectionProps) {
 
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
-function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
+function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -572,15 +575,21 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
             connected={chatAdapter === "slack"}
             onConnect={() => saveSetting("chat-adapter", "slack")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={() => testChatConnection({ data: { orgId, platform: "slack" } })}
           >
             <div className="space-y-2">
-              <FieldGroup label="Channel">
+              <FieldGroup label="Bot Token">
+                <SettingInput
+                  settingKey="slack-token"
+                  placeholder="xoxb-..."
+                  getSetting={getSetting}
+                  saveSetting={saveSetting}
+                />
+              </FieldGroup>
+              <FieldGroup label="Channel ID">
                 <SettingInput
                   settingKey="slack-channel"
-                  placeholder="#production"
+                  placeholder="C01234ABCDE"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
                 />
@@ -596,9 +605,7 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
             connected={chatAdapter === "mattermost"}
             onConnect={() => saveSetting("chat-adapter", "mattermost")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={() => testChatConnection({ data: { orgId, platform: "mattermost" } })}
           >
             <div className="space-y-2">
               <FieldGroup label="Server URL">
@@ -632,13 +639,11 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="Microsoft Teams"
             icon={<MessageSquare className="w-4 h-4" />}
-            description="Connect a Teams channel via bot webhook"
+            description="Send messages to a Teams channel via webhook (send only)"
             connected={chatAdapter === "teams"}
             onConnect={() => saveSetting("chat-adapter", "teams")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={() => testChatConnection({ data: { orgId, platform: "teams" } })}
           >
             <div className="space-y-2">
               <FieldGroup label="Webhook URL">
@@ -649,6 +654,10 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
                   saveSetting={saveSetting}
                 />
               </FieldGroup>
+              <p className="text-[10px] text-board-muted/60 mt-1">
+                Teams webhook is send-only. Messages sent from Teams will not
+                appear in ShowPilot.
+              </p>
             </div>
           </IntegrationCard>
 
@@ -660,9 +669,7 @@ function IntegrationsSection({ getSetting, saveSetting }: SectionProps) {
             connected={chatAdapter === "discord"}
             onConnect={() => saveSetting("chat-adapter", "discord")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={() => testChatConnection({ data: { orgId, platform: "discord" } })}
           >
             <div className="space-y-2">
               <FieldGroup label="Bot Token">

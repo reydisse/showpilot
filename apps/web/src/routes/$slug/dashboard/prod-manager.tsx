@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
   Users,
   CheckCircle2,
@@ -28,6 +29,7 @@ const DEPT_ORDER: RoleDepartment[] = [
 ];
 
 export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const [members, templates, entries, incidents, cueItems] = await Promise.all([

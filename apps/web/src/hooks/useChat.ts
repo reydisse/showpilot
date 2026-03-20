@@ -1,11 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { ChatMessage, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAdapter, ChatMessage, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAdapterType } from "@/lib/settings";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
+import { MattermostChatAdapter } from "@/lib/adapters/mattermost-chat-adapter";
+import { SlackChatAdapter } from "@/lib/adapters/slack-chat-adapter";
+import { TeamsChatAdapter } from "@/lib/adapters/teams-chat-adapter";
+import { DiscordChatAdapter } from "@/lib/adapters/discord-chat-adapter";
 
 interface UseChatOptions {
   orgId: string;
   /** When true, the chat panel is visible and unread count resets */
   isVisible?: boolean;
+  /** Which adapter to use — defaults to "native" */
+  chatAdapter?: ChatAdapterType;
 }
 
 interface UseChatReturn {
@@ -16,18 +23,32 @@ interface UseChatReturn {
   resetUnread: () => void;
 }
 
+function createAdapter(orgId: string, type: ChatAdapterType): ChatAdapter {
+  switch (type) {
+    case "mattermost":
+      return new MattermostChatAdapter(orgId);
+    case "slack":
+      return new SlackChatAdapter(orgId);
+    case "teams":
+      return new TeamsChatAdapter(orgId);
+    case "discord":
+      return new DiscordChatAdapter(orgId);
+    default:
+      return new NativeChatAdapter(orgId);
+  }
+}
+
 /**
  * useChat — React hook for the ShowPilot chat system.
  *
- * Creates the native chat adapter (future: checks org settings for
- * external integration). Manages WebSocket lifecycle, message state,
- * reconnection, and unread tracking.
+ * Creates the appropriate chat adapter based on org settings.
+ * Manages connection lifecycle, message state, and unread tracking.
  */
-export function useChat({ orgId, isVisible = false }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, chatAdapter = "native" }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
-  const adapterRef = useRef<NativeChatAdapter | null>(null);
+  const adapterRef = useRef<ChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
 
   // Keep the ref in sync
@@ -44,7 +65,11 @@ export function useChat({ orgId, isVisible = false }: UseChatOptions): UseChatRe
   useEffect(() => {
     if (!orgId) return;
 
-    const adapter = new NativeChatAdapter(orgId);
+    // Clear previous messages when switching adapters
+    setMessages([]);
+    setConnectionStatus("disconnected");
+
+    const adapter = createAdapter(orgId, chatAdapter);
     adapterRef.current = adapter;
 
     // Subscribe to messages
@@ -62,22 +87,22 @@ export function useChat({ orgId, isVisible = false }: UseChatOptions): UseChatRe
     });
 
     // Subscribe to status changes
-    const unsubStatus = adapter.onStatusChange((status: ConnectionStatus) => {
+    const unsubStatus = adapter.onStatusChange?.((status: ConnectionStatus) => {
       setConnectionStatus(status);
     });
 
     // Connect
     adapter.connect().catch(() => {
-      // Adapter handles reconnection internally
+      // Adapter handles reconnection/error internally
     });
 
     return () => {
       unsubMessage();
-      unsubStatus();
+      unsubStatus?.();
       adapter.disconnect();
       adapterRef.current = null;
     };
-  }, [orgId]);
+  }, [orgId, chatAdapter]);
 
   const sendMessage = useCallback(
     (text: string, type: MessageType = "text") => {

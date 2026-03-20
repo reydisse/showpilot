@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
   Clock,
@@ -78,6 +79,7 @@ const ADAPTER_FIELDS: Record<string, AdapterField[]> = {
 };
 
 export const Route = createFileRoute("/$slug/dashboard/devices")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const devices = await getDevices({ data: { orgId: context.orgId } });
     return { devices, orgId: context.orgId };

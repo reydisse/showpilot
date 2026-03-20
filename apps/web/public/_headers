@@ -1,0 +1,13 @@
+# Hashed assets — immutable, cache for 1 year
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Static files (logo, manifest, etc.) — cache 1 hour, revalidate
+/*.svg
+  Cache-Control: public, max-age=3600
+/*.png
+  Cache-Control: public, max-age=3600
+/manifest.json
+  Cache-Control: public, max-age=3600
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate

@@ -32,6 +32,26 @@ const config = defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  environments: {
+    client: {
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              // Split heavy vendor libs into their own cacheable chunks
+              if (id.includes('node_modules')) {
+                if (id.includes('better-auth')) return 'vendor-auth'
+                if (id.includes('radix-ui') || id.includes('@radix-ui')) return 'vendor-ui'
+                if (id.includes('framer-motion')) return 'vendor-motion'
+                if (id.includes('date-fns')) return 'vendor-date'
+                if (id.includes('qrcode')) return 'vendor-qrcode'
+              }
+            },
+          },
+        },
+      },
+    },
+  },
 })
 
 export default config

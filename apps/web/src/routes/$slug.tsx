@@ -12,39 +12,61 @@ import {
 } from "@/lib/session";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 
 export const Route = createFileRoute("/$slug")({
+  pendingComponent: OrgPending,
   beforeLoad: async ({ params }) => {
-    // 1. Check session — redirect to login if not authenticated
-    const session = await getSession();
+    let session;
+    try {
+      session = await getSession();
+    } catch {
+      throw redirect({ to: "/login" });
+    }
     if (!session) {
       throw redirect({ to: "/login" });
     }
 
-    // 2. Validate the slug matches a real org
     const org = await getOrgBySlug({ data: params.slug });
     if (!org) {
       throw redirect({ to: "/login" });
     }
 
-    // 3. Set this org as active if it isn't already
     if (session.session.activeOrganizationId !== org.id) {
-      await setActiveOrg({ data: org.id });
+      try {
+        await setActiveOrg({ data: org.id });
+      } catch {
+        // Non-critical — continue with existing session
+      }
     }
 
-    // 4. Get the user's role in this org
-    const role = await getActiveMemberRole();
+    let role = "member";
+    try {
+      role = (await getActiveMemberRole()) as string;
+    } catch {
+      // Fall back to member role
+    }
 
     return {
       user: session.user,
       org,
       orgId: org.id,
       slug: params.slug,
-      role: role as string,
+      role,
     };
   },
   component: OrgLayout,
 });
+
+function OrgPending() {
+  return (
+    <ThemeProvider>
+      <AppShell>
+        <PageSkeleton />
+      </AppShell>
+    </ThemeProvider>
+  );
+}
 
 function OrgLayout() {
   const matchRoute = useMatchRoute();

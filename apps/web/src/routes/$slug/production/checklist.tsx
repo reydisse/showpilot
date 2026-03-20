@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, CheckCircle2, Circle, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 export const Route = createFileRoute("/$slug/production/checklist")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const [templates, entries] = await Promise.all([

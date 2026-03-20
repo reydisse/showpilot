@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useRef } from "react";
 import {
   ChevronLeft,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/graphics";
 
 export const Route = createFileRoute("/$slug/streaming/lt-preview")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const active = await getActiveGraphic({ data: { orgId: context.orgId } });
     return { orgId: context.orgId, activeId: active?.id ?? null };

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useMemo } from "react";
 import { Package, Plus, Search, X, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -25,6 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
 const CATEGORIES = ["Audio", "Video", "Lighting", "Streaming", "Network", "Power", "Cables", "Other"];
 
 export const Route = createFileRoute("/$slug/production/assets")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const equipment = await getEquipment({ data: { orgId: context.orgId } });
     return { equipment: equipment as EquipmentItem[], orgId: context.orgId };

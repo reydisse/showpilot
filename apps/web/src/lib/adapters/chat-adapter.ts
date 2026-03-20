@@ -42,4 +42,7 @@ export interface ChatAdapter {
 
   /** Tear down the connection */
   disconnect(): void;
+
+  /** Subscribe to connection status changes. Returns a cleanup function. */
+  onStatusChange?(callback: (status: ConnectionStatus) => void): () => void;
 }

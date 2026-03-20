@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
   Play,
@@ -60,6 +61,7 @@ function parseStyle(json: string) {
 }
 
 export const Route = createFileRoute("/$slug/streaming/graphics")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const [templates, active] = await Promise.all([
       getGraphicTemplates({ data: { orgId: context.orgId } }),

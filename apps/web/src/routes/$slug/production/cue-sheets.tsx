@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -26,6 +27,7 @@ type CueItem = {
 };
 
 export const Route = createFileRoute("/$slug/production/cue-sheets")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const items = await getCueSheets({ data: { orgId: context.orgId, serviceDate: today } });

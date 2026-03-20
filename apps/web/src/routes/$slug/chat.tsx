@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import { MessageSquare, AlertCircle, Radio, Terminal } from "lucide-react";
 import { getChatMessages, sendChatMessage } from "@/lib/chat";
@@ -13,6 +14,7 @@ const MESSAGE_STYLES: Record<MessageType, { bg: string; text: string; label: str
 };
 
 export const Route = createFileRoute("/$slug/chat")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const messages = await getChatMessages({ data: { orgId: context.orgId, limit: 100 } });
     return { messages, orgId: context.orgId };

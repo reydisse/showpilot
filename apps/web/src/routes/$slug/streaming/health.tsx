@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect } from "react";
 import {
   Activity,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/stream";
 
 export const Route = createFileRoute("/$slug/streaming/health")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const inputs = await getLiveInputs({ data: { orgId: context.orgId } });
     return { inputs, orgId: context.orgId };

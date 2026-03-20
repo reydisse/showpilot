@@ -1,4 +1,5 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
   Mic,
@@ -56,6 +57,7 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 export const Route = createFileRoute("/$slug/dashboard/audio")({
+  pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
     const assignments = await getMicAssignments({

@@ -4,6 +4,7 @@
 	"compatibility_date": "2026-02-28",
 	"compatibility_flags": ["nodejs_compat"],
 	"main": "src/server.ts",
+	"workers_dev": true,
 	"observability": {
 		"enabled": true
 	},
@@ -36,6 +37,12 @@
 			}
 		]
 	},
+	"routes": [
+		{
+			"pattern": "showpilot.tech",
+			"custom_domain": true
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",

@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Flame,
@@ -27,6 +28,7 @@ type CheckInResult = {
 type ViewMode = "code-entry" | "browse-all";
 
 export const Route = createFileRoute("/$slug/checkin")({
+  pendingComponent: () => <BoardSkeleton />,
   loader: async ({ context }) => {
     const members = await getCrewMembers({ data: { orgId: context.orgId } });
     return { members: members as Member[], orgId: context.orgId, slug: context.slug };

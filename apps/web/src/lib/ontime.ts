@@ -3,21 +3,21 @@ import { getPrisma } from "@/lib/db";
 import type { OntimeTimer, OntimeEvent, OntimeRuntimeState } from "@/types/ontime";
 
 /**
- * Get the OnTime device configuration for an org.
- * Returns the base URL or null if no OnTime device is configured.
+ * Get the OnTime configuration for an org.
+ * Reads from app_setting where the Settings page stores it.
  */
 export const getOntimeConfig = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
     const prisma = getPrisma();
-    const device = await prisma.device.findFirst({
-      where: { orgId: data.orgId, adapterType: "ontime", enabled: true },
-    });
-    if (!device) return null;
-    const settings = JSON.parse(device.settings || "{}");
-    const host = settings.host || "localhost";
-    const port = settings.port || 4001;
-    return { url: `http://${host}:${port}` };
+    const [adapterSetting, urlSetting] = await Promise.all([
+      prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: "rundown-adapter" } } }),
+      prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: "ontime-url" } } }),
+    ]);
+    if (adapterSetting?.value !== "ontime" || !urlSetting?.value) return null;
+    // Normalize URL — strip trailing slash
+    const url = urlSetting.value.replace(/\/+$/, "");
+    return { url };
   });
 
 /**
@@ -27,12 +27,9 @@ export const getOntimeConfig = createServerFn({ method: "GET" })
 export const getOntimeState = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<OntimeRuntimeState> => {
-    const prisma = getPrisma();
-    const device = await prisma.device.findFirst({
-      where: { orgId: data.orgId, adapterType: "ontime", enabled: true },
-    });
+    const config = await getOntimeConfig({ data: { orgId: data.orgId } });
 
-    if (!device) {
+    if (!config) {
       return {
         timer: defaultTimer,
         eventNow: null,
@@ -43,35 +40,46 @@ export const getOntimeState = createServerFn({ method: "GET" })
       };
     }
 
-    const settings = JSON.parse(device.settings || "{}");
-    const host = settings.host || "localhost";
-    const port = settings.port || 4001;
-    const baseUrl = `http://${host}:${port}`;
+    const baseUrl = config.url;
 
     try {
-      const [timerRes, nowRes, nextRes, rundownRes] = await Promise.all([
-        fetch(`${baseUrl}/api/v1/timer`).then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetch(`${baseUrl}/api/v1/event/now`).then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetch(`${baseUrl}/api/v1/event/next`).then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetch(`${baseUrl}/api/v1/rundown`).then((r) => r.ok ? r.json() : null).catch(() => null),
+      // OnTime v3 uses /api/poll for live state and /data/rundown for event list
+      const [pollRes, rundownRes] = await Promise.all([
+        fetch(`${baseUrl}/api/poll`).then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${baseUrl}/data/rundown`).then((r) => r.ok ? r.json() : null).catch(() => null),
       ]);
 
-      const timer: OntimeTimer = timerRes ?? defaultTimer;
-      const eventNow: OntimeEvent | null = nowRes ?? null;
-      const eventNext: OntimeEvent | null = nextRes ?? null;
-      const clock = Date.now(); // Use server time as clock reference
+      const poll = pollRes?.payload;
+      if (!poll) {
+        return { timer: defaultTimer, eventNow: null, eventNext: null, clock: 0, events: [], connected: false };
+      }
 
-      // Extract events from rundown
+      const timer: OntimeTimer = {
+        addedTime: poll.timer?.addedTime ?? 0,
+        current: poll.timer?.current ?? null,
+        duration: poll.timer?.duration ?? null,
+        elapsed: poll.timer?.elapsed ?? null,
+        playback: poll.timer?.playback ?? "stop",
+        startedAt: poll.timer?.startedAt ?? null,
+        expectedFinish: poll.timer?.expectedFinish ?? null,
+        finishedAt: poll.timer?.finishedAt ?? null,
+      };
+      const eventNow: OntimeEvent | null = poll.eventNow ?? null;
+      const eventNext: OntimeEvent | null = poll.eventNext ?? null;
+      const clock = poll.clock ?? Date.now();
+
+      // Extract events from rundown — /data/rundown returns a flat array
       let events: OntimeEvent[] = [];
       if (rundownRes) {
-        // OnTime v3 rundown format: { order: [...ids], entries: { id: entry } }
-        if (rundownRes.order && rundownRes.entries) {
+        if (Array.isArray(rundownRes)) {
+          events = rundownRes.filter(
+            (e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip
+          );
+        } else if (rundownRes.order && rundownRes.entries) {
+          // Fallback: v3 format with order + entries map
           events = rundownRes.order
             .map((id: string) => rundownRes.entries[id])
             .filter((e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip);
-        } else if (Array.isArray(rundownRes)) {
-          // OnTime v2 format: array of entries
-          events = rundownRes.filter((e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip);
         }
       }
 

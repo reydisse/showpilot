@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head><title>Generate ShowPilot PWA Icons</title></head>
+<body style="background:#222;color:#fff;font-family:sans-serif;padding:20px">
+<h2>ShowPilot Icon Generator</h2>
+<p>Right-click each image and "Save Image As" to the public/ folder.</p>
+<div id="output" style="display:flex;gap:20px;flex-wrap:wrap;margin-top:20px"></div>
+<script>
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <path d="M24 4A20 20 0 1 1 4 24" stroke="url(#ring)" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  <path d="M24 8L30 26H18L24 8Z" fill="url(#north)"/>
+  <path d="M24 40L18 26H30L24 40Z" fill="url(#south)"/>
+  <defs>
+    <linearGradient id="ring" x1="4" y1="24" x2="44" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFC107"/><stop offset="1" stop-color="#E65100"/>
+    </linearGradient>
+    <linearGradient id="north" x1="24" y1="8" x2="24" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFC107"/><stop offset="1" stop-color="#FF8F00"/>
+    </linearGradient>
+    <linearGradient id="south" x1="24" y1="26" x2="24" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E65100"/><stop offset="1" stop-color="#BF360C"/>
+    </linearGradient>
+  </defs>
+</svg>`;
+
+const sizes = [
+  { name: 'logo192.png', size: 192, pad: 16, bg: null },
+  { name: 'logo512.png', size: 512, pad: 40, bg: null },
+  { name: 'logo-maskable-192.png', size: 192, pad: 38, bg: '#0a0a0a' },
+  { name: 'logo-maskable-512.png', size: 512, pad: 100, bg: '#0a0a0a' },
+];
+
+const out = document.getElementById('output');
+
+sizes.forEach(({ name, size, pad, bg }) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  if (bg) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  const img = new Image();
+  const blob = new Blob([SVG], { type: 'image/svg+xml' });
+  img.onload = () => {
+    ctx.drawImage(img, pad, pad, size - pad * 2, size - pad * 2);
+    const div = document.createElement('div');
+    div.style.textAlign = 'center';
+    const label = document.createElement('p');
+    label.textContent = name + ' (' + size + 'x' + size + ')';
+    label.style.fontSize = '12px';
+    label.style.marginBottom = '4px';
+    div.appendChild(label);
+
+    // Show as downloadable image
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = name;
+    link.style.display = 'block';
+    const preview = document.createElement('img');
+    preview.src = canvas.toDataURL('image/png');
+    preview.style.width = Math.min(size, 200) + 'px';
+    preview.style.border = '1px solid #444';
+    preview.style.borderRadius = '12px';
+    link.appendChild(preview);
+    div.appendChild(link);
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Download ' + name;
+    btn.style.marginTop = '8px';
+    btn.style.padding = '6px 16px';
+    btn.style.borderRadius = '8px';
+    btn.style.background = '#FFC107';
+    btn.style.color = '#000';
+    btn.style.fontWeight = 'bold';
+    btn.style.border = 'none';
+    btn.style.cursor = 'pointer';
+    btn.onclick = () => link.click();
+    div.appendChild(btn);
+
+    out.appendChild(div);
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(blob);
+});
+</script>
+</body>
+</html>

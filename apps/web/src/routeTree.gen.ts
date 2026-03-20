@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SuperadminRouteImport } from './routes/superadmin'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
@@ -17,8 +18,10 @@ import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
+import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthInvitationsRouteImport } from './routes/_auth/invitations'
+import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
 import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
@@ -44,6 +47,11 @@ import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboa
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 
+const SuperadminRoute = SuperadminRouteImport.update({
+  id: '/superadmin',
+  path: '/superadmin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
@@ -83,6 +91,11 @@ const AuthSetupRoute = AuthSetupRouteImport.update({
   path: '/setup',
   getParentRoute: () => AuthRoute,
 } as any)
+const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => AuthRoute,
+} as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -91,6 +104,11 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthInvitationsRoute = AuthInvitationsRouteImport.update({
   id: '/invitations',
   path: '/invitations',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => AuthRoute,
 } as any)
 const SlugTeamRoute = SlugTeamRouteImport.update({
@@ -220,6 +238,7 @@ const SlugStreamingGraphicsOverlayRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
+  '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -229,8 +248,10 @@ export interface FileRoutesByFullPath {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/forgot-password': typeof AuthForgotPasswordRoute
   '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
+  '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -254,6 +275,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -263,8 +285,10 @@ export interface FileRoutesByTo {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/forgot-password': typeof AuthForgotPasswordRoute
   '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
+  '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -291,6 +315,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -300,8 +325,10 @@ export interface FileRoutesById {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/_auth/forgot-password': typeof AuthForgotPasswordRoute
   '/_auth/invitations': typeof AuthInvitationsRoute
   '/_auth/login': typeof AuthLoginRoute
+  '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/setup': typeof AuthSetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -328,6 +355,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$slug'
+    | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -337,8 +365,10 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/forgot-password'
     | '/invitations'
     | '/login'
+    | '/reset-password'
     | '/setup'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -362,6 +392,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -371,8 +402,10 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/forgot-password'
     | '/invitations'
     | '/login'
+    | '/reset-password'
     | '/setup'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -398,6 +431,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/_auth'
+    | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -407,8 +441,10 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/_auth/forgot-password'
     | '/_auth/invitations'
     | '/_auth/login'
+    | '/_auth/reset-password'
     | '/_auth/setup'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -435,6 +471,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  SuperadminRoute: typeof SuperadminRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
@@ -444,6 +481,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/superadmin': {
+      id: '/superadmin'
+      path: '/superadmin'
+      fullPath: '/superadmin'
+      preLoaderRoute: typeof SuperadminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth': {
       id: '/_auth'
       path: ''
@@ -500,6 +544,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthSetupRouteImport
       parentRoute: typeof AuthRoute
     }
+    '/_auth/reset-password': {
+      id: '/_auth/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof AuthResetPasswordRouteImport
+      parentRoute: typeof AuthRoute
+    }
     '/_auth/login': {
       id: '/_auth/login'
       path: '/login'
@@ -512,6 +563,13 @@ declare module '@tanstack/react-router' {
       path: '/invitations'
       fullPath: '/invitations'
       preLoaderRoute: typeof AuthInvitationsRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/forgot-password': {
+      id: '/_auth/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof AuthForgotPasswordRouteImport
       parentRoute: typeof AuthRoute
     }
     '/$slug/team': {
@@ -751,14 +809,18 @@ const SlugRouteChildren: SlugRouteChildren = {
 const SlugRouteWithChildren = SlugRoute._addFileChildren(SlugRouteChildren)
 
 interface AuthRouteChildren {
+  AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthInvitationsRoute: typeof AuthInvitationsRoute
   AuthLoginRoute: typeof AuthLoginRoute
+  AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   AuthSetupRoute: typeof AuthSetupRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
+  AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthInvitationsRoute: AuthInvitationsRoute,
   AuthLoginRoute: AuthLoginRoute,
+  AuthResetPasswordRoute: AuthResetPasswordRoute,
   AuthSetupRoute: AuthSetupRoute,
 }
 
@@ -768,6 +830,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  SuperadminRoute: SuperadminRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
