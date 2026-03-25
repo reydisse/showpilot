@@ -129,20 +129,52 @@ export const getAllInvitations = createServerFn({ method: "GET" }).handler(
   },
 );
 
+// ─── Waitlist ───────────────────────────────────────────
+
+export const getWaitlistSignups = createServerFn({ method: "GET" }).handler(
+  async () => {
+    await requireSuperAdmin();
+    const prisma = getPrisma();
+    return await prisma.waitlistSignup.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+  },
+);
+
+export const sendWaitlistInvite = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string; email: string; name: string }) => data)
+  .handler(async ({ data }) => {
+    await requireSuperAdmin();
+    const { sendEmail, waitlistInviteEmail } = await import("@/lib/email");
+    const signupUrl = "https://showpilot.tech/login";
+    const { subject, html } = waitlistInviteEmail(data.name, signupUrl);
+    await sendEmail({ to: data.email, subject, html });
+    return { sent: true };
+  });
+
+export const deleteWaitlistSignup = createServerFn({ method: "POST" })
+  .inputValidator((data: { id: string }) => data)
+  .handler(async ({ data }) => {
+    await requireSuperAdmin();
+    const prisma = getPrisma();
+    await prisma.waitlistSignup.delete({ where: { id: data.id } });
+  });
+
 // ─── Platform Stats ─────────────────────────────────────────
 
 export const getPlatformStats = createServerFn({ method: "GET" }).handler(
   async () => {
     await requireSuperAdmin();
     const prisma = getPrisma();
-    const [userCount, orgCount, memberCount, sessionCount, invitationCount] =
+    const [userCount, orgCount, memberCount, sessionCount, invitationCount, waitlistCount] =
       await Promise.all([
         prisma.user.count(),
         prisma.organization.count(),
         prisma.member.count(),
         prisma.session.count(),
         prisma.invitation.count({ where: { status: "pending" } }),
+        prisma.waitlistSignup.count(),
       ]);
-    return { userCount, orgCount, memberCount, sessionCount, invitationCount };
+    return { userCount, orgCount, memberCount, sessionCount, invitationCount, waitlistCount };
   },
 );

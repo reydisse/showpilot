@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Users,
@@ -9,6 +9,9 @@ import {
   Monitor,
   Clock,
   ChevronDown,
+  ListChecks,
+  Send,
+  Trash2,
 } from "lucide-react";
 import { getSession } from "@/lib/session";
 import {
@@ -19,6 +22,9 @@ import {
   getRecentSessions,
   getAllInvitations,
   getPlatformStats,
+  getWaitlistSignups,
+  sendWaitlistInvite,
+  deleteWaitlistSignup,
 } from "@/lib/superadmin";
 
 export const Route = createFileRoute("/superadmin")({
@@ -35,7 +41,7 @@ export const Route = createFileRoute("/superadmin")({
     return { user: session.user };
   },
   loader: async () => {
-    const [stats, users, orgs, members, sessions, invitations] =
+    const [stats, users, orgs, members, sessions, invitations, waitlist] =
       await Promise.all([
         getPlatformStats(),
         getAllUsers(),
@@ -43,8 +49,9 @@ export const Route = createFileRoute("/superadmin")({
         getAllMembers(),
         getRecentSessions(),
         getAllInvitations(),
+        getWaitlistSignups(),
       ]);
-    return { stats, users, orgs, members, sessions, invitations };
+    return { stats, users, orgs, members, sessions, invitations, waitlist };
   },
   component: SuperAdminDashboard,
 });
@@ -96,12 +103,15 @@ function formatDate(d: string | Date): string {
   });
 }
 
-type Tab = "users" | "orgs" | "sessions" | "invitations";
+type Tab = "waitlist" | "users" | "orgs" | "sessions" | "invitations";
 
 function SuperAdminDashboard() {
-  const { stats, users, orgs, members, sessions, invitations } =
+  const { stats, users, orgs, members, sessions, invitations, waitlist } =
     Route.useLoaderData();
-  const [tab, setTab] = useState<Tab>("users");
+  const [tab, setTab] = useState<Tab>("waitlist");
+  const [sendingInvite, setSendingInvite] = useState<string | null>(null);
+  const [sentInvites, setSentInvites] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
   // Build user → orgs map
   const userOrgs = new Map<string, { orgName: string; role: string }[]>();
@@ -111,12 +121,31 @@ function SuperAdminDashboard() {
     userOrgs.set(m.userId, list);
   }
 
-  const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
+  const tabs: { id: Tab; label: string; icon: React.ElementType; count?: number }[] = [
+    { id: "waitlist", label: "Waitlist", icon: ListChecks, count: waitlist.length },
     { id: "users", label: "Users", icon: Users },
     { id: "orgs", label: "Organizations", icon: Building2 },
     { id: "sessions", label: "Sessions", icon: Activity },
     { id: "invitations", label: "Invitations", icon: Mail },
   ];
+
+  async function handleSendInvite(signup: { id: string; email: string; name: string }) {
+    setSendingInvite(signup.id);
+    try {
+      await sendWaitlistInvite({ data: signup });
+      setSentInvites((prev) => new Set(prev).add(signup.id));
+    } catch (err) {
+      alert("Failed to send invite: " + (err instanceof Error ? err.message : "Unknown error"));
+    } finally {
+      setSendingInvite(null);
+    }
+  }
+
+  async function handleDeleteSignup(id: string) {
+    if (!confirm("Remove this signup from the waitlist?")) return;
+    await deleteWaitlistSignup({ data: { id } });
+    router.invalidate();
+  }
 
   return (
     <div className="min-h-screen bg-board-bg">
@@ -135,7 +164,8 @@ function SuperAdminDashboard() {
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <StatCard label="Waitlist" value={stats.waitlistCount} icon={ListChecks} />
           <StatCard label="Users" value={stats.userCount} icon={Users} />
           <StatCard label="Organizations" value={stats.orgCount} icon={Building2} />
           <StatCard label="Members" value={stats.memberCount} icon={Users} />
@@ -159,12 +189,86 @@ function SuperAdminDashboard() {
               >
                 <Icon className="w-4 h-4" />
                 {t.label}
+                {t.count != null && t.count > 0 && (
+                  <span className="ml-1 text-[10px] font-medium bg-fire-500/15 text-fire-500 px-1.5 py-0.5 rounded-full">
+                    {t.count}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
 
         {/* Content */}
+        {tab === "waitlist" && (
+          <div className="space-y-2">
+            <p className="text-xs text-board-muted mb-3">
+              {waitlist.length} signup{waitlist.length !== 1 ? "s" : ""} on the waitlist
+            </p>
+            {waitlist.length === 0 ? (
+              <div className="rounded-xl border border-board-border bg-board-card p-8 text-center">
+                <ListChecks className="w-8 h-8 text-board-muted/30 mx-auto mb-2" />
+                <p className="text-sm text-board-muted">No waitlist signups yet</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-board-border overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-board-card border-b border-board-border text-left">
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider">Name</th>
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider">Email</th>
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider">Role</th>
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider">Organization</th>
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider">Signed Up</th>
+                        <th className="px-4 py-3 text-xs font-medium text-board-muted uppercase tracking-wider text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-board-border">
+                      {waitlist.map((signup) => (
+                        <tr key={signup.id} className="hover:bg-board-card/50">
+                          <td className="px-4 py-3 font-medium text-board-text">
+                            {signup.name || <span className="text-board-muted">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-board-muted">{signup.email}</td>
+                          <td className="px-4 py-3 text-board-muted text-xs">{signup.role || "—"}</td>
+                          <td className="px-4 py-3 text-board-muted text-xs">{signup.orgName || "—"}</td>
+                          <td className="px-4 py-3 text-board-muted text-xs tabular-nums">{formatDate(signup.createdAt)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {sentInvites.has(signup.id) ? (
+                                <span className="text-[10px] font-medium uppercase px-2 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20">
+                                  Invite Sent
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleSendInvite({ id: signup.id, email: signup.email, name: signup.name })}
+                                  disabled={sendingInvite === signup.id}
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                                >
+                                  <Send className="w-3 h-3" />
+                                  {sendingInvite === signup.id ? "Sending..." : "Send Invite"}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteSignup(signup.id)}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title="Remove from waitlist"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "users" && (
           <div className="space-y-2">
             <p className="text-xs text-board-muted mb-3">

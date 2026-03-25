@@ -64,6 +64,68 @@ export function passwordResetEmail(resetUrl: string) {
   };
 }
 
+export function waitlistConfirmationEmail(name?: string) {
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  return {
+    subject: "You're on the ShowPilot waitlist!",
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+        <h2 style="color: #f5f5f5; font-size: 24px; margin-bottom: 8px;">
+          <span style="color: #FFC107;">Show</span>Pilot
+        </h2>
+        <p style="color: #a0a0a0; font-size: 14px; margin-bottom: 32px;">Waitlist Confirmation</p>
+        <p style="color: #d4d4d4; font-size: 15px; line-height: 1.6;">${greeting}</p>
+        <p style="color: #d4d4d4; font-size: 15px; line-height: 1.6;">
+          Thanks for signing up for ShowPilot! We're building the operating system for live production — rundowns, timers, device control, lower thirds, and production chat, all in one platform.
+        </p>
+        <p style="color: #d4d4d4; font-size: 15px; line-height: 1.6;">
+          We're onboarding teams in waves. When it's your turn, we'll send you a link to create your account and set up your organization.
+        </p>
+        <div style="margin: 32px 0; padding: 20px; border-radius: 12px; border: 1px solid #333; background: #1a1a1a;">
+          <p style="color: #FFC107; font-size: 13px; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;">What's coming</p>
+          <ul style="color: #d4d4d4; font-size: 14px; line-height: 1.8; padding-left: 18px; margin: 0;">
+            <li>Drag-and-drop rundowns with live timers</li>
+            <li>Control your audio console, video switcher &amp; lights</li>
+            <li>Push lower thirds to OBS and vMix</li>
+            <li>Production chat with your team</li>
+            <li>Connect ProPresenter, OnTime, Slack, and more</li>
+          </ul>
+        </div>
+        <p style="color: #888; font-size: 13px; line-height: 1.5;">Sit tight — we'll be in touch soon.</p>
+        <hr style="border: none; border-top: 1px solid #333; margin: 32px 0;" />
+        <p style="color: #666; font-size: 12px;">ShowPilot — The operating system for live production</p>
+      </div>
+    `,
+  };
+}
+
+export function waitlistInviteEmail(name: string | undefined, signupUrl: string) {
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  return {
+    subject: "Your ShowPilot access is ready!",
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+        <h2 style="color: #f5f5f5; font-size: 24px; margin-bottom: 8px;">
+          <span style="color: #FFC107;">Show</span>Pilot
+        </h2>
+        <p style="color: #a0a0a0; font-size: 14px; margin-bottom: 32px;">You're In!</p>
+        <p style="color: #d4d4d4; font-size: 15px; line-height: 1.6;">${greeting}</p>
+        <p style="color: #d4d4d4; font-size: 15px; line-height: 1.6;">
+          Great news — your early access to ShowPilot is ready. Click below to create your account and set up your production team.
+        </p>
+        <a href="${signupUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 32px; background: linear-gradient(135deg, #FFC107, #FF8F00); color: #000; font-weight: 600; text-decoration: none; border-radius: 8px; font-size: 15px;">
+          Get Started
+        </a>
+        <p style="color: #888; font-size: 13px; line-height: 1.5;">
+          Once you're in, you can invite your team, connect your devices, and build your first runsheet.
+        </p>
+        <hr style="border: none; border-top: 1px solid #333; margin: 32px 0;" />
+        <p style="color: #666; font-size: 12px;">ShowPilot — The operating system for live production</p>
+      </div>
+    `,
+  };
+}
+
 export function invitationEmail(orgName: string, inviterName: string, inviteUrl: string) {
   return {
     subject: `You're invited to join ${orgName} on ShowPilot`,

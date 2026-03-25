@@ -386,6 +386,17 @@ model ChatMessage {
   @@map("chat_message")
 }
 
+model WaitlistSignup {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String   @default("")
+  role      String   @default("")
+  orgName   String   @default("")
+  createdAt DateTime @default(now())
+
+  @@map("waitlist_signup")
+}
+
 model OrganizationRole {
   id             String       @id
   organizationId String

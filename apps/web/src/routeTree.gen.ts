@@ -17,7 +17,6 @@ import { Route as SlugIndexRouteImport } from './routes/$slug/index'
 import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
-import { Route as ApiDebugRouteImport } from './routes/api/debug'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -32,6 +31,7 @@ import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
+import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
@@ -85,11 +85,6 @@ const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
 const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   id: '/invite/$invitationId',
   path: '/invite/$invitationId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDebugRoute = ApiDebugRouteImport.update({
-  id: '/api/debug',
-  path: '/api/debug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
@@ -161,6 +156,11 @@ const SlugAdminRoute = SlugAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => SlugRoute,
+} as any)
+const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
+  id: '/api/waitlist/',
+  path: '/api/waitlist/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
   id: '/api/overlay/$orgSlug',
@@ -259,7 +259,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
-  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -278,6 +277,7 @@ export interface FileRoutesByFullPath {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesByTo {
@@ -297,7 +297,6 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
-  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -316,6 +315,7 @@ export interface FileRoutesByTo {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesById {
@@ -338,7 +338,6 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/setup': typeof AuthSetupRoute
-  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -357,6 +356,7 @@ export interface FileRoutesById {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRouteTypes {
@@ -379,7 +379,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
-    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -398,6 +397,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
+    | '/api/waitlist/'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -417,7 +417,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
-    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -436,6 +435,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
+    | '/api/waitlist'
     | '/$slug/streaming/graphics/overlay'
   id:
     | '__root__'
@@ -457,7 +457,6 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/reset-password'
     | '/_auth/setup'
-    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -476,6 +475,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
+    | '/api/waitlist/'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesById: FileRoutesById
 }
@@ -484,12 +484,12 @@ export interface RootRouteChildren {
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   SuperadminRoute: typeof SuperadminRoute
-  ApiDebugRoute: typeof ApiDebugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
+  ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -548,13 +548,6 @@ declare module '@tanstack/react-router' {
       path: '/invite/$invitationId'
       fullPath: '/invite/$invitationId'
       preLoaderRoute: typeof InviteInvitationIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/debug': {
-      id: '/api/debug'
-      path: '/api/debug'
-      fullPath: '/api/debug'
-      preLoaderRoute: typeof ApiDebugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/setup': {
@@ -654,6 +647,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/admin'
       preLoaderRoute: typeof SlugAdminRouteImport
       parentRoute: typeof SlugRoute
+    }
+    '/api/waitlist/': {
+      id: '/api/waitlist/'
+      path: '/api/waitlist'
+      fullPath: '/api/waitlist/'
+      preLoaderRoute: typeof ApiWaitlistIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/overlay/$orgSlug': {
       id: '/api/overlay/$orgSlug'
@@ -851,12 +851,12 @@ const rootRouteChildren: RootRouteChildren = {
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   SuperadminRoute: SuperadminRoute,
-  ApiDebugRoute: ApiDebugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
+  ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
