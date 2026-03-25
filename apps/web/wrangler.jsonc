@@ -41,6 +41,10 @@
 		{
 			"pattern": "showpilot.tech",
 			"custom_domain": true
+		},
+		{
+			"pattern": "admin.showpilot.tech",
+			"custom_domain": true
 		}
 	],
 	"migrations": [

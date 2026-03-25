@@ -17,6 +17,7 @@ import { Route as SlugIndexRouteImport } from './routes/$slug/index'
 import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
+import { Route as ApiDebugRouteImport } from './routes/api/debug'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -84,6 +85,11 @@ const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
 const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   id: '/invite/$invitationId',
   path: '/invite/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDebugRoute = ApiDebugRouteImport.update({
+  id: '/api/debug',
+  path: '/api/debug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
@@ -253,6 +259,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -290,6 +297,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -330,6 +338,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/setup': typeof AuthSetupRoute
+  '/api/debug': typeof ApiDebugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -370,6 +379,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -407,6 +417,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -446,6 +457,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/reset-password'
     | '/_auth/setup'
+    | '/api/debug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -472,6 +484,7 @@ export interface RootRouteChildren {
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   SuperadminRoute: typeof SuperadminRoute
+  ApiDebugRoute: typeof ApiDebugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
@@ -535,6 +548,13 @@ declare module '@tanstack/react-router' {
       path: '/invite/$invitationId'
       fullPath: '/invite/$invitationId'
       preLoaderRoute: typeof InviteInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/debug': {
+      id: '/api/debug'
+      path: '/api/debug'
+      fullPath: '/api/debug'
+      preLoaderRoute: typeof ApiDebugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/setup': {
@@ -831,6 +851,7 @@ const rootRouteChildren: RootRouteChildren = {
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   SuperadminRoute: SuperadminRoute,
+  ApiDebugRoute: ApiDebugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,

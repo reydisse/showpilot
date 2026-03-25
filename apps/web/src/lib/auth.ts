@@ -9,6 +9,7 @@ import {
   passwordResetEmail,
   invitationEmail,
 } from "@/lib/email";
+import { env } from "cloudflare:workers";
 
 const orgConfig = {
   allowUserToCreateOrganization: true,
@@ -65,12 +66,27 @@ export const auth = betterAuth({
 
 // Runtime instance — creates a fresh Better Auth backed by D1 via Prisma.
 // Called per-request in Cloudflare Workers since env bindings are request-scoped.
+//
+// IMPORTANT: We must explicitly pass `baseURL` and `secret` from the Cloudflare
+// Workers env bindings. Better Auth tries to read these from `process.env`, but
+// Cloudflare Workers do NOT populate `process.env` with secrets/bindings —
+// they are only available via `import { env } from "cloudflare:workers"`.
+// Without explicit values, Better Auth falls back to a default secret and
+// cannot determine the base URL, which causes cookie signing mismatches and
+// the __Secure- cookie prefix to be applied inconsistently.
 export function getAuth() {
   const prisma = getPrisma();
+  const cfEnv = env as unknown as Record<string, unknown>;
+  const secret = (cfEnv.BETTER_AUTH_SECRET as string) || undefined;
+  const baseURL = (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
+
   return betterAuth({
+    baseURL,
+    secret,
     trustedOrigins: [
       "http://192.168.2.73:5173",
       "https://showpilot.tech",
+      "https://admin.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),

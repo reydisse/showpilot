@@ -3,6 +3,15 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 
+// ─── Request Info ────────────────────────────────────────
+
+export const getRequestHost = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const headers = getRequestHeaders();
+    return headers.get("host") || "";
+  }
+);
+
 // ─── Session ─────────────────────────────────────────────
 
 export const getSession = createServerFn({ method: "GET" }).handler(

@@ -68,21 +68,16 @@ function LoginPage() {
           name,
         });
         if (error) throw new Error(error.message);
-        // Check if user has pending invitations
-        const invitations = await getUserInvitations();
-        if (invitations.length > 0) {
-          navigate({ to: "/invitations" });
-        } else {
-          navigate({ to: "/setup" });
-        }
+        // Full reload to pick up the new session cookie
+        window.location.href = "/";
       } else {
         const { error } = await authClient.signIn.email({
           email,
           password,
         });
         if (error) throw new Error(error.message);
-        // Navigate to root — it will auto-activate existing org
-        navigate({ to: "/" });
+        // Full reload to pick up the new session cookie
+        window.location.href = "/";
       }
     } catch (err) {
       setError(

@@ -45,7 +45,8 @@ function SetupPage() {
         });
       if (setActiveError) throw new Error(setActiveError.message);
 
-      navigate({ to: `/${slug}` });
+      // Full reload to pick up the updated session
+      window.location.href = `/${slug}`;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to create organization"
@@ -78,7 +79,7 @@ function SetupPage() {
           Create your team
         </h2>
         <p className="mb-6 text-center text-sm text-board-muted">
-          This is your church or production team workspace.
+          This is your production team workspace.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
