@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { getSession } from "@/lib/session";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   SUPER_ADMIN_EMAIL,
   getAllUsers,
@@ -112,6 +113,7 @@ function SuperAdminDashboard() {
   const [sendingInvite, setSendingInvite] = useState<string | null>(null);
   const [sentInvites, setSentInvites] = useState<Set<string>>(new Set());
   const router = useRouter();
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   // Build user → orgs map
   const userOrgs = new Map<string, { orgName: string; role: string }[]>();
@@ -142,7 +144,13 @@ function SuperAdminDashboard() {
   }
 
   async function handleDeleteSignup(id: string) {
-    if (!confirm("Remove this signup from the waitlist?")) return;
+    const ok = await confirm({
+      title: "Remove from waitlist",
+      description: "This will permanently remove this signup. This action cannot be undone.",
+      confirmLabel: "Remove",
+      variant: "danger",
+    });
+    if (!ok) return;
     await deleteWaitlistSignup({ data: { id } });
     router.invalidate();
   }
@@ -497,6 +505,7 @@ function SuperAdminDashboard() {
           </div>
         )}
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }

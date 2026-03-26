@@ -6,6 +6,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
+import { sendEmail, waitlistInviteEmail } from "@/lib/email";
 import { getPrisma } from "@/lib/db";
 
 export const SUPER_ADMIN_EMAIL = "reydisse@gmail.com";
@@ -145,7 +146,6 @@ export const sendWaitlistInvite = createServerFn({ method: "POST" })
   .inputValidator((data: { id: string; email: string; name: string }) => data)
   .handler(async ({ data }) => {
     await requireSuperAdmin();
-    const { sendEmail, waitlistInviteEmail } = await import("@/lib/email");
     const signupUrl = "https://showpilot.tech/login";
     const { subject, html } = waitlistInviteEmail(data.name, signupUrl);
     await sendEmail({ to: data.email, subject, html });

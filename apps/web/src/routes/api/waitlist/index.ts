@@ -5,17 +5,23 @@ import { sendEmail, waitlistConfirmationEmail } from "@/lib/email";
 export const Route = createFileRoute("/api/waitlist/")({
   server: {
     handlers: {
+      GET: async ({ request }: { request: Request }) => {
+        // Handle CORS preflight — browsers send OPTIONS but TanStack may route as GET
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+          },
+        });
+      },
       POST: async ({ request }: { request: Request }) => {
-        // CORS headers for cross-origin landing page
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         };
-
-        if (request.method === "OPTIONS") {
-          return new Response(null, { status: 204, headers: corsHeaders });
-        }
 
         try {
           const body = (await request.json()) as {
