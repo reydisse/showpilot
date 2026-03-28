@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
@@ -169,42 +169,47 @@ function DevicesPage() {
                       : "bg-board-card/50 border-board-border/50 opacity-60"
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <CategoryIcon className="w-5 h-5 text-board-muted" />
-                      <div>
-                        <p className="text-sm font-semibold text-board-text">
-                          {device.name}
-                        </p>
-                        <p className="text-[10px] text-board-muted uppercase tracking-wide">
-                          {CATEGORY_LABELS[device.category as DeviceCategory] ?? device.category}
-                        </p>
+                  <Link
+                    to={`/${slug}/dashboard/devices/${device.id}`}
+                    className="block mb-3 group cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <CategoryIcon className="w-5 h-5 text-board-muted group-hover:text-fire-500 transition-colors" />
+                        <div>
+                          <p className="text-sm font-semibold text-board-text group-hover:text-fire-500 transition-colors">
+                            {device.name}
+                          </p>
+                          <p className="text-[10px] text-board-muted uppercase tracking-wide">
+                            {CATEGORY_LABELS[device.category as DeviceCategory] ?? device.category}
+                          </p>
+                        </div>
                       </div>
+                      <span
+                        className={`text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          device.enabled
+                            ? "bg-board-border/50 text-board-muted border-board-border"
+                            : "bg-red-500/15 text-red-400 border-red-500/25"
+                        }`}
+                      >
+                        {device.enabled ? "Ready" : "Disabled"}
+                      </span>
                     </div>
-                    <span
-                      className={`text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                        device.enabled
-                          ? "bg-board-border/50 text-board-muted border-board-border"
-                          : "bg-red-500/15 text-red-400 border-red-500/25"
-                      }`}
-                    >
-                      {device.enabled ? "Ready" : "Disabled"}
-                    </span>
-                  </div>
 
-                  <div className="flex items-center gap-1.5 mb-3">
-                    {device.enabled ? (
-                      <Wifi className="w-3.5 h-3.5 text-board-muted" />
-                    ) : (
-                      <WifiOff className="w-3.5 h-3.5 text-red-400" />
-                    )}
-                    <span className="text-xs text-board-muted">
-                      {device.adapterType
-                        ? ADAPTER_TYPES.find((a) => a.value === device.adapterType)
-                            ?.label ?? device.adapterType
-                        : "No adapter"}
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-1.5">
+                      {device.enabled ? (
+                        <Wifi className="w-3.5 h-3.5 text-board-muted" />
+                      ) : (
+                        <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                      )}
+                      <span className="text-xs text-board-muted">
+                        {device.adapterType
+                          ? ADAPTER_TYPES.find((a) => a.value === device.adapterType)
+                              ?.label ?? device.adapterType
+                          : "No adapter"}
+                      </span>
+                    </div>
+                  </Link>
 
                   <div className="flex items-center gap-1 pt-2 border-t border-board-border">
                     <button
