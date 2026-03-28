@@ -1,0 +1,43 @@
+{
+  "profileVersion": 1,
+  "id": "epson-eb-l1755u",
+  "manufacturer": "Epson",
+  "model": "EB-L1755U",
+  "category": "video",
+  "icon": "Projector",
+  "description": "Epson EB-L1755U laser projector. Power, input, mute, lamp hours via PJLink.",
+  "protocol": "pjlink",
+  "protocolDefaults": { "port": 4352 },
+  "actions": [
+    { "id": "power_on", "label": "Power On", "category": "power", "params": [], "mapping": { "command": "%1POWR 1\r" } },
+    { "id": "power_off", "label": "Power Off", "category": "power", "params": [], "mapping": { "command": "%1POWR 0\r" } },
+    { "id": "set_input", "label": "Set Input", "category": "input",
+      "params": [{ "id": "input", "label": "Input", "type": "select", "options": [
+        { "value": "hdmi1", "label": "HDMI 1" },
+        { "value": "hdmi2", "label": "HDMI 2" },
+        { "value": "vga", "label": "VGA" },
+        { "value": "hdbaset", "label": "HDBaseT" }
+      ]}],
+      "mapping": { "command": "%1INPT {{input}}\r", "paramTransforms": { "input": { "type": "map", "values": { "hdmi1": "31", "hdmi2": "32", "vga": "11", "hdbaset": "52" }}}}
+    },
+    { "id": "mute_video", "label": "Shutter (Mute Video)", "category": "mute",
+      "params": [{ "id": "state", "label": "Mute", "type": "boolean" }],
+      "mapping": { "command": "%1AVMT {{state}}\r", "paramTransforms": { "state": { "type": "map", "values": { "true": "11", "false": "10" }}}}
+    },
+    { "id": "mute_audio", "label": "Mute Audio", "category": "mute",
+      "params": [{ "id": "state", "label": "Mute", "type": "boolean" }],
+      "mapping": { "command": "%1AVMT {{state}}\r", "paramTransforms": { "state": { "type": "map", "values": { "true": "21", "false": "20" }}}}
+    }
+  ],
+  "feedbacks": [
+    { "id": "power_status", "label": "Power", "type": "enum", "defaultValue": "unknown",
+      "mapping": { "pollCommand": "%1POWR ?\r", "pollInterval": 10000, "responsePattern": "%1POWR=(\\d)", "captureGroup": 1,
+        "valueMap": { "0": "standby", "1": "on", "2": "cooling", "3": "warming" }}},
+    { "id": "current_input", "label": "Input", "type": "string", "defaultValue": "",
+      "mapping": { "pollCommand": "%1INPT ?\r", "pollInterval": 15000, "responsePattern": "%1INPT=(\\d+)", "captureGroup": 1,
+        "valueMap": { "31": "HDMI 1", "32": "HDMI 2", "11": "VGA", "52": "HDBaseT" }}},
+    { "id": "lamp_hours", "label": "Lamp Hours", "type": "number", "defaultValue": 0,
+      "mapping": { "pollCommand": "%1LAMP ?\r", "pollInterval": 60000, "responsePattern": "%1LAMP=(\\d+)", "captureGroup": 1 }}
+  ],
+  "quirks": { "commandInterval": 200, "powerOnDelay": 15000 }
+}

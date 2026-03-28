@@ -1,0 +1,37 @@
+{
+  "profileVersion": 1,
+  "id": "panasonic-pt-rz690",
+  "manufacturer": "Panasonic",
+  "model": "PT-RZ690",
+  "category": "video",
+  "icon": "Projector",
+  "description": "Panasonic PT-RZ690 laser projector. PJLink Class 2 with lens control.",
+  "protocol": "pjlink",
+  "protocolDefaults": { "port": 4352 },
+  "actions": [
+    { "id": "power_on", "label": "Power On", "category": "power", "params": [], "mapping": { "command": "%1POWR 1\r" } },
+    { "id": "power_off", "label": "Power Off", "category": "power", "params": [], "mapping": { "command": "%1POWR 0\r" } },
+    { "id": "set_input", "label": "Set Input", "category": "input",
+      "params": [{ "id": "input", "label": "Input", "type": "select", "options": [
+        { "value": "hdmi1", "label": "HDMI 1" },
+        { "value": "hdmi2", "label": "HDMI 2" },
+        { "value": "dvi", "label": "DVI-D" },
+        { "value": "sdi", "label": "SDI" },
+        { "value": "dp", "label": "DisplayPort" }
+      ]}],
+      "mapping": { "command": "%1INPT {{input}}\r", "paramTransforms": { "input": { "type": "map", "values": { "hdmi1": "31", "hdmi2": "32", "dvi": "33", "sdi": "51", "dp": "61" }}}}
+    },
+    { "id": "shutter_close", "label": "Shutter Close", "category": "mute", "params": [], "mapping": { "command": "%1AVMT 11\r" } },
+    { "id": "shutter_open", "label": "Shutter Open", "category": "mute", "params": [], "mapping": { "command": "%1AVMT 10\r" } }
+  ],
+  "feedbacks": [
+    { "id": "power_status", "label": "Power", "type": "enum", "defaultValue": "unknown",
+      "mapping": { "pollCommand": "%1POWR ?\r", "pollInterval": 10000, "responsePattern": "%1POWR=(\\d)", "captureGroup": 1,
+        "valueMap": { "0": "standby", "1": "on", "2": "cooling", "3": "warming" }}},
+    { "id": "current_input", "label": "Input", "type": "string", "defaultValue": "",
+      "mapping": { "pollCommand": "%1INPT ?\r", "pollInterval": 15000, "responsePattern": "%1INPT=(\\d+)", "captureGroup": 1 }},
+    { "id": "lamp_hours", "label": "Light Hours", "type": "number", "defaultValue": 0,
+      "mapping": { "pollCommand": "%1LAMP ?\r", "pollInterval": 60000, "responsePattern": "%1LAMP=(\\d+)", "captureGroup": 1 }}
+  ],
+  "quirks": { "commandInterval": 200, "powerOnDelay": 20000 }
+}

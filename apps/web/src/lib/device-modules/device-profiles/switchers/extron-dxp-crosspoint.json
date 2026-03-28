@@ -1,0 +1,36 @@
+{
+  "profileVersion": 1,
+  "id": "extron-dxp-crosspoint",
+  "manufacturer": "Extron",
+  "model": "DXP Crosspoint",
+  "category": "video",
+  "icon": "Grid3x3",
+  "description": "Extron DXP Crosspoint matrix switcher. Route inputs to outputs via SIS protocol.",
+  "protocol": "tcp-command",
+  "protocolDefaults": { "port": 23, "lineTerminator": "\r\n" },
+  "actions": [
+    { "id": "route", "label": "Route Input → Output", "category": "routing",
+      "params": [
+        { "id": "input", "label": "Input (1-16)", "type": "number", "min": 1, "max": 16, "step": 1 },
+        { "id": "output", "label": "Output (1-16)", "type": "number", "min": 1, "max": 16, "step": 1 }
+      ],
+      "mapping": { "command": "{{input}}*{{output}}!\r\n" }
+    },
+    { "id": "route_all", "label": "Route Input → All Outputs", "category": "routing",
+      "params": [{ "id": "input", "label": "Input (1-16)", "type": "number", "min": 1, "max": 16, "step": 1 }],
+      "mapping": { "command": "{{input}}*!\r\n" }
+    },
+    { "id": "mute_output", "label": "Mute Output", "category": "control",
+      "params": [
+        { "id": "output", "label": "Output (1-16)", "type": "number", "min": 1, "max": 16, "step": 1 },
+        { "id": "state", "label": "Mute", "type": "boolean" }
+      ],
+      "mapping": { "command": "{{output}}*{{state}}B\r\n", "paramTransforms": { "state": { "type": "map", "values": { "true": "1", "false": "0" }}}}
+    }
+  ],
+  "feedbacks": [
+    { "id": "routing_status", "label": "Current Routing", "type": "string", "defaultValue": "",
+      "mapping": { "pollCommand": "0I\r\n", "pollInterval": 10000, "responsePattern": "In(\\d+) All" }}
+  ],
+  "quirks": { "commandInterval": 50 }
+}
