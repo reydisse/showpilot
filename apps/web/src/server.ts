@@ -4,6 +4,7 @@ import handler from "@tanstack/react-start/server-entry";
 export { ChatRelay } from "./durable-objects/ChatRelay";
 export { RundownRelay } from "./durable-objects/RundownRelay";
 export { LowerThirdsRelay } from "./durable-objects/LowerThirdsRelay";
+export { TimecodeRelay } from "./durable-objects/TimecodeRelay";
 
 export default {
   fetch(request: Request, env: unknown, ctx: unknown) {
