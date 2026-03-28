@@ -84,7 +84,10 @@ export function getAuth() {
     baseURL,
     secret,
     trustedOrigins: [
+      "http://localhost:3000",
+      "http://localhost:5173",
       "http://192.168.2.73:5173",
+      "http://192.168.2.108:3000",
       "https://showpilot.tech",
       "https://admin.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",

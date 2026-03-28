@@ -47,6 +47,7 @@ import { Route as SlugDashboardProdManagerRouteImport } from './routes/$slug/das
 import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboard/devices'
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
+import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
 
 const SuperadminRoute = SuperadminRouteImport.update({
   id: '/superadmin',
@@ -240,6 +241,12 @@ const SlugStreamingGraphicsOverlayRoute =
     path: '/overlay',
     getParentRoute: () => SlugStreamingGraphicsRoute,
   } as any)
+const SlugDashboardDevicesDeviceIdRoute =
+  SlugDashboardDevicesDeviceIdRouteImport.update({
+    id: '/$deviceId',
+    path: '/$deviceId',
+    getParentRoute: () => SlugDashboardDevicesRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -264,7 +271,7 @@ export interface FileRoutesByFullPath {
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
-  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
+  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRouteWithChildren
   '/$slug/dashboard/prod-manager': typeof SlugDashboardProdManagerRoute
   '/$slug/dashboard/tech-manager': typeof SlugDashboardTechManagerRoute
   '/$slug/production/assets': typeof SlugProductionAssetsRoute
@@ -278,6 +285,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
+  '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesByTo {
@@ -302,7 +310,7 @@ export interface FileRoutesByTo {
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
-  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
+  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRouteWithChildren
   '/$slug/dashboard/prod-manager': typeof SlugDashboardProdManagerRoute
   '/$slug/dashboard/tech-manager': typeof SlugDashboardTechManagerRoute
   '/$slug/production/assets': typeof SlugProductionAssetsRoute
@@ -316,6 +324,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
+  '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRoutesById {
@@ -343,7 +352,7 @@ export interface FileRoutesById {
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
-  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRoute
+  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRouteWithChildren
   '/$slug/dashboard/prod-manager': typeof SlugDashboardProdManagerRoute
   '/$slug/dashboard/tech-manager': typeof SlugDashboardTechManagerRoute
   '/$slug/production/assets': typeof SlugProductionAssetsRoute
@@ -357,6 +366,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
+  '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
 }
 export interface FileRouteTypes {
@@ -398,6 +408,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist/'
+    | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -436,6 +447,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist'
+    | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
   id:
     | '__root__'
@@ -476,6 +488,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist/'
+    | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
   fileRoutesById: FileRoutesById
 }
@@ -760,8 +773,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugStreamingGraphicsOverlayRouteImport
       parentRoute: typeof SlugStreamingGraphicsRoute
     }
+    '/$slug/dashboard/devices/$deviceId': {
+      id: '/$slug/dashboard/devices/$deviceId'
+      path: '/$deviceId'
+      fullPath: '/$slug/dashboard/devices/$deviceId'
+      preLoaderRoute: typeof SlugDashboardDevicesDeviceIdRouteImport
+      parentRoute: typeof SlugDashboardDevicesRoute
+    }
   }
 }
+
+interface SlugDashboardDevicesRouteChildren {
+  SlugDashboardDevicesDeviceIdRoute: typeof SlugDashboardDevicesDeviceIdRoute
+}
+
+const SlugDashboardDevicesRouteChildren: SlugDashboardDevicesRouteChildren = {
+  SlugDashboardDevicesDeviceIdRoute: SlugDashboardDevicesDeviceIdRoute,
+}
+
+const SlugDashboardDevicesRouteWithChildren =
+  SlugDashboardDevicesRoute._addFileChildren(SlugDashboardDevicesRouteChildren)
 
 interface SlugStreamingGraphicsRouteChildren {
   SlugStreamingGraphicsOverlayRoute: typeof SlugStreamingGraphicsOverlayRoute
@@ -788,7 +819,7 @@ interface SlugRouteChildren {
   SlugTeamRoute: typeof SlugTeamRoute
   SlugIndexRoute: typeof SlugIndexRoute
   SlugDashboardAudioRoute: typeof SlugDashboardAudioRoute
-  SlugDashboardDevicesRoute: typeof SlugDashboardDevicesRoute
+  SlugDashboardDevicesRoute: typeof SlugDashboardDevicesRouteWithChildren
   SlugDashboardProdManagerRoute: typeof SlugDashboardProdManagerRoute
   SlugDashboardTechManagerRoute: typeof SlugDashboardTechManagerRoute
   SlugProductionAssetsRoute: typeof SlugProductionAssetsRoute
@@ -813,7 +844,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugTeamRoute: SlugTeamRoute,
   SlugIndexRoute: SlugIndexRoute,
   SlugDashboardAudioRoute: SlugDashboardAudioRoute,
-  SlugDashboardDevicesRoute: SlugDashboardDevicesRoute,
+  SlugDashboardDevicesRoute: SlugDashboardDevicesRouteWithChildren,
   SlugDashboardProdManagerRoute: SlugDashboardProdManagerRoute,
   SlugDashboardTechManagerRoute: SlugDashboardTechManagerRoute,
   SlugProductionAssetsRoute: SlugProductionAssetsRoute,
