@@ -22,6 +22,7 @@ import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-pass
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AuthInvitationsRouteImport } from './routes/_auth/invitations'
 import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
+import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
 import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
@@ -112,6 +113,11 @@ const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
   getParentRoute: () => AuthRoute,
+} as any)
+const SlugTimecodeRoute = SlugTimecodeRouteImport.update({
+  id: '/timecode',
+  path: '/timecode',
+  getParentRoute: () => SlugRoute,
 } as any)
 const SlugTeamRoute = SlugTeamRouteImport.update({
   id: '/team',
@@ -261,6 +267,7 @@ export interface FileRoutesByFullPath {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/$slug/timecode': typeof SlugTimecodeRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
   '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
@@ -300,6 +307,7 @@ export interface FileRoutesByTo {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/$slug/timecode': typeof SlugTimecodeRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
   '/invitations': typeof AuthInvitationsRoute
   '/login': typeof AuthLoginRoute
@@ -342,6 +350,7 @@ export interface FileRoutesById {
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
+  '/$slug/timecode': typeof SlugTimecodeRoute
   '/_auth/forgot-password': typeof AuthForgotPasswordRoute
   '/_auth/invitations': typeof AuthInvitationsRoute
   '/_auth/login': typeof AuthLoginRoute
@@ -384,6 +393,7 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/$slug/timecode'
     | '/forgot-password'
     | '/invitations'
     | '/login'
@@ -423,6 +433,7 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/$slug/timecode'
     | '/forgot-password'
     | '/invitations'
     | '/login'
@@ -464,6 +475,7 @@ export interface FileRouteTypes {
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
+    | '/$slug/timecode'
     | '/_auth/forgot-password'
     | '/_auth/invitations'
     | '/_auth/login'
@@ -597,6 +609,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/forgot-password'
       preLoaderRoute: typeof AuthForgotPasswordRouteImport
       parentRoute: typeof AuthRoute
+    }
+    '/$slug/timecode': {
+      id: '/$slug/timecode'
+      path: '/timecode'
+      fullPath: '/$slug/timecode'
+      preLoaderRoute: typeof SlugTimecodeRouteImport
+      parentRoute: typeof SlugRoute
     }
     '/$slug/team': {
       id: '/$slug/team'
@@ -817,6 +836,7 @@ interface SlugRouteChildren {
   SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRoute
   SlugTeamRoute: typeof SlugTeamRoute
+  SlugTimecodeRoute: typeof SlugTimecodeRoute
   SlugIndexRoute: typeof SlugIndexRoute
   SlugDashboardAudioRoute: typeof SlugDashboardAudioRoute
   SlugDashboardDevicesRoute: typeof SlugDashboardDevicesRouteWithChildren
@@ -842,6 +862,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRoute,
   SlugTeamRoute: SlugTeamRoute,
+  SlugTimecodeRoute: SlugTimecodeRoute,
   SlugIndexRoute: SlugIndexRoute,
   SlugDashboardAudioRoute: SlugDashboardAudioRoute,
   SlugDashboardDevicesRoute: SlugDashboardDevicesRouteWithChildren,

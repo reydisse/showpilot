@@ -26,6 +26,7 @@ import {
   MonitorPlay,
   MessageSquare,
   Timer,
+  Clock4,
   LogOut,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
@@ -42,6 +43,7 @@ const mainNav: NavItem[] = [
   { icon: ListMusic, label: "Show", path: "show" },
   { icon: MonitorPlay, label: "Show Board", path: "board" },
   { icon: Timer, label: "Rundown", path: "rundown" },
+  { icon: Clock4, label: "Timecode", path: "timecode" },
   { icon: MessageSquare, label: "Chat", path: "chat" },
   { icon: UserCheck, label: "Check-in", path: "checkin" },
   { icon: Users, label: "Team", path: "team" },
