@@ -112,6 +112,25 @@ export class RundownRelay extends DurableObject {
     payload?: Record<string, unknown>
   ) {
     switch (action) {
+      case "seed": {
+        // Seed DO with DB-loaded state (only if DO is currently empty)
+        if (this.state.items.length === 0 && payload?.items) {
+          this.state.items = payload.items as RundownItem[];
+          const t = payload.timer as TimerState | undefined;
+          if (t) {
+            this.state.timer = {
+              playback: t.playback ?? "stop",
+              currentItemId: t.currentItemId ?? null,
+              elapsed: t.elapsed ?? 0,
+              startedAt: t.startedAt ?? null,
+              pausedAt: t.pausedAt ?? null,
+              mode: t.mode ?? "count-down",
+            };
+          }
+        }
+        break;
+      }
+
       case "add-item": {
         const item: RundownItem = {
           id: (payload?.id as string) ?? crypto.randomUUID(),

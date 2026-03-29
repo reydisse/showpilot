@@ -24,26 +24,15 @@ interface TimerState {
   serverTime?: number;
 }
 
-interface RundownState {
-  items: RundownItem[];
-  timer: TimerState;
-}
-
 interface UseRundownSyncReturn {
-  /** Live items from DO — updates in real time */
   items: RundownItem[];
-  /** Live timer from DO */
   timer: TimerState;
-  /** WebSocket connected to DO */
   connected: boolean;
-  /** Send a command to the DO (all clients will see the update) */
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
+  /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
+  seedState: (items: RundownItem[], timer: TimerState) => void;
 }
 
-/**
- * Hook that connects to the RundownRelay Durable Object via WebSocket.
- * Keeps items and timer in sync across all connected devices.
- */
 export function useRundownSync(orgId: string): UseRundownSyncReturn {
   const [items, setItems] = useState<RundownItem[]>([]);
   const [timer, setTimer] = useState<TimerState>({
@@ -57,6 +46,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seededRef = useRef(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -86,7 +76,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
-      // Auto-reconnect
+      seededRef.current = false;
       reconnectTimer.current = setTimeout(() => connect(), 3000);
     };
 
@@ -116,5 +106,17 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     []
   );
 
-  return { items, timer, connected, sendCommand };
+  const seedState = useCallback(
+    (seedItems: RundownItem[], seedTimer: TimerState) => {
+      if (seededRef.current) return;
+      seededRef.current = true;
+      sendCommand("seed", {
+        items: seedItems,
+        timer: seedTimer,
+      });
+    },
+    [sendCommand]
+  );
+
+  return { items, timer, connected, sendCommand, seedState };
 }
