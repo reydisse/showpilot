@@ -330,7 +330,10 @@ function TimerKioskPage() {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "hydrate" || msg.type === "state") {
-            setState(msg.state);
+            const s = msg.state;
+            // Ignore empty DO state — keep DB-loaded state
+            if (!s.items || s.items.length === 0) return;
+            setState(s);
             setConnected(true);
           }
         } catch {}

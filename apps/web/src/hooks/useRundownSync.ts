@@ -55,9 +55,16 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws`;
 
     const ws = new WebSocket(url);
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
 
     ws.onopen = () => {
       setConnected(true);
+      // Keepalive to prevent DO hibernation
+      pingTimer = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 20000);
     };
 
     ws.onmessage = (event) => {
@@ -65,8 +72,13 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "hydrate" || msg.type === "state") {
-          setItems(msg.state.items);
-          setTimer(msg.state.timer);
+          // Ignore empty DO state
+          if (msg.state.items && msg.state.items.length > 0) {
+            setItems(msg.state.items);
+          }
+          if (msg.state.timer) {
+            setTimer(msg.state.timer);
+          }
         }
       } catch {
         // Ignore
@@ -77,7 +89,8 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
       setConnected(false);
       wsRef.current = null;
       seededRef.current = false;
-      reconnectTimer.current = setTimeout(() => connect(), 3000);
+      if (pingTimer) clearInterval(pingTimer);
+      reconnectTimer.current = setTimeout(() => connect(), 1000);
     };
 
     ws.onerror = () => {};
