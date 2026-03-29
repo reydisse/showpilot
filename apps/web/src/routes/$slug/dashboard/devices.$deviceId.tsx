@@ -16,8 +16,9 @@ export const Route = createFileRoute("/$slug/dashboard/devices/$deviceId")({
 function DeviceDetailPage() {
   const { device } = Route.useLoaderData();
   const { slug } = Route.useParams();
-  const { module, status, feedbacks, definition, connect, disconnect } =
-    useDeviceModule(device);
+  const context = Route.useRouteContext() as { orgId?: string };
+  const { module, status, feedbacks, definition, bridgeOnline, connect, disconnect } =
+    useDeviceModule(device, context.orgId);
 
   return (
     <div className="min-h-screen bg-board-bg p-4 md:p-6">
