@@ -177,15 +177,17 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
   });
 
-  // Sync: when DO broadcasts state, update local state
+  // Sync: when DO broadcasts state with actual content, update local state.
+  // Skip empty DO state — DB-loaded state is the source of truth until
+  // someone makes a change that goes through the DO.
   useEffect(() => {
-    if (syncConnected && syncedItems.length > 0) {
+    if (!syncConnected) return;
+    // Only accept DO state if it has items OR an active timer
+    // (empty DO = just woke up, hasn't been seeded yet)
+    if (syncedItems.length > 0) {
       setItems(syncedItems as RundownItem[]);
     }
-  }, [syncConnected, syncedItems]);
-
-  useEffect(() => {
-    if (syncConnected) {
+    if (syncedTimer.playback !== "stop" || syncedTimer.currentItemId) {
       setTimer({
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
@@ -193,7 +195,7 @@ function RundownPage() {
         startedAt: syncedTimer.startedAt,
       });
     }
-  }, [syncConnected, syncedTimer]);
+  }, [syncConnected, syncedItems, syncedTimer]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
   const [showLoadModal, setShowLoadModal] = useState(false);
