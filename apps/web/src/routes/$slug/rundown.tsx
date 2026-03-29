@@ -470,30 +470,28 @@ function RundownPage() {
   const handlePrev = useCallback(() => {
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
-      // Revert current item to upcoming
+      const prevItem = items[currentIdx - 1];
+      // Local optimistic update
       updateItems((prev) =>
         prev.map((i, idx) =>
-          idx === currentIdx ? { ...i, status: "upcoming" as ItemStatus } : i
-        )
-      );
-      // Also revert the previous item to upcoming and start it
-      const prevItem = items[currentIdx - 1];
-      updateItems((prev) =>
-        prev.map((i) =>
+          idx === currentIdx ? { ...i, status: "upcoming" as ItemStatus } :
           i.id === prevItem.id ? { ...i, status: "live" as ItemStatus } : i
         )
       );
       const startNow = Date.now();
       setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow });
+      // Sync
+      sendCommand("timer-start", { itemId: prevItem.id });
       persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [items, timer.currentItemId, updateItems, persistTimer]);
+  }, [items, timer.currentItemId, updateItems, sendCommand, persistTimer]);
 
   const handleReset = useCallback(() => {
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+    sendCommand("reset");
     persistTimer("stop", null, 0, null);
-  }, [updateItems, persistTimer]);
+  }, [updateItems, sendCommand, persistTimer]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
@@ -565,20 +563,21 @@ function RundownPage() {
 
   // Load items into current date (from a previous date or saved template)
   const handleLoadItems = useCallback((loadedItems: RundownItem[]) => {
-    // Reset all to upcoming and assign new IDs to avoid collisions
     const fresh = loadedItems.map((item, idx) => ({
       ...item,
       id: crypto.randomUUID(),
       status: "upcoming" as ItemStatus,
       sortOrder: idx,
     }));
+    const resetTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, pausedAt: null, mode: "count-down" as const };
     setItems(fresh);
+    setTimer(resetTimer);
+    // Seed DO with loaded items so all devices get them
+    sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
     persistItems(fresh);
-    // Reset timer
-    setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
     persistTimer("stop", null, 0, null);
     setShowLoadModal(false);
-  }, [persistItems, persistTimer]);
+  }, [sendCommand, persistItems, persistTimer]);
 
   const handleSaveTemplate = useCallback(async (name: string) => {
     await saveRundownTemplate({ data: { orgId, name, items } });

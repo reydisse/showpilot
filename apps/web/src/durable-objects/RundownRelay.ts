@@ -118,8 +118,10 @@ export class RundownRelay extends DurableObject {
   ) {
     switch (action) {
       case "seed": {
-        // Seed DO with DB-loaded state (only if DO is currently empty)
-        if (this.state.items.length === 0 && payload?.items) {
+        // Seed DO with DB-loaded state
+        // Only accept if DO is empty OR force flag is set (e.g. load template)
+        const force = payload?.force as boolean;
+        if ((this.state.items.length === 0 || force) && payload?.items) {
           this.state.items = payload.items as RundownItem[];
           const t = payload.timer as TimerState | undefined;
           if (t) {
