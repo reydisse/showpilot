@@ -17,12 +17,12 @@ export function TimecodeDisplay({
 
   if (size === "large") {
     return (
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-col items-center gap-2 overflow-hidden w-full">
         <div
-          className={`font-mono tabular-nums tracking-wider ${
+          className={`font-mono tabular-nums tracking-wider text-center w-full ${
             running ? "text-fire-500" : "text-board-muted/50"
           }`}
-          style={{ fontSize: "clamp(3rem, 10vw, 8rem)" }}
+          style={{ fontSize: "clamp(2rem, 8vw, 5rem)" }}
         >
           {display}
         </div>
