@@ -450,6 +450,7 @@ function RundownPage() {
   }, [timer.currentItemId, sendCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
+    // Local optimistic update
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx >= 0) {
       setItems((prev) =>
@@ -460,12 +461,21 @@ function RundownPage() {
     }
     const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
     if (nextItem) {
-      handleStart(nextItem.id);
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === nextItem.id ? { ...i, status: "live" as ItemStatus } : i
+        )
+      );
+      const startNow = Date.now();
+      setTimer({ playback: "play", currentItemId: nextItem.id, elapsed: 0, startedAt: startNow });
+      persistTimer("play", nextItem.id, 0, startNow);
     } else {
-      handleStop();
+      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+      persistTimer("stop", null, 0, null);
     }
+    // Single DO command — DO handles the advance logic
     sendCommand("timer-next");
-  }, [items, timer.currentItemId, handleStart, handleStop, sendCommand]);
+  }, [items, timer.currentItemId, sendCommand, persistTimer]);
 
   const handlePrev = useCallback(() => {
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
