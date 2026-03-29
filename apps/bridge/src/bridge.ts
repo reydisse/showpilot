@@ -112,7 +112,7 @@ export class Bridge {
         await this.handleConnectDevice(msg as ConnectDeviceMessage);
         break;
       case "disconnect-device":
-        this.handleDisconnectDevice(msg as { target: string });
+        this.handleDisconnectDevice({ target: (msg as { target?: string }).target || "" });
         break;
       case "ping":
         this.send({ type: "pong" });
@@ -122,7 +122,7 @@ export class Bridge {
 
   private async handleCommand(msg: CommandMessage): Promise<void> {
     try {
-      let response: string | void;
+      let response: string | void = undefined;
 
       switch (msg.protocol) {
         case "tcp-command":
@@ -170,8 +170,12 @@ export class Bridge {
     try {
       if (msg.protocol === "propresenter") {
         if (!this.ppConnections.has(key)) {
-          const [ppHost, ppPortStr] = key.split(":");
-          const ppPort = parseInt(ppPortStr || "50001", 10);
+          const ppHost = (msg.settings?.host as string) || host;
+          const ppPortRaw = msg.settings?.port ?? portStr;
+          const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
+          if (!ppHost || !Number.isFinite(ppPort) || ppPort <= 0) {
+            throw new Error("ProPresenter host and port are required");
+          }
           const password = (msg.settings?.password as string) || "";
           const pp = new ProPresenterBridge({
             host: ppHost,

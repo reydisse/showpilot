@@ -11,8 +11,8 @@ interface Env {
   DB: D1Database;
   TIMECODE_RELAY: DurableObjectNamespace;
   BRIDGE_RELAY: DurableObjectNamespace;
-  CHAT_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
+  CHAT_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
 }
 
@@ -20,17 +20,19 @@ interface D1Database {
   prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
 }
 
-/** Resolve slug or orgId to orgId. Slugs contain hyphens/letters, IDs are alphanumeric. */
-async function resolveOrgId(slugOrId: string, db: D1Database): Promise<string> {
-  // If it looks like a slug (contains hyphens or starts with lowercase letter), look it up
-  if (slugOrId.includes("-") || /^[a-z]/.test(slugOrId)) {
-    const row = await db
-      .prepare("SELECT id FROM organization WHERE slug = ?")
-      .bind(slugOrId)
-      .first<{ id: string }>();
-    if (row) return row.id;
-  }
-  // Otherwise treat as raw org ID
+async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
+  const byId = await db
+    .prepare("SELECT id FROM organization WHERE id = ?")
+    .bind(slugOrId)
+    .first<{ id: string }>();
+  if (byId) return byId.id;
+
+  const bySlug = await db
+    .prepare("SELECT id FROM organization WHERE slug = ?")
+    .bind(slugOrId)
+    .first<{ id: string }>();
+  if (bySlug) return bySlug.id;
+
   return slugOrId;
 }
 
@@ -39,7 +41,6 @@ export default {
     const url = new URL(request.url);
     const e = env as Env;
 
-    // Handle CORS preflight for API routes
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return new Response(null, {
         status: 204,
@@ -73,6 +74,19 @@ export default {
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const id = e.BRIDGE_RELAY.idFromName(orgId);
       const stub = e.BRIDGE_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    // Route RundownRelay: /api/rundown/:orgSlugOrId/ws|state|command
+    const rundownMatch = url.pathname.match(/^\/api\/rundown\/([^/]+)\/(.+)$/);
+    if (rundownMatch) {
+      const [, slugOrId, subpath] = rundownMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const id = e.RUNDOWN_RELAY.idFromName(orgId);
+      const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       return stub.fetch(new Request(doUrl.toString(), request));
