@@ -163,9 +163,9 @@ function RundownPage() {
     sendCommand,
   } = useRundownSync(orgId);
 
-  // Local state for optimistic UI + fallback before sync connects
-  const [localItems, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
-  const [localTimer, setTimer] = useState<{
+  // Local state — source of truth for rendering
+  const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
+  const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
     elapsed: number;
@@ -177,18 +177,23 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
   });
 
-  // Use synced state when connected, fall back to local state
-  const items = syncConnected && syncedItems.length > 0
-    ? (syncedItems as RundownItem[])
-    : localItems;
-  const timer = syncConnected
-    ? {
+  // Sync: when DO broadcasts state, update local state
+  useEffect(() => {
+    if (syncConnected && syncedItems.length > 0) {
+      setItems(syncedItems as RundownItem[]);
+    }
+  }, [syncConnected, syncedItems]);
+
+  useEffect(() => {
+    if (syncConnected) {
+      setTimer({
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
         elapsed: syncedTimer.elapsed,
         startedAt: syncedTimer.startedAt,
-      }
-    : localTimer;
+      });
+    }
+  }, [syncConnected, syncedTimer]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
   const [showLoadModal, setShowLoadModal] = useState(false);
@@ -393,33 +398,66 @@ function RundownPage() {
   }, [timer.currentItemId]);
 
   const handleStart = useCallback((itemId: string) => {
-    // Send to DO → broadcasts to all clients
+    // Optimistic local update
+    setItems((prev) =>
+      prev.map((i) =>
+        i.status === "live" ? { ...i, status: "complete" as ItemStatus } :
+        i.id === itemId ? { ...i, status: "live" as ItemStatus } : i
+      )
+    );
+    const startNow = Date.now();
+    setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow });
+    // Sync to DO + persist to DB
     sendCommand("timer-start", { itemId });
-    // Also persist to DB
-    persistTimer("play", itemId, 0, Date.now());
+    persistTimer("play", itemId, 0, startNow);
   }, [sendCommand, persistTimer]);
 
   const handlePause = useCallback(() => {
-    sendCommand("timer-pause");
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
+      setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
+      sendCommand("timer-pause");
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [sendCommand, timer, persistTimer]);
+  }, [timer, sendCommand, persistTimer]);
 
   const handleResume = useCallback(() => {
-    sendCommand("timer-start", { itemId: timer.currentItemId });
-    persistTimer("play", timer.currentItemId, timer.elapsed, Date.now());
-  }, [sendCommand, timer, persistTimer]);
+    if (timer.playback === "pause") {
+      const resumeNow = Date.now();
+      setTimer({ ...timer, playback: "play", startedAt: resumeNow });
+      sendCommand("timer-start", { itemId: timer.currentItemId });
+      persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
+    }
+  }, [timer, sendCommand, persistTimer]);
 
   const handleStop = useCallback(() => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === timer.currentItemId ? { ...i, status: "complete" as ItemStatus } : i
+      )
+    );
+    setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
     sendCommand("timer-stop");
     persistTimer("stop", null, 0, null);
-  }, [sendCommand, persistTimer]);
+  }, [timer.currentItemId, sendCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
+    const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
+    if (currentIdx >= 0) {
+      setItems((prev) =>
+        prev.map((i, idx) =>
+          idx === currentIdx ? { ...i, status: "complete" as ItemStatus } : i
+        )
+      );
+    }
+    const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
+    if (nextItem) {
+      handleStart(nextItem.id);
+    } else {
+      handleStop();
+    }
     sendCommand("timer-next");
-  }, [sendCommand]);
+  }, [items, timer.currentItemId, handleStart, handleStop, sendCommand]);
 
   const handlePrev = useCallback(() => {
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
