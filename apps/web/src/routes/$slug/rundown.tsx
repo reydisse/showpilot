@@ -161,6 +161,7 @@ function RundownPage() {
     timer: syncedTimer,
     connected: syncConnected,
     sendCommand,
+    seedState,
   } = useRundownSync(orgId);
 
   // Local state — source of truth for rendering
@@ -177,13 +178,18 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
   });
 
-  // Sync: when DO broadcasts state with actual content, update local state.
-  // Skip empty DO state — DB-loaded state is the source of truth until
-  // someone makes a change that goes through the DO.
+  // Seed DO when we connect and it's empty — push DB items to DO so
+  // all other devices get them via broadcast
   useEffect(() => {
     if (!syncConnected) return;
-    // Only accept DO state if it has items OR an active timer
-    // (empty DO = just woke up, hasn't been seeded yet)
+    if (syncedItems.length === 0 && initialState.items.length > 0) {
+      seedState(initialState.items as RundownItem[], initialState.timer as any);
+    }
+  }, [syncConnected, syncedItems.length, initialState, seedState]);
+
+  // Sync: when DO broadcasts state with content, update local state
+  useEffect(() => {
+    if (!syncConnected) return;
     if (syncedItems.length > 0) {
       setItems(syncedItems as RundownItem[]);
     }
