@@ -91,6 +91,11 @@ export class RundownRelay extends DurableObject {
         payload?: Record<string, unknown>;
       };
 
+      if (parsed.type === "ping") {
+        // Keepalive — just receiving this prevents hibernation
+        return;
+      }
+
       if (parsed.type === "command" && parsed.action) {
         this.handleCommand(parsed.action, parsed.payload);
       }
