@@ -310,6 +310,7 @@ function TimerKioskPage() {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws`;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
 
     function connectWS() {
       const ws = new WebSocket(url);
@@ -317,6 +318,12 @@ function TimerKioskPage() {
       ws.onopen = () => {
         wsConnectedRef.current = true;
         setConnected(true);
+        // Keepalive ping every 20s to prevent DO hibernation
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "ping" }));
+          }
+        }, 20000);
       };
 
       ws.onmessage = (event) => {
@@ -332,7 +339,10 @@ function TimerKioskPage() {
       ws.onclose = () => {
         wsConnectedRef.current = false;
         wsRef.current = null;
-        reconnectTimer = setTimeout(connectWS, 3000);
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = null;
+        // Fast reconnect — kiosk can't afford gaps
+        reconnectTimer = setTimeout(connectWS, 1000);
       };
 
       ws.onerror = () => {};
@@ -343,6 +353,7 @@ function TimerKioskPage() {
 
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingInterval) clearInterval(pingInterval);
       wsRef.current?.close();
       wsRef.current = null;
     };
