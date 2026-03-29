@@ -302,15 +302,63 @@ function TimerKioskPage() {
     }
   }, []);
 
-  // Poll server every 500ms for responsiveness
+  // Real-time sync via RundownRelay DO WebSocket
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsConnectedRef = useRef(false);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws`;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connectWS() {
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        wsConnectedRef.current = true;
+        setConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "hydrate" || msg.type === "state") {
+            setState(msg.state);
+            setConnected(true);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        wsConnectedRef.current = false;
+        wsRef.current = null;
+        reconnectTimer = setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = () => {};
+      wsRef.current = ws;
+    }
+
+    connectWS();
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [orgSlug]);
+
+  // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
     try {
       const result = await getRundownStateBySlug({
         data: { orgSlug, serviceDate: serviceDate.current },
       });
       if (result) {
-        setState(result.state);
-        // Parse priority flag from message
+        // Only use poll state if WS isn't connected
+        if (!wsConnectedRef.current) {
+          setState(result.state);
+        }
         if (result.message.startsWith("!!PRIORITY!!")) {
           setStageMessage(result.message.slice(12));
           setMessagePriority(true);
@@ -318,20 +366,17 @@ function TimerKioskPage() {
           setStageMessage(result.message);
           setMessagePriority(false);
         }
-        // PP slide data
         setPpSlide(result.ppSlide);
         setConnected(true);
-      } else {
-        setConnected(false);
       }
     } catch {
-      setConnected(false);
+      if (!wsConnectedRef.current) setConnected(false);
     }
   }, [orgSlug]);
 
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 500);
+    const interval = setInterval(poll, 2000); // Slower — WS handles real-time
     return () => clearInterval(interval);
   }, [poll]);
 
