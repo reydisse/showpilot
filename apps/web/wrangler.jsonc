@@ -38,6 +38,10 @@
 			{
 				"name": "TIMECODE_RELAY",
 				"class_name": "TimecodeRelay"
+			},
+			{
+				"name": "BRIDGE_RELAY",
+				"class_name": "BridgeRelay"
 			}
 		]
 	},
@@ -59,6 +63,10 @@
 		{
 			"tag": "v2",
 			"new_sqlite_classes": ["TimecodeRelay"]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["BridgeRelay"]
 		}
 	]
 }

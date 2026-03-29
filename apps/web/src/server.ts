@@ -5,9 +5,11 @@ export { ChatRelay } from "./durable-objects/ChatRelay";
 export { RundownRelay } from "./durable-objects/RundownRelay";
 export { LowerThirdsRelay } from "./durable-objects/LowerThirdsRelay";
 export { TimecodeRelay } from "./durable-objects/TimecodeRelay";
+export { BridgeRelay } from "./durable-objects/BridgeRelay";
 
 interface Env {
   TIMECODE_RELAY: DurableObjectNamespace;
+  BRIDGE_RELAY: DurableObjectNamespace;
   CHAT_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
@@ -41,6 +43,18 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    // Route Bridge WebSocket/API requests
+    const bridgeMatch = url.pathname.match(/^\/api\/bridge\/([^/]+)\/(.+)$/);
+    if (bridgeMatch) {
+      const [, orgId, subpath] = bridgeMatch;
+      const e = env as Env;
+      const id = e.BRIDGE_RELAY.idFromName(orgId);
+      const stub = e.BRIDGE_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
