@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
+import { ProPresenterBridge } from "./protocols/propresenter.js";
 
 interface BridgeOptions {
   url: string;
@@ -39,6 +40,7 @@ export class Bridge {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private tcpConnections = new Map<string, TcpConnection>();
   private udpConnections = new Map<string, UdpConnection>();
+  private ppConnections = new Map<string, ProPresenterBridge>();
   private startTime = Date.now();
 
   constructor(options: BridgeOptions) {
@@ -60,8 +62,10 @@ export class Bridge {
     this.ws?.close();
     this.ws = null;
     // Disconnect all device connections
+    for (const conn of this.ppConnections.values()) conn.disconnect();
     for (const conn of this.tcpConnections.values()) conn.disconnect();
     for (const conn of this.udpConnections.values()) conn.disconnect();
+    this.ppConnections.clear();
     this.tcpConnections.clear();
     this.udpConnections.clear();
   }
@@ -132,6 +136,9 @@ export class Bridge {
         case "visca-ip":
           await this.executeUdpCommand(msg.target, msg.command);
           break;
+        case "propresenter":
+          this.executePPCommand(msg.target, msg.command);
+          break;
         case "wol":
           await this.executeWol(msg.command);
           break;
@@ -161,6 +168,30 @@ export class Bridge {
     const port = parseInt(portStr || "0", 10);
 
     try {
+      if (msg.protocol === "propresenter") {
+        if (!this.ppConnections.has(key)) {
+          const [ppHost, ppPortStr] = key.split(":");
+          const ppPort = parseInt(ppPortStr || "50001", 10);
+          const password = (msg.settings?.password as string) || "";
+          const pp = new ProPresenterBridge({
+            host: ppHost,
+            port: ppPort,
+            password,
+            onSlideChange: (data) => {
+              this.send({ type: "device-event", target: key, eventName: "slide", data: JSON.stringify(data) });
+            },
+            onStatusChange: (connected) => {
+              this.send({ type: "device-status", target: key, connected });
+            },
+          });
+          pp.connect();
+          this.ppConnections.set(key, pp);
+        }
+        this.send({ type: "device-status", target: key, connected: true });
+        this.sendStatus();
+        return;
+      }
+
       if (msg.protocol === "tcp-command" || msg.protocol === "pjlink") {
         if (!this.tcpConnections.has(key)) {
           const conn = new TcpConnection();
@@ -187,6 +218,11 @@ export class Bridge {
   }
 
   private handleDisconnectDevice(msg: { target: string }): void {
+    const pp = this.ppConnections.get(msg.target);
+    if (pp) {
+      pp.disconnect();
+      this.ppConnections.delete(msg.target);
+    }
     const tcp = this.tcpConnections.get(msg.target);
     if (tcp) {
       tcp.disconnect();
@@ -202,6 +238,13 @@ export class Bridge {
   }
 
   // ─── Protocol Execution ─────────────────────────────────
+
+  private executePPCommand(target: string, command: string): void {
+    const pp = this.ppConnections.get(target);
+    if (pp) {
+      pp.sendCommand(command);
+    }
+  }
 
   private async executeTcpCommand(target: string, command: string): Promise<string> {
     let conn = this.tcpConnections.get(target);
@@ -284,7 +327,7 @@ export class Bridge {
     this.send({
       type: "bridge-status",
       version: "0.1.0",
-      devices: this.tcpConnections.size + this.udpConnections.size,
+      devices: this.tcpConnections.size + this.udpConnections.size + this.ppConnections.size,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     });
   }
