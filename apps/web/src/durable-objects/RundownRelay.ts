@@ -39,7 +39,6 @@ interface RundownState {
 }
 
 export class RundownRelay extends DurableObject {
-  private sessions: Set<WebSocket> = new Set();
   private state: RundownState = {
     items: [],
     timer: {
@@ -59,7 +58,6 @@ export class RundownRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      this.sessions.add(server);
 
       // Hydrate with current state
       server.send(
@@ -101,12 +99,12 @@ export class RundownRelay extends DurableObject {
     }
   }
 
-  webSocketClose(ws: WebSocket) {
-    this.sessions.delete(ws);
+  webSocketClose(_ws: WebSocket) {
+    // No manual session tracking needed — using ctx.getWebSockets()
   }
 
-  webSocketError(ws: WebSocket) {
-    this.sessions.delete(ws);
+  webSocketError(_ws: WebSocket) {
+    // No manual session tracking needed
   }
 
   private handleCommand(
@@ -116,7 +114,7 @@ export class RundownRelay extends DurableObject {
     switch (action) {
       case "add-item": {
         const item: RundownItem = {
-          id: crypto.randomUUID(),
+          id: (payload?.id as string) ?? crypto.randomUUID(),
           title: (payload?.title as string) ?? "Untitled",
           type: (payload?.type as ItemType) ?? "segment",
           duration: (payload?.duration as number) ?? 300000,
@@ -166,7 +164,6 @@ export class RundownRelay extends DurableObject {
         const itemId =
           (payload?.itemId as string) ?? this.state.timer.currentItemId;
         if (itemId) {
-          // Mark previous live item as complete
           if (
             this.state.timer.currentItemId &&
             this.state.timer.currentItemId !== itemId
@@ -302,11 +299,12 @@ export class RundownRelay extends DurableObject {
       type: "state",
       state: this.getPublicState(),
     });
-    for (const ws of this.sessions) {
+    // Use ctx.getWebSockets() instead of manual Set — survives hibernation
+    for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(data);
       } catch {
-        this.sessions.delete(ws);
+        // Dead socket — Cloudflare will clean it up
       }
     }
   }
