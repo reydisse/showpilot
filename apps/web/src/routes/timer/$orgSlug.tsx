@@ -121,9 +121,9 @@ function computeElapsed(timer: NativeTimerState, now: number): number {
   if (timer.playback === "stop") return timer.elapsed;
   if (timer.playback === "pause") return timer.elapsed;
   if (timer.playback === "play" && timer.startedAt != null) {
-    const serverOffset = now - timer.serverTime;
-    const running = timer.elapsed + serverOffset;
-    return Math.max(0, running);
+    // Use startedAt directly — serverTime resets on every DO broadcast
+    // which caused the timer to jump backwards mid-countdown
+    return Math.max(0, timer.elapsed + (now - timer.startedAt));
   }
   return timer.elapsed;
 }
@@ -331,10 +331,12 @@ function TimerKioskPage() {
           const msg = JSON.parse(event.data);
           if (msg.type === "hydrate" || msg.type === "state") {
             const s = msg.state;
-            // Ignore empty DO state — keep DB-loaded state
-            if (!s.items || s.items.length === 0) return;
-            setState(s);
-            setConnected(true);
+            // Always accept DO state — it is the source of truth
+            // Empty items is valid (e.g. after clearing rundown)
+            if (s.items) {
+              setState(s);
+              setConnected(true);
+            }
           }
         } catch {}
       };

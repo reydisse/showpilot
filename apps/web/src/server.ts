@@ -53,6 +53,30 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
+    // Route ChatRelay: /api/chat/:orgSlugOrId/ws|send|history
+    const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
+    if (chatMatch) {
+      const [, slugOrId, subpath] = chatMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const id = e.CHAT_RELAY.idFromName(orgId);
+      const stub = e.CHAT_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    // Route LowerThirdsRelay: /api/lowerthirds/:orgSlugOrId/ws|trigger|clear|queue|current
+    const ltMatch = url.pathname.match(/^\/api\/lowerthirds\/([^/]+)\/(.+)$/);
+    if (ltMatch) {
+      const [, slugOrId, subpath] = ltMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
+      const stub = e.LOWER_THIRDS_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
     return handler.fetch(request, env, ctx);
   },
 };

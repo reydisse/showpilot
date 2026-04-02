@@ -217,6 +217,16 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "timer-resume": {
+        // Resume from pause — preserves accumulated elapsed, restarts clock
+        if (this.state.timer.playback === "pause") {
+          this.state.timer.playback = "play";
+          this.state.timer.startedAt = Date.now();
+          this.state.timer.pausedAt = null;
+        }
+        break;
+      }
+
       case "timer-pause": {
         if (this.state.timer.playback === "play") {
           const now = Date.now();

@@ -1,15 +1,18 @@
 {
   "name": "@showpilot/gateway",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
+    "@types/ws": "^8.5.13",
     "tsx": "^4.0.0",
     "typescript": "^5.7.2"
   }

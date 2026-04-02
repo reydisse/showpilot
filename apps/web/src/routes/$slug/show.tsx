@@ -22,6 +22,7 @@ import { getChatMessages, sendChatMessage } from "@/lib/chat";
 import { getRundownState } from "@/lib/rundown";
 import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
 import { getTodayDateString, formatTime, type ClockFormat } from "@/lib/utils";
+import { useRundownSync } from "@/hooks/useRundownSync";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
@@ -270,7 +271,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members, ontimeState, nativeRundown, rundownAdapter,
-    initialChat, orgId, slug, serviceDate, clockFormat,
+    initialChat, orgId, slug, clockFormat,
   } = Route.useLoaderData();
 
   const activeMembers = members.filter((m) => m.isOnline);
@@ -299,7 +300,6 @@ function ShowPage() {
       initialChat={initialChat}
       orgId={orgId}
       slug={slug}
-      serviceDate={serviceDate}
       clockFormat={clockFormat}
     />
   );
@@ -314,7 +314,6 @@ function ShowPageWithNative({
   initialChat,
   orgId,
   slug,
-  serviceDate,
   clockFormat,
 }: {
   initialRundown: RundownState | null;
@@ -323,34 +322,52 @@ function ShowPageWithNative({
   initialChat: Awaited<ReturnType<typeof getChatMessages>>;
   orgId: string;
   slug: string;
-  serviceDate: string;
   clockFormat: ClockFormat;
 }) {
-  const [items, setItems] = useState<RundownItem[]>(initialRundown?.items ?? []);
-  const [timer, setTimer] = useState<NativeTimerState>(
-    initialRundown?.timer ?? {
-      playback: "stop", currentItemId: null, elapsed: 0,
-      startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
+  // Real-time sync via RundownRelay Durable Object (replaces DB polling)
+  const {
+    items: syncedItems,
+    timer: syncedTimer,
+    connected: syncConnected,
+    seedState,
+  } = useRundownSync(orgId);
+
+  // Use synced state when available, fall back to initial loader data
+  const items: RundownItem[] = (syncConnected && syncedItems.length > 0
+    ? syncedItems
+    : initialRundown?.items ?? []) as RundownItem[];
+  const timer: NativeTimerState = syncConnected
+    ? {
+        playback: syncedTimer.playback,
+        currentItemId: syncedTimer.currentItemId,
+        elapsed: syncedTimer.elapsed,
+        startedAt: syncedTimer.startedAt,
+        pausedAt: syncedTimer.pausedAt ?? null,
+        mode: syncedTimer.mode ?? "count-down",
+        serverTime: syncedTimer.serverTime ?? Date.now(),
+      }
+    : initialRundown?.timer ?? {
+        playback: "stop", currentItemId: null, elapsed: 0,
+        startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
+      };
+
+  // Seed DO if it's empty but we have initial data from DB
+  const hasSeededRef = useRef(false);
+  useEffect(() => {
+    if (!syncConnected || hasSeededRef.current) return;
+    if (syncedItems.length === 0 && initialRundown && initialRundown.items.length > 0) {
+      hasSeededRef.current = true;
+      seedState(initialRundown.items as any[], initialRundown.timer as any);
+    } else if (syncedItems.length > 0) {
+      hasSeededRef.current = true;
     }
-  );
+  }, [syncConnected, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [displayTime, setDisplayTime] = useState(0);
   const rafRef = useRef<number>(0);
 
   const isPlaying = timer.playback === "play";
   const isPaused = timer.playback === "pause";
-
-  // Poll for state changes from the rundown operator page
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const state = await getRundownState({ data: { orgId, serviceDate } });
-        setItems(state.items);
-        setTimer(state.timer);
-      } catch {}
-    };
-    const interval = setInterval(poll, 1000);
-    return () => clearInterval(interval);
-  }, [orgId, serviceDate]);
 
   // RAF for smooth timer display
   useEffect(() => {
@@ -367,10 +384,10 @@ function ShowPageWithNative({
   }, [timer.playback, timer.startedAt, timer.elapsed]);
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);
-  const nextItem = items.find((i) => {
-    const currentIdx = items.findIndex((item) => item.id === timer.currentItemId);
-    return items.indexOf(i) > currentIdx && i.status !== "complete";
-  });
+  const currentIdx = timer.currentItemId
+    ? items.findIndex((i) => i.id === timer.currentItemId)
+    : -1;
+  const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
   const remaining = currentItem ? currentItem.duration - displayTime : 0;
   const isOvertime = remaining < 0;
 
