@@ -160,6 +160,7 @@ function RundownPage() {
     items: syncedItems,
     timer: syncedTimer,
     connected: syncConnected,
+    hydrated: syncHydrated,
     sendCommand,
     seedState,
   } = useRundownSync(orgId);
@@ -179,10 +180,12 @@ function RundownPage() {
   });
 
   // Seed DO when we first connect and it's empty — push current items to DO
-  // so all other devices get them via broadcast
+  // so all other devices get them via broadcast.
+  // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
+  // not just that the WS connected (syncedItems would still be [] before hydrate).
   const hasSeededRef = useRef(false);
   useEffect(() => {
-    if (!syncConnected) return;
+    if (!syncHydrated) return; // Wait for actual DO response
     if (hasSeededRef.current) return; // Only seed once per page session
     // If DO is empty but we have local items (from DB), seed the DO
     if (syncedItems.length === 0 && items.length > 0) {
@@ -199,14 +202,12 @@ function RundownPage() {
       // DO already has items — no need to seed
       hasSeededRef.current = true;
     }
-  }, [syncConnected, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync: always accept DO state as source of truth when connected
-  const syncVersionRef = useRef(0);
+  // Sync: accept DO state as source of truth, but ONLY after hydration
+  // (before hydrate arrives, syncedItems is [] which would wipe DB-loaded items)
   useEffect(() => {
-    if (!syncConnected) return;
-    // Track that we've received at least one broadcast
-    syncVersionRef.current++;
+    if (!syncHydrated) return;
     setItems(syncedItems as RundownItem[]);
     setTimer({
       playback: syncedTimer.playback,
@@ -214,7 +215,7 @@ function RundownPage() {
       elapsed: syncedTimer.elapsed,
       startedAt: syncedTimer.startedAt,
     });
-  }, [syncConnected, syncedItems, syncedTimer]);
+  }, [syncHydrated, syncedItems, syncedTimer]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
   const [showLoadModal, setShowLoadModal] = useState(false);
