@@ -221,6 +221,7 @@ const BRIDGE_HTML = `<!DOCTYPE html>
 
 <script>
 const API = '';
+let initialized = false;
 
 async function fetchJSON(path, opts) {
   const res = await fetch(API + path, opts);
@@ -232,20 +233,26 @@ async function refresh() {
     fetchJSON('/api/status'),
     fetchJSON('/api/config'),
   ]);
-  render(status, config);
+  if (!initialized) {
+    renderFull(status, config);
+    initialized = true;
+  } else {
+    updateLive(status);
+  }
 }
 
-function render(status, config) {
+// Full render — only on first load
+function renderFull(status, config) {
   const app = document.getElementById('app');
   app.innerHTML = \`
     <div class="card">
       <h2>Cloud Connection</h2>
       <div class="status-row">
-        <span class="dot \${status.cloud}"></span>
-        <span class="label">\${status.cloud}</span>
-        <span class="value">\${config.orgSlug || 'Not configured'}</span>
+        <span class="dot" id="cloudDot"></span>
+        <span class="label" id="cloudLabel"></span>
+        <span class="value" id="cloudOrg"></span>
       </div>
-      <div class="form-row"><label>Cloud URL</label><input id="cloudUrl" value="\${config.cloudUrl || ''}" placeholder="https://app.showpilot.com" /></div>
+      <div class="form-row"><label>Cloud URL</label><input id="cloudUrl" value="\${config.cloudUrl || ''}" placeholder="https://showpilot.tech" /></div>
       <div class="form-row"><label>Org Slug</label><input id="orgSlug" value="\${config.orgSlug || ''}" placeholder="my-church" /></div>
       <div class="form-row"><label>API Key</label><input id="apiKey" value="\${config.apiKey || ''}" type="password" placeholder="sk-..." /></div>
       <div class="actions">
@@ -255,23 +262,7 @@ function render(status, config) {
 
     <div class="card">
       <h2>Devices</h2>
-      <div class="device-list" id="deviceList">
-        \${status.devices.length === 0 ? '<div class="empty">No devices configured. Add a ProPresenter connection below.</div>' :
-          status.devices.map(d => \`
-            <div class="device">
-              <span class="dot \${d.status}"></span>
-              <div>
-                <div class="name">\${d.name}</div>
-                <div class="meta">\${d.type} — \${d.enabled ? 'Enabled' : 'Disabled'}</div>
-                \${d.currentSlide ? \`<div class="slide">\${d.currentSlide}</div>\` : ''}
-              </div>
-              <div style="margin-left:auto;display:flex;gap:0.5rem;">
-                <button onclick="toggleDevice('\${d.id}', \${!d.enabled})">\${d.enabled ? 'Disable' : 'Enable'}</button>
-                <button class="danger" onclick="removeDevice('\${d.id}')">Remove</button>
-              </div>
-            </div>
-          \`).join('')}
-      </div>
+      <div class="device-list" id="deviceList"></div>
     </div>
 
     <div class="card">
@@ -282,6 +273,12 @@ function render(status, config) {
       <div class="form-row"><label>WS Port</label><input id="devPort" value="50001" type="number" /></div>
       <div class="form-row"><label>API Port</label><input id="devApiPort" value="1025" type="number" /></div>
       <div class="form-row"><label>Password</label><input id="devPassword" type="password" placeholder="Stage display password" /></div>
+      <div class="form-row" style="margin-top:0.5rem">
+        <label></label>
+        <label style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex:1;cursor:pointer">
+          <input type="checkbox" id="devAllowControl" /> Allow sending cues to this device
+        </label>
+      </div>
       <div class="actions">
         <button class="primary" onclick="addDevice()">Add Device</button>
       </div>
@@ -289,9 +286,45 @@ function render(status, config) {
 
     <div class="card" style="opacity:0.6">
       <h2>Uptime</h2>
-      <p style="font-size:0.85rem;color:#888">\${Math.floor(status.uptime / 60000)} minutes</p>
+      <p style="font-size:0.85rem;color:#888" id="uptimeLabel"></p>
     </div>
   \`;
+  updateLive(status);
+}
+
+// Live update — only touches status indicators, NOT form inputs
+function updateLive(status) {
+  const dot = document.getElementById('cloudDot');
+  const label = document.getElementById('cloudLabel');
+  const org = document.getElementById('cloudOrg');
+  const uptime = document.getElementById('uptimeLabel');
+  const deviceList = document.getElementById('deviceList');
+
+  if (dot) { dot.className = 'dot ' + status.cloud; }
+  if (label) { label.textContent = status.cloud; }
+  if (org) { org.textContent = status.orgSlug || 'Not configured'; }
+  if (uptime) { uptime.textContent = Math.floor(status.uptime / 60000) + ' minutes'; }
+
+  if (deviceList) {
+    if (status.devices.length === 0) {
+      deviceList.innerHTML = '<div class="empty">No devices configured. Add a ProPresenter connection below.</div>';
+    } else {
+      deviceList.innerHTML = status.devices.map(d => \`
+        <div class="device">
+          <span class="dot \${d.status}"></span>
+          <div>
+            <div class="name">\${d.name}</div>
+            <div class="meta">\${d.type} — \${d.enabled ? 'Enabled' : 'Disabled'}</div>
+            \${d.currentSlide ? \`<div class="slide">\${d.currentSlide}</div>\` : ''}
+          </div>
+          <div style="margin-left:auto;display:flex;gap:0.5rem;">
+            <button onclick="toggleDevice('\${d.id}', \${!d.enabled})">\${d.enabled ? 'Disable' : 'Enable'}</button>
+            <button class="danger" onclick="removeDevice('\${d.id}')">Remove</button>
+          </div>
+        </div>
+      \`).join('');
+    }
+  }
 }
 
 async function saveCloud() {
@@ -304,7 +337,9 @@ async function saveCloud() {
       apiKey: document.getElementById('apiKey').value,
     }),
   });
-  refresh();
+  // Re-fetch config to confirm save, but don't wipe form
+  const status = await fetchJSON('/api/status');
+  updateLive(status);
 }
 
 async function addDevice() {
@@ -318,15 +353,18 @@ async function addDevice() {
       port: parseInt(document.getElementById('devPort').value),
       apiPort: parseInt(document.getElementById('devApiPort').value),
       password: document.getElementById('devPassword').value,
+      allowControl: document.getElementById('devAllowControl').checked,
     }),
   });
-  refresh();
+  const status = await fetchJSON('/api/status');
+  updateLive(status);
 }
 
 async function removeDevice(id) {
   if (!confirm('Remove this device?')) return;
   await fetchJSON('/api/devices/' + id, { method: 'DELETE' });
-  refresh();
+  const status = await fetchJSON('/api/status');
+  updateLive(status);
 }
 
 async function toggleDevice(id, enabled) {
@@ -335,7 +373,8 @@ async function toggleDevice(id, enabled) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled }),
   });
-  refresh();
+  const status = await fetchJSON('/api/status');
+  updateLive(status);
 }
 
 refresh();
