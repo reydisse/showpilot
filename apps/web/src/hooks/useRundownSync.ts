@@ -28,6 +28,8 @@ interface UseRundownSyncReturn {
   items: RundownItem[];
   timer: TimerState;
   connected: boolean;
+  /** True after we've received at least one hydrate/state message from the DO */
+  hydrated: boolean;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (items: RundownItem[], timer: TimerState) => void;
@@ -44,6 +46,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     mode: "count-down",
   });
   const [connected, setConnected] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seededRef = useRef(false);
@@ -79,6 +82,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
           if (msg.state.timer) {
             setTimer(msg.state.timer);
           }
+          setHydrated(true);
         }
       } catch {
         // Ignore
@@ -132,5 +136,5 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     [sendCommand]
   );
 
-  return { items, timer, connected, sendCommand, seedState };
+  return { items, timer, connected, hydrated, sendCommand, seedState };
 }

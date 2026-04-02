@@ -328,15 +328,16 @@ function ShowPageWithNative({
   const {
     items: syncedItems,
     timer: syncedTimer,
-    connected: syncConnected,
+    hydrated: syncHydrated,
     seedState,
   } = useRundownSync(orgId);
 
   // Use synced state when available, fall back to initial loader data
-  const items: RundownItem[] = (syncConnected && syncedItems.length > 0
+  // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])
+  const items: RundownItem[] = (syncHydrated && syncedItems.length > 0
     ? syncedItems
     : initialRundown?.items ?? []) as RundownItem[];
-  const timer: NativeTimerState = syncConnected
+  const timer: NativeTimerState = syncHydrated
     ? {
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
@@ -354,14 +355,14 @@ function ShowPageWithNative({
   // Seed DO if it's empty but we have initial data from DB
   const hasSeededRef = useRef(false);
   useEffect(() => {
-    if (!syncConnected || hasSeededRef.current) return;
+    if (!syncHydrated || hasSeededRef.current) return;
     if (syncedItems.length === 0 && initialRundown && initialRundown.items.length > 0) {
       hasSeededRef.current = true;
       seedState(initialRundown.items as any[], initialRundown.timer as any);
     } else if (syncedItems.length > 0) {
       hasSeededRef.current = true;
     }
-  }, [syncConnected, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [displayTime, setDisplayTime] = useState(0);
   const rafRef = useRef<number>(0);
