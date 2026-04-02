@@ -7,6 +7,9 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { BridgeConfig, DeviceConfig } from "./config.js";
 import { getConfig, saveConfig } from "./config.js";
 import type { CloudLinkStatus } from "./cloud-link.js";
@@ -157,14 +160,17 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
       return json(res, { ok: true });
     }
 
-    // Serve the UI page — no-cache so updates are always picked up
+    // Serve the UI page — read from disk every time, never cached
     if (url.pathname === "/" || url.pathname === "/index.html") {
+      const __dir = dirname(fileURLToPath(import.meta.url));
+      const html = readFileSync(resolve(__dir, "dashboard.html"), "utf-8");
       res.writeHead(200, {
         "Content-Type": "text/html",
         "Cache-Control": "no-store, no-cache, must-revalidate",
         "Pragma": "no-cache",
+        "Expires": "0",
       });
-      res.end(BRIDGE_HTML);
+      res.end(html);
       return;
     }
 
@@ -177,9 +183,9 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
   });
 }
 
-// ─── Inline UI ──────────────────────────────────────────────
+// ─── Legacy inline HTML removed — now served from dashboard.html ──
 
-const BRIDGE_HTML = `<!DOCTYPE html>
+const _UNUSED = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
