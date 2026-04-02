@@ -352,7 +352,6 @@ function toggleDevice(id, enabled) {
 }
 
 pollStatus();
-setInterval(pollStatus, 3000);
 </script>
 </body>
 </html>`;
