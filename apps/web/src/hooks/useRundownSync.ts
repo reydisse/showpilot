@@ -72,8 +72,8 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "hydrate" || msg.type === "state") {
-          // Ignore empty DO state
-          if (msg.state.items && msg.state.items.length > 0) {
+          // Always accept DO state — it is the source of truth once connected
+          if (msg.state.items) {
             setItems(msg.state.items);
           }
           if (msg.state.timer) {
@@ -88,7 +88,8 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
-      seededRef.current = false;
+      // Do NOT reset seededRef — DO retains state across reconnects,
+      // re-seeding with stale initialState would overwrite live data
       if (pingTimer) clearInterval(pingTimer);
       reconnectTimer.current = setTimeout(() => connect(), 1000);
     };

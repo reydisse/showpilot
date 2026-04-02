@@ -13,6 +13,10 @@ interface UseChatOptions {
   isVisible?: boolean;
   /** Which adapter to use — defaults to "native" */
   chatAdapter?: ChatAdapterType;
+  /** Display name for the current user */
+  senderName?: string;
+  /** Role of the current user (e.g. "admin", "td", "operator") */
+  senderRole?: string;
 }
 
 interface UseChatReturn {
@@ -44,7 +48,7 @@ function createAdapter(orgId: string, type: ChatAdapterType): ChatAdapter {
  * Creates the appropriate chat adapter based on org settings.
  * Manages connection lifecycle, message state, and unread tracking.
  */
-export function useChat({ orgId, isVisible = false, chatAdapter = "native" }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -108,13 +112,12 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native" }: Us
     (text: string, type: MessageType = "text") => {
       if (!adapterRef.current || !text.trim()) return;
 
-      // TODO: Pull senderName and senderRole from auth context
-      const senderName = "Operator";
-      const senderRole = "Operator";
+      const name = userName || "Operator";
+      const role = userRole || "Operator";
 
-      adapterRef.current.sendMessage(text.trim(), type, senderName, senderRole);
+      adapterRef.current.sendMessage(text.trim(), type, name, role);
     },
-    [],
+    [userName, userRole],
   );
 
   const resetUnread = useCallback(() => {

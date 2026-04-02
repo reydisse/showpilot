@@ -69,8 +69,8 @@ export class NativeChatAdapter implements ChatAdapter {
           try {
             const data = JSON.parse(event.data);
 
-            if (data.type === "history" && Array.isArray(data.messages)) {
-              // Initial history hydration from the Durable Object
+            if ((data.type === "hydrate" || data.type === "history") && Array.isArray(data.messages)) {
+              // Initial history hydration from the ChatRelay Durable Object
               this.messageHistory = data.messages;
               for (const msg of data.messages) {
                 this.notifyListeners(msg);
@@ -125,7 +125,14 @@ export class NativeChatAdapter implements ChatAdapter {
     const payload = { text, type, senderName, senderRole };
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: "send", ...payload }));
+      // ChatRelay expects: { type: "message", text, messageType, name, role }
+      this.ws.send(JSON.stringify({
+        type: "message",
+        text: payload.text,
+        messageType: payload.type,
+        name: payload.senderName,
+        role: payload.senderRole,
+      }));
     } else {
       // Queue the message for when we reconnect
       this.messageQueue.push(payload);
@@ -188,7 +195,13 @@ export class NativeChatAdapter implements ChatAdapter {
     while (this.messageQueue.length > 0) {
       const msg = this.messageQueue.shift()!;
       this.ws.send(
-        JSON.stringify({ action: "send", ...msg }),
+        JSON.stringify({
+          type: "message",
+          text: msg.text,
+          messageType: msg.type,
+          name: msg.senderName,
+          role: msg.senderRole,
+        }),
       );
     }
   }
@@ -196,15 +209,18 @@ export class NativeChatAdapter implements ChatAdapter {
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
 
+    const delay = this.reconnectDelay;
+    // Increase delay for next attempt (backoff before scheduling)
+    this.reconnectDelay = Math.min(
+      this.reconnectDelay * BACKOFF_MULTIPLIER,
+      MAX_RECONNECT_DELAY,
+    );
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.reconnectDelay = Math.min(
-        this.reconnectDelay * BACKOFF_MULTIPLIER,
-        MAX_RECONNECT_DELAY,
-      );
       this.connect().catch(() => {
         // connect() will schedule another reconnect via onclose
       });
-    }, this.reconnectDelay);
+    }, delay);
   }
 }

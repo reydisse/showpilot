@@ -178,29 +178,42 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
   });
 
-  // Seed DO when we connect and it's empty — push DB items to DO so
-  // all other devices get them via broadcast
+  // Seed DO when we first connect and it's empty — push current items to DO
+  // so all other devices get them via broadcast
+  const hasSeededRef = useRef(false);
   useEffect(() => {
     if (!syncConnected) return;
-    if (syncedItems.length === 0 && initialState.items.length > 0) {
-      seedState(initialState.items as RundownItem[], initialState.timer as any);
-    }
-  }, [syncConnected, syncedItems.length, initialState, seedState]);
-
-  // Sync: when DO broadcasts state with content, update local state
-  useEffect(() => {
-    if (!syncConnected) return;
-    if (syncedItems.length > 0) {
-      setItems(syncedItems as RundownItem[]);
-    }
-    if (syncedTimer.playback !== "stop" || syncedTimer.currentItemId) {
-      setTimer({
-        playback: syncedTimer.playback,
-        currentItemId: syncedTimer.currentItemId,
-        elapsed: syncedTimer.elapsed,
-        startedAt: syncedTimer.startedAt,
+    if (hasSeededRef.current) return; // Only seed once per page session
+    // If DO is empty but we have local items (from DB), seed the DO
+    if (syncedItems.length === 0 && items.length > 0) {
+      hasSeededRef.current = true;
+      seedState(items as RundownItem[], {
+        playback: timer.playback,
+        currentItemId: timer.currentItemId,
+        elapsed: timer.elapsed,
+        startedAt: timer.startedAt,
+        pausedAt: null,
+        mode: "count-down",
       });
+    } else if (syncedItems.length > 0) {
+      // DO already has items — no need to seed
+      hasSeededRef.current = true;
     }
+  }, [syncConnected, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync: always accept DO state as source of truth when connected
+  const syncVersionRef = useRef(0);
+  useEffect(() => {
+    if (!syncConnected) return;
+    // Track that we've received at least one broadcast
+    syncVersionRef.current++;
+    setItems(syncedItems as RundownItem[]);
+    setTimer({
+      playback: syncedTimer.playback,
+      currentItemId: syncedTimer.currentItemId,
+      elapsed: syncedTimer.elapsed,
+      startedAt: syncedTimer.startedAt,
+    });
   }, [syncConnected, syncedItems, syncedTimer]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
@@ -249,7 +262,7 @@ function RundownPage() {
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
     if (!slide || !slide.text) {
       setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch(() => {});
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
       return;
     }
     // Only relay actual slide content (lyrics, scripture) — skip timers, clocks, counters
@@ -265,7 +278,7 @@ function RundownPage() {
       updatedAt: Date.now(),
     };
     setPpCurrentSlide(payload);
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide: payload } }).catch(() => {});
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide: payload } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
   }, [orgId, serviceDate]);
 
   // ProPresenter connection
@@ -284,7 +297,7 @@ function RundownPage() {
       // Turning off — clear slide from kiosk
       setPpEnabled(false);
       setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch(() => {});
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
     } else {
       setPpEnabled(true);
     }
@@ -298,14 +311,14 @@ function RundownPage() {
     startedAt: number | null,
   ) => {
     const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt);
-    saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch(() => {});
+    saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
   }, [orgId, serviceDate]);
 
   // Auto-save items on change (debounced)
   const persistItems = useCallback((newItems: RundownItem[]) => {
     if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
     saveItemsTimeoutRef.current = setTimeout(() => {
-      saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch(() => {});
+      saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch((e) => console.warn("[SP] Items persist failed:", e));
     }, 1000);
   }, [orgId, serviceDate]);
 
@@ -433,7 +446,7 @@ function RundownPage() {
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
       setTimer({ ...timer, playback: "play", startedAt: resumeNow });
-      sendCommand("timer-start", { itemId: timer.currentItemId });
+      sendCommand("timer-resume");
       persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
   }, [timer, sendCommand, persistTimer]);
@@ -599,14 +612,14 @@ function RundownPage() {
       setActiveMessage(message.trim());
       // Encode priority flag into message string for kiosk
       const encoded = messagePriority ? `!!PRIORITY!!${message.trim()}` : message.trim();
-      saveRundownMessage({ data: { orgId, serviceDate, message: encoded } }).catch(() => {});
+      saveRundownMessage({ data: { orgId, serviceDate, message: encoded } }).catch((e) => console.warn("[SP] Message persist failed:", e));
     }
   };
 
   const handleClearMessage = () => {
     setActiveMessage("");
     setMessagePriority(false);
-    saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch(() => {});
+    saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
   };
 
   // Keyboard shortcuts
