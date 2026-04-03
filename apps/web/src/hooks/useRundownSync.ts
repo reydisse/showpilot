@@ -24,12 +24,22 @@ interface TimerState {
   serverTime?: number;
 }
 
+interface PPSlideState {
+  text: string;
+  notes: string;
+  presentationName: string;
+  isScripture: boolean;
+  updatedAt: number;
+}
+
 interface UseRundownSyncReturn {
   items: RundownItem[];
   timer: TimerState;
   connected: boolean;
   /** True after we've received at least one hydrate/state message from the DO */
   hydrated: boolean;
+  /** ProPresenter slide data from gateway bridge (null = no slide / cleared) */
+  ppSlide: PPSlideState | null;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (items: RundownItem[], timer: TimerState) => void;
@@ -47,6 +57,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   });
   const [connected, setConnected] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [ppSlide, setPpSlide] = useState<PPSlideState | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -80,6 +91,10 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
           }
           if (msg.state.timer) {
             setTimer(msg.state.timer);
+          }
+          // PP slide data from gateway bridge
+          if (msg.state.ppSlide !== undefined) {
+            setPpSlide(msg.state.ppSlide);
           }
           setHydrated(true);
         }
@@ -132,5 +147,5 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     [sendCommand]
   );
 
-  return { items, timer, connected, hydrated, sendCommand, seedState };
+  return { items, timer, connected, hydrated, ppSlide, sendCommand, seedState };
 }
