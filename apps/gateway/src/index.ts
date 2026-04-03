@@ -102,8 +102,17 @@ function connectDevice(config: DeviceConfig): void {
       onSlideChange: (slide) => {
         instance.currentSlide = slide;
         console.log(`[Bridge] PP slide: "${slide?.text?.slice(0, 60) || "(cleared)"}"`);
-        // Future: relay slide data to cloud for kiosk display
-        // cloudLink?.sendCommand("pp-slide", { slide });
+        // Relay slide data to cloud for kiosk display
+        if (cloudLink && cloudLink.getStatus() === "connected") {
+          cloudLink.sendCommand("pp-slide", {
+            slide: slide ? {
+              text: slide.text,
+              notes: slide.notes || "",
+              presentationName: slide.presentationName || "",
+              isScripture: slide.isScripture || false,
+            } : null,
+          });
+        }
       },
       onStatusChange: (status) => {
         instance.status = status;

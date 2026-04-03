@@ -171,6 +171,76 @@ async function deleteCfOutput(cfInputId: string, cfOutputId: string): Promise<vo
   );
 }
 
+/** Check Stream Connect output status for all connected destinations */
+export const getOutputStatuses = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgId: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const destinations = await prisma.streamDestination.findMany({
+      where: { orgId: data.orgId, cfOutputId: { not: "" } },
+    });
+
+    if (destinations.length === 0) return {};
+
+    const accountId = getAccountId();
+    const headers = getCfHeaders();
+    const statuses: Record<string, { status: string; error?: string }> = {};
+
+    for (const dest of destinations) {
+      const liveInput = await prisma.liveInput.findFirst({
+        where: { id: dest.liveInputId, orgId: data.orgId },
+      });
+      if (!liveInput?.cfInputId || !dest.cfOutputId) {
+        statuses[dest.id] = { status: "unknown" };
+        continue;
+      }
+
+      try {
+        // Fetch the specific output to check its connection status
+        const res = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/live_inputs/${liveInput.cfInputId}/outputs`,
+          { headers }
+        );
+
+        if (!res.ok) {
+          statuses[dest.id] = { status: "unknown" };
+          continue;
+        }
+
+        const cfData = (await res.json()) as {
+          result: Array<{
+            uid: string;
+            url: string;
+            status: {
+              current: {
+                state: string;
+                reason?: string;
+              };
+            } | null;
+          }>;
+        };
+
+        const output = cfData.result?.find((o) => o.uid === dest.cfOutputId);
+        if (!output) {
+          statuses[dest.id] = { status: "missing" };
+          continue;
+        }
+
+        const state = output.status?.current?.state ?? "idle";
+        const reason = output.status?.current?.reason;
+        // CF Stream Connect output states: "connected", "reconnecting", "reconnected", "idle", "disconnected"
+        statuses[dest.id] = {
+          status: state,
+          error: reason && state !== "connected" ? reason : undefined,
+        };
+      } catch {
+        statuses[dest.id] = { status: "unknown" };
+      }
+    }
+
+    return statuses;
+  });
+
 /** Connect all enabled destinations to a specific live input */
 export const connectDestinationsToInput = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; liveInputId: string }) => data)

@@ -65,6 +65,7 @@ export class ProPresenterClient {
   // Polling state
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollFn: ((host: string, port: number) => Promise<PPSlideData | null>) | null = null;
+  private pollPort: number | null = null;
   private lastPollText = "";
 
   // Debug tracking
@@ -81,10 +82,12 @@ export class ProPresenterClient {
   /**
    * Connect to ProPresenter.
    * @param pollFn Optional server-side polling function (bypasses CORS)
+   * @param apiPort Optional API port for REST polling (defaults to stage display port)
    */
-  connect(pollFn?: (host: string, port: number) => Promise<PPSlideData | null>): void {
+  connect(pollFn?: (host: string, port: number) => Promise<PPSlideData | null>, apiPort?: number): void {
     if (this.destroyed) return;
     this.pollFn = pollFn || null;
+    this.pollPort = apiPort || null;
     this.clearReconnectTimer();
     this.options.onStatusChange("connecting");
 
@@ -204,7 +207,7 @@ export class ProPresenterClient {
     const doPoll = async () => {
       if (this.destroyed || !this.pollFn) return;
       try {
-        const slide = await this.pollFn(this.options.host, this.options.port);
+        const slide = await this.pollFn(this.options.host, this.pollPort ?? this.options.port);
         if (slide && slide.text) {
           this.pollSuccessCount++;
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
