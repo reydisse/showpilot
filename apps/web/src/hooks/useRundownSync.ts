@@ -74,8 +74,6 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
         const msg = JSON.parse(event.data);
 
         if (msg.type === "hydrate" || msg.type === "state") {
-          const itemCount = msg.state.items?.length ?? 0;
-          console.log(`[RundownSync] ${msg.type}: ${itemCount} items`, msg.state.items?.map((i: RundownItem) => i.title));
           // Always accept DO state — it is the source of truth once connected
           if (msg.state.items) {
             setItems(msg.state.items);
