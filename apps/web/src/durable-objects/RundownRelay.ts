@@ -33,9 +33,18 @@ export interface TimerState {
   mode: "count-up" | "count-down";
 }
 
+interface PPSlideState {
+  text: string;
+  notes: string;
+  presentationName: string;
+  isScripture: boolean;
+  updatedAt: number;
+}
+
 interface RundownState {
   items: RundownItem[];
   timer: TimerState;
+  ppSlide: PPSlideState | null;
 }
 
 export class RundownRelay extends DurableObject {
@@ -49,6 +58,7 @@ export class RundownRelay extends DurableObject {
       pausedAt: null,
       mode: "count-down",
     },
+    ppSlide: null,
   };
 
   async fetch(request: Request): Promise<Response> {
@@ -298,6 +308,12 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "pp-slide": {
+        const slide = payload?.slide as PPSlideState | null;
+        this.state.ppSlide = slide ? { ...slide, updatedAt: Date.now() } : null;
+        break;
+      }
+
       case "reset": {
         this.state.items.forEach((item) => {
           item.status = "upcoming";
@@ -327,6 +343,7 @@ export class RundownRelay extends DurableObject {
         ...this.state.timer,
         serverTime: Date.now(),
       },
+      ppSlide: this.state.ppSlide,
     };
   }
 

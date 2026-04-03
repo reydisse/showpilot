@@ -272,6 +272,47 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
     }
   });
 
+/**
+ * Test ProPresenter connection by hitting known API endpoints.
+ * Returns success if any endpoint responds.
+ */
+export const testProPresenterConnection = createServerFn({ method: "POST" })
+  .inputValidator((data: { host: string; port: number; apiPort?: number }) => data)
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const { host, apiPort, port } = data;
+    const timeout = 3000;
+
+    // Try API port first (REST), then stage display port
+    const ports = apiPort && apiPort !== port ? [apiPort, port] : [port];
+    const testEndpoints = [
+      "/v1/version",
+      "/v1/status/slide",
+      "/v1/presentation/active",
+    ];
+
+    for (const p of ports) {
+      const base = `http://${host}:${p}`;
+      for (const endpoint of testEndpoints) {
+        try {
+          const res = await fetch(`${base}${endpoint}`, {
+            signal: AbortSignal.timeout(timeout),
+          });
+          if (res.ok || res.status === 401) {
+            // 401 means PP is there but needs auth — still a valid connection
+            return { ok: true };
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+
+    return {
+      ok: false,
+      error: `Could not reach ProPresenter at ${host}. Make sure PP7 is running with Network enabled, and that this server can reach it. In production, use the ShowPilot Gateway bridge for local network access.`,
+    };
+  });
+
 export interface PPSlidePayload {
   text: string;
   notes: string;

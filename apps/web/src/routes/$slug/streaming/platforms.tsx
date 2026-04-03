@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Radio,
   Plus,
@@ -25,6 +25,7 @@ import {
   toggleStreamDestination,
   connectDestinationsToInput,
   disconnectAllDestinations,
+  getOutputStatuses,
 } from "@/lib/stream-destinations";
 import { getLiveInputs } from "@/lib/stream";
 
@@ -76,10 +77,43 @@ function PlatformsPage() {
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [outputStatuses, setOutputStatuses] = useState<Record<string, { status: string; error?: string }>>({});
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeCount = destinations.filter((d) => d.enabled).length;
   const connectedCount = destinations.filter((d) => d.cfOutputId).length;
   const hasInputs = inputs.length > 0;
+
+  // Poll output statuses when there are connected destinations
+  useEffect(() => {
+    if (connectedCount === 0) {
+      setOutputStatuses({});
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+
+    const poll = async () => {
+      try {
+        const statuses = await getOutputStatuses({ data: { orgId } });
+        setOutputStatuses(statuses);
+      } catch {
+        // Silently continue
+      }
+    };
+
+    poll(); // Immediate first poll
+    pollRef.current = setInterval(poll, 5000); // Then every 5s
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [connectedCount, orgId]);
 
   const handleToggle = async (id: string, currentEnabled: boolean) => {
     await toggleStreamDestination({ data: { id, enabled: !currentEnabled } });
@@ -185,23 +219,31 @@ function PlatformsPage() {
 
       <div className="p-6 max-w-3xl mx-auto space-y-5">
         {/* Status banner */}
-        {connectedCount > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
-              <span className="text-sm font-medium text-fire-500">
-                Simulcasting to {connectedCount} destination{connectedCount !== 1 ? "s" : ""}
-              </span>
+        {connectedCount > 0 && (() => {
+          const liveOutputs = Object.values(outputStatuses).filter((s) => s.status === "connected").length;
+          const connectingOutputs = connectedCount - liveOutputs;
+          return (
+            <div className={`flex items-center justify-between px-4 py-3 rounded-xl ${
+              liveOutputs > 0 ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full animate-pulse ${liveOutputs > 0 ? "bg-green-500" : "bg-amber-500"}`} />
+                <span className={`text-sm font-medium ${liveOutputs > 0 ? "text-green-400" : "text-amber-400"}`}>
+                  {liveOutputs > 0
+                    ? `Live on ${liveOutputs} platform${liveOutputs !== 1 ? "s" : ""}${connectingOutputs > 0 ? ` (${connectingOutputs} connecting...)` : ""}`
+                    : `Connecting to ${connectingOutputs} platform${connectingOutputs !== 1 ? "s" : ""}...`}
+                </span>
+              </div>
+              <button
+                onClick={handleStopAll}
+                disabled={stopping}
+                className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
+              >
+                Stop All
+              </button>
             </div>
-            <button
-              onClick={handleStopAll}
-              disabled={stopping}
-              className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
-            >
-              Stop All
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* No input warning */}
         {!hasInputs && destinations.length > 0 && (
@@ -259,16 +301,23 @@ function PlatformsPage() {
                 PLATFORM_CONFIG[dest.platform as Platform] ?? PLATFORM_CONFIG.custom;
               const keyRevealed = revealedKeys.has(dest.id);
               const isConnected = !!dest.cfOutputId;
+              const outputStatus = outputStatuses[dest.id];
+              const isLive = outputStatus?.status === "connected";
+              const isConnecting = isConnected && !isLive && !outputStatus?.error;
 
               return (
                 <div
                   key={dest.id}
                   className={`rounded-xl border p-5 transition-all ${
-                    isConnected
-                      ? "bg-fire-500/5 border-fire-500/20"
-                      : dest.enabled
-                        ? "bg-board-card border-board-border"
-                        : "bg-board-card/50 border-board-border/50 opacity-60"
+                    isLive
+                      ? "bg-green-500/5 border-green-500/20"
+                      : isConnecting
+                        ? "bg-amber-500/5 border-amber-500/20"
+                        : isConnected
+                          ? "bg-fire-500/5 border-fire-500/20"
+                          : dest.enabled
+                            ? "bg-board-card border-board-border"
+                            : "bg-board-card/50 border-board-border/50 opacity-60"
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3">
@@ -282,9 +331,30 @@ function PlatformsPage() {
                         {dest.name}
                       </p>
                       {isConnected && (
-                        <span className="flex items-center gap-1 text-[10px] font-medium text-fire-500">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Connected
+                        <span className={`flex items-center gap-1 text-[10px] font-medium ${
+                          isLive ? "text-green-400" : isConnecting ? "text-amber-400" : outputStatus?.error ? "text-red-400" : "text-fire-500"
+                        }`}>
+                          {isLive ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" />
+                              Live
+                            </>
+                          ) : isConnecting ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Connecting to {platformCfg.label}...
+                            </>
+                          ) : outputStatus?.error ? (
+                            <>
+                              <XCircle className="w-3 h-3" />
+                              {outputStatus.error}
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" />
+                              Relay created
+                            </>
+                          )}
                         </span>
                       )}
                     </div>
@@ -348,6 +418,18 @@ function PlatformsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* YouTube timing note — show when YouTube destination exists */}
+        {connectedCount > 0 && destinations.some((d) => d.platform === "youtube") && (
+          <div className="px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/15">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-1">YouTube Timing</p>
+            <p className="text-xs text-board-muted">
+              After ShowPilot shows "Live", YouTube still needs 1-3 minutes to process the incoming stream before viewers see it.
+              Make sure your YouTube stream is set to "Go Live" in YouTube Studio <strong className="text-board-text">before</strong> you
+              click Go Live here — otherwise YouTube may reject the incoming stream until you start the broadcast on their end.
+            </p>
           </div>
         )}
 

@@ -184,9 +184,17 @@ function RundownPage() {
   // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
   // not just that the WS connected (syncedItems would still be [] before hydrate).
   const hasSeededRef = useRef(false);
+  // Track which date we last seeded for — reset when date changes
+  const seededDateRef = useRef(serviceDate);
+  useEffect(() => {
+    if (seededDateRef.current !== serviceDate) {
+      hasSeededRef.current = false;
+      seededDateRef.current = serviceDate;
+    }
+  }, [serviceDate]);
   useEffect(() => {
     if (!syncHydrated) return; // Wait for actual DO response
-    if (hasSeededRef.current) return; // Only seed once per page session
+    if (hasSeededRef.current) return; // Only seed once per date
     // If DO is empty but we have local items (from DB), seed the DO
     if (syncedItems.length === 0 && items.length > 0) {
       hasSeededRef.current = true;
@@ -204,18 +212,6 @@ function RundownPage() {
     }
   }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync: accept DO state as source of truth, but ONLY after hydration
-  // (before hydrate arrives, syncedItems is [] which would wipe DB-loaded items)
-  useEffect(() => {
-    if (!syncHydrated) return;
-    setItems(syncedItems as RundownItem[]);
-    setTimer({
-      playback: syncedTimer.playback,
-      currentItemId: syncedTimer.currentItemId,
-      elapsed: syncedTimer.elapsed,
-      startedAt: syncedTimer.startedAt,
-    });
-  }, [syncHydrated, syncedItems, syncedTimer]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
   const [showLoadModal, setShowLoadModal] = useState(false);
@@ -225,6 +221,24 @@ function RundownPage() {
   const [activeMessage, setActiveMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Sync: accept DO state as source of truth, but ONLY after hydration.
+  // Skip during date loads — loadDate() sets items directly and we don't
+  // want stale DO broadcasts to overwrite the freshly loaded date.
+  const loadingRef = useRef(false);
+  loadingRef.current = loading;
+  useEffect(() => {
+    if (!syncHydrated) return;
+    if (loadingRef.current) return; // Date load in progress — don't overwrite
+    setItems(syncedItems as RundownItem[]);
+    setTimer({
+      playback: syncedTimer.playback,
+      currentItemId: syncedTimer.currentItemId,
+      elapsed: syncedTimer.elapsed,
+      startedAt: syncedTimer.startedAt,
+    });
+  }, [syncHydrated, syncedItems, syncedTimer]);
+
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customAdjust, setCustomAdjust] = useState("1:00");
   const [progressReset, setProgressReset] = useState(false);

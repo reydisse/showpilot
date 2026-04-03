@@ -109,9 +109,9 @@ export function useProPresenter({
     });
 
     clientRef.current = client;
-    // Poll using API port if available, fall back to stage display port
-    const pollPort = apiPort || port;
-    client.connect((h, _p) => serverPollPP(h, pollPort));
+    // Pass API port separately so the client polls on the correct port
+    const resolvedApiPort = apiPort || port;
+    client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
 
     return () => {
       client.disconnect();
@@ -142,8 +142,8 @@ export function useProPresenter({
       },
     });
     clientRef.current = client;
-    const pollPort = apiPort || port;
-    client.connect((h, _p) => serverPollPP(h, pollPort));
+    const resolvedApiPort = apiPort || port;
+    client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
   }, [host, port, apiPort, password]);
 
   const disconnect = useCallback(() => {

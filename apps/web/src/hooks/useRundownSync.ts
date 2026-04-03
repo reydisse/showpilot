@@ -49,7 +49,6 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   const [hydrated, setHydrated] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seededRef = useRef(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -91,9 +90,8 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
 
     ws.onclose = () => {
       setConnected(false);
+      setHydrated(false); // Reset so we wait for fresh hydrate on reconnect
       wsRef.current = null;
-      // Do NOT reset seededRef — DO retains state across reconnects,
-      // re-seeding with stale initialState would overwrite live data
       if (pingTimer) clearInterval(pingTimer);
       reconnectTimer.current = setTimeout(() => connect(), 1000);
     };
@@ -126,11 +124,10 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
 
   const seedState = useCallback(
     (seedItems: RundownItem[], seedTimer: TimerState) => {
-      if (seededRef.current) return;
-      seededRef.current = true;
       sendCommand("seed", {
         items: seedItems,
         timer: seedTimer,
+        force: true,
       });
     },
     [sendCommand]

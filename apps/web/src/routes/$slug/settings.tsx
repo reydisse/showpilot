@@ -33,6 +33,7 @@ import {
   regenerateApiKey,
 } from "@/lib/settings";
 import { testChatConnection } from "@/lib/chat-proxy";
+import { testProPresenterConnection } from "@/lib/rundown";
 import { authClient } from "@/lib/auth-client";
 
 // ─── Route ──────────────────────────────────────────────────
@@ -777,9 +778,14 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
             connected={rundownAdapter === "propresenter"}
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={async () => {
+              const host = getSetting("propresenter-host");
+              const port = parseInt(getSetting("propresenter-port") || "50001", 10);
+              const apiPort = parseInt(getSetting("propresenter-api-port") || "0", 10);
+              if (!host) throw new Error("Set ProPresenter host first");
+              const result = await testProPresenterConnection({ data: { host, port, apiPort: apiPort || undefined } });
+              if (!result.ok) throw new Error(result.error || "Connection failed");
+            }}
           >
             <div className="space-y-3">
               <FieldGroup label="ProPresenter Host">
