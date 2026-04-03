@@ -997,7 +997,7 @@ function RundownPage() {
 
             {/* ProPresenter Slide Feed */}
             {(ppHost || syncedPpSlide) && (
-              <div className={`rounded-xl border p-4 transition-colors ${ppEnabled || syncedPpSlide ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}>
+              <div className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Tv className="w-3.5 h-3.5 text-purple-400" />
@@ -1005,22 +1005,20 @@ function RundownPage() {
                       ProPresenter
                     </p>
                   </div>
-                  {ppHost && (
-                    <button
-                      onClick={togglePP}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
-                        ppEnabled
-                          ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
-                          : "bg-board-bg text-board-muted hover:bg-board-border"
-                      }`}
-                    >
-                      {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                      {ppEnabled ? "Streaming" : "Off"}
-                    </button>
-                  )}
+                  <button
+                    onClick={togglePP}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                      ppEnabled
+                        ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                        : "bg-board-bg text-board-muted hover:bg-board-border"
+                    }`}
+                  >
+                    {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                    {ppEnabled ? "Streaming" : "Off"}
+                  </button>
                 </div>
 
-                {(ppEnabled || syncedPpSlide) && (
+                {ppEnabled && (
                   <>
                     {/* Connection status */}
                     <div className="flex items-center gap-2 mb-2">
