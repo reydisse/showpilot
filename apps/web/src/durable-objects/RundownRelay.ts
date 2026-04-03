@@ -328,6 +328,46 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "timer-prev": {
+        // Go back to previous item — reset current to "upcoming", start previous
+        const curIdx = this.state.items.findIndex(
+          (i) => i.id === this.state.timer.currentItemId
+        );
+        if (curIdx > 0) {
+          // Reset current item to upcoming (not complete — we're going backward)
+          if (curIdx >= 0) {
+            this.state.items[curIdx].status = "upcoming";
+          }
+          const prevItem = this.state.items[curIdx - 1];
+          prevItem.status = "live";
+          this.state.timer = {
+            playback: "play",
+            currentItemId: prevItem.id,
+            elapsed: 0,
+            startedAt: Date.now(),
+            pausedAt: null,
+            mode: this.state.timer.mode,
+          };
+        }
+        break;
+      }
+
+      case "timer-adjust": {
+        // Add/subtract time from running timer — syncs to all clients
+        // Positive deltaMs = add time (reduce elapsed), negative = subtract time
+        const deltaMs = payload?.deltaMs as number;
+        if (typeof deltaMs !== "number") break;
+
+        if (this.state.timer.playback === "play" && this.state.timer.startedAt) {
+          const currentElapsed = this.state.timer.elapsed + (Date.now() - this.state.timer.startedAt);
+          this.state.timer.elapsed = Math.max(0, currentElapsed - deltaMs);
+          this.state.timer.startedAt = Date.now();
+        } else if (this.state.timer.playback === "pause") {
+          this.state.timer.elapsed = Math.max(0, this.state.timer.elapsed - deltaMs);
+        }
+        break;
+      }
+
       case "timer-mode": {
         this.state.timer.mode =
           (payload?.mode as "count-up" | "count-down") ?? "count-down";

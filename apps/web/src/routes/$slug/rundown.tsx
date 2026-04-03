@@ -509,8 +509,8 @@ function RundownPage() {
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
       const prevItem = items[currentIdx - 1];
-      // Local optimistic update
-      updateItems((prev) =>
+      // Local optimistic update — reset current to upcoming, start previous
+      setItems((prev) =>
         prev.map((i, idx) =>
           idx === currentIdx ? { ...i, status: "upcoming" as ItemStatus } :
           i.id === prevItem.id ? { ...i, status: "live" as ItemStatus } : i
@@ -518,11 +518,10 @@ function RundownPage() {
       );
       const startNow = Date.now();
       setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow });
-      // Sync
-      sendCommand("timer-start", { itemId: prevItem.id });
+      sendCommand("timer-prev");
       persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [items, timer.currentItemId, updateItems, sendCommand, persistTimer]);
+  }, [items, timer.currentItemId, sendCommand, persistTimer]);
 
   const handleReset = useCallback(() => {
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
@@ -538,19 +537,19 @@ function RundownPage() {
     if (timer.playback === "stop") return;
 
     if (timer.playback === "play" && timer.startedAt) {
-      // Currently playing: adjust elapsed, keep startedAt at now
       const currentElapsed = timer.elapsed + (Date.now() - timer.startedAt);
       const newElapsed = Math.max(0, currentElapsed - deltaMs);
       const adjustNow = Date.now();
       setTimer({ ...timer, elapsed: newElapsed, startedAt: adjustNow });
       persistTimer("play", timer.currentItemId, newElapsed, adjustNow);
     } else if (timer.playback === "pause") {
-      // Paused: adjust elapsed directly
       const newElapsed = Math.max(0, timer.elapsed - deltaMs);
       setTimer({ ...timer, elapsed: newElapsed });
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [timer, persistTimer]);
+    // Sync to DO → broadcasts to all clients and kiosk
+    sendCommand("timer-adjust", { deltaMs });
+  }, [timer, persistTimer, sendCommand]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     const item: RundownItem = {
