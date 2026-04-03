@@ -93,11 +93,25 @@ function formatDuration(ms: number): string {
   return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+/** Parse duration for item creation — bare number = minutes (e.g. "5" → 5 min) */
 function parseDurationInput(str: string): number {
-  const parts = str.split(":").map(Number);
-  if (parts.length === 2) return (parts[0] * 60 + parts[1]) * 1000;
-  if (parts.length === 1) return parts[0] * 60 * 1000;
+  const trimmed = str.trim();
+  if (!trimmed) return 300000;
+  const parts = trimmed.split(":").map(Number);
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  if (parts.length === 2 && parts.every((n) => !isNaN(n))) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 1 && !isNaN(parts[0])) return parts[0] * 60 * 1000;
   return 300000;
+}
+
+/** Parse time adjustment — bare number = seconds (e.g. "30" → 30s), colon = m:ss */
+function parseAdjustInput(str: string): number {
+  const trimmed = str.trim();
+  if (!trimmed) return 0;
+  const parts = trimmed.split(":").map(Number);
+  if (parts.length === 2 && parts.every((n) => !isNaN(n))) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 1 && !isNaN(parts[0])) return parts[0] * 1000;
+  return 0;
 }
 
 function shiftDate(dateStr: string, days: number): string {
@@ -903,8 +917,8 @@ function RundownPage() {
               {/* Custom time input */}
               <div className="flex gap-1.5">
                 <button
-                  onClick={() => handleAdjustTime(-parseDurationInput(customAdjust))}
-                  disabled={timer.playback === "stop"}
+                  onClick={() => handleAdjustTime(-parseAdjustInput(customAdjust))}
+                  disabled={timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
                   className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40"
                   title="Subtract custom time"
                 >
@@ -914,12 +928,12 @@ function RundownPage() {
                   type="text"
                   value={customAdjust}
                   onChange={(e) => setCustomAdjust(e.target.value)}
-                  placeholder="m:ss"
+                  placeholder="secs or m:ss"
                   className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
                 />
                 <button
-                  onClick={() => handleAdjustTime(parseDurationInput(customAdjust))}
-                  disabled={timer.playback === "stop"}
+                  onClick={() => handleAdjustTime(parseAdjustInput(customAdjust))}
+                  disabled={timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
                   className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors disabled:opacity-40"
                   title="Add custom time"
                 >
