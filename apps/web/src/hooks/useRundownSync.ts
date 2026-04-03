@@ -127,7 +127,6 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
       sendCommand("seed", {
         items: seedItems,
         timer: seedTimer,
-        force: true,
       });
     },
     [sendCommand]
