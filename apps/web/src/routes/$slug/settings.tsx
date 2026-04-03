@@ -774,7 +774,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="ProPresenter"
             icon={<SlidersHorizontal className="w-4 h-4" />}
-            description="Connect to ProPresenter for service order and slide control"
+            description="Stream slides from ProPresenter via the ShowPilot Gateway Bridge"
             connected={rundownAdapter === "propresenter"}
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
@@ -837,6 +837,15 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                 warning="This gives ShowPilot control over your ProPresenter. Only enable if your TD is aware."
               />
               <div className="mt-3 pt-3 border-t border-board-border">
+                <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Gateway Bridge</p>
+                <div className="px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10 mb-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 mb-1">Required for Production</p>
+                  <p className="text-xs text-board-muted">
+                    ProPresenter runs on your local network and ShowPilot runs in the cloud — they can't talk directly.
+                    The <strong className="text-board-text">ShowPilot Gateway Bridge</strong> runs on a computer on the same network as PP
+                    and relays slide data to ShowPilot automatically. Set it up at <code className="text-amber-400/80">http://localhost:9450</code> on the bridge machine.
+                  </p>
+                </div>
                 <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Stage Display</p>
                 <p className="text-xs text-board-muted/50 mb-2">
                   Stream live lyrics and scripture from ProPresenter to stage kiosk displays.

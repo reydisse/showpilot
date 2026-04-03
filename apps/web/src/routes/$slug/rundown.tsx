@@ -175,6 +175,7 @@ function RundownPage() {
     timer: syncedTimer,
     connected: syncConnected,
     hydrated: syncHydrated,
+    ppSlide: syncedPpSlide,
     sendCommand,
     seedState,
   } = useRundownSync(orgId);
@@ -287,18 +288,17 @@ function RundownPage() {
     }).catch(() => {});
   }, [orgId]);
 
-  // PP slide relay — when slide changes, persist to server for kiosk
+  // PP slide relay — when slide changes (from direct connection), persist to server for kiosk
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
     if (!slide || !slide.text) {
       setPpCurrentSlide(null);
       saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
       return;
     }
-    // Only relay actual slide content (lyrics, scripture) — skip timers, clocks, counters
     const trimmedText = slide.text.trim();
-    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return; // "00:05:30", "5:30"
-    if (/^[\d:.\-\s]+$/.test(trimmedText)) return; // purely numeric/clock content
-    if (trimmedText.length < 3) return; // too short to be real content
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return;
+    if (/^[\d:.\-\s]+$/.test(trimmedText)) return;
+    if (trimmedText.length < 3) return;
     const payload: PPSlidePayload = {
       text: slide.text,
       notes: slide.notes,
@@ -310,7 +310,7 @@ function RundownPage() {
     saveProPresenterSlide({ data: { orgId, serviceDate, slide: payload } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
   }, [orgId, serviceDate]);
 
-  // ProPresenter connection
+  // ProPresenter direct connection (works on local network / dev only)
   const pp = useProPresenter({
     host: ppHost,
     port: ppPort,
@@ -320,10 +320,21 @@ function RundownPage() {
     onSlideChange: handlePPSlideChange,
   });
 
-  // Clear PP slide when disabling
+  // Use gateway bridge slide (from DO) as primary, direct connection as fallback
+  const activePpSlide: PPSlidePayload | null = syncedPpSlide ?? ppCurrentSlide;
+  // Persist gateway slides to DB for kiosk
+  useEffect(() => {
+    if (syncedPpSlide) {
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: syncedPpSlide } }).catch(() => {});
+    }
+  }, [syncedPpSlide, orgId, serviceDate]);
+
+  // PP is "connected" if gateway bridge is sending slides OR direct connection works
+  const ppIsConnected = syncedPpSlide !== null || pp.status === "connected";
+  const ppSource = syncedPpSlide !== null ? "bridge" : pp.status === "connected" ? "direct" : null;
+
   const togglePP = useCallback(() => {
     if (ppEnabled) {
-      // Turning off — clear slide from kiosk
       setPpEnabled(false);
       setPpCurrentSlide(null);
       saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
@@ -985,8 +996,8 @@ function RundownPage() {
             </div>
 
             {/* ProPresenter Slide Feed */}
-            {ppHost && (
-              <div className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}>
+            {(ppHost || syncedPpSlide) && (
+              <div className={`rounded-xl border p-4 transition-colors ${ppEnabled || syncedPpSlide ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <Tv className="w-3.5 h-3.5 text-purple-400" />
@@ -994,37 +1005,40 @@ function RundownPage() {
                       ProPresenter
                     </p>
                   </div>
-                  <button
-                    onClick={togglePP}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
-                      ppEnabled
-                        ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
-                        : "bg-board-bg text-board-muted hover:bg-board-border"
-                    }`}
-                  >
-                    {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {ppEnabled ? "Streaming" : "Off"}
-                  </button>
+                  {ppHost && (
+                    <button
+                      onClick={togglePP}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                        ppEnabled
+                          ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                          : "bg-board-bg text-board-muted hover:bg-board-border"
+                      }`}
+                    >
+                      {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                      {ppEnabled ? "Streaming" : "Off"}
+                    </button>
+                  )}
                 </div>
 
-                {ppEnabled && (
+                {(ppEnabled || syncedPpSlide) && (
                   <>
                     {/* Connection status */}
                     <div className="flex items-center gap-2 mb-2">
                       <div className={`w-2 h-2 rounded-full ${
-                        pp.status === "connected" ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]" :
+                        ppIsConnected ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]" :
                         pp.status === "connecting" ? "bg-amber-500 animate-pulse" :
                         pp.status === "error" ? "bg-red-500" : "bg-gray-500"
                       }`} />
                       <span className="text-[10px] text-board-muted">
-                        {pp.status === "connected" ? `Connected to ${ppHost}` :
+                        {ppSource === "bridge" ? "Connected via Gateway Bridge" :
+                         ppSource === "direct" ? `Connected to ${ppHost}` :
                          pp.status === "connecting" ? "Connecting..." :
-                         pp.status === "error" ? (pp.error || "Connection failed") : "Disconnected"}
+                         pp.status === "error" ? "Cannot reach PP directly — use Gateway Bridge" : "Waiting for Gateway Bridge..."}
                       </span>
                     </div>
 
                     {/* PP Control Buttons */}
-                    {pp.status === "connected" && (
+                    {ppIsConnected && (
                       ppCuesEnabled && ppApiPort ? (
                         <div className="mb-2">
                           <div className="flex items-center gap-1.5">
@@ -1082,18 +1096,18 @@ function RundownPage() {
                     )}
 
                     {/* Current slide preview */}
-                    {ppCurrentSlide && ppCurrentSlide.text ? (
-                      <div className={`rounded-lg p-3 ${ppCurrentSlide.isScripture ? "bg-purple-500/10 border border-purple-500/20" : "bg-blue-500/10 border border-blue-500/20"}`}>
-                        {ppCurrentSlide.presentationName && (
-                          <p className={`text-[10px] font-medium uppercase tracking-wider mb-1 ${ppCurrentSlide.isScripture ? "text-purple-400/70" : "text-blue-400/70"}`}>
-                            {ppCurrentSlide.presentationName}
+                    {activePpSlide && activePpSlide.text ? (
+                      <div className={`rounded-lg p-3 ${activePpSlide.isScripture ? "bg-purple-500/10 border border-purple-500/20" : "bg-blue-500/10 border border-blue-500/20"}`}>
+                        {activePpSlide.presentationName && (
+                          <p className={`text-[10px] font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400/70" : "text-blue-400/70"}`}>
+                            {activePpSlide.presentationName}
                           </p>
                         )}
-                        <p className={`text-sm leading-snug ${ppCurrentSlide.isScripture ? "text-purple-200 italic" : "text-blue-100"}`}>
-                          {ppCurrentSlide.text.length > 120 ? ppCurrentSlide.text.slice(0, 120) + "..." : ppCurrentSlide.text}
+                        <p className={`text-sm leading-snug ${activePpSlide.isScripture ? "text-purple-200 italic" : "text-blue-100"}`}>
+                          {activePpSlide.text.length > 120 ? activePpSlide.text.slice(0, 120) + "..." : activePpSlide.text}
                         </p>
                         <p className="text-[9px] text-board-muted/50 mt-1.5">
-                          Live on kiosk stage display
+                          {ppSource === "bridge" ? "Via Gateway Bridge → kiosk" : "Live on kiosk stage display"}
                         </p>
                       </div>
                     ) : (
