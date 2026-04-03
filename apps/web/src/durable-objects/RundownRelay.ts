@@ -76,9 +76,6 @@ export class RundownRelay extends DurableObject {
         timer: stored.timer ?? { ...DEFAULT_TIMER },
         ppSlide: stored.ppSlide ?? null,
       };
-      console.log(`[RundownRelay] Hydrated from storage: ${this.state.items.length} items`);
-    } else {
-      console.log("[RundownRelay] No stored state — starting fresh");
     }
   }
 
@@ -155,14 +152,11 @@ export class RundownRelay extends DurableObject {
     action: string,
     payload?: Record<string, unknown>
   ) {
-    console.log(`[RundownRelay] Command: ${action}, items before: ${this.state.items.length}`, this.state.items.map(i => i.title));
     switch (action) {
       case "seed": {
         // Seed DO with DB-loaded state
         // Only accept if DO is empty OR force flag is set (e.g. load template)
         const force = payload?.force as boolean;
-        const incomingCount = (payload?.items as unknown[])?.length ?? 0;
-        console.log(`[RundownRelay] Seed: force=${force}, incoming=${incomingCount}, current=${this.state.items.length}`);
         if ((this.state.items.length === 0 || force) && payload?.items) {
           this.state.items = payload.items as RundownItem[];
           const t = payload.timer as TimerState | undefined;
