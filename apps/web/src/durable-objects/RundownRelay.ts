@@ -47,21 +47,46 @@ interface RundownState {
   ppSlide: PPSlideState | null;
 }
 
+const DEFAULT_TIMER: TimerState = {
+  playback: "stop",
+  currentItemId: null,
+  elapsed: 0,
+  startedAt: null,
+  pausedAt: null,
+  mode: "count-down",
+};
+
 export class RundownRelay extends DurableObject {
   private state: RundownState = {
     items: [],
-    timer: {
-      playback: "stop",
-      currentItemId: null,
-      elapsed: 0,
-      startedAt: null,
-      pausedAt: null,
-      mode: "count-down",
-    },
+    timer: { ...DEFAULT_TIMER },
     ppSlide: null,
   };
+  private hydrated = false;
+
+  /** Load state from durable storage on first access */
+  private async hydrateFromStorage(): Promise<void> {
+    if (this.hydrated) return;
+    this.hydrated = true;
+
+    const stored = await this.ctx.storage.get<RundownState>("state");
+    if (stored) {
+      this.state = {
+        items: stored.items ?? [],
+        timer: stored.timer ?? { ...DEFAULT_TIMER },
+        ppSlide: stored.ppSlide ?? null,
+      };
+    }
+  }
+
+  /** Persist current state to durable storage (non-blocking) */
+  private persistState(): void {
+    // ctx.storage.put is automatically batched and doesn't block
+    this.ctx.storage.put("state", this.state);
+  }
 
   async fetch(request: Request): Promise<Response> {
+    await this.hydrateFromStorage();
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
@@ -93,7 +118,8 @@ export class RundownRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+    await this.hydrateFromStorage();
     try {
       const parsed = JSON.parse(data as string) as {
         type: string;
@@ -333,6 +359,7 @@ export class RundownRelay extends DurableObject {
         return;
     }
 
+    this.persistState();
     this.broadcastState();
   }
 
