@@ -33,6 +33,7 @@ export class ProPresenterDevice {
   private ws: WebSocket | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
   private reconnectAttempts = 0;
   private currentSlide: PPSlideData | null = null;
@@ -48,6 +49,8 @@ export class ProPresenterDevice {
     if (this.destroyed) return;
     this.setStatus("connecting");
 
+    // PP7 supports both /stagedisplay (legacy PP6 compat) and /remote (native PP7).
+    // Try /stagedisplay first as it's the standard stage display protocol.
     const wsUrl = `ws://${this.config.host}:${this.config.port}/stagedisplay`;
     console.log(`[PP:${this.config.name}] Connecting to ${wsUrl}`);
 
@@ -66,7 +69,14 @@ export class ProPresenterDevice {
           acn: "ath",
         }));
 
-        // Start REST polling alongside WS
+        // Keepalive ping every 15s — PP7's stage display shim drops idle connections
+        this.pingTimer = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.ping();
+          }
+        }, 15_000);
+
+        // Start REST polling alongside WS (WS often only sends timers, not slides)
         this.startPolling();
       });
 
@@ -80,7 +90,7 @@ export class ProPresenterDevice {
       });
 
       this.ws.on("close", () => {
-        this.stopPolling();
+        this.cleanupConnection();
         if (!this.destroyed) {
           this.setStatus("disconnected");
           this.scheduleReconnect();
@@ -89,12 +99,15 @@ export class ProPresenterDevice {
 
       this.ws.on("error", (err) => {
         console.warn(`[PP:${this.config.name}] WS error:`, err.message);
+        this.cleanupConnection();
         // Fall back to REST polling only
         if (!this.destroyed && this.config.apiPort) {
+          console.log(`[PP:${this.config.name}] Falling back to REST polling on port ${this.config.apiPort}`);
           this.setStatus("connected");
           this.startPolling();
         } else {
           this.setStatus("error");
+          this.scheduleReconnect();
         }
       });
     } catch (err) {
@@ -106,17 +119,27 @@ export class ProPresenterDevice {
 
   disconnect(): void {
     this.destroyed = true;
-    this.stopPolling();
+    this.cleanupConnection();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.setStatus("disconnected");
+  }
+
+  private cleanupConnection(): void {
+    this.stopPolling();
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
     if (this.ws) {
       this.ws.removeAllListeners();
-      this.ws.close();
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      }
       this.ws = null;
     }
-    this.setStatus("disconnected");
   }
 
   /** Send a command to ProPresenter via REST API */
@@ -307,9 +330,11 @@ export class ProPresenterDevice {
   }
 
   private scheduleReconnect(): void {
-    if (this.destroyed || this.reconnectAttempts >= 20) return;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
+    if (this.destroyed || this.reconnectTimer) return;
+    // Cap backoff at 10s — PP is on local network, no reason to wait 30s
+    const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10_000);
     this.reconnectAttempts++;
+    console.log(`[PP:${this.config.name}] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
