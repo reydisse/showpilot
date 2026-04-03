@@ -230,6 +230,7 @@ function RundownPage() {
   useEffect(() => {
     if (!syncHydrated) return;
     if (loadingRef.current) return; // Date load in progress — don't overwrite
+    console.log(`[Rundown] Sync effect: applying ${syncedItems.length} items from DO`, (syncedItems as RundownItem[]).map(i => i.title));
     setItems(syncedItems as RundownItem[]);
     setTimer({
       playback: syncedTimer.playback,
@@ -563,8 +564,12 @@ function RundownPage() {
       sortOrder: items.length,
       hardStop: false,
     };
+    console.log(`[Rundown] Adding item "${title}", current items:`, items.map(i => i.title));
     sendCommand("add-item", item as unknown as Record<string, unknown>);
-    updateItems((prev) => [...prev, item]);
+    updateItems((prev) => {
+      console.log(`[Rundown] updateItems prev:`, prev.map(i => i.title), `→ adding "${title}"`);
+      return [...prev, item];
+    });
     setShowAddForm(false);
   };
 
