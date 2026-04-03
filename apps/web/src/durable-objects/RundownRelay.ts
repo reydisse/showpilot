@@ -355,15 +355,16 @@ export class RundownRelay extends DurableObject {
       case "timer-adjust": {
         // Add/subtract time from running timer — syncs to all clients
         // Positive deltaMs = add time (reduce elapsed), negative = subtract time
+        // Negative elapsed = extra time added beyond item duration
         const deltaMs = payload?.deltaMs as number;
         if (typeof deltaMs !== "number") break;
 
         if (this.state.timer.playback === "play" && this.state.timer.startedAt) {
           const currentElapsed = this.state.timer.elapsed + (Date.now() - this.state.timer.startedAt);
-          this.state.timer.elapsed = Math.max(0, currentElapsed - deltaMs);
+          this.state.timer.elapsed = currentElapsed - deltaMs;
           this.state.timer.startedAt = Date.now();
         } else if (this.state.timer.playback === "pause") {
-          this.state.timer.elapsed = Math.max(0, this.state.timer.elapsed - deltaMs);
+          this.state.timer.elapsed = this.state.timer.elapsed - deltaMs;
         }
         break;
       }
