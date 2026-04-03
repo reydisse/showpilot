@@ -552,12 +552,12 @@ function RundownPage() {
 
     if (timer.playback === "play" && timer.startedAt) {
       const currentElapsed = timer.elapsed + (Date.now() - timer.startedAt);
-      const newElapsed = Math.max(0, currentElapsed - deltaMs);
+      const newElapsed = currentElapsed - deltaMs; // Allow negative = extra time added
       const adjustNow = Date.now();
       setTimer({ ...timer, elapsed: newElapsed, startedAt: adjustNow });
       persistTimer("play", timer.currentItemId, newElapsed, adjustNow);
     } else if (timer.playback === "pause") {
-      const newElapsed = Math.max(0, timer.elapsed - deltaMs);
+      const newElapsed = timer.elapsed - deltaMs;
       setTimer({ ...timer, elapsed: newElapsed });
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
