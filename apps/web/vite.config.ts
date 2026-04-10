@@ -34,6 +34,15 @@ const config = defineConfig({
     client: {
       build: {
         rollupOptions: {
+          external: [
+            "cloudflare:workers",
+            /generated\/prisma\//,
+            /query_compiler_fast_bg\.wasm(\?module)?$/,
+            "@prisma/adapter-d1",
+            /@tanstack\/router-core\/dist\/esm\/ssr\//,
+            /@tanstack\/start-server-core\/dist\/esm\//,
+            /@tanstack\/react-router\/dist\/esm\/ssr\//,
+          ],
           output: {
             manualChunks(id) {
               // Split heavy vendor libs into their own cacheable chunks

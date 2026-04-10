@@ -1,11 +1,28 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 // ─── Org Settings (AppSetting table) ────────────────────────
 
 export const getOrgSettings = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const settings = await prisma.appSetting.findMany({
       where: { orgId: data.orgId },
@@ -20,6 +37,7 @@ export const getOrgSettings = createServerFn({ method: "GET" })
 export const updateOrgSetting = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; key: string; value: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
@@ -34,6 +52,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
       data
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const results = [];
     for (const s of data.settings) {
@@ -52,6 +71,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
 export const getOrgMembers = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.member.findMany({
       where: { organizationId: data.orgId },
@@ -64,6 +84,7 @@ export const getOrgMembers = createServerFn({ method: "GET" })
 export const regenerateApiKey = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -118,6 +139,7 @@ export const getActiveAdapters = createServerFn({ method: "GET" })
 export const getClockFormat = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<"12hr" | "24hr"> => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "clock-format" } },
@@ -139,11 +161,66 @@ export const getClockFormatBySlug = createServerFn({ method: "GET" })
     return (setting?.value as "12hr" | "24hr") || "12hr";
   });
 
+export interface DisplaySettingsBySlug {
+  clockFormat: "12hr" | "24hr";
+  timezoneDisplay: "local" | "org" | "utc";
+  orgTimezone: string;
+  overtimeBehavior: "flash" | "countup" | "stop";
+  defaultTimerMode: "countdown" | "countup" | "clock";
+  defaultCountdownMinutes: number;
+}
+
+export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgSlug: string }) => data)
+  .handler(async ({ data }): Promise<DisplaySettingsBySlug> => {
+    const prisma = getPrisma();
+    const org = await prisma.organization.findUnique({ where: { slug: data.orgSlug } });
+    if (!org) {
+      return {
+        clockFormat: "12hr",
+        timezoneDisplay: "local",
+        orgTimezone: "",
+        overtimeBehavior: "flash",
+        defaultTimerMode: "countdown",
+        defaultCountdownMinutes: 5,
+      };
+    }
+
+    const settings = await prisma.appSetting.findMany({
+      where: {
+        orgId: org.id,
+        key: {
+          in: [
+            "clock-format",
+            "timezone-display",
+            "org-timezone",
+            "overtime-behavior",
+            "default-timer-mode",
+            "default-countdown-minutes",
+          ],
+        },
+      },
+    });
+
+    const map: Record<string, string> = {};
+    for (const setting of settings) map[setting.key] = setting.value;
+
+    return {
+      clockFormat: (map["clock-format"] as "12hr" | "24hr") || "12hr",
+      timezoneDisplay: (map["timezone-display"] as "local" | "org" | "utc") || "local",
+      orgTimezone: map["org-timezone"] || "",
+      overtimeBehavior: (map["overtime-behavior"] as "flash" | "countup" | "stop") || "flash",
+      defaultTimerMode: (map["default-timer-mode"] as "countdown" | "countup" | "clock") || "countdown",
+      defaultCountdownMinutes: Number(map["default-countdown-minutes"] || "5") || 5,
+    };
+  });
+
 // ─── Danger Zone ────────────────────────────────────────────
 
 export const deleteOrgSettings = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; keys: string[] }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     await prisma.appSetting.deleteMany({
       where: { orgId: data.orgId, key: { in: data.keys } },

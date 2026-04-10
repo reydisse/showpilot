@@ -12,14 +12,37 @@ interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
 }
 
+async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ?")
+    .bind(orgId, "api-key")
+    .first<{ value: string }>();
+  return row?.value ?? null;
+}
+
+async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
+  const presented = request.headers.get("x-showpilot-api-key");
+  if (!presented) return true;
+
+  const expected = await getOrgApiKey(orgId, db);
+  if (!expected) return true;
+
+  return presented === expected;
+}
+
 async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
-  if (slugOrId.includes("-") || /^[a-z]/.test(slugOrId)) {
-    const row = await db
-      .prepare("SELECT id FROM organization WHERE slug = ?")
-      .bind(slugOrId)
-      .first<{ id: string }>();
-    if (row) return row.id;
-  }
+  const byId = await db
+    .prepare("SELECT id FROM organization WHERE id = ?")
+    .bind(slugOrId)
+    .first<{ id: string }>();
+  if (byId) return byId.id;
+
+  const bySlug = await db
+    .prepare("SELECT id FROM organization WHERE slug = ?")
+    .bind(slugOrId)
+    .first<{ id: string }>();
+  if (bySlug) return bySlug.id;
+
   return slugOrId;
 }
 
@@ -46,6 +69,9 @@ export default {
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.RUNDOWN_RELAY.idFromName(orgId);
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
@@ -58,6 +84,9 @@ export default {
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.CHAT_RELAY.idFromName(orgId);
       const stub = e.CHAT_RELAY.get(id);
       const doUrl = new URL(request.url);
@@ -70,6 +99,9 @@ export default {
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
       const stub = e.LOWER_THIRDS_RELAY.get(id);
       const doUrl = new URL(request.url);

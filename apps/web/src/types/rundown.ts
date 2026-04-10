@@ -21,7 +21,7 @@ export interface NativeTimerState {
   elapsed: number;
   startedAt: number | null;
   pausedAt: number | null;
-  mode: "count-up" | "count-down";
+  mode: "count-up" | "count-down" | "clock";
   serverTime: number;
 }
 

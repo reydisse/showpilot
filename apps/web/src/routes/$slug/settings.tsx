@@ -32,8 +32,11 @@ import {
   getOrgMembers,
   regenerateApiKey,
 } from "@/lib/settings";
+import { inviteMember } from "@/lib/session";
+import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { testProPresenterConnection } from "@/lib/rundown";
+import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { authClient } from "@/lib/auth-client";
 
 // ─── Route ──────────────────────────────────────────────────
@@ -437,9 +440,28 @@ const ROLE_COLORS: Record<string, string> = {
   viewer: "bg-board-border text-board-muted border-board-border",
 };
 
-function TeamSection({ members }: SectionProps) {
+function TeamSection({ members, orgId }: SectionProps) {
+  const router = useRouter();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
+  const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    setInviteError(null);
+    try {
+      await inviteMember({ data: { email: inviteEmail.trim(), role: inviteRole, orgId } });
+      setInviteEmail("");
+      setInviteRole("member");
+      router.invalidate();
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Failed to send invite");
+    } finally {
+      setInviting(false);
+    }
+  };
 
   return (
     <div>
@@ -454,8 +476,8 @@ function TeamSection({ members }: SectionProps) {
           <UserPlus className="w-3.5 h-3.5" />
           Invite a new member
         </p>
-        <div className="flex gap-2">
-          <input
+          <div className="flex gap-2">
+            <input
             type="email"
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
@@ -471,11 +493,19 @@ function TeamSection({ members }: SectionProps) {
             <option value="member">Operator</option>
             <option value="viewer">Viewer</option>
           </select>
-          <button className="px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors">
-            Invite
-          </button>
+            <button
+              type="button"
+              onClick={handleInvite}
+              disabled={inviting || !inviteEmail.trim()}
+              className="px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+            {inviting ? "Inviting..." : "Invite"}
+            </button>
+          </div>
+          {inviteError && (
+            <p className="mt-2 text-xs text-red-400">{inviteError}</p>
+          )}
         </div>
-      </div>
 
       {/* Members list */}
       <div className="space-y-2">
@@ -1314,6 +1344,25 @@ function DangerSection({
 }: SectionProps & { router: ReturnType<typeof useRouter> }) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
+
+  const handleResetLowerThirds = async () => {
+    setBusy("lowerthirds");
+    try {
+      await resetLowerThirdLibrary({ data: { orgId: org.id } });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleClearChat = async () => {
+    setBusy("chat");
+    try {
+      await clearChatHistory({ data: { orgId: org.id } });
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div>
@@ -1332,9 +1381,13 @@ function DangerSection({
               Clear all saved graphic templates
             </p>
           </div>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors">
+          <button
+            onClick={handleResetLowerThirds}
+            disabled={busy !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
+          >
             <Trash2 className="w-3 h-3" />
-            Reset
+            {busy === "lowerthirds" ? "Resetting..." : "Reset"}
           </button>
         </div>
 
@@ -1348,9 +1401,13 @@ function DangerSection({
               Remove all chat messages from native chat
             </p>
           </div>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors">
+          <button
+            onClick={handleClearChat}
+            disabled={busy !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
+          >
             <Trash2 className="w-3 h-3" />
-            Clear
+            {busy === "chat" ? "Clearing..." : "Clear"}
           </button>
         </div>
 
@@ -1364,7 +1421,11 @@ function DangerSection({
               Download all organization data as JSON
             </p>
           </div>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors">
+          <button
+            disabled
+            title="Export not wired yet"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium opacity-50 cursor-not-allowed"
+          >
             <Download className="w-3 h-3" />
             Export
           </button>
@@ -1385,10 +1446,10 @@ function DangerSection({
           </div>
 
           {!showDeleteConfirm ? (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
-            >
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
+              >
               <Trash2 className="w-3 h-3" />
               Delete Organization
             </button>
@@ -1420,6 +1481,7 @@ function DangerSection({
                 </button>
                 <button
                   disabled={deleteConfirm !== org.name}
+                  title="Delete organization is not wired yet"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Trash2 className="w-3 h-3" />
