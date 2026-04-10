@@ -71,12 +71,25 @@ export class CloudLink {
     console.log(`[Cloud] Connecting to ${url}`);
 
     try {
-      this.ws = new WebSocket(url);
+      this.ws = new WebSocket(url, {
+        headers: {
+          "X-ShowPilot-Org": this.config.orgSlug,
+          ...(this.config.apiKey ? { "X-ShowPilot-Api-Key": this.config.apiKey } : {}),
+        },
+      });
 
       this.ws.on("open", () => {
         console.log("[Cloud] Connected");
         this.setStatus("connected");
         this.reconnectDelay = 1000;
+
+        // Identify the bridge to cloud. The current cloud route ignores this,
+        // but it keeps the socket aligned with the shared message contract.
+        this.ws?.send(JSON.stringify({
+          type: "gateway:hello",
+          orgId: this.config.orgSlug,
+          apiKey: this.config.apiKey,
+        }));
 
         // Keepalive ping every 20s
         this.pingTimer = setInterval(() => {

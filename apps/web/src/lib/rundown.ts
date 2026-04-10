@@ -1,6 +1,22 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 function rundownItemsKey(serviceDate: string) {
   return `rundown-items:${serviceDate}`;
@@ -26,6 +42,7 @@ const defaultTimer: NativeTimerState = {
 export const getRundownState = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }): Promise<RundownState> => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
 
     const [itemsSetting, timerSetting] = await Promise.all([
@@ -54,6 +71,7 @@ export const getRundownState = createServerFn({ method: "GET" })
 export const saveRundownItems = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; items: RundownItem[] }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownItemsKey(data.serviceDate);
     await prisma.appSetting.upsert({
@@ -74,6 +92,7 @@ export const saveRundownItems = createServerFn({ method: "POST" })
 export const saveRundownTimer = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; timer: NativeTimerState }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownTimerKey(data.serviceDate);
     await prisma.appSetting.upsert({
@@ -98,6 +117,7 @@ function rundownMessageKey(serviceDate: string) {
 export const saveRundownMessage = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; message: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownMessageKey(data.serviceDate);
     if (!data.message) {
@@ -328,6 +348,7 @@ export interface PPSlidePayload {
 export const saveProPresenterSlide = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; slide: PPSlidePayload | null }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const key = ppSlideKey(data.serviceDate);
     if (!data.slide) {
@@ -378,6 +399,7 @@ const SAVED_INDEX_KEY = "rundown-saved-index";
 export const listSavedRundowns = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<SavedRundownMeta[]> => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const indexSetting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: SAVED_INDEX_KEY } },
@@ -392,6 +414,7 @@ export const listSavedRundowns = createServerFn({ method: "GET" })
 export const saveRundownTemplate = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; name: string; items: RundownItem[] }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -436,6 +459,7 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
 export const loadSavedRundown = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; rundownId: string }) => data)
   .handler(async ({ data }): Promise<RundownItem[] | null> => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: savedRundownKey(data.rundownId) } },
@@ -451,6 +475,7 @@ export const loadSavedRundown = createServerFn({ method: "GET" })
 export const deleteSavedRundown = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; rundownId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
 
     await prisma.appSetting.deleteMany({
@@ -478,6 +503,7 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
 export const listRundownDates = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<{ date: string; itemCount: number }[]> => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const settings = await prisma.appSetting.findMany({
       where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },

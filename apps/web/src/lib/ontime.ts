@@ -1,6 +1,22 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import type { OntimeTimer, OntimeEvent, OntimeRuntimeState } from "@/types/ontime";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 /**
  * Get the OnTime configuration for an org.
@@ -9,6 +25,7 @@ import type { OntimeTimer, OntimeEvent, OntimeRuntimeState } from "@/types/ontim
 export const getOntimeConfig = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const [adapterSetting, urlSetting] = await Promise.all([
       prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: "rundown-adapter" } } }),
@@ -27,6 +44,7 @@ export const getOntimeConfig = createServerFn({ method: "GET" })
 export const getOntimeState = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<OntimeRuntimeState> => {
+    await assertOrgAccess(data.orgId);
     const config = await getOntimeConfig({ data: { orgId: data.orgId } });
 
     if (!config) {

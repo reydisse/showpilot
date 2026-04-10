@@ -1,6 +1,22 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 function getCfHeaders() {
   const token = (env as Record<string, string>).CLOUDFLARE_API_TOKEN;
@@ -22,6 +38,7 @@ function getAccountId() {
 export const getLiveInputs = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.liveInput.findMany({
       where: { orgId: data.orgId },
@@ -32,6 +49,7 @@ export const getLiveInputs = createServerFn({ method: "GET" })
 export const createLiveInput = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; name: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const accountId = getAccountId();
     const headers = getCfHeaders();
 
@@ -84,6 +102,7 @@ export const createLiveInput = createServerFn({ method: "POST" })
 export const deleteLiveInput = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; inputId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const input = await prisma.liveInput.findFirst({
       where: { id: data.inputId, orgId: data.orgId },
@@ -110,6 +129,7 @@ export const deleteLiveInput = createServerFn({ method: "POST" })
 export const getLiveInputStatus = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; inputId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const input = await prisma.liveInput.findFirst({
       where: { id: data.inputId, orgId: data.orgId },

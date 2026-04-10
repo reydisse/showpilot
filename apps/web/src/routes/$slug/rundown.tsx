@@ -143,6 +143,7 @@ function buildNativeTimer(
   currentItemId: string | null,
   elapsed: number,
   startedAt: number | null,
+  mode: "count-down" | "count-up" | "clock" = "count-down",
 ): NativeTimerState {
   return {
     playback,
@@ -150,7 +151,7 @@ function buildNativeTimer(
     elapsed,
     startedAt,
     pausedAt: playback === "pause" ? Date.now() : null,
-    mode: "count-down",
+    mode,
     serverTime: Date.now(),
   };
 }
@@ -159,15 +160,28 @@ export const Route = createFileRoute("/$slug/rundown")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const today = getTodayDateString();
-    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
-    return { orgId: context.orgId, slug: context.slug, today, initialState: state };
+    const [state, settings] = await Promise.all([
+      getRundownState({ data: { orgId: context.orgId, serviceDate: today } }),
+      getOrgSettings({ data: { orgId: context.orgId } }),
+    ]);
+    return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, today, initialState } = Route.useLoaderData();
+  const { orgId, slug, today, initialState, settings } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(today);
+  const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
+  const defaultItemDuration = `${defaultCountdownMinutes}:00`;
+  const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
+  const overtimeBehavior = settings["overtime-behavior"] || "flash";
+  const defaultTimerMode =
+    defaultTimerModeSetting === "countup"
+      ? "count-up"
+      : defaultTimerModeSetting === "clock"
+        ? "clock"
+        : "count-down";
 
   // Real-time sync via RundownRelay Durable Object
   const {
@@ -187,11 +201,13 @@ function RundownPage() {
     currentItemId: string | null;
     elapsed: number;
     startedAt: number | null;
+    mode: "count-down" | "count-up" | "clock";
   }>({
     playback: initialState.timer.playback,
     currentItemId: initialState.timer.currentItemId,
     elapsed: initialState.timer.elapsed,
     startedAt: initialState.timer.startedAt,
+    mode: initialState.timer.mode,
   });
 
   // Seed DO when we first connect and it's empty — push current items to DO
@@ -251,6 +267,7 @@ function RundownPage() {
       currentItemId: syncedTimer.currentItemId,
       elapsed: syncedTimer.elapsed,
       startedAt: syncedTimer.startedAt,
+      mode: syncedTimer.mode,
     });
   }, [syncHydrated, syncedItems, syncedTimer]);
 
@@ -349,8 +366,9 @@ function RundownPage() {
     currentItemId: string | null,
     elapsed: number,
     startedAt: number | null,
+    mode?: "count-down" | "count-up" | "clock",
   ) => {
-    const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt);
+    const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt, mode ?? timerRef.current.mode);
     saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
   }, [orgId, serviceDate]);
 
@@ -443,7 +461,7 @@ function RundownPage() {
     ? timer.elapsed + (now - timer.startedAt)
     : timer.elapsed;
   const remaining = currentItem ? currentItem.duration - elapsed : 0;
-  const isOvertime = remaining < 0;
+  const isOvertime = remaining < 0 && overtimeBehavior !== "stop";
   const isWarning = !isOvertime && remaining <= 120000; // ≤2 minutes
 
   // Detect item change for progress bar reset animation
@@ -467,7 +485,7 @@ function RundownPage() {
       )
     );
     const startNow = Date.now();
-    setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow });
+     setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow, mode: timer.mode });
     // Sync to DO + persist to DB
     sendCommand("timer-start", { itemId });
     persistTimer("play", itemId, 0, startNow);
@@ -476,7 +494,7 @@ function RundownPage() {
   const handlePause = useCallback(() => {
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
-      setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
+       setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
       sendCommand("timer-pause");
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
@@ -485,7 +503,7 @@ function RundownPage() {
   const handleResume = useCallback(() => {
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
-      setTimer({ ...timer, playback: "play", startedAt: resumeNow });
+       setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendCommand("timer-resume");
       persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
@@ -497,9 +515,9 @@ function RundownPage() {
         i.id === timer.currentItemId ? { ...i, status: "complete" as ItemStatus } : i
       )
     );
-    setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendCommand("timer-stop");
-    persistTimer("stop", null, 0, null);
+    persistTimer("stop", null, 0, null, resetTimer.mode);
   }, [timer.currentItemId, sendCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
@@ -520,10 +538,10 @@ function RundownPage() {
         )
       );
       const startNow = Date.now();
-      setTimer({ playback: "play", currentItemId: nextItem.id, elapsed: 0, startedAt: startNow });
+       setTimer({ playback: "play", currentItemId: nextItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
       persistTimer("play", nextItem.id, 0, startNow);
     } else {
-      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+       setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
       persistTimer("stop", null, 0, null);
     }
     // Single DO command — DO handles the advance logic
@@ -542,7 +560,7 @@ function RundownPage() {
         )
       );
       const startNow = Date.now();
-      setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow });
+       setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
       sendCommand("timer-prev");
       persistTimer("play", prevItem.id, 0, startNow);
     }
@@ -550,7 +568,7 @@ function RundownPage() {
 
   const handleReset = useCallback(() => {
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
-    setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null });
+     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendCommand("reset");
     persistTimer("stop", null, 0, null);
   }, [updateItems, sendCommand, persistTimer]);
@@ -631,7 +649,7 @@ function RundownPage() {
       status: "upcoming" as ItemStatus,
       sortOrder: idx,
     }));
-    const resetTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, pausedAt: null, mode: "count-down" as const };
+    const resetTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, pausedAt: null, mode: defaultTimerMode as "count-down" | "count-up" | "clock" };
     setItems(fresh);
     setTimer(resetTimer);
     // Seed DO with loaded items so all devices get them
@@ -639,7 +657,7 @@ function RundownPage() {
     persistItems(fresh);
     persistTimer("stop", null, 0, null);
     setShowLoadModal(false);
-  }, [sendCommand, persistItems, persistTimer]);
+  }, [sendCommand, persistItems, persistTimer, defaultTimerMode]);
 
   const handleSaveTemplate = useCallback(async (name: string) => {
     await saveRundownTemplate({ data: { orgId, name, items } });
@@ -827,7 +845,17 @@ function RundownPage() {
               </div>
 
               <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                {currentItem ? formatDuration(remaining) : "--:--"}
+                {currentItem
+                  ? timer.mode === "clock"
+                    ? new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                    : timer.mode === "count-down"
+                    ? remaining < 0
+                      ? overtimeBehavior === "stop"
+                        ? "00:00"
+                        : formatDuration(remaining)
+                      : formatDuration(remaining)
+                    : formatDuration(elapsed)
+                  : "--:--"}
               </p>
 
               {/* Progress bar — resets smoothly on item change */}
@@ -1298,7 +1326,7 @@ function RundownPage() {
                           <div className="h-0.5 w-full bg-board-border/20">
                             <div
                               id="rundown-item-progress"
-                              className={`h-full ${isItemOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
+                              className={`h-full ${isItemOvertime && overtimeBehavior !== "stop" ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
                               style={{ width: "0%" }}
                             />
                           </div>
@@ -1313,7 +1341,7 @@ function RundownPage() {
         </div>
       )}
 
-      {showAddForm && <AddItemModal onAdd={handleAddItem} onClose={() => setShowAddForm(false)} />}
+      {showAddForm && <AddItemModal defaultDuration={defaultItemDuration} onAdd={handleAddItem} onClose={() => setShowAddForm(false)} />}
       {editingItem && (
         <EditItemModal
           item={editingItem}
@@ -1332,15 +1360,17 @@ function RundownPage() {
 }
 
 function AddItemModal({
+  defaultDuration,
   onAdd,
   onClose,
 }: {
+  defaultDuration: string;
   onAdd: (title: string, type: ItemType, duration: string, assignee: string, notes: string) => void;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<ItemType>("segment");
-  const [duration, setDuration] = useState("5:00");
+  const [duration, setDuration] = useState(defaultDuration);
   const [assignee, setAssignee] = useState("");
   const [notes, setNotes] = useState("");
 

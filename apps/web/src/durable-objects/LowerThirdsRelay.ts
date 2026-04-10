@@ -22,8 +22,32 @@ export class LowerThirdsRelay extends DurableObject {
   private sessions: Set<WebSocket> = new Set();
   private current: LowerThirdPayload | null = null;
   private queue: LowerThirdPayload | null = null;
+  private hydrated = false;
+
+  private async hydrateFromStorage(): Promise<void> {
+    if (this.hydrated) return;
+    this.hydrated = true;
+
+    const stored = await this.ctx.storage.get<{
+      current: LowerThirdPayload | null;
+      queue: LowerThirdPayload | null;
+    }>("state");
+
+    if (stored) {
+      this.current = stored.current ?? null;
+      this.queue = stored.queue ?? null;
+    }
+  }
+
+  private persistState(): Promise<void> {
+    return this.ctx.storage.put("state", {
+      current: this.current,
+      queue: this.queue,
+    });
+  }
 
   async fetch(request: Request): Promise<Response> {
+    await this.hydrateFromStorage();
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
@@ -60,6 +84,7 @@ export class LowerThirdsRelay extends DurableObject {
       };
 
       this.current = payload;
+      await this.persistState();
       this.broadcast(JSON.stringify({ action: "show", payload }));
       return Response.json({ ok: true, payload });
     }
@@ -71,6 +96,7 @@ export class LowerThirdsRelay extends DurableObject {
           JSON.stringify({ action: "clear", payload: this.current })
         );
         this.current = null;
+        await this.persistState();
       }
       return Response.json({ ok: true });
     }
@@ -90,6 +116,7 @@ export class LowerThirdsRelay extends DurableObject {
         state: "idle",
         triggeredBy: body.triggeredBy,
       };
+      await this.persistState();
       return Response.json({ ok: true, queued: this.queue });
     }
 
@@ -103,7 +130,8 @@ export class LowerThirdsRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+    await this.hydrateFromStorage();
     try {
       const parsed = JSON.parse(data as string) as {
         action: string;
@@ -126,6 +154,7 @@ export class LowerThirdsRelay extends DurableObject {
           triggeredAt: Date.now(),
         };
         this.current = payload;
+        await this.persistState();
         this.broadcast(JSON.stringify({ action: "show", payload }));
       }
 
@@ -136,6 +165,7 @@ export class LowerThirdsRelay extends DurableObject {
             JSON.stringify({ action: "clear", payload: this.current })
           );
           this.current = null;
+          await this.persistState();
         }
       }
     } catch {

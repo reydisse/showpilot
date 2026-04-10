@@ -1,11 +1,28 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 // ─── Graphic Templates ─────────────────────────────────────
 
 export const getGraphicTemplates = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.graphicTemplate.findMany({
       where: { orgId: data.orgId },
@@ -24,6 +41,7 @@ export const addGraphicTemplate = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.graphicTemplate.create({
       data: {
@@ -68,6 +86,7 @@ export const deleteGraphicTemplate = createServerFn({ method: "POST" })
 export const setActiveGraphic = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; graphicId: string | null }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     if (data.graphicId) {
       await prisma.appSetting.upsert({
@@ -85,6 +104,7 @@ export const setActiveGraphic = createServerFn({ method: "POST" })
 export const getActiveGraphic = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "active-graphic" } },

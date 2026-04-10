@@ -23,7 +23,7 @@ interface UseRundownReturn {
   pause: () => void;
   stop: () => void;
   next: () => void;
-  setTimerMode: (mode: "count-up" | "count-down") => void;
+  setTimerMode: (mode: "count-up" | "count-down" | "clock") => void;
 }
 
 const defaultTimer: NativeTimerState = {
@@ -38,6 +38,11 @@ const defaultTimer: NativeTimerState = {
 
 function generateId(): string {
   return `rd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getClockMs(): number {
+  const now = new Date();
+  return ((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) * 1000) + now.getMilliseconds();
 }
 
 /**
@@ -85,7 +90,9 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   useEffect(() => {
     const tick = () => {
       const t = timerRef.current;
-      if (t.playback === "play" && t.startedAt !== null) {
+      if (t.mode === "clock") {
+        setDisplayTime(getClockMs());
+      } else if (t.playback === "play" && t.startedAt !== null) {
         const elapsed = Date.now() - t.startedAt;
         const item = itemsRef.current.find((i) => i.id === t.currentItemId);
 
@@ -98,12 +105,17 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
       rafRef.current = requestAnimationFrame(tick);
     };
 
-    if (timer.playback === "play") {
+    if (timer.mode === "clock") {
+      setDisplayTime(getClockMs());
+      rafRef.current = requestAnimationFrame(tick);
+    } else if (timer.playback === "play") {
       rafRef.current = requestAnimationFrame(tick);
     } else if (timer.playback === "pause") {
       // Show frozen time
       const item = items.find((i) => i.id === timer.currentItemId);
-      if (timer.mode === "count-down" && item) {
+      if (timer.mode === "clock") {
+        setDisplayTime(getClockMs());
+      } else if (timer.mode === "count-down" && item) {
         setDisplayTime(item.duration - timer.elapsed);
       } else {
         setDisplayTime(timer.elapsed);
@@ -305,7 +317,7 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   }, [start, stop]);
 
   const setTimerMode = useCallback(
-    (mode: "count-up" | "count-down") => {
+    (mode: "count-up" | "count-down" | "clock") => {
       setTimer((prev) => {
         const newTimer = { ...prev, mode };
         persistTimer(newTimer);
