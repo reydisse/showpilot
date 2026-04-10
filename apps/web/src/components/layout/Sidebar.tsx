@@ -288,11 +288,9 @@ function renderSidebarContent({
             ShowPilot
           </span>
         )}
-        {!collapsed && (
-          <div className="ml-auto">
-            <QuickActions collapsed={collapsed} />
-          </div>
-        )}
+        <div className={collapsed ? "mt-1" : "ml-auto"}>
+          <QuickActions collapsed={collapsed} />
+        </div>
       </div>
 
       {/* Org Switcher */}

@@ -1,5 +1,21 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -53,6 +69,7 @@ export const getLowerThirdState = createServerFn({ method: "GET" })
 export const getLowerThirdStateByOrgId = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
 
     const setting = await prisma.appSetting.findUnique({
@@ -78,6 +95,7 @@ export const triggerLowerThird = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
 
     const fullPayload: LowerThirdPayload = {
@@ -109,6 +127,7 @@ export const triggerLowerThird = createServerFn({ method: "POST" })
 export const clearLowerThird = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
 
     await prisma.appSetting.deleteMany({
@@ -121,9 +140,18 @@ export const clearLowerThird = createServerFn({ method: "POST" })
 export const getLowerThirdLibrary = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.graphicTemplate.findMany({
       where: { orgId: data.orgId },
       orderBy: { createdAt: "asc" },
     });
+  });
+
+export const resetLowerThirdLibrary = createServerFn({ method: "POST" })
+  .inputValidator((data: { orgId: string }) => data)
+  .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
+    const prisma = getPrisma();
+    await prisma.graphicTemplate.deleteMany({ where: { orgId: data.orgId } });
   });

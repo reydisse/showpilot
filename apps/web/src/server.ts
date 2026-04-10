@@ -20,6 +20,24 @@ interface D1Database {
   prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
 }
 
+async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ?")
+    .bind(orgId, "api-key")
+    .first<{ value: string }>();
+  return row?.value ?? null;
+}
+
+async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
+  const presented = request.headers.get("x-showpilot-api-key");
+  if (!presented) return true;
+
+  const expected = await getOrgApiKey(orgId, db);
+  if (!expected) return true;
+
+  return presented === expected;
+}
+
 async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
   const byId = await db
     .prepare("SELECT id FROM organization WHERE id = ?")
@@ -53,8 +71,6 @@ export default {
       });
     }
 
-    // Route Durable Object WebSocket/API requests
-    // Accepts slug or orgId: /api/timecode/faithfire-production/ws
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
@@ -67,7 +83,6 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route Bridge WebSocket/API requests
     const bridgeMatch = url.pathname.match(/^\/api\/bridge\/([^/]+)\/(.+)$/);
     if (bridgeMatch) {
       const [, slugOrId, subpath] = bridgeMatch;
@@ -80,11 +95,13 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route RundownRelay: /api/rundown/:orgSlugOrId/ws|state|command
     const rundownMatch = url.pathname.match(/^\/api\/rundown\/([^/]+)\/(.+)$/);
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.RUNDOWN_RELAY.idFromName(orgId);
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
@@ -92,11 +109,13 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route ChatRelay: /api/chat/:orgSlugOrId/ws|send|history
     const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.CHAT_RELAY.idFromName(orgId);
       const stub = e.CHAT_RELAY.get(id);
       const doUrl = new URL(request.url);
@@ -104,11 +123,13 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route LowerThirdsRelay: /api/lowerthirds/:orgSlugOrId/ws|trigger|clear|queue|current
     const ltMatch = url.pathname.match(/^\/api\/lowerthirds\/([^/]+)\/(.+)$/);
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
       const stub = e.LOWER_THIRDS_RELAY.get(id);
       const doUrl = new URL(request.url);

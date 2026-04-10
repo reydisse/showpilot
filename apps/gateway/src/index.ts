@@ -194,7 +194,7 @@ function main(): void {
   startUIServer(config.uiPort, {
     getStatus: () => ({
       cloud: cloudStatus,
-      orgSlug: config.orgSlug,
+      orgSlug: getConfig().orgSlug,
       devices: Array.from(devices.values()).map((d) => ({
         id: d.config.id,
         name: d.config.name,

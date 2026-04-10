@@ -45,10 +45,27 @@ export const getSessionWithOrg = createServerFn({ method: "GET" }).handler(
 export const getOrgBySlug = createServerFn({ method: "GET" })
   .inputValidator((data: string) => data)
   .handler(async ({ data }) => {
+    const auth = getAuth();
+    const headers = getRequestHeaders();
+    const session = await auth.api.getSession({ headers });
+    if (!session) return null;
+
     const prisma = getPrisma();
-    return await prisma.organization.findUnique({
+    const org = await prisma.organization.findUnique({
       where: { slug: data },
     });
+
+    if (!org) return null;
+
+    const member = await prisma.member.findFirst({
+      where: {
+        organizationId: org.id,
+        userId: session.user.id,
+      },
+      select: { id: true },
+    });
+
+    return member ? org : null;
   });
 
 export const setActiveOrg = createServerFn({ method: "POST" })

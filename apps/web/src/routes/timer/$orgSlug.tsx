@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { getPrisma } from "@/lib/db";
-import { getClockFormatBySlug } from "@/lib/settings";
+import { getDisplaySettingsBySlug, type DisplaySettingsBySlug } from "@/lib/settings";
 import { formatClockFull, type ClockFormat } from "@/lib/utils";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 import type { PPSlidePayload } from "@/lib/rundown";
@@ -223,7 +223,8 @@ const TIMER_CSS = `
 
   @keyframes blink-fast {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.0; }
+    35% { opacity: 0.25; }
+    65% { opacity: 0.25; }
   }
 
   @keyframes blink-bg {
@@ -249,11 +250,11 @@ const TIMER_CSS = `
   .phase-normal {}
   .phase-alert { animation: none; }
   .phase-danger { animation: blink-slow 1s ease-in-out infinite; }
-  .phase-overtime { animation: blink-fast 0.5s ease-in-out infinite; }
+  .phase-overtime { animation: blink-fast 1.4s ease-in-out infinite; }
 
-  .bg-overtime { animation: blink-bg 1s ease-in-out infinite; }
+  .bg-overtime { animation: blink-bg 1.8s ease-in-out infinite; }
 
-  .glow-overtime { animation: pulse-glow 1s ease-in-out infinite; }
+  .glow-overtime { animation: pulse-glow 1.8s ease-in-out infinite; }
 
   .message-bar { animation: message-pulse 2s ease-in-out infinite; }
 `;
@@ -278,13 +279,23 @@ function TimerKioskPage() {
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [clockFormat, setClockFormat] = useState<ClockFormat>("12hr");
+  const [timezoneDisplay, setTimezoneDisplay] = useState<DisplaySettingsBySlug["timezoneDisplay"]>("local");
+  const [orgTimezone, setOrgTimezone] = useState("");
+  const [overtimeBehavior, setOvertimeBehavior] = useState<DisplaySettingsBySlug["overtimeBehavior"]>("flash");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
 
-  // Fetch clock format once
+  // Fetch display defaults once
   useEffect(() => {
-    getClockFormatBySlug({ data: { orgSlug } }).then(setClockFormat).catch(() => {});
+    getDisplaySettingsBySlug({ data: { orgSlug } })
+      .then((settings) => {
+        setClockFormat(settings.clockFormat);
+        setTimezoneDisplay(settings.timezoneDisplay);
+        setOrgTimezone(settings.orgTimezone);
+        setOvertimeBehavior(settings.overtimeBehavior);
+      })
+      .catch(() => {});
   }, [orgSlug]);
 
   // Track fullscreen state
@@ -438,17 +449,23 @@ function TimerKioskPage() {
   const phaseColors = PHASE_COLORS[phase];
 
   // Progress percentage — computed at 60fps from RAF-driven `now`
-  const progress = currentItem && currentItem.duration > 0
+  const progress = currentItem && currentItem.duration > 0 && timer?.mode !== "clock"
     ? Math.min(100, (elapsed / currentItem.duration) * 100)
     : 0;
 
   const displayTime = useMemo(() => {
-    if (!timer || !currentItem) return "00:00";
+    if (!timer) return "00:00";
+    if (timer.mode === "clock") return formatClockForZone(new Date(now), clockFormat, timezoneDisplay === "utc" ? "UTC" : timezoneDisplay === "org" && orgTimezone ? orgTimezone : undefined);
+    if (!currentItem) return "00:00";
     if (timer.mode === "count-down") {
+      if (remaining < 0) {
+        if (overtimeBehavior === "stop") return "00:00";
+        return formatDurationHHMMSS(remaining);
+      }
       return formatDurationHHMMSS(remaining);
     }
     return formatDurationHHMMSS(elapsed);
-  }, [timer, currentItem, remaining, elapsed]);
+  }, [timer, currentItem, remaining, elapsed, now, clockFormat, timezoneDisplay, orgTimezone, overtimeBehavior]);
 
   // Total elapsed across completed items + current
   const totalElapsed = useMemo(() => {
@@ -501,12 +518,27 @@ function TimerKioskPage() {
       stageMessage={stageMessage}
       messagePriority={messagePriority}
       ppSlide={ppSlide}
-      clockFormat={clockFormat}
+      clockTime={formatClockForZone(new Date(now), clockFormat, timezoneDisplay === "utc" ? "UTC" : timezoneDisplay === "org" && orgTimezone ? orgTimezone : undefined)}
+      overtimeBehavior={overtimeBehavior}
       isFullscreen={isFullscreen}
       toggleFullscreen={toggleFullscreen}
       progress={progress}
     />
   );
+}
+
+function formatClockForZone(date: Date, clockFormat: ClockFormat, timeZone?: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: clockFormat === "12hr",
+      timeZone,
+    }).format(date);
+  } catch {
+    return formatClockFull(date, clockFormat);
+  }
 }
 
 // ─── Minimal View ────────────────────────────────────────────
@@ -995,7 +1027,8 @@ function FullTimerView({
   stageMessage,
   messagePriority,
   ppSlide,
-  clockFormat,
+  clockTime,
+  overtimeBehavior,
   isFullscreen,
   toggleFullscreen,
   progress,
@@ -1012,18 +1045,19 @@ function FullTimerView({
   stageMessage: string;
   messagePriority: boolean;
   ppSlide: PPSlidePayload | null;
-  clockFormat: ClockFormat;
+  clockTime: string;
+  overtimeBehavior: DisplaySettingsBySlug["overtimeBehavior"];
   isFullscreen: boolean;
   toggleFullscreen: () => void;
   progress: number;
 }) {
-  const clockTime = formatClockFull(new Date(now), clockFormat);
+  const isFlashOvertime = phase === "overtime" && overtimeBehavior === "flash";
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: TIMER_CSS }} />
       <div
-        className={phase === "overtime" ? "bg-overtime" : ""}
+        className={isFlashOvertime ? "bg-overtime" : ""}
         style={{
           width: "100vw",
           height: "100vh",
@@ -1221,7 +1255,7 @@ function FullTimerView({
 
           {/* Timer display — smaller when priority/PP active */}
           <div
-            className={`phase-${phase} ${phase === "overtime" ? "glow-overtime" : ""}`}
+            className={`phase-${phase} ${isFlashOvertime ? "glow-overtime" : ""}`}
             style={{
               fontFamily: "'Inter', monospace",
               fontSize: (messagePriority && stageMessage) || (ppSlide && ppSlide.text)

@@ -528,11 +528,17 @@ export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelP
           {/* Timer mode toggle */}
           <button
             onClick={() =>
-              setTimerMode(timer.mode === "count-down" ? "count-up" : "count-down")
+              setTimerMode(
+                timer.mode === "count-down"
+                  ? "count-up"
+                  : timer.mode === "count-up"
+                    ? "clock"
+                    : "count-down"
+              )
             }
             className="text-[10px] text-board-muted hover:text-board-text uppercase tracking-wider px-2 py-0.5 rounded bg-board-bg border border-board-border transition-colors"
           >
-            {timer.mode === "count-down" ? "Countdown" : "Count Up"}
+            {timer.mode === "count-down" ? "Countdown" : timer.mode === "count-up" ? "Count Up" : "Clock"}
           </button>
         </div>
 
