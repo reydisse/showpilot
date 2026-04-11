@@ -1,0 +1,25 @@
+{
+  "name": "@showpilot/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "showpilot-bridge": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "tsx": "^4.21.0",
+    "vitest": "^3.0.5",
+    "@types/ws": "^8.5.13",
+    "@types/node": "^22.10.0"
+  }
+}

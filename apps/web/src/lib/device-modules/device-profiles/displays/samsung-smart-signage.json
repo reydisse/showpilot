@@ -1,0 +1,44 @@
+{
+  "profileVersion": 1,
+  "id": "samsung-smart-signage",
+  "manufacturer": "Samsung",
+  "model": "Smart Signage (QBR/QMR Series)",
+  "category": "video",
+  "icon": "Tv",
+  "description": "Samsung Smart Signage display. Power, input, volume via REST API.",
+  "protocol": "http-command",
+  "protocolDefaults": { "port": 8001 },
+  "actions": [
+    { "id": "power_on", "label": "Power On", "category": "power", "params": [],
+      "mapping": { "command": "POST /api/v2/channels/power {\"power\":\"on\"}" }},
+    { "id": "power_off", "label": "Power Off", "category": "power", "params": [],
+      "mapping": { "command": "POST /api/v2/channels/power {\"power\":\"off\"}" }},
+    { "id": "set_input", "label": "Set Input", "category": "input",
+      "params": [{ "id": "input", "label": "Input", "type": "select", "options": [
+        { "value": "HDMI1", "label": "HDMI 1" },
+        { "value": "HDMI2", "label": "HDMI 2" },
+        { "value": "HDMI3", "label": "HDMI 3" },
+        { "value": "DisplayPort", "label": "DisplayPort" },
+        { "value": "URL", "label": "URL Launcher" }
+      ]}],
+      "mapping": { "command": "POST /api/v2/channels/source {\"source\":\"{{input}}\"}" }
+    },
+    { "id": "set_volume", "label": "Set Volume", "category": "audio",
+      "params": [{ "id": "level", "label": "Volume (0-100)", "type": "number", "min": 0, "max": 100, "step": 1 }],
+      "mapping": { "command": "POST /api/v2/audio/volume {\"volume\":{{level}}}" }
+    },
+    { "id": "mute", "label": "Mute", "category": "audio", "params": [],
+      "mapping": { "command": "POST /api/v2/audio/mute {\"mute\":true}" }},
+    { "id": "unmute", "label": "Unmute", "category": "audio", "params": [],
+      "mapping": { "command": "POST /api/v2/audio/mute {\"mute\":false}" }}
+  ],
+  "feedbacks": [
+    { "id": "power_status", "label": "Power", "type": "boolean", "defaultValue": false,
+      "mapping": { "pollCommand": "GET /api/v2/channels/power", "pollInterval": 10000 }},
+    { "id": "current_input", "label": "Input", "type": "string", "defaultValue": "",
+      "mapping": { "pollCommand": "GET /api/v2/channels/source", "pollInterval": 15000 }},
+    { "id": "volume", "label": "Volume", "type": "number", "defaultValue": 0,
+      "mapping": { "pollCommand": "GET /api/v2/audio/volume", "pollInterval": 10000 }}
+  ],
+  "quirks": { "commandInterval": 100 }
+}

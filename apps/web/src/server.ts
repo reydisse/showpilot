@@ -4,12 +4,20 @@ import handler from "@tanstack/react-start/server-entry";
 export { ChatRelay } from "./durable-objects/ChatRelay";
 export { RundownRelay } from "./durable-objects/RundownRelay";
 export { LowerThirdsRelay } from "./durable-objects/LowerThirdsRelay";
+export { TimecodeRelay } from "./durable-objects/TimecodeRelay";
+export { BridgeRelay } from "./durable-objects/BridgeRelay";
 
 interface Env {
-  DB: { prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } } };
+  DB: D1Database;
+  TIMECODE_RELAY: DurableObjectNamespace;
+  BRIDGE_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
   CHAT_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
+}
+
+interface D1Database {
+  prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
 }
 
 async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
@@ -51,7 +59,6 @@ export default {
     const url = new URL(request.url);
     const e = env as Env;
 
-    // Handle CORS preflight for API routes
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return new Response(null, {
         status: 204,
@@ -64,7 +71,30 @@ export default {
       });
     }
 
-    // Route RundownRelay: /api/rundown/:orgSlugOrId/ws|state|command
+    const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
+    if (tcMatch) {
+      const [, slugOrId, subpath] = tcMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const id = e.TIMECODE_RELAY.idFromName(orgId);
+      const stub = e.TIMECODE_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    const bridgeMatch = url.pathname.match(/^\/api\/bridge\/([^/]+)\/(.+)$/);
+    if (bridgeMatch) {
+      const [, slugOrId, subpath] = bridgeMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const id = e.BRIDGE_RELAY.idFromName(orgId);
+      const stub = e.BRIDGE_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
     const rundownMatch = url.pathname.match(/^\/api\/rundown\/([^/]+)\/(.+)$/);
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
@@ -79,7 +109,6 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route ChatRelay: /api/chat/:orgSlugOrId/ws|send|history
     const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
@@ -94,7 +123,6 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    // Route LowerThirdsRelay: /api/lowerthirds/:orgSlugOrId/ws|trigger|clear|queue|current
     const ltMatch = url.pathname.match(/^\/api\/lowerthirds\/([^/]+)\/(.+)$/);
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;

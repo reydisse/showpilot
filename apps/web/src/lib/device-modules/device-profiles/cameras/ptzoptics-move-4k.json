@@ -1,0 +1,41 @@
+{
+  "profileVersion": 1,
+  "id": "ptzoptics-move-4k",
+  "manufacturer": "PTZOptics",
+  "model": "Move 4K",
+  "category": "video",
+  "icon": "Camera",
+  "description": "PTZOptics Move 4K NDI PTZ camera. Pan/tilt, zoom, focus, presets via VISCA-over-IP.",
+  "protocol": "visca-ip",
+  "protocolDefaults": { "port": 52381, "cameraAddress": 1 },
+  "actions": [
+    { "id": "recall_preset", "label": "Recall Preset", "category": "presets",
+      "params": [{ "id": "preset", "label": "Preset (0-254)", "type": "number", "min": 0, "max": 254, "step": 1 }],
+      "mapping": { "command": "81 01 04 3F 02 {{preset}} FF" }
+    },
+    { "id": "save_preset", "label": "Save Preset", "category": "presets",
+      "params": [{ "id": "preset", "label": "Preset (0-254)", "type": "number", "min": 0, "max": 254, "step": 1 }],
+      "mapping": { "command": "81 01 04 3F 01 {{preset}} FF" }
+    },
+    { "id": "zoom_in", "label": "Zoom In", "category": "lens", "params": [],
+      "mapping": { "command": "81 01 04 07 02 FF" }
+    },
+    { "id": "zoom_out", "label": "Zoom Out", "category": "lens", "params": [],
+      "mapping": { "command": "81 01 04 07 03 FF" }
+    },
+    { "id": "zoom_stop", "label": "Zoom Stop", "category": "lens", "params": [],
+      "mapping": { "command": "81 01 04 07 00 FF" }
+    },
+    { "id": "auto_focus", "label": "Auto Focus", "category": "lens", "params": [],
+      "mapping": { "command": "81 01 04 38 02 FF" }
+    },
+    { "id": "home_position", "label": "Home Position", "category": "movement", "params": [],
+      "mapping": { "command": "81 01 06 04 FF" }
+    },
+    { "id": "pt_stop", "label": "Pan/Tilt Stop", "category": "movement", "params": [],
+      "mapping": { "command": "81 01 06 01 01 01 03 03 FF" }
+    }
+  ],
+  "feedbacks": [],
+  "quirks": { "commandInterval": 50 }
+}

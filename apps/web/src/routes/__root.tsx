@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { registerServiceWorker } from "@/lib/notifications";
 
 import appCss from "../styles.css?url";
+import "@/lib/device-modules/register-all";
 
 export const Route = createRootRoute({
   pendingMs: 100, // show pending state after 100ms (avoids flash on fast navigations)

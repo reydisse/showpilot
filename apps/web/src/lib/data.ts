@@ -557,6 +557,13 @@ export const dismissNotification = createServerFn({ method: "POST" })
 
 // ─── Devices ───────────────────────────────────────────────
 
+export const getDevice = createServerFn({ method: "GET" })
+  .inputValidator((data: { id: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    return await prisma.device.findUnique({ where: { id: data.id } });
+  });
+
 export const getDevices = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {

@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   Home,
   Monitor,
   MessageSquare,
+  Lightbulb,
   Plus,
   Pencil,
   Trash2,
@@ -16,7 +17,7 @@ import {
 } from "lucide-react";
 import { getDevices, addDevice, updateDevice, deleteDevice } from "@/lib/data";
 
-type DeviceCategory = "mixer" | "streaming" | "timer" | "automation" | "video" | "comms";
+type DeviceCategory = "mixer" | "streaming" | "timer" | "automation" | "video" | "comms" | "lighting";
 
 const CATEGORY_ICONS: Record<DeviceCategory, React.ElementType> = {
   timer: Clock,
@@ -25,6 +26,7 @@ const CATEGORY_ICONS: Record<DeviceCategory, React.ElementType> = {
   automation: Home,
   video: Monitor,
   comms: MessageSquare,
+  lighting: Lightbulb,
 };
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
@@ -34,16 +36,24 @@ const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   automation: "Automation",
   video: "Video",
   comms: "Comms",
+  lighting: "Lighting",
 };
 
 const ADAPTER_TYPES = [
-  { value: "osc-mixer", label: "OSC Mixer (Wing/X32)", category: "mixer" as DeviceCategory },
-  { value: "restream", label: "Restream", category: "streaming" as DeviceCategory },
+  { value: "osc-mixer", label: "Behringer X32 / Wing (OSC)", category: "mixer" as DeviceCategory },
+  { value: "allen-heath-sq", label: "Allen & Heath SQ (TCP)", category: "mixer" as DeviceCategory },
+  { value: "yamaha-tf", label: "Yamaha TF (TCP)", category: "mixer" as DeviceCategory },
+  { value: "obs", label: "OBS Studio", category: "streaming" as DeviceCategory },
+  { value: "vmix", label: "vMix", category: "video" as DeviceCategory },
+  { value: "atem", label: "Blackmagic ATEM", category: "video" as DeviceCategory },
+  { value: "roland-switcher", label: "Roland V-Series", category: "video" as DeviceCategory },
+  { value: "dmx-sacn", label: "DMX / sACN Lighting", category: "lighting" as DeviceCategory },
+  { value: "dmx-artnet", label: "DMX / Art-Net Lighting", category: "lighting" as DeviceCategory },
+  { value: "etc-eos", label: "ETC EOS", category: "lighting" as DeviceCategory },
   { value: "ontime", label: "OnTime", category: "timer" as DeviceCategory },
+  { value: "restream", label: "Restream", category: "streaming" as DeviceCategory },
   { value: "homeassistant", label: "Home Assistant", category: "automation" as DeviceCategory },
   { value: "mattermost", label: "Mattermost", category: "comms" as DeviceCategory },
-  { value: "vmix", label: "vMix", category: "video" as DeviceCategory },
-  { value: "obs", label: "OBS Studio", category: "video" as DeviceCategory },
 ];
 
 interface AdapterField {
@@ -75,6 +85,33 @@ const ADAPTER_FIELDS: Record<string, AdapterField[]> = {
     { key: "host", label: "Host / IP", placeholder: "192.168.1.200" },
     { key: "port", label: "Port", placeholder: "4455", type: "number" },
     { key: "password", label: "Password", placeholder: "Optional", type: "password" },
+  ],
+  atem: [
+    { key: "host", label: "Switcher IP", placeholder: "192.168.1.240" },
+  ],
+  "dmx-sacn": [
+    { key: "universe", label: "Universe", placeholder: "1", type: "number" },
+    { key: "host", label: "sACN Target IP (optional)", placeholder: "239.255.0.1" },
+  ],
+  "dmx-artnet": [
+    { key: "host", label: "Art-Net Node IP", placeholder: "192.168.1.50" },
+    { key: "universe", label: "Universe", placeholder: "0", type: "number" },
+  ],
+  "allen-heath-sq": [
+    { key: "host", label: "Console IP", placeholder: "192.168.1.110" },
+    { key: "port", label: "Port", placeholder: "51325", type: "number" },
+  ],
+  "yamaha-tf": [
+    { key: "host", label: "Console IP", placeholder: "192.168.1.120" },
+    { key: "port", label: "Port", placeholder: "49280", type: "number" },
+  ],
+  "roland-switcher": [
+    { key: "host", label: "Switcher IP", placeholder: "192.168.1.230" },
+    { key: "port", label: "Port", placeholder: "8023", type: "number" },
+  ],
+  "etc-eos": [
+    { key: "host", label: "Console IP", placeholder: "192.168.1.150" },
+    { key: "port", label: "OSC Port", placeholder: "8000", type: "number" },
   ],
 };
 
@@ -169,42 +206,47 @@ function DevicesPage() {
                       : "bg-board-card/50 border-board-border/50 opacity-60"
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <CategoryIcon className="w-5 h-5 text-board-muted" />
-                      <div>
-                        <p className="text-sm font-semibold text-board-text">
-                          {device.name}
-                        </p>
-                        <p className="text-[10px] text-board-muted uppercase tracking-wide">
-                          {CATEGORY_LABELS[device.category as DeviceCategory] ?? device.category}
-                        </p>
+                  <Link
+                    to={`/${slug}/dashboard/devices/${device.id}`}
+                    className="block mb-3 group cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <CategoryIcon className="w-5 h-5 text-board-muted group-hover:text-fire-500 transition-colors" />
+                        <div>
+                          <p className="text-sm font-semibold text-board-text group-hover:text-fire-500 transition-colors">
+                            {device.name}
+                          </p>
+                          <p className="text-[10px] text-board-muted uppercase tracking-wide">
+                            {CATEGORY_LABELS[device.category as DeviceCategory] ?? device.category}
+                          </p>
+                        </div>
                       </div>
+                      <span
+                        className={`text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                          device.enabled
+                            ? "bg-board-border/50 text-board-muted border-board-border"
+                            : "bg-red-500/15 text-red-400 border-red-500/25"
+                        }`}
+                      >
+                        {device.enabled ? "Ready" : "Disabled"}
+                      </span>
                     </div>
-                    <span
-                      className={`text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                        device.enabled
-                          ? "bg-board-border/50 text-board-muted border-board-border"
-                          : "bg-red-500/15 text-red-400 border-red-500/25"
-                      }`}
-                    >
-                      {device.enabled ? "Ready" : "Disabled"}
-                    </span>
-                  </div>
 
-                  <div className="flex items-center gap-1.5 mb-3">
-                    {device.enabled ? (
-                      <Wifi className="w-3.5 h-3.5 text-board-muted" />
-                    ) : (
-                      <WifiOff className="w-3.5 h-3.5 text-red-400" />
-                    )}
-                    <span className="text-xs text-board-muted">
-                      {device.adapterType
-                        ? ADAPTER_TYPES.find((a) => a.value === device.adapterType)
-                            ?.label ?? device.adapterType
-                        : "No adapter"}
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-1.5">
+                      {device.enabled ? (
+                        <Wifi className="w-3.5 h-3.5 text-board-muted" />
+                      ) : (
+                        <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                      )}
+                      <span className="text-xs text-board-muted">
+                        {device.adapterType
+                          ? ADAPTER_TYPES.find((a) => a.value === device.adapterType)
+                              ?.label ?? device.adapterType
+                          : "No adapter"}
+                      </span>
+                    </div>
+                  </Link>
 
                   <div className="flex items-center gap-1 pt-2 border-t border-board-border">
                     <button

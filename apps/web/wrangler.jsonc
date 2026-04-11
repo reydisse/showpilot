@@ -34,6 +34,14 @@
 			{
 				"name": "LOWER_THIRDS_RELAY",
 				"class_name": "LowerThirdsRelay"
+			},
+			{
+				"name": "TIMECODE_RELAY",
+				"class_name": "TimecodeRelay"
+			},
+			{
+				"name": "BRIDGE_RELAY",
+				"class_name": "BridgeRelay"
 			}
 		]
 	},
@@ -51,6 +59,14 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["ChatRelay", "RundownRelay", "LowerThirdsRelay"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["TimecodeRelay"]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["BridgeRelay"]
 		}
 	]
 }
