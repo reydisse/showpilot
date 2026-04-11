@@ -28,7 +28,6 @@ export function loadConfigFile(): BridgeConfig | null {
           site: parsed.site,
           org: parsed.org,
           key: parsed.key,
-          url: parsed.url,
         };
       }
     } catch {
