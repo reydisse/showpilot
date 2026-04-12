@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
+import { getAuth } from "./lib/auth";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -90,6 +91,12 @@ export default {
           "Access-Control-Max-Age": "86400",
         },
       });
+    }
+
+    const authMatch = url.pathname.match(/^\/api\/auth(?:\/.*)?$/);
+    if (authMatch) {
+      const auth = getAuth();
+      return await auth.handler(request);
     }
 
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
