@@ -77,7 +77,7 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   const cfEnv = env as unknown as Record<string, unknown>;
-  const secret = (cfEnv.BETTER_AUTH_SECRET as string) || undefined;
+  const secret = (cfEnv.BETTER_AUTH_SECRET as string) || "showpilot-better-auth-secret";
   const baseURL = (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
 
   return betterAuth({
