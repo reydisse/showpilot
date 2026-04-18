@@ -25,6 +25,7 @@ export class ProPresenterBridge {
   private wsConnected = false;
   private pollingActive = false;
   private lastPollText = "";
+  private useWebSocket = true;
 
   constructor(options: PPBridgeOptions) {
     this.options = options;
@@ -33,49 +34,61 @@ export class ProPresenterBridge {
   connect(): void {
     if (this.destroyed) return;
 
-    const url = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
-    console.log(`[pp-bridge] Connecting to ${url}...`);
+    // If stage + API ports are the same, treat this as REST-only mode.
+    // PP 21.x often exposes slide state on the API port but doesn't keep a
+    // stable stage-display websocket there.
+    this.useWebSocket = this.options.port !== (this.options.apiPort ?? this.options.port);
 
-    this.ws = new WebSocket(url);
+    if (this.useWebSocket) {
+      const url = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
+      console.log(`[pp-bridge] Connecting to ${url}...`);
 
-    this.ws.on("open", () => {
-      console.log("[pp-bridge] Connected to ProPresenter");
-      this.wsConnected = true;
-      this.emitStatus();
+      this.ws = new WebSocket(url);
 
-      // Authenticate with stage display protocol
-      this.ws?.send(
-        JSON.stringify({
-          pwd: this.options.password || "",
-          ptl: 610,
-          acn: "ath",
-        })
+      this.ws.on("open", () => {
+        console.log("[pp-bridge] Connected to ProPresenter");
+        this.wsConnected = true;
+        this.emitStatus();
+
+        // Authenticate with stage display protocol
+        this.ws?.send(
+          JSON.stringify({
+            pwd: this.options.password || "",
+            ptl: 610,
+            acn: "ath",
+          })
+        );
+      });
+
+      this.ws.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          this.handleMessage(msg);
+        } catch {
+          // Ignore unparseable
+        }
+      });
+
+      this.ws.on("close", () => {
+        console.log("[pp-bridge] Disconnected from ProPresenter");
+        this.wsConnected = false;
+        this.emitStatus();
+        if (!this.destroyed) {
+          this.reconnectTimer = setTimeout(() => this.connect(), 5000);
+        }
+      });
+
+      this.ws.on("error", (err) => {
+        console.error("[pp-bridge] Error:", err.message);
+        // Keep the bridge alive if REST polling is working.
+        this.emitStatus();
+      });
+    } else {
+      console.log(
+        `[pp-bridge] REST polling only (api port ${this.options.apiPort ?? this.options.port})`
       );
-    });
-
-    this.ws.on("message", (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        this.handleMessage(msg);
-      } catch {
-        // Ignore unparseable
-      }
-    });
-
-    this.ws.on("close", () => {
-      console.log("[pp-bridge] Disconnected from ProPresenter");
-      this.wsConnected = false;
       this.emitStatus();
-      if (!this.destroyed) {
-        this.reconnectTimer = setTimeout(() => this.connect(), 5000);
-      }
-    });
-
-    this.ws.on("error", (err) => {
-      console.error("[pp-bridge] Error:", err.message);
-      // Keep the bridge alive if REST polling is working.
-      this.emitStatus();
-    });
+    }
 
     this.startPolling();
   }
@@ -144,7 +157,6 @@ export class ProPresenterBridge {
     if (!text) return;
 
     this.lastPollText = text;
-    this.stopPolling();
     // Forward everything else — the browser client will parse it
     this.options.onSlideChange(data);
   }

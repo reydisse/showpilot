@@ -308,8 +308,6 @@ function RundownPage() {
   // PP slide relay — when slide changes (from direct connection), persist to server for kiosk
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
     if (!slide || !slide.text) {
-      setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
       return;
     }
     const trimmedText = slide.text.trim();
@@ -339,12 +337,12 @@ function RundownPage() {
 
   // Use gateway bridge slide (from DO) as primary, direct connection as fallback
   const activePpSlide: PPSlidePayload | null = syncedPpSlide ?? ppCurrentSlide;
-  // Persist gateway slides to DB for kiosk
+
+  // When streaming is enabled, keep kiosk synced to the active slide.
   useEffect(() => {
-    if (syncedPpSlide) {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: syncedPpSlide } }).catch(() => {});
-    }
-  }, [syncedPpSlide, orgId, serviceDate]);
+    if (!ppEnabled || !activePpSlide) return;
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide } }).catch(() => {});
+  }, [activePpSlide, ppEnabled, orgId, serviceDate]);
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
   const ppIsConnected = syncedPpSlide !== null || pp.status === "connected";
@@ -359,6 +357,12 @@ function RundownPage() {
       setPpEnabled(true);
     }
   }, [ppEnabled, orgId, serviceDate]);
+
+  const showOnKiosk = useCallback(() => {
+    const slide = syncedPpSlide ?? ppCurrentSlide;
+    if (!slide) return;
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
+  }, [orgId, serviceDate, ppCurrentSlide, syncedPpSlide]);
 
   // Persist timer to DB immediately (not debounced — kiosk needs it fast)
   const persistTimer = useCallback((
@@ -1033,18 +1037,25 @@ function RundownPage() {
                       ProPresenter
                     </p>
                   </div>
-                  <button
-                    onClick={togglePP}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
-                      ppEnabled
-                        ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                    <button
+                      onClick={togglePP}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                        ppEnabled
+                          ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
                         : "bg-board-bg text-board-muted hover:bg-board-border"
                     }`}
-                  >
-                    {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {ppEnabled ? "Streaming" : "Off"}
-                  </button>
-                </div>
+                    >
+                      {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                      {ppEnabled ? "Streaming" : "Off"}
+                    </button>
+                    <button
+                      onClick={showOnKiosk}
+                      disabled={!activePpSlide?.text}
+                      className="px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-40 bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
+                    >
+                      Show on kiosk
+                    </button>
+                  </div>
 
                 {ppEnabled && (
                   <>
