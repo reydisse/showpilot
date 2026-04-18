@@ -88,6 +88,9 @@ export class Bridge {
       console.log("[bridge] Connected to ShowPilot");
       this.sendStatus();
       void this.ensureProPresenterConnection();
+      for (const pp of this.ppConnections.values()) {
+        pp.replayCurrentSlide();
+      }
     });
 
     this.ws.on("message", (data) => {
