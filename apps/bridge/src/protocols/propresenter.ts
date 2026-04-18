@@ -27,6 +27,7 @@ export interface PPBridgeDebugState {
 }
 
 export class ProPresenterBridge {
+  private static readonly POLL_INTERVAL_MS = 400;
   private ws: WebSocket | null = null;
   private options: PPBridgeOptions;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -242,7 +243,7 @@ export class ProPresenterBridge {
     void doPoll();
     this.pollTimer = setInterval(() => {
       void doPoll();
-    }, 1500);
+    }, ProPresenterBridge.POLL_INTERVAL_MS);
   }
 
   private stopPolling(): void {
