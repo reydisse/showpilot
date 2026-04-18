@@ -154,6 +154,7 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
     // Note: /v1/stage/layout_map returns stage display fields including timers,
     // so we try slide-specific endpoints first.
     const endpoints = [
+      "/v1/stage/current_slide",
       "/v1/presentation/active",
       "/v1/status/slide",
       "/v1/presentation/slide_index",
@@ -239,7 +240,7 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
   .inputValidator((data: { host: string; port: number; command: "next" | "previous" | "clear" }) => data)
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const { host, port, command } = data;
-    const base = `http://${host}:${port}`;
+    const base = `http://${host}:${port || 1025}`;
     const timeout = 3000;
 
     // PP7 API endpoints vary by version — try multiple known paths and methods.
@@ -303,8 +304,9 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
     const timeout = 3000;
 
     // Try API port first (REST), then stage display port
-    const ports = apiPort && apiPort !== port ? [apiPort, port] : [port];
+    const ports = Array.from(new Set([apiPort || 1025, port].filter((p) => Number.isFinite(p) && p > 0)));
     const testEndpoints = [
+      "/v1/stage/current_slide",
       "/v1/version",
       "/v1/status/slide",
       "/v1/presentation/active",

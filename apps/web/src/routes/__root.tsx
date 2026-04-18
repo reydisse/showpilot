@@ -5,7 +5,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { registerServiceWorker } from "@/lib/notifications";
+import { clearServiceWorkerState } from "@/lib/notifications";
 
 import appCss from "../styles.css?url";
 import "@/lib/device-modules/register-all";
@@ -51,6 +51,22 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     <html lang="en" className="dark">
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+              try {
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then((regs) => {
+                    for (const reg of regs) reg.unregister();
+                  }).catch(() => {});
+                }
+                if ('caches' in window) {
+                  caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {});
+                }
+              } catch {}
+            })();`,
+          }}
+        />
       </head>
       <body className="bg-slate-950 text-white antialiased">
         {children}
@@ -61,9 +77,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  // Register service worker for push notifications + PWA
   useEffect(() => {
-    registerServiceWorker();
+    clearServiceWorkerState();
   }, []);
 
   return <Outlet />;

@@ -110,7 +110,7 @@ export function useProPresenter({
 
     clientRef.current = client;
     // Pass API port separately so the client polls on the correct port
-    const resolvedApiPort = apiPort || port;
+    const resolvedApiPort = apiPort ?? 1025;
     client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
 
     return () => {
@@ -142,7 +142,7 @@ export function useProPresenter({
       },
     });
     clientRef.current = client;
-    const resolvedApiPort = apiPort || port;
+    const resolvedApiPort = apiPort ?? 1025;
     client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
   }, [host, port, apiPort, password]);
 

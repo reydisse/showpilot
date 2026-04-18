@@ -47,6 +47,14 @@ function startBridge(nextConfig: BridgeConfig) {
     url: nextConfig.url ?? buildBridgeUrl(nextConfig.site, nextConfig.org),
     key: nextConfig.key,
     reconnect: true,
+    propresenter: nextConfig.propresenterHost
+      ? {
+          host: nextConfig.propresenterHost,
+          port: nextConfig.propresenterPort,
+          apiPort: nextConfig.propresenterApiPort,
+          password: nextConfig.propresenterPassword,
+        }
+      : undefined,
   });
   bridge.start();
 }

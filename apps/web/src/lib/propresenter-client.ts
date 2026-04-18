@@ -67,6 +67,7 @@ export class ProPresenterClient {
   private pollFn: ((host: string, port: number) => Promise<PPSlideData | null>) | null = null;
   private pollPort: number | null = null;
   private lastPollText = "";
+  private pollingOnly = false;
 
   // Debug tracking
   private wsMessagesReceived = 0;
@@ -88,6 +89,7 @@ export class ProPresenterClient {
     if (this.destroyed) return;
     this.pollFn = pollFn || null;
     this.pollPort = apiPort || null;
+    this.pollingOnly = false;
     this.clearReconnectTimer();
     this.options.onStatusChange("connecting");
 
@@ -135,6 +137,10 @@ export class ProPresenterClient {
 
       this.ws.onclose = () => {
         if (!this.destroyed) {
+          if (this.pollingOnly && this.pollFn) {
+            // WebSocket failed, but polling is keeping the connection alive.
+            return;
+          }
           this.options.onStatusChange("disconnected");
           this.stopPolling();
           this.scheduleReconnect();
@@ -145,12 +151,12 @@ export class ProPresenterClient {
         // WS failed — try polling-only mode if we have a poll function
         if (this.pollFn && !this.destroyed) {
           console.log("[PP] WebSocket failed, trying REST polling only");
+          this.pollingOnly = true;
           this.options.onStatusChange("connected");
           this.startPolling();
         } else {
           this.options.onStatusChange("error", "Connection failed");
         }
-        this.ws?.close();
       };
     } catch (err) {
       this.options.onStatusChange("error", `Failed to connect: ${err}`);
@@ -161,6 +167,7 @@ export class ProPresenterClient {
   /** Disconnect and stop reconnecting */
   disconnect(): void {
     this.destroyed = true;
+    this.pollingOnly = false;
     this.clearReconnectTimer();
     this.stopPolling();
     if (this.ws) {

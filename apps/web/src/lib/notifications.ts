@@ -5,23 +5,24 @@
  * and notification permission management.
  */
 
-/** Register the service worker if supported */
-export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
-    return null;
+/** Remove any existing service worker and cached assets. */
+export async function clearServiceWorkerState(): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
   }
 
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js", {
-      scope: "/",
-    });
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
 
-    // Wait for the service worker to be ready
-    await navigator.serviceWorker.ready;
-    return registration;
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
   } catch (err) {
-    console.warn("[ShowPilot] Service worker registration failed:", err);
-    return null;
+    console.warn("[ShowPilot] Service worker cleanup failed:", err);
   }
 }
 
