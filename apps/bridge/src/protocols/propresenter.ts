@@ -25,6 +25,7 @@ export class ProPresenterBridge {
   private wsConnected = false;
   private pollingActive = false;
   private lastPollText = "";
+  private lastSlideKey = "";
   private useWebSocket = true;
 
   constructor(options: PPBridgeOptions) {
@@ -95,6 +96,7 @@ export class ProPresenterBridge {
 
   disconnect(): void {
     this.destroyed = true;
+    this.lastSlideKey = "";
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -156,9 +158,13 @@ export class ProPresenterBridge {
     const text = this.extractTextFromMessage(data);
     if (!text) return;
 
+    const slideKey = this.extractSlideKeyFromMessage(data) || text;
+    if (slideKey === this.lastSlideKey) return;
+
+    this.lastSlideKey = slideKey;
     this.lastPollText = text;
     // Forward everything else — the browser client will parse it
-    this.options.onSlideChange(data);
+    this.options.onSlideChange({ ...data, slideKey });
   }
 
   private startPolling(): void {
@@ -168,7 +174,8 @@ export class ProPresenterBridge {
       if (this.destroyed) return;
       try {
         const slide = await this.pollSlide();
-        if (slide?.text && slide.text !== this.lastPollText) {
+        if (slide?.text && slide.slideKey !== this.lastSlideKey) {
+          this.lastSlideKey = slide.slideKey;
           this.lastPollText = slide.text;
           this.pollingActive = true;
           this.emitStatus();
@@ -179,6 +186,7 @@ export class ProPresenterBridge {
             pn: slide.presentationName,
             si: slide.slideIndex,
             scripture: slide.isScripture,
+            slideKey: slide.slideKey,
           });
         }
       } catch (err) {
@@ -206,7 +214,7 @@ export class ProPresenterBridge {
     this.options.onStatusChange(this.wsConnected || this.pollingActive);
   }
 
-  private async pollSlide(): Promise<{ text: string; notes: string; presentationName: string; slideIndex: number; isScripture: boolean } | null> {
+  private async pollSlide(): Promise<{ text: string; notes: string; presentationName: string; slideIndex: number; isScripture: boolean; slideKey: string } | null> {
     const timeout = 2000;
     const endpoints = [
       "/v1/stage/current_slide",
@@ -225,12 +233,14 @@ export class ProPresenterBridge {
           const payload = (await res.json()) as Record<string, unknown>;
           const text = this.extractTextFromResponse(payload);
           if (text) {
+            const slideKey = this.extractSlideKeyFromResponse(payload) || text;
             return {
               text,
               notes: (payload.notes as string) || "",
               presentationName: (payload.presentation_name as string) || (payload.presentation as string) || "",
               slideIndex: typeof payload.current_index === "number" ? payload.current_index : 0,
               isScripture: false,
+              slideKey,
             };
           }
         } catch {
@@ -299,6 +309,38 @@ export class ProPresenterBridge {
         }
       }
       if (texts.length > 0) return texts.join("\n");
+    }
+
+    return "";
+  }
+
+  private extractSlideKeyFromMessage(data: Record<string, unknown>): string {
+    const key = data.uuid ?? data.slideKey ?? data.slide_id ?? data.slideId ?? data.id;
+    if (typeof key === "string" && key.trim()) return key.trim();
+
+    if (data.current && typeof data.current === "object") {
+      const current = data.current as Record<string, unknown>;
+      const currentKey = current.uuid ?? current.slideKey ?? current.slide_id ?? current.id;
+      if (typeof currentKey === "string" && currentKey.trim()) return currentKey.trim();
+    }
+
+    return "";
+  }
+
+  private extractSlideKeyFromResponse(data: Record<string, unknown>): string {
+    const key = data.uuid ?? data.slideKey ?? data.slide_id ?? data.slideId ?? data.id;
+    if (typeof key === "string" && key.trim()) return key.trim();
+
+    if (data.current && typeof data.current === "object") {
+      const current = data.current as Record<string, unknown>;
+      const currentKey = current.uuid ?? current.slideKey ?? current.slide_id ?? current.id;
+      if (typeof currentKey === "string" && currentKey.trim()) return currentKey.trim();
+    }
+
+    if (data.slide && typeof data.slide === "object") {
+      const slide = data.slide as Record<string, unknown>;
+      const slideKey = slide.uuid ?? slide.slideKey ?? slide.slide_id ?? slide.id;
+      if (typeof slideKey === "string" && slideKey.trim()) return slideKey.trim();
     }
 
     return "";

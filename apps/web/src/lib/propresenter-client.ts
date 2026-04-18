@@ -22,6 +22,8 @@ export interface PPSlideData {
   isScripture: boolean;
   /** Timestamp when slide was received */
   receivedAt: number;
+  /** Stable slide identity if PP provides one */
+  slideId?: string;
 }
 
 export type PPConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -61,6 +63,7 @@ export class ProPresenterClient {
   private maxReconnectAttempts = 10;
   private destroyed = false;
   private currentSlide: PPSlideData | null = null;
+  private lastSlideKey = "";
 
   // Polling state
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -168,6 +171,7 @@ export class ProPresenterClient {
   disconnect(): void {
     this.destroyed = true;
     this.pollingOnly = false;
+    this.lastSlideKey = "";
     this.clearReconnectTimer();
     this.stopPolling();
     if (this.ws) {
@@ -220,7 +224,9 @@ export class ProPresenterClient {
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
 
           // Only emit change if text actually changed
-          if (slide.text !== this.lastPollText) {
+          const slideKey = slide.slideId || slide.text;
+          if (slideKey !== this.lastSlideKey) {
+            this.lastSlideKey = slideKey;
             this.lastPollText = slide.text;
             this.currentSlide = slide;
             this.options.onSlideChange(slide);
@@ -272,6 +278,9 @@ export class ProPresenterClient {
         if (text) {
           this.wsSlideReceived = true;
           this.stopPolling(); // WS is working, no need to poll
+          const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+          if (slideKey === this.lastSlideKey) return;
+          this.lastSlideKey = slideKey;
           this.currentSlide = {
             text,
             notes,
@@ -279,6 +288,7 @@ export class ProPresenterClient {
             slideIndex: (data.si as number) || 0,
             isScripture,
             receivedAt: Date.now(),
+            slideId: slideKey,
           };
           this.options.onSlideChange(this.currentSlide);
           this.emitDebug();
@@ -293,6 +303,9 @@ export class ProPresenterClient {
       if (text) {
         this.wsSlideReceived = true;
         this.stopPolling();
+        const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+        if (slideKey === this.lastSlideKey) return;
+        this.lastSlideKey = slideKey;
         this.currentSlide = {
           text,
           notes: "",
@@ -300,6 +313,7 @@ export class ProPresenterClient {
           slideIndex: 0,
           isScripture: false,
           receivedAt: Date.now(),
+          slideId: slideKey,
         };
         this.options.onSlideChange(this.currentSlide);
         this.emitDebug();
@@ -313,6 +327,9 @@ export class ProPresenterClient {
       if (text && text.length > 1) {
         this.wsSlideReceived = true;
         this.stopPolling();
+        const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+        if (slideKey === this.lastSlideKey) return;
+        this.lastSlideKey = slideKey;
         this.currentSlide = {
           text,
           notes: "",
@@ -320,6 +337,7 @@ export class ProPresenterClient {
           slideIndex: (data.si as number) || (data.slideIndex as number) || 0,
           isScripture: false,
           receivedAt: Date.now(),
+          slideId: slideKey,
         };
         this.options.onSlideChange(this.currentSlide);
         this.emitDebug();
