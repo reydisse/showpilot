@@ -63,6 +63,7 @@ startSetupServer(9450, () => ({
   config: currentConfig,
   bridgeRunning: Boolean(bridge),
   bridgeStatus: bridge ? "running" : "waiting",
+  debug: bridge?.getStatus(),
 }), async (nextConfig) => {
   currentConfig = nextConfig;
   startBridge(nextConfig);

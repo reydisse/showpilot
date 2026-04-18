@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
-import { ProPresenterBridge } from "./protocols/propresenter.js";
+import { ProPresenterBridge, type PPBridgeDebugState } from "./protocols/propresenter.js";
 
 interface BridgeOptions {
   url: string;
@@ -55,6 +55,18 @@ export class Bridge {
     this.key = options.key;
     this.reconnect = options.reconnect ?? true;
     this.propresenter = options.propresenter;
+  }
+
+  getStatus() {
+    const propresenter: Record<string, PPBridgeDebugState> = {};
+    for (const [target, bridge] of this.ppConnections.entries()) {
+      propresenter[target] = bridge.getDebugState();
+    }
+
+    return {
+      connectedToShowPilot: this.ws?.readyState === WebSocket.OPEN,
+      propresenter,
+    };
   }
 
   start(): void {
@@ -278,6 +290,8 @@ export class Bridge {
       apiPort: Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
       password,
       onSlideChange: (data) => {
+        const text = typeof data.text === "string" ? data.text : "";
+        console.log(`[pp-bridge] Forwarding slide: ${text.slice(0, 80).replace(/\s+/g, " ")}`);
         this.send({ type: "device-event", target, eventName: "slide", data: JSON.stringify(data) });
       },
       onStatusChange: (connected) => {

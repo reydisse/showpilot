@@ -16,6 +16,16 @@ export interface PPBridgeOptions {
   onStatusChange: (connected: boolean) => void;
 }
 
+export interface PPBridgeDebugState {
+  connected: boolean;
+  wsConnected: boolean;
+  pollingActive: boolean;
+  useWebSocket: boolean;
+  lastPollText: string;
+  lastSlideSignature: string;
+  lastForwardAt: number;
+}
+
 export class ProPresenterBridge {
   private ws: WebSocket | null = null;
   private options: PPBridgeOptions;
@@ -119,6 +129,18 @@ export class ProPresenterBridge {
     if (!this.lastSlideEvent) return;
     this.lastForwardAt = Date.now();
     this.options.onSlideChange({ ...this.lastSlideEvent });
+  }
+
+  getDebugState(): PPBridgeDebugState {
+    return {
+      connected: this.wsConnected || this.pollingActive,
+      wsConnected: this.wsConnected,
+      pollingActive: this.pollingActive,
+      useWebSocket: this.useWebSocket,
+      lastPollText: this.lastPollText,
+      lastSlideSignature: this.lastSlideSignature,
+      lastForwardAt: this.lastForwardAt,
+    };
   }
 
   /** Send a command to PP (for control actions like next slide, clear, etc.) */

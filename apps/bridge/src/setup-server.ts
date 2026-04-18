@@ -17,6 +17,7 @@ export interface SetupState {
   config: BridgeConfig | null;
   bridgeRunning: boolean;
   bridgeStatus: string;
+  debug?: Record<string, unknown>;
 }
 
 const CONFIG_FILES = ["showpilot-bridge.config.json", "bridge.config.json"];
