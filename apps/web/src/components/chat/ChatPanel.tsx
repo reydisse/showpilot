@@ -186,6 +186,8 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const seenAlertIdsRef = useRef<Set<string>>(new Set());
+  const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Track pinned alerts (pinned for 10 seconds)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -193,36 +195,52 @@ export function ChatPanel({
   // Pin new alert messages for 10s
   useEffect(() => {
     const latestAlerts = messages.filter(
-      (m) => m.type === "alert" && !pinnedIds.has(m.id),
+      (m) => m.type === "alert" && !seenAlertIdsRef.current.has(m.id),
     );
     if (latestAlerts.length === 0) return;
 
-    const newPinned = new Set(pinnedIds);
-    for (const alert of latestAlerts) {
-      newPinned.add(alert.id);
-    }
-    setPinnedIds(newPinned);
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
 
-    const timer = setTimeout(() => {
-      setPinnedIds((prev) => {
-        const next = new Set(prev);
-        for (const alert of latestAlerts) {
-          next.delete(alert.id);
+      for (const alert of latestAlerts) {
+        seenAlertIdsRef.current.add(alert.id);
+        next.add(alert.id);
+
+        const existingTimer = pinTimeoutsRef.current.get(alert.id);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
         }
-        return next;
-      });
-    }, 10000);
 
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages.length]);
+        const timer = setTimeout(() => {
+          setPinnedIds((current) => {
+            const updated = new Set(current);
+            updated.delete(alert.id);
+            return updated;
+          });
+          pinTimeoutsRef.current.delete(alert.id);
+        }, 10000);
 
-  // Auto-scroll to bottom on new messages
+        pinTimeoutsRef.current.set(alert.id, timer);
+      }
+
+      return next;
+    });
+  }, [messages]);
+
   useEffect(() => {
-    if (!showScrollButton) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages.length, showScrollButton]);
+    return () => {
+      for (const timer of pinTimeoutsRef.current.values()) {
+        clearTimeout(timer);
+      }
+      pinTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  // Keep the latest message visible as messages or pinned alerts change.
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    setShowScrollButton(false);
+  }, [messages.length, pinnedIds.size]);
 
   // Detect if user has scrolled up
   const handleScroll = () => {

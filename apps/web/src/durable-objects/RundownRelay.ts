@@ -45,6 +45,7 @@ interface RundownState {
   items: RundownItem[];
   timer: TimerState;
   ppSlide: PPSlideState | null;
+  ppPreviewSlide: PPSlideState | null;
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -61,6 +62,7 @@ export class RundownRelay extends DurableObject {
     items: [],
     timer: { ...DEFAULT_TIMER },
     ppSlide: null,
+    ppPreviewSlide: null,
   };
   private hydrated = false;
 
@@ -75,6 +77,7 @@ export class RundownRelay extends DurableObject {
         items: stored.items ?? [],
         timer: stored.timer ?? { ...DEFAULT_TIMER },
         ppSlide: stored.ppSlide ?? null,
+        ppPreviewSlide: stored.ppPreviewSlide ?? null,
       };
     }
   }
@@ -381,6 +384,13 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "pp-preview": {
+        const slide = payload?.slide as PPSlideState | null;
+        this.state.ppPreviewSlide = slide ? { ...slide, updatedAt: Date.now() } : null;
+        break;
+      }
+
+
       case "reset": {
         this.state.items.forEach((item) => {
           item.status = "upcoming";
@@ -412,6 +422,7 @@ export class RundownRelay extends DurableObject {
         serverTime: Date.now(),
       },
       ppSlide: this.state.ppSlide,
+      ppPreviewSlide: this.state.ppPreviewSlide,
     };
   }
 

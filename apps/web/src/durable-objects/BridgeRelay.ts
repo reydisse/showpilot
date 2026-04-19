@@ -112,7 +112,7 @@ export class BridgeRelay extends DurableObject {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
       this.bridgeOnline = false;
-      this.clearRundownSlide();
+      this.clearPreviewSlide();
       this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
         online: false,
@@ -146,9 +146,17 @@ export class BridgeRelay extends DurableObject {
       case "command-response":
       case "device-event":
         if (msg.eventName === "slide") {
-          this.pushRundownSlide(msg.data as string);
+          this.pushPreviewSlide(msg.data as string);
         }
       case "device-status":
+        if (
+          msg.type === "device-status" &&
+          msg.connected === false &&
+          typeof msg.target === "string" &&
+          msg.target.startsWith("propresenter:")
+        ) {
+          void this.clearPreviewSlide();
+        }
         // Forward directly to all browser clients
         this.broadcastToClients(JSON.stringify(msg));
         break;
@@ -205,11 +213,16 @@ export class BridgeRelay extends DurableObject {
     }
   }
 
-  private async pushRundownSlide(data: string): Promise<void> {
+  private async pushPreviewSlide(data: string): Promise<void> {
     if (!this.orgId) return;
 
     try {
-      const slide = JSON.parse(data) as Record<string, unknown>;
+      const slide = JSON.parse(data) as Record<string, unknown> | null;
+      if (!slide) {
+        await this.clearPreviewSlide();
+        return;
+      }
+
       const payload = {
         text: String(slide.text ?? ""),
         notes: String(slide.notes ?? ""),
@@ -225,15 +238,15 @@ export class BridgeRelay extends DurableObject {
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "pp-slide", payload: { slide: payload } }),
+          body: JSON.stringify({ action: "pp-preview", payload: { slide: payload } }),
         })
       );
     } catch (err) {
-      console.error("[BridgeRelay] failed to push rundown slide", err);
+      console.error("[BridgeRelay] failed to push preview slide", err);
     }
   }
 
-  private async clearRundownSlide(): Promise<void> {
+  private async clearPreviewSlide(): Promise<void> {
     if (!this.orgId) return;
 
     try {
@@ -244,11 +257,11 @@ export class BridgeRelay extends DurableObject {
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "pp-slide", payload: { slide: null } }),
+          body: JSON.stringify({ action: "pp-preview", payload: { slide: null } }),
         })
       );
     } catch (err) {
-      console.error("[BridgeRelay] failed to clear rundown slide", err);
+      console.error("[BridgeRelay] failed to clear preview slide", err);
     }
   }
 }

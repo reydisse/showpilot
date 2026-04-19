@@ -12,7 +12,7 @@ export interface PPBridgeOptions {
   port: number;
   apiPort?: number;
   password?: string;
-  onSlideChange: (data: Record<string, unknown>) => void;
+  onSlideChange: (data: Record<string, unknown> | null) => void;
   onStatusChange: (connected: boolean) => void;
 }
 
@@ -40,6 +40,7 @@ export class ProPresenterBridge {
   private lastSlideEvent: Record<string, unknown> | null = null;
   private lastForwardAt = 0;
   private useWebSocket = true;
+  private noSlideSince = 0;
 
   constructor(options: PPBridgeOptions) {
     this.options = options;
@@ -112,6 +113,7 @@ export class ProPresenterBridge {
     this.lastSlideSignature = "";
     this.lastSlideEvent = null;
     this.lastForwardAt = 0;
+    this.noSlideSince = 0;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -189,8 +191,14 @@ export class ProPresenterBridge {
     if (acn === "tmr" || acn === "sys") return;
 
     const text = this.extractTextFromMessage(data);
-    if (!text) return;
+    if (!text) {
+      if (acn === "fv" || acn === "sd") {
+        this.clearActiveSlide();
+      }
+      return;
+    }
 
+    this.noSlideSince = 0;
     const slideSignature = JSON.stringify(this.normalizeSlidePayload(data));
     if (slideSignature === this.lastSlideSignature) return;
 
@@ -209,8 +217,19 @@ export class ProPresenterBridge {
       if (this.destroyed) return;
       try {
         const slide = await this.pollSlide();
-        if (!slide?.text) return;
+        if (!slide?.text) {
+          if (this.lastSlideEvent) {
+            if (!this.noSlideSince) {
+              this.noSlideSince = Date.now();
+            }
+            if (Date.now() - this.noSlideSince >= 1000) {
+              this.clearActiveSlide();
+            }
+          }
+          return;
+        }
 
+        this.noSlideSince = 0;
         const now = Date.now();
         const shouldForward =
           slide.signature !== this.lastSlideSignature ||
@@ -256,6 +275,20 @@ export class ProPresenterBridge {
 
   private emitStatus(): void {
     this.options.onStatusChange(this.wsConnected || this.pollingActive);
+  }
+
+  private clearActiveSlide(): void {
+    if (!this.lastSlideEvent && !this.lastSlideSignature && !this.lastPollText) {
+      this.noSlideSince = 0;
+      return;
+    }
+
+    this.lastSlideSignature = "";
+    this.lastSlideEvent = null;
+    this.lastPollText = "";
+    this.lastForwardAt = 0;
+    this.noSlideSince = 0;
+    this.options.onSlideChange(null);
   }
 
   private async pollSlide(): Promise<{ text: string; notes: string; presentationName: string; slideIndex: number; isScripture: boolean; signature: string } | null> {

@@ -290,6 +290,11 @@ export class Bridge {
       apiPort: Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
       password,
       onSlideChange: (data) => {
+        if (!data) {
+          console.log("[pp-bridge] Clearing forwarded slide");
+          this.send({ type: "device-event", target, eventName: "slide", data: "null" });
+          return;
+        }
         const text = typeof data.text === "string" ? data.text : "";
         console.log(`[pp-bridge] Forwarding slide: ${text.slice(0, 80).replace(/\s+/g, " ")}`);
         this.send({ type: "device-event", target, eventName: "slide", data: JSON.stringify(data) });

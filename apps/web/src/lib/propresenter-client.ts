@@ -78,6 +78,7 @@ export class ProPresenterClient {
   private wsSlideReceived = false;
   private pollSuccessCount = 0;
   private lastPollResult: string | null = null;
+  private noSlideSince = 0;
 
   constructor(options: PPClientOptions) {
     this.options = options;
@@ -172,6 +173,7 @@ export class ProPresenterClient {
     this.destroyed = true;
     this.pollingOnly = false;
     this.lastSlideKey = "";
+    this.noSlideSince = 0;
     this.clearReconnectTimer();
     this.stopPolling();
     if (this.ws) {
@@ -220,6 +222,7 @@ export class ProPresenterClient {
       try {
         const slide = await this.pollFn(this.options.host, this.pollPort ?? this.options.port);
         if (slide && slide.text) {
+          this.noSlideSince = 0;
           this.pollSuccessCount++;
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
 
@@ -233,6 +236,17 @@ export class ProPresenterClient {
           }
         } else {
           this.lastPollResult = "No slide data";
+          if (this.currentSlide) {
+            if (!this.noSlideSince) {
+              this.noSlideSince = Date.now();
+            }
+            if (Date.now() - this.noSlideSince >= 1500) {
+              this.currentSlide = null;
+              this.lastSlideKey = "";
+              this.lastPollText = "";
+              this.options.onSlideChange(null);
+            }
+          }
         }
       } catch (err) {
         this.lastPollResult = `Error: ${err}`;
@@ -277,7 +291,7 @@ export class ProPresenterClient {
 
         if (text) {
           this.wsSlideReceived = true;
-          this.stopPolling(); // WS is working, no need to poll
+          this.noSlideSince = 0;
           const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
           if (slideKey === this.lastSlideKey) return;
           this.lastSlideKey = slideKey;
@@ -302,7 +316,7 @@ export class ProPresenterClient {
       const text = this.extractTextFromAny(data);
       if (text) {
         this.wsSlideReceived = true;
-        this.stopPolling();
+        this.noSlideSince = 0;
         const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
         if (slideKey === this.lastSlideKey) return;
         this.lastSlideKey = slideKey;
@@ -326,7 +340,7 @@ export class ProPresenterClient {
       const text = this.extractTextFromAny(data);
       if (text && text.length > 1) {
         this.wsSlideReceived = true;
-        this.stopPolling();
+        this.noSlideSince = 0;
         const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
         if (slideKey === this.lastSlideKey) return;
         this.lastSlideKey = slideKey;

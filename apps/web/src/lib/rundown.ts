@@ -1,7 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+
+interface RundownRelayEnv {
+  RUNDOWN_RELAY?: DurableObjectNamespace;
+}
 
 async function assertOrgAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -368,6 +373,27 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
         create: { orgId: data.orgId, key, value: JSON.stringify(data.slide) },
       });
     }
+
+    const bindings = env as unknown as RundownRelayEnv;
+    if (bindings.RUNDOWN_RELAY) {
+      try {
+        const id = bindings.RUNDOWN_RELAY.idFromName(data.orgId);
+        const stub = bindings.RUNDOWN_RELAY.get(id);
+        await stub.fetch(
+          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "pp-slide",
+              payload: { slide: data.slide },
+            }),
+          })
+        );
+      } catch (err) {
+        console.warn("[SP] PP slide relay sync failed:", err);
+      }
+    }
+
     return { ok: true };
   });
 

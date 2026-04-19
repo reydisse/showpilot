@@ -189,7 +189,7 @@ function RundownPage() {
     timer: syncedTimer,
     connected: syncConnected,
     hydrated: syncHydrated,
-    ppSlide: syncedPpSlide,
+    ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
   } = useRundownSync(orgId);
@@ -305,9 +305,10 @@ function RundownPage() {
     }).catch(() => {});
   }, [orgId]);
 
-  // PP slide relay — when slide changes (from direct connection), persist to server for kiosk
+  // PP slide preview — direct ProPresenter connection updates local preview only.
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
     if (!slide || !slide.text) {
+      setPpCurrentSlide(null);
       return;
     }
     const trimmedText = slide.text.trim();
@@ -322,8 +323,7 @@ function RundownPage() {
       updatedAt: Date.now(),
     };
     setPpCurrentSlide(payload);
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide: payload } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
-  }, [orgId, serviceDate]);
+  }, []);
 
   // ProPresenter direct connection (works on local network / dev only)
   const pp = useProPresenter({
@@ -340,8 +340,8 @@ function RundownPage() {
 
   // When streaming is enabled, keep kiosk synced to the active slide.
   useEffect(() => {
-    if (!ppEnabled || !activePpSlide) return;
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide } }).catch(() => {});
+    if (!ppEnabled) return;
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide ?? null } }).catch(() => {});
   }, [activePpSlide, ppEnabled, orgId, serviceDate]);
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
@@ -1144,7 +1144,7 @@ function RundownPage() {
                           {activePpSlide.text.length > 120 ? activePpSlide.text.slice(0, 120) + "..." : activePpSlide.text}
                         </p>
                         <p className="text-[9px] text-board-muted/50 mt-1.5">
-                          {ppSource === "bridge" ? "Via Gateway Bridge → kiosk" : "Live on kiosk stage display"}
+                          {ppSource === "bridge" ? "Gateway Bridge preview" : "Direct ProPresenter preview"}
                         </p>
                       </div>
                     ) : (
