@@ -28,6 +28,7 @@ import {
 } from "@/lib/session";
 import { authClient } from "@/lib/auth-client";
 import { ROLE_META, ASSIGNABLE_ROLES } from "@/lib/permissions";
+import { hasPermission } from "@/lib/app-permissions";
 import { MemberTable } from "@/components/admin/MemberTable";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Member } from "@/types";
@@ -35,6 +36,8 @@ import type { Member } from "@/types";
 export const Route = createFileRoute("/$slug/team")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "settings:members", context.slug, context.orgId);
     const [orgMembers, invitations, crewMembers] = await Promise.all([
       getOrgMembers({ data: { orgId: context.orgId } }),
       getOrgInvitations({ data: { orgId: context.orgId } }),
@@ -58,13 +61,10 @@ function TeamPage() {
     Route.useLoaderData();
   const [activeTab, setActiveTab] = useState<Tab>("members");
 
-  const canManage = authClient.organization.checkRolePermission({
-    permissions: { member: ["create", "update", "delete"] },
-    role: role as "owner" | "admin" | "pm" | "tm" | "stageManager" | "member",
-  });
+  const canManage = hasPermission(role, "settings:members");
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto min-h-0">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold font-[family-name:var(--font-display)] text-board-text">
@@ -73,7 +73,7 @@ function TeamPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-6 border-b border-board-border">
+      <div className="flex items-center gap-1 mb-6 border-b border-board-border overflow-x-auto hide-scrollbar">
         <TabButton
           active={activeTab === "members"}
           onClick={() => setActiveTab("members")}
@@ -120,7 +120,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
+      className={`flex shrink-0 items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px min-h-[44px] ${
         active
           ? "border-fire-500 text-fire-500"
           : "border-transparent text-board-muted hover:text-board-text"

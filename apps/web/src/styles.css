@@ -209,6 +209,14 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

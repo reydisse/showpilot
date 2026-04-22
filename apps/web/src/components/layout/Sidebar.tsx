@@ -32,6 +32,7 @@ import {
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
 import { authClient } from "@/lib/auth-client";
+import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 
 interface NavItem {
   icon: React.ElementType;
@@ -181,9 +182,11 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const { slug } = useParams({ strict: false });
   let org: { id: string; name: string; slug: string; logo: string | null } | null = null;
+  let role: string | null = null;
   try {
     const ctx = useRouteContext({ from: "/$slug" });
     org = ctx.org;
+    role = ctx.role ?? null;
   } catch {
     // Not inside /$slug route
   }
@@ -217,13 +220,13 @@ export function Sidebar() {
           />
         )}
         {/* Slide-in drawer */}
-        <aside
-          className={`fixed top-0 left-0 h-screen w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
-            mobileOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
+          <aside
+            className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
+              mobileOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
           {/* Drawer uses expanded layout (collapsed=false) */}
-          {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, isSettings: false })}
+          {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, isSettings: false, role })}
         </aside>
       </>
     );
@@ -234,16 +237,16 @@ export function Sidebar() {
     <>
       <aside
         style={{ width: w, transition: "width 200ms ease-in-out" }}
-        className={`fixed top-0 left-0 h-screen z-30 bg-board-card border-r border-board-border flex flex-col overflow-hidden ${
+        className={`fixed top-0 left-0 h-[100dvh] z-30 bg-board-card border-r border-board-border flex flex-col overflow-hidden ${
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, isSettings })}
+        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, isSettings, role })}
       </aside>
 
       {/* Spacer div to push main content right */}
       <div
-        className="shrink-0 hidden md:block"
+        className="shrink-0 hidden lg:block"
         style={{
           width: w,
           minWidth: w,
@@ -261,13 +264,50 @@ function renderSidebarContent({
   slug,
   isActive,
   isSettings,
+  role,
 }: {
   collapsed: boolean;
   org: { id: string; name: string; slug: string; logo: string | null } | null;
   slug: string;
   isActive: (path: string) => boolean;
   isSettings: boolean;
+  role: string | null;
 }) {
+  const visibleMainNav = mainNav.filter((item) => {
+    if (item.path === "show") return hasPermission(role, "show:view");
+    if (item.path === "board") return hasPermission(role, "showboard:view");
+    if (item.path === "rundown") return hasPermission(role, "rundown:view");
+    if (item.path === "timecode") return hasPermission(role, "timecode:access");
+    if (item.path === "chat") return hasPermission(role, "chat:access");
+    if (item.path === "checkin") return hasPermission(role, "checkin:access");
+    return true;
+  });
+
+  const visibleProductionNav = productionNav.filter((item) => {
+    if (item.path === "production/checklist") return hasAnyPermission(role, ["checklist:view", "checklist:access"]);
+    if (item.path === "production/incidents") {
+      return hasAnyPermission(role, ["incidents:report", "incidents:access"]);
+    }
+    if (item.path === "production/cue-sheets") {
+      return hasAnyPermission(role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
+    }
+    if (item.path === "production/assets") return hasPermission(role, "assets:view");
+    return true;
+  });
+
+  const visibleStreamingNav = streamingNav.filter((item) => {
+    if (item.path === "streaming/health") return hasPermission(role, "stream_health:view");
+    if (item.path === "streaming/platforms") return hasPermission(role, "streaming_suite:access");
+    if (item.path === "streaming/graphics") return hasPermission(role, "lowerthird:view");
+    return true;
+  });
+
+  const visibleDashboardNav = dashboardNav.filter((item) => {
+    if (item.path === "dashboard/devices") return hasPermission(role, "devices:access");
+    if (item.path === "dashboard/prod-manager") return hasPermission(role, "dashboard:pm");
+    return hasPermission(role, "dashboard:tm");
+  });
+
   return (
     <>
       {/* Logo + Gear */}
@@ -304,7 +344,7 @@ function renderSidebarContent({
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
         {/* Main nav */}
         <div className="px-2.5 space-y-0.5">
-          {mainNav.map((item) => (
+          {visibleMainNav.map((item) => (
             <NavLink
               key={item.path}
               item={item}
@@ -316,83 +356,109 @@ function renderSidebarContent({
         </div>
 
         {/* Divider + Production section */}
-        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-          {!collapsed ? (
-            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-              Production
-            </p>
-          ) : (
-            <div className="h-px bg-board-border" />
-          )}
-        </div>
+        {visibleProductionNav.length > 0 && (
+          <>
+            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+              {!collapsed ? (
+                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+                  Production
+                </p>
+              ) : (
+                <div className="h-px bg-board-border" />
+              )}
+            </div>
 
-        <div className="px-2.5 space-y-0.5">
-          {productionNav.map((item) => (
-            <NavLink
-              key={item.path}
-              item={item}
-              slug={slug}
-              collapsed={collapsed}
-              active={isActive(item.path)}
-            />
-          ))}
-        </div>
+            <div className="px-2.5 space-y-0.5">
+              {visibleProductionNav.map((item) => (
+                <NavLink
+                  key={item.path}
+                  item={item}
+                  slug={slug}
+                  collapsed={collapsed}
+                  active={isActive(item.path)}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Divider + Streaming section */}
-        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-          {!collapsed ? (
-            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-              Streaming
-            </p>
-          ) : (
-            <div className="h-px bg-board-border" />
-          )}
-        </div>
+        {visibleStreamingNav.length > 0 && (
+          <>
+            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+              {!collapsed ? (
+                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+                  Streaming
+                </p>
+              ) : (
+                <div className="h-px bg-board-border" />
+              )}
+            </div>
 
-        <div className="px-2.5 space-y-0.5">
-          {streamingNav.map((item) => (
-            <NavLink
-              key={item.path}
-              item={item}
-              slug={slug}
-              collapsed={collapsed}
-              active={isActive(item.path)}
-            />
-          ))}
-        </div>
+            <div className="px-2.5 space-y-0.5">
+              {visibleStreamingNav.map((item) => (
+                <NavLink
+                  key={item.path}
+                  item={item}
+                  slug={slug}
+                  collapsed={collapsed}
+                  active={isActive(item.path)}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Divider + Dashboards section */}
-        <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-          {!collapsed ? (
-            <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-              Dashboards
-            </p>
-          ) : (
-            <div className="h-px bg-board-border" />
-          )}
-        </div>
+        {visibleDashboardNav.length > 0 && (
+          <>
+            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+              {!collapsed ? (
+                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
+                  Dashboards
+                </p>
+              ) : (
+                <div className="h-px bg-board-border" />
+              )}
+            </div>
 
-        <div className="px-2.5 space-y-0.5">
-          {dashboardNav.map((item) => (
-            <NavLink
-              key={item.path}
-              item={item}
-              slug={slug}
-              collapsed={collapsed}
-              active={isActive(item.path)}
-            />
-          ))}
-        </div>
+            <div className="px-2.5 space-y-0.5">
+              {visibleDashboardNav.map((item) => (
+                <NavLink
+                  key={item.path}
+                  item={item}
+                  slug={slug}
+                  collapsed={collapsed}
+                  active={isActive(item.path)}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Settings + Logout pinned to bottom */}
       <div className="shrink-0 border-t border-board-border px-2.5 py-3 space-y-0.5">
-        <NavLink
-          item={{ icon: Settings, label: "Settings", path: "settings" }}
-          slug={slug}
-          collapsed={collapsed}
-          active={isActive("settings")}
-        />
+        {hasAnyPermission(role, [
+          "settings:organization",
+          "settings:members",
+          "settings:billing",
+          "settings:integrations",
+          "settings:production_defaults",
+          "settings:lowerthird_config",
+          "settings:notifications",
+          "settings:api_keys",
+          "settings:webhooks",
+          "settings:danger_zone",
+          "org:delete",
+        ]) && (
+          <NavLink
+            item={{ icon: Settings, label: "Settings", path: "settings" }}
+            slug={slug}
+            collapsed={collapsed}
+            active={isActive("settings")}
+          />
+        )}
         <LogoutButton collapsed={collapsed} />
       </div>
     </>

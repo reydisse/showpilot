@@ -11,6 +11,7 @@ import {
   toggleChecklistEntry,
   deleteChecklistTemplate,
 } from "@/lib/data";
+import { hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -28,18 +29,20 @@ function formatDisplayDate(dateStr: string): string {
 export const Route = createFileRoute("/$slug/production/checklist")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
     const today = getTodayDateString();
     const [templates, entries] = await Promise.all([
       getChecklistTemplates({ data: { orgId: context.orgId } }),
       getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } }),
     ]);
-    return { templates, entries, orgId: context.orgId };
+    return { templates, entries, orgId: context.orgId, role: context.role };
   },
   component: ChecklistPage,
 });
 
 function ChecklistPage() {
-  const { templates, entries: initialEntries, orgId } = Route.useLoaderData();
+  const { templates, entries: initialEntries, orgId, role } = Route.useLoaderData();
   const router = useRouter();
   const [serviceDate, setServiceDate] = useState(getTodayDateString);
   const [newLabel, setNewLabel] = useState("");
@@ -56,14 +59,17 @@ function ChecklistPage() {
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+  const canManageChecklist = hasPermission(role, "checklist:access");
 
   const handleToggle = async (entryId: string, checked: boolean) => {
-    await toggleChecklistEntry({ data: { id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
+    if (!canManageChecklist) return;
+    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
     router.invalidate();
   };
 
   const handleAddTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageChecklist) return;
     if (!newLabel.trim()) return;
     setAdding(true);
     try {
@@ -81,13 +87,14 @@ function ChecklistPage() {
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const handleDeleteTemplate = async (id: string) => {
+    if (!canManageChecklist) return;
     const ok = await confirm({
       title: "Delete checklist item",
       description: "Delete this checklist item? This action cannot be undone.",
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    await deleteChecklistTemplate({ data: { id } });
+    await deleteChecklistTemplate({ data: { orgId, id } });
     router.invalidate();
   };
 
@@ -133,7 +140,7 @@ function ChecklistPage() {
         <div className="space-y-2 mb-6">
           {entries.map((entry) => (
             <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-              <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0">
+              <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist}>
                 {entry.checked ? (
                   <CheckCircle2 className="w-5 h-5 text-green-500" />
                 ) : (
@@ -143,35 +150,43 @@ function ChecklistPage() {
               <span className={`flex-1 text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
                 {entry.template?.label || "Untitled"}
               </span>
-              <button onClick={() => handleDeleteTemplate(entry.templateId)} className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {canManageChecklist && (
+                <button onClick={() => handleDeleteTemplate(entry.templateId)} className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           ))}
 
           {totalCount === 0 && (
-            <p className="text-center text-sm text-board-muted py-8">No checklist items for this date. Add one below.</p>
+            <p className="text-center text-sm text-board-muted py-8">
+              {canManageChecklist ? "No checklist items for this date. Add one below." : "No checklist items for this date."}
+            </p>
           )}
         </div>
 
         {/* Add new */}
-        <form onSubmit={handleAddTemplate} className="flex gap-2">
-          <input
-            type="text"
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="Add checklist item..."
-            className="flex-1 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
-          />
-          <button
-            type="submit"
-            disabled={adding || !newLabel.trim()}
-            className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-            style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </form>
+        {canManageChecklist ? (
+          <form onSubmit={handleAddTemplate} className="flex gap-2">
+            <input
+              type="text"
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Add checklist item..."
+              className="flex-1 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
+            />
+            <button
+              type="submit"
+              disabled={adding || !newLabel.trim()}
+              className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </form>
+        ) : (
+          <p className="text-xs text-board-muted text-center">View only</p>
+        )}
       </div>
       {ConfirmDialogEl}
     </div>

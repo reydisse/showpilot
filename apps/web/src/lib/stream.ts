@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
+import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 
-async function assertOrgAccess(orgId: string) {
+async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -13,9 +14,16 @@ async function assertOrgAccess(orgId: string) {
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
     where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
+    select: { role: true },
   });
-  if (!member) throw new Error("Forbidden");
+  const role = normalizeRole(member?.role ?? null);
+  if (!role) throw new Error("Forbidden");
+  return role;
+}
+
+async function assertOrgPermission(orgId: string, permission: "stream_health:view" | "stream_health:manage") {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, permission)) throw new Error("Forbidden");
 }
 
 function getCfHeaders() {
@@ -38,7 +46,7 @@ function getAccountId() {
 export const getLiveInputs = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
     return await prisma.liveInput.findMany({
       where: { orgId: data.orgId },
@@ -49,7 +57,7 @@ export const getLiveInputs = createServerFn({ method: "GET" })
 export const createLiveInput = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; name: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "stream_health:manage");
     const accountId = getAccountId();
     const headers = getCfHeaders();
 
@@ -102,7 +110,7 @@ export const createLiveInput = createServerFn({ method: "POST" })
 export const deleteLiveInput = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; inputId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();
     const input = await prisma.liveInput.findFirst({
       where: { id: data.inputId, orgId: data.orgId },
@@ -129,7 +137,7 @@ export const deleteLiveInput = createServerFn({ method: "POST" })
 export const getLiveInputStatus = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; inputId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
     const input = await prisma.liveInput.findFirst({
       where: { id: data.inputId, orgId: data.orgId },

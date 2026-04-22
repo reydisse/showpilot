@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
 
-async function assertOrgAccess(orgId: string) {
+async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -12,9 +13,21 @@ async function assertOrgAccess(orgId: string) {
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
     where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
+    select: { id: true, role: true },
   });
   if (!member) throw new Error("Forbidden");
+
+  return member.role ?? "member";
+}
+
+async function assertOrgAccess(orgId: string) {
+  await getOrgMemberRole(orgId);
+}
+
+async function assertOrgPermission(orgId: string, permission: Permission | Permission[]) {
+  const role = await getOrgMemberRole(orgId);
+  const allowed = hasAnyPermission(role, Array.isArray(permission) ? permission : [permission]);
+  if (!allowed) throw new Error("Forbidden");
 }
 
 // ─── Crew Members ───────────────────────────────────────────
@@ -123,12 +136,79 @@ export const checkInByMemberId = createServerFn({ method: "POST" })
     return { name: updated.name, photoUrl: updated.photoUrl, role: updated.role, isOnline: updated.isOnline };
   });
 
+export const getPublicCheckInOrg = createServerFn({ method: "GET" })
+  .inputValidator((data: { slug: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    return await prisma.organization.findUnique({
+      where: { slug: data.slug },
+      select: { id: true, name: true, slug: true },
+    });
+  });
+
+export const publicCheckInByMemberId = createServerFn({ method: "POST" })
+  .inputValidator((data: { slug: string; memberId: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const org = await prisma.organization.findUnique({
+      where: { slug: data.slug },
+      select: { id: true },
+    });
+    if (!org) return null;
+
+    const member = await prisma.crewMember.findUnique({
+      where: { orgId_memberId: { orgId: org.id, memberId: data.memberId } },
+    });
+    if (!member) return null;
+
+    const now = new Date();
+    const updated = await prisma.crewMember.update({
+      where: { id: member.id },
+      data: {
+        isOnline: !member.isOnline,
+        ...(member.isOnline ? { lastCheckOut: now } : { lastCheckIn: now }),
+      },
+    });
+
+    return {
+      name: updated.name,
+      memberId: updated.memberId,
+      photoUrl: updated.photoUrl,
+      role: updated.role,
+      isOnline: updated.isOnline,
+    };
+  });
+
+export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
+  .inputValidator((data: { slug: string; memberId: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const org = await prisma.organization.findUnique({
+      where: { slug: data.slug },
+      select: { id: true },
+    });
+    if (!org) return null;
+
+    const member = await prisma.crewMember.findUnique({
+      where: { orgId_memberId: { orgId: org.id, memberId: data.memberId } },
+      select: {
+        memberId: true,
+        name: true,
+        photoUrl: true,
+        role: true,
+        isOnline: true,
+      },
+    });
+
+    return member;
+  });
+
 // ─── Checklist ──────────────────────────────────────────────
 
 export const getChecklistTemplates = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, ["checklist:view", "checklist:access"]);
     const prisma = getPrisma();
     return await prisma.checklistTemplate.findMany({
       where: { orgId: data.orgId },
@@ -141,7 +221,7 @@ export const addChecklistTemplate = createServerFn({ method: "POST" })
     (data: { orgId: string; label: string; category: string; sortOrder?: number }) => data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
     return await prisma.checklistTemplate.create({
       data: {
@@ -155,10 +235,10 @@ export const addChecklistTemplate = createServerFn({ method: "POST" })
 
 export const updateChecklistTemplate = createServerFn({ method: "POST" })
   .inputValidator(
-    (data: { id: string; updates: Partial<{ label: string; category: string; sortOrder: number }> }) => data
+    (data: { orgId: string; id: string; updates: Partial<{ label: string; category: string; sortOrder: number }> }) => data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
     return await prisma.checklistTemplate.update({
       where: { id: data.id },
@@ -167,9 +247,9 @@ export const updateChecklistTemplate = createServerFn({ method: "POST" })
   });
 
 export const deleteChecklistTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
     await prisma.checklistTemplate.delete({ where: { id: data.id } });
   });
@@ -177,7 +257,7 @@ export const deleteChecklistTemplate = createServerFn({ method: "POST" })
 export const getChecklistEntries = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, ["checklist:view", "checklist:access"]);
     const prisma = getPrisma();
     return await prisma.checklistEntry.findMany({
       where: { orgId: data.orgId, serviceDate: data.serviceDate },
@@ -187,10 +267,10 @@ export const getChecklistEntries = createServerFn({ method: "GET" })
 
 export const toggleChecklistEntry = createServerFn({ method: "POST" })
   .inputValidator(
-    (data: { id: string; checked: boolean; checkedBy: string | null }) => data
+    (data: { orgId: string; id: string; checked: boolean; checkedBy: string | null }) => data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
     return await prisma.checklistEntry.update({
       where: { id: data.id },
@@ -207,7 +287,7 @@ export const addChecklistEntry = createServerFn({ method: "POST" })
     (data: { orgId: string; templateId: string; serviceDate: string }) => data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
     return await prisma.checklistEntry.create({
       data: {
@@ -287,6 +367,7 @@ export const deleteCueSheet = createServerFn({ method: "POST" })
 export const getIncidents = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
     const prisma = getPrisma();
     return await prisma.incident.findMany({
       where: { orgId: data.orgId, serviceDate: data.serviceDate },
@@ -306,6 +387,7 @@ export const addIncident = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
     const prisma = getPrisma();
     return await prisma.incident.create({
       data: {
@@ -322,6 +404,7 @@ export const addIncident = createServerFn({ method: "POST" })
 export const updateIncident = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
+      orgId: string;
       id: string;
       updates: Partial<{
         category: string;
@@ -331,6 +414,7 @@ export const updateIncident = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "incidents:access");
     const prisma = getPrisma();
     return await prisma.incident.update({
       where: { id: data.id },
@@ -339,8 +423,9 @@ export const updateIncident = createServerFn({ method: "POST" })
   });
 
 export const deleteIncident = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "incidents:access");
     const prisma = getPrisma();
     await prisma.incident.delete({ where: { id: data.id } });
   });
@@ -558,15 +643,17 @@ export const dismissNotification = createServerFn({ method: "POST" })
 // ─── Devices ───────────────────────────────────────────────
 
 export const getDevice = createServerFn({ method: "GET" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    return await prisma.device.findUnique({ where: { id: data.id } });
+    return await prisma.device.findFirst({ where: { id: data.id, orgId: data.orgId } });
   });
 
 export const getDevices = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
     return await prisma.device.findMany({
       where: { orgId: data.orgId },
@@ -586,6 +673,7 @@ export const addDevice = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
     return await prisma.device.create({
       data: {
@@ -602,6 +690,7 @@ export const addDevice = createServerFn({ method: "POST" })
 export const updateDevice = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
+      orgId: string;
       id: string;
       updates: Partial<{
         name: string;
@@ -613,16 +702,18 @@ export const updateDevice = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    return await prisma.device.update({
-      where: { id: data.id },
+    return await prisma.device.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: data.updates,
     });
   });
 
 export const deleteDevice = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    await prisma.device.delete({ where: { id: data.id } });
+    await prisma.device.deleteMany({ where: { id: data.id, orgId: data.orgId } });
   });

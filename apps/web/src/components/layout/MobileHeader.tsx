@@ -16,10 +16,10 @@ export function MobileHeader() {
   if (!isMobile) return null;
 
   return (
-    <header className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-board-border bg-board-card md:hidden">
+    <header className="shrink-0 sticky top-0 z-20 flex items-center gap-3 px-4 py-3 border-b border-board-border bg-board-card safe-area-top lg:hidden">
       <button
         onClick={toggleMobile}
-        className="flex items-center justify-center w-11 h-11 rounded-xl bg-board-bg border border-board-border text-board-text active:bg-board-border transition-colors"
+        className="flex items-center justify-center w-11 h-11 rounded-xl bg-board-bg border border-board-border text-board-text active:bg-board-border transition-colors touch-manipulation"
         aria-label="Open menu"
       >
         <Menu className="w-5 h-5" />

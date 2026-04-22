@@ -1,24 +1,183 @@
 import { createAccessControl } from "better-auth/plugins/access";
 import {
-  defaultStatements,
   adminAc,
-  ownerAc,
+  defaultStatements,
   memberAc,
+  ownerAc,
 } from "better-auth/plugins/organization/access";
 
-// ─── Statements ──────────────────────────────────────────
-// Every resource + action pair that ShowPilot cares about.
-// Better Auth's defaultStatements cover: organization, member,
-// invitation, team, ac (access-control CRUD).
+export type Role = "owner" | "admin" | "pm" | "tm" | "sm" | "member";
+export type LegacyRole = Role | "stageManager";
 
+export type Permission =
+  | "show:view" | "show:edit"
+  | "showboard:view" | "showboard:edit"
+  | "rundown:view" | "rundown:edit" | "rundown:pin_required"
+  | "cuesheet:view" | "cuesheet:edit" | "cuesheet:add_notes"
+  | "cuesheet:push_to_checklist" // PLANNED
+  | "chat:access"
+  | "checklist:view" | "checklist:access"
+  | "incidents:report" | "incidents:access"
+  | "checkin:access"
+  | "timecode:access"
+  | "lowerthird:view" | "lowerthird:trigger" | "lowerthird:configure"
+  | "dashboard:pm" | "dashboard:tm"
+  | "devices:access"
+  | "streaming_suite:access"
+  | "stream_health:view" | "stream_health:manage"
+  | "assets:view" | "assets:manage"
+  | "settings:organization"
+  | "settings:members"
+  | "settings:billing"
+  | "settings:integrations"
+  | "settings:production_defaults"
+  | "settings:lowerthird_config"
+  | "settings:notifications"
+  | "settings:api_keys"
+  | "settings:webhooks"
+  | "settings:danger_zone"
+  | "org:delete";
+
+const ALL_PERMISSIONS = [
+  "show:view", "show:edit",
+  "showboard:view", "showboard:edit",
+  "rundown:view", "rundown:edit", "rundown:pin_required",
+  "cuesheet:view", "cuesheet:edit", "cuesheet:add_notes",
+  "cuesheet:push_to_checklist", // PLANNED
+  "chat:access",
+  "checklist:view", "checklist:access",
+  "incidents:report", "incidents:access",
+  "checkin:access",
+  "timecode:access",
+  "lowerthird:view", "lowerthird:trigger", "lowerthird:configure",
+  "dashboard:pm", "dashboard:tm",
+  "devices:access",
+  "streaming_suite:access",
+  "stream_health:view", "stream_health:manage",
+  "assets:view", "assets:manage",
+  "settings:organization",
+  "settings:members",
+  "settings:billing",
+  "settings:integrations",
+  "settings:production_defaults",
+  "settings:lowerthird_config",
+  "settings:notifications",
+  "settings:api_keys",
+  "settings:webhooks",
+  "settings:danger_zone",
+  "org:delete",
+] as const satisfies readonly Permission[];
+
+export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
+  owner: ALL_PERMISSIONS,
+  admin: ALL_PERMISSIONS.filter((permission) => permission !== "org:delete"),
+  pm: [
+    "show:view", "show:edit",
+    "showboard:view", "showboard:edit",
+    "rundown:view", "rundown:edit",
+    "cuesheet:view", "cuesheet:edit",
+    "chat:access",
+    "checklist:access",
+    "incidents:access",
+    "checkin:access",
+    "timecode:access",
+    "lowerthird:view", "lowerthird:trigger",
+    "dashboard:pm",
+    "stream_health:view",
+    "assets:view",
+  ],
+  tm: [
+    "show:view",
+    "showboard:view",
+    "rundown:view", "rundown:pin_required",
+    "cuesheet:view", "cuesheet:add_notes",
+    "cuesheet:push_to_checklist", // PLANNED
+    "chat:access",
+    "checklist:access",
+    "incidents:access",
+    "timecode:access",
+    "lowerthird:view", "lowerthird:trigger", "lowerthird:configure",
+    "dashboard:tm",
+    "devices:access",
+    "streaming_suite:access",
+    "stream_health:view", "stream_health:manage",
+    "assets:view", "assets:manage",
+    "settings:organization",
+    "settings:integrations",
+    "settings:production_defaults",
+    "settings:lowerthird_config",
+    "settings:notifications",
+  ],
+  sm: [
+    "show:view", "show:edit",
+    "showboard:view", "showboard:edit",
+    "rundown:view", "rundown:edit",
+    "cuesheet:view", "cuesheet:edit",
+    "chat:access",
+    "checklist:access",
+    "incidents:access",
+    "checkin:access",
+    "timecode:access",
+    "dashboard:pm",
+    "stream_health:view",
+    "assets:view",
+    "settings:organization",
+    "settings:integrations",
+    "settings:production_defaults",
+    "settings:notifications",
+  ],
+  member: [
+    "show:view",
+    "showboard:view",
+    "rundown:view",
+    "chat:access",
+    "checklist:view",
+    "incidents:report",
+  ],
+};
+
+export function normalizeRole(role: string | null | undefined): Role | null {
+  if (!role) return null;
+  if (role === "stageManager") return "sm";
+  if (role === "owner" || role === "admin" || role === "pm" || role === "tm" || role === "sm" || role === "member") {
+    return role;
+  }
+  return null;
+}
+
+export function getPermissions(role: string | null | undefined): readonly Permission[] {
+  const normalized = normalizeRole(role);
+  return normalized ? ROLE_PERMISSIONS[normalized] : [];
+}
+
+export function hasPermission(role: string | null | undefined, permission: Permission): boolean {
+  return getPermissions(role).includes(permission);
+}
+
+export function hasAnyPermission(
+  role: string | null | undefined,
+  permissions: readonly Permission[],
+): boolean {
+  return permissions.some((permission) => hasPermission(role, permission));
+}
+
+export function roleRequiresRundownPin(role: string | null | undefined): boolean {
+  return hasPermission(role, "rundown:pin_required");
+}
+
+export function isLowerThirdPermission(permission: Permission): boolean {
+  return permission.startsWith("lowerthird:");
+}
+
+// Better Auth compatibility exports.
+// These keep the existing organization plugin wiring intact while the app-level
+// RBAC system resolves the production permissions at request time.
 const statements = {
   ...defaultStatements,
-  // Org-level
   billing: ["read", "update"],
   settings: ["read", "update"],
   integrations: ["read", "update"],
   kiosk: ["create", "revoke"],
-  // Production
   dashboard: ["read"],
   rundown: ["read", "create", "update", "delete", "control"],
   schedule: ["read", "update"],
@@ -29,11 +188,6 @@ const statements = {
 
 export const ac = createAccessControl(statements);
 
-// ─── Static Roles ────────────────────────────────────────
-// These ship with every org. Admins can also create custom
-// roles at runtime via dynamic access control.
-
-/** Owner — one per org, full access including billing + org deletion */
 export const owner = ac.newRole({
   ...ownerAc.statements,
   billing: ["read", "update"],
@@ -48,7 +202,6 @@ export const owner = ac.newRole({
   chat: ["read", "send", "alert"],
 });
 
-/** Admin (TD, Production Director) — everything except billing + org delete */
 export const admin = ac.newRole({
   ...adminAc.statements,
   billing: [],
@@ -63,11 +216,6 @@ export const admin = ac.newRole({
   chat: ["read", "send", "alert"],
 });
 
-// ─── Crew Presets ────────────────────────────────────────
-// Crew = any member below Admin. Access is determined by
-// their assigned role's permission set.
-
-/** PM (Production Manager) — dashboard, full rundown, schedule editing, integrations view */
 export const pm = ac.newRole({
   ...memberAc.statements,
   billing: [],
@@ -78,96 +226,100 @@ export const pm = ac.newRole({
   rundown: ["read", "create", "update", "delete", "control"],
   schedule: ["read", "update"],
   cue: ["read", "create", "update", "delete"],
-  lowerThirds: ["read", "create", "update", "delete", "trigger"],
+  lowerThirds: ["read", "trigger"],
   chat: ["read", "send", "alert"],
 });
 
-/** TM (Technical Manager) — dashboard, rundown view, cue editing */
 export const tm = ac.newRole({
   ...memberAc.statements,
   billing: [],
   settings: ["read"],
-  integrations: [],
+  integrations: ["read"],
   kiosk: [],
   dashboard: ["read"],
   rundown: ["read", "control"],
   schedule: ["read"],
-  cue: ["read", "create", "update", "delete"],
-  lowerThirds: ["read", "trigger"],
+  cue: ["read", "create", "update"],
+  lowerThirds: ["read", "create", "update", "delete", "trigger"],
   chat: ["read", "send"],
 });
 
-/** Stage Manager — dashboard, rundown view, cue view, schedule view */
-export const stageManager = ac.newRole({
+export const sm = ac.newRole({
   ...memberAc.statements,
   billing: [],
-  settings: [],
-  integrations: [],
+  settings: ["read"],
+  integrations: ["read"],
   kiosk: [],
   dashboard: ["read"],
-  rundown: ["read", "control"],
-  schedule: ["read"],
-  cue: ["read"],
-  lowerThirds: ["read", "trigger"],
+  rundown: ["read", "create", "update", "delete", "control"],
+  schedule: ["read", "update"],
+  cue: ["read", "create", "update", "delete"],
+  lowerThirds: [],
   chat: ["read", "send"],
 });
 
-/** Member — bare-minimum read access, no production control */
 export const member = ac.newRole({
   ...memberAc.statements,
   billing: [],
   settings: [],
   integrations: [],
   kiosk: [],
-  dashboard: ["read"],
+  dashboard: [],
   rundown: ["read"],
-  schedule: ["read"],
-  cue: ["read"],
-  lowerThirds: ["read"],
+  schedule: [],
+  cue: [],
+  lowerThirds: [],
   chat: ["read", "send"],
 });
 
-// ─── Exports ─────────────────────────────────────────────
+export const stageManager = sm;
 
-/** All static roles — passed to both server and client */
-export const roles = { owner, admin, pm, tm, stageManager, member };
+export const roles = {
+  owner,
+  admin,
+  pm,
+  tm,
+  sm,
+  member,
+  stageManager: sm,
+};
 
-/** Human-readable labels for UI */
-export const ROLE_META: Record<
-  string,
-  { label: string; description: string; tier: "owner" | "admin" | "crew" }
-> = {
+export const ROLE_META: Record<LegacyRole, { label: string; description: string; tier: "owner" | "admin" | "crew" }> = {
   owner: {
     label: "Owner",
-    description: "Full access including billing and org deletion",
+    description: "Full access including billing and organization deletion",
     tier: "owner",
   },
   admin: {
     label: "Admin",
-    description: "Full production access, member management, no billing",
+    description: "Full system access except organization deletion",
     tier: "admin",
   },
   pm: {
-    label: "PM",
-    description: "Dashboard, full rundown, schedule editing, integrations view",
+    label: "Production Manager",
+    description: "Production control, checklist, incidents, and PM dashboard",
     tier: "crew",
   },
   tm: {
-    label: "TM",
-    description: "Dashboard, rundown view, cue editing",
+    label: "Tech Manager",
+    description: "Technical control, streaming, devices, and TM dashboard",
+    tier: "crew",
+  },
+  sm: {
+    label: "Stage Manager",
+    description: "Show and rundown control without lower thirds or streaming management",
     tier: "crew",
   },
   stageManager: {
     label: "Stage Manager",
-    description: "Dashboard, rundown view, cue view, schedule view",
+    description: "Legacy alias for Stage Manager",
     tier: "crew",
   },
   member: {
     label: "Member",
-    description: "Read-only access to production data",
+    description: "Limited operator visibility with chat, checklist view, and incident reporting",
     tier: "crew",
   },
 };
 
-/** Roles that can be assigned by admins when inviting */
-export const ASSIGNABLE_ROLES = ["admin", "pm", "tm", "stageManager", "member"] as const;
+export const ASSIGNABLE_ROLES = ["admin", "pm", "tm", "sm", "member"] as const;

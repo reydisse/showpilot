@@ -60,6 +60,8 @@ const PLATFORM_CONFIG: Record<
 export const Route = createFileRoute("/$slug/streaming/platforms")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "streaming_suite:access", context.slug, context.orgId);
     const [destinations, inputs] = await Promise.all([
       getStreamDestinations({ data: { orgId: context.orgId } }),
       getLiveInputs({ data: { orgId: context.orgId } }),
@@ -164,8 +166,8 @@ function PlatformsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               Multi-Platform
@@ -174,12 +176,12 @@ function PlatformsPage() {
               Simulcast to multiple streaming platforms
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {connectedCount > 0 ? (
               <button
                 onClick={handleStopAll}
                 disabled={stopping}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
               >
                 {stopping ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -192,7 +194,7 @@ function PlatformsPage() {
               <button
                 onClick={handleGoLive}
                 disabled={goingLive || !hasInputs || activeCount === 0}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
                 title={!hasInputs ? "Create a live input on Stream Health first" : activeCount === 0 ? "Enable at least one destination" : ""}
               >
                 {goingLive ? (
@@ -208,7 +210,7 @@ function PlatformsPage() {
                 setEditDest(null);
                 setShowForm(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
+              className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
             >
               <Plus className="w-3 h-3" />
               Add Destination
@@ -217,13 +219,13 @@ function PlatformsPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-3xl mx-auto space-y-5">
+      <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
         {/* Status banner */}
         {connectedCount > 0 && (() => {
           const liveOutputs = Object.values(outputStatuses).filter((s) => s.status === "connected").length;
           const connectingOutputs = connectedCount - liveOutputs;
           return (
-            <div className={`flex items-center justify-between px-4 py-3 rounded-xl ${
+            <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 rounded-xl ${
               liveOutputs > 0 ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"
             }`}>
               <div className="flex items-center gap-2">

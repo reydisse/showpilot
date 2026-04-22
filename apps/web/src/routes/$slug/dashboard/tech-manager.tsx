@@ -53,6 +53,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
     const today = getTodayDateString();
     const [equipment, devices, incidents, templates, entries] = await Promise.all([
       getEquipment({ data: { orgId: context.orgId } }),

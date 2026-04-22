@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
-import { MessageSquare, AlertCircle, Radio, Terminal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MessageSquare, AlertCircle, Radio, Terminal, X } from "lucide-react";
 import { getChatMessages, sendChatMessage } from "@/lib/chat";
 
 type MessageType = "text" | "alert" | "cue" | "system";
@@ -16,6 +16,8 @@ const MESSAGE_STYLES: Record<MessageType, { bg: string; text: string; label: str
 export const Route = createFileRoute("/$slug/chat")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "chat:access", context.slug, context.orgId);
     const messages = await getChatMessages({ data: { orgId: context.orgId, limit: 100 } });
     return { messages, orgId: context.orgId };
   },
@@ -45,6 +47,12 @@ function ChatPage() {
   const [showNameInput, setShowNameInput] = useState(!senderName);
   const [msgType, setMsgType] = useState<MessageType>("text");
   const [sending, setSending] = useState(false);
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, dismissedAlertIds.size]);
 
   const handleSetName = () => {
     if (!senderName.trim()) return;
@@ -56,7 +64,11 @@ function ChatPage() {
     if (!input.trim() || !senderName.trim()) return;
     setSending(true);
     try {
-      const text = msgType === "cue" ? `[CUE] ${input.trim()}` : input.trim();
+      const text = msgType === "cue"
+        ? `[CUE] ${input.trim()}`
+        : msgType === "alert"
+          ? `[ALERT] ${input.trim()}`
+          : input.trim();
       await sendChatMessage({ data: { orgId, message: text, senderName: senderName.trim() } });
       setInput("");
       const fresh = await getChatMessages({ data: { orgId, limit: 100 } });
@@ -76,11 +88,17 @@ function ChatPage() {
   };
 
   const sortedMessages = [...messages].reverse();
+  const activeAlerts = sortedMessages.filter(
+    (msg) => msg.message.startsWith("[ALERT]") && !dismissedAlertIds.has(msg.id),
+  );
+  const timelineMessages = sortedMessages.filter(
+    (msg) => !msg.message.startsWith("[ALERT]"),
+  );
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
+      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 sm:px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
@@ -101,7 +119,7 @@ function ChatPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full px-6">
+      <div className="flex-1 min-h-0 flex flex-col max-w-3xl mx-auto w-full px-4 sm:px-6">
         {/* Name input */}
         {showNameInput && (
           <div className="py-4 border-b border-board-border/50">
@@ -126,16 +144,51 @@ function ChatPage() {
           </div>
         )}
 
+        {activeAlerts.length > 0 && (
+          <div className="py-3 border-b border-red-500/20 bg-red-500/5 space-y-2">
+            {activeAlerts.map((msg) => (
+              <div key={msg.id} className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
+                <AlertCircle className="w-4 h-4 text-red-300 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs font-semibold text-red-200">{msg.senderName}</span>
+                    <span className="text-[10px] text-red-200/60">{timeAgo(msg.createdAt)}</span>
+                  </div>
+                  <p className="text-sm mt-1 leading-relaxed break-words text-red-100">
+                    {msg.message.replace(/^\[ALERT\]\s*/, "")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDismissedAlertIds((current) => {
+                      const next = new Set(current);
+                      next.add(msg.id);
+                      return next;
+                    });
+                  }}
+                  className="rounded-md p-1 text-red-200/70 hover:text-red-50 hover:bg-red-500/10 transition-colors touch-manipulation"
+                  aria-label="Dismiss alert"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Messages */}
         <div className="flex-1 overflow-auto py-4 space-y-2 hide-scrollbar min-h-0">
-          {sortedMessages.length === 0 ? (
+          {timelineMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <MessageSquare className="w-10 h-10 text-board-muted/20 mb-3" />
               <p className="text-sm text-board-muted">No messages yet</p>
-              <p className="text-xs text-board-muted/50 mt-1">Send a message to get started</p>
+              <p className="text-xs text-board-muted/50 mt-1">
+                {activeAlerts.length > 0 ? "Only active alerts are showing right now" : "Send a message to get started"}
+              </p>
             </div>
           ) : (
-            sortedMessages.map((msg) => {
+            timelineMessages.map((msg) => {
               const isCue = msg.message.startsWith("[CUE]");
               const isAlert = msg.message.startsWith("[ALERT]");
               const type: MessageType = isCue ? "cue" : isAlert ? "alert" : "text";
@@ -161,13 +214,14 @@ function ChatPage() {
               );
             })
           )}
+          <div ref={scrollRef} />
         </div>
 
         {/* Input */}
         {!showNameInput && (
-          <div className="shrink-0 py-4 border-t border-board-border/50">
+          <div className="shrink-0 py-4 border-t border-board-border/50 safe-area-bottom">
             {/* Message type selector */}
-            <div className="flex items-center gap-1 mb-2">
+            <div className="flex items-center gap-1 mb-2 flex-wrap">
               {(Object.keys(MESSAGE_STYLES) as MessageType[]).filter(t => t !== "system").map((t) => {
                 const s = MESSAGE_STYLES[t];
                 const Icon = s.icon;
@@ -179,7 +233,7 @@ function ChatPage() {
                       msgType === t
                         ? "bg-fire-500/15 text-fire-500"
                         : "text-board-muted hover:text-board-text"
-                    }`}
+                     }`}
                   >
                     <Icon className="w-3 h-3" />
                     {s.label}
@@ -199,12 +253,12 @@ function ChatPage() {
                 }
                 rows={1}
                 disabled={sending}
-                className="flex-1 px-3 py-2 rounded-lg bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors disabled:opacity-50 resize-none"
+                className="flex-1 min-h-[44px] px-3 py-2 rounded-lg bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors disabled:opacity-50 resize-none"
               />
               <button
                 onClick={handleSend}
                 disabled={sending || !input.trim()}
-                className="px-4 py-2 rounded-lg bg-fire-500 text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                className="px-4 py-2 min-h-[44px] rounded-lg bg-fire-500 text-white text-sm font-medium disabled:opacity-40 transition-colors touch-manipulation"
               >
                 Send
               </button>

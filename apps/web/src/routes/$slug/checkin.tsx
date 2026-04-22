@@ -30,6 +30,8 @@ type ViewMode = "code-entry" | "browse-all";
 export const Route = createFileRoute("/$slug/checkin")({
   pendingComponent: () => <BoardSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "checkin:access", context.slug, context.orgId);
     const members = await getCrewMembers({ data: { orgId: context.orgId } });
     return { members: members as Member[], orgId: context.orgId, slug: context.slug };
   },

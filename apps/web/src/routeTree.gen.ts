@@ -17,6 +17,7 @@ import { Route as SlugIndexRouteImport } from './routes/$slug/index'
 import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
+import { Route as CheckinSlugRouteImport } from './routes/checkin/$slug'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -26,6 +27,7 @@ import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
 import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
+import { Route as SlugRundownPinRouteImport } from './routes/$slug/rundown-pin'
 import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
 import { Route as SlugCrewChatRouteImport } from './routes/$slug/crew-chat'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
@@ -89,6 +91,11 @@ const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   path: '/invite/$invitationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CheckinSlugRoute = CheckinSlugRouteImport.update({
+  id: '/checkin/$slug',
+  path: '/checkin/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
   id: '/setup',
   path: '/setup',
@@ -132,6 +139,11 @@ const SlugShowRoute = SlugShowRouteImport.update({
 const SlugSettingsRoute = SlugSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugRundownPinRoute = SlugRundownPinRouteImport.update({
+  id: '/rundown-pin',
+  path: '/rundown-pin',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugRundownRoute = SlugRundownRouteImport.update({
@@ -264,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/rundown-pin': typeof SlugRundownPinRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -273,6 +286,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -304,6 +318,7 @@ export interface FileRoutesByTo {
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/rundown-pin': typeof SlugRundownPinRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -313,6 +328,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -347,6 +363,7 @@ export interface FileRoutesById {
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
   '/$slug/rundown': typeof SlugRundownRoute
+  '/$slug/rundown-pin': typeof SlugRundownPinRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -356,6 +373,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/setup': typeof AuthSetupRoute
+  '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
@@ -390,6 +408,7 @@ export interface FileRouteTypes {
     | '/$slug/checkin'
     | '/$slug/crew-chat'
     | '/$slug/rundown'
+    | '/$slug/rundown-pin'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -399,6 +418,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -430,6 +450,7 @@ export interface FileRouteTypes {
     | '/$slug/checkin'
     | '/$slug/crew-chat'
     | '/$slug/rundown'
+    | '/$slug/rundown-pin'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -439,6 +460,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -472,6 +494,7 @@ export interface FileRouteTypes {
     | '/$slug/checkin'
     | '/$slug/crew-chat'
     | '/$slug/rundown'
+    | '/$slug/rundown-pin'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -481,6 +504,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/reset-password'
     | '/_auth/setup'
+    | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
@@ -509,6 +533,7 @@ export interface RootRouteChildren {
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   SuperadminRoute: typeof SuperadminRoute
+  CheckinSlugRoute: typeof CheckinSlugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
@@ -575,6 +600,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InviteInvitationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/checkin/$slug': {
+      id: '/checkin/$slug'
+      path: '/checkin/$slug'
+      fullPath: '/checkin/$slug'
+      preLoaderRoute: typeof CheckinSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_auth/setup': {
       id: '/_auth/setup'
       path: '/setup'
@@ -636,6 +668,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/$slug/settings'
       preLoaderRoute: typeof SlugSettingsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/rundown-pin': {
+      id: '/$slug/rundown-pin'
+      path: '/rundown-pin'
+      fullPath: '/$slug/rundown-pin'
+      preLoaderRoute: typeof SlugRundownPinRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/rundown': {
@@ -833,6 +872,7 @@ interface SlugRouteChildren {
   SlugCheckinRoute: typeof SlugCheckinRoute
   SlugCrewChatRoute: typeof SlugCrewChatRoute
   SlugRundownRoute: typeof SlugRundownRoute
+  SlugRundownPinRoute: typeof SlugRundownPinRoute
   SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRoute
   SlugTeamRoute: typeof SlugTeamRoute
@@ -859,6 +899,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugCheckinRoute: SlugCheckinRoute,
   SlugCrewChatRoute: SlugCrewChatRoute,
   SlugRundownRoute: SlugRundownRoute,
+  SlugRundownPinRoute: SlugRundownPinRoute,
   SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRoute,
   SlugTeamRoute: SlugTeamRoute,
@@ -903,6 +944,7 @@ const rootRouteChildren: RootRouteChildren = {
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   SuperadminRoute: SuperadminRoute,
+  CheckinSlugRoute: CheckinSlugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,

@@ -78,7 +78,7 @@ function OrgLayout() {
   if (isBoard || isCrewChat || isCheckin) {
     return (
       <ThemeProvider>
-        <div className="h-screen bg-board-bg overflow-auto">
+        <div className="h-[100dvh] min-h-[100dvh] bg-board-bg overflow-auto">
           <Outlet />
         </div>
       </ThemeProvider>

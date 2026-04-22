@@ -3,26 +3,23 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useRef } from "react";
 import {
   Flame,
-  WifiOff,
   Clock,
   Play,
   Pause,
   Square,
   Radio,
-  Send,
-  MessageSquare,
-  AlertCircle,
   UserPlus,
   LayoutDashboard,
   ArrowRight,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
-import { getChatMessages, sendChatMessage } from "@/lib/chat";
 import { getRundownState } from "@/lib/rundown";
 import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
 import { getTodayDateString, formatTime, type ClockFormat } from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { useChat } from "@/hooks/useChat";
+import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
@@ -56,11 +53,12 @@ const TYPE_COLORS: Record<ItemType, string> = {
 export const Route = createFileRoute("/$slug/show")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "show:view", context.slug, context.orgId);
     const today = getTodayDateString();
-    const [members, adapters, chatMessages, clockFormat] = await Promise.all([
+    const [members, adapters, clockFormat] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
       getActiveAdapters({ data: { orgId: context.orgId } }),
-      getChatMessages({ data: { orgId: context.orgId, limit: 50 } }),
       getClockFormat({ data: { orgId: context.orgId } }),
     ]);
 
@@ -89,7 +87,7 @@ export const Route = createFileRoute("/$slug/show")({
       ontimeState,
       nativeRundown,
       rundownAdapter: effectiveRundownAdapter,
-      initialChat: chatMessages,
+      chatAdapter: adapters.chat,
       orgId: context.orgId,
       slug: context.slug,
       serviceDate: today,
@@ -135,132 +133,77 @@ function LiveFlash({ onDone }: { onDone: () => void }) {
   );
 }
 
-// ─── Chat Panel (inline, uses polling) ────────────────────────
-
-function timeAgo(timestamp: string | Date): string {
-  const ms = typeof timestamp === "string" ? new Date(timestamp).getTime() : timestamp.getTime();
-  const seconds = Math.floor((Date.now() - ms) / 1000);
-  if (seconds < 60) return "now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h`;
-}
+// ─── Chat Panel ───────────────────────────────────────────────
 
 function ChatPanel({
   orgId,
-  initialMessages,
+  chatAdapter,
 }: {
   orgId: string;
-  initialMessages: Awaited<ReturnType<typeof getChatMessages>>;
+  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
 }) {
-  const [messages, setMessages] = useState(initialMessages);
-  const [input, setInput] = useState("");
   const [senderName, setSenderName] = useState("");
+  const [draftName, setDraftName] = useState("");
   const [showNameInput, setShowNameInput] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages]);
+  const { messages, sendMessage, connectionStatus } = useChat({
+    orgId,
+    isVisible: true,
+    chatAdapter,
+    senderName,
+    senderRole: "Operator",
+  });
 
   useEffect(() => {
     const saved = localStorage.getItem("showpilot-chat-name");
-    if (saved) { setSenderName(saved); setShowNameInput(false); }
+    if (saved) {
+      setSenderName(saved);
+      setDraftName(saved);
+      setShowNameInput(false);
+    }
   }, []);
 
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const fresh = await getChatMessages({ data: { orgId, limit: 50 } });
-        setMessages(fresh);
-        setError(null);
-      } catch { setError("Cannot connect to chat"); }
-    };
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, [orgId]);
-
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    if (!senderName.trim()) { setShowNameInput(true); return; }
-    setSending(true);
-    try {
-      await sendChatMessage({ data: { orgId, message: input.trim(), senderName: senderName.trim() } });
-      setInput("");
-      const fresh = await getChatMessages({ data: { orgId, limit: 50 } });
-      setMessages(fresh);
-    } catch { setError("Failed to send message"); }
-    finally { setSending(false); }
-  };
-
   const handleSetName = () => {
-    if (!senderName.trim()) return;
-    localStorage.setItem("showpilot-chat-name", senderName.trim());
+    if (!draftName.trim()) return;
+    localStorage.setItem("showpilot-chat-name", draftName.trim());
+    setSenderName(draftName.trim());
     setShowNameInput(false);
   };
 
-  const sortedMessages = [...messages].reverse();
-
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 pb-3 border-b border-board-border/50">
-        <MessageSquare className="w-4 h-4 text-board-muted" />
-        <span className="text-xs font-medium text-board-muted uppercase tracking-wider">Team Chat</span>
-        {senderName && !showNameInput && (
-          <button onClick={() => setShowNameInput(true)} className="ml-auto text-xs text-board-muted hover:text-board-text transition-colors">
-            {senderName}
-          </button>
-        )}
-      </div>
-
       {showNameInput && (
-        <div className="py-3 border-b border-board-border/50">
-          <label className="text-xs text-board-muted mb-1.5 block">Your name</label>
+        <div className="py-3 border-b border-board-border/50 space-y-2">
+          <label className="text-xs text-board-muted block">Your name</label>
           <div className="flex gap-2">
-            <input type="text" value={senderName} onChange={(e) => setSenderName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSetName()} placeholder="Enter your name"
-              className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors" />
-            <button onClick={handleSetName} disabled={!senderName.trim()}
-              className="px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium disabled:opacity-40 transition-colors">Set</button>
+            <input
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSetName()}
+              placeholder="Enter your name"
+              className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+            />
+            <button
+              onClick={handleSetName}
+              disabled={!draftName.trim()}
+              className="px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium disabled:opacity-40 transition-colors"
+            >
+              Join
+            </button>
           </div>
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-auto py-3 space-y-3 hide-scrollbar min-h-0">
-        {error ? (
-          <div className="flex items-center gap-2 text-board-muted text-xs py-4 justify-center">
-            <AlertCircle className="w-3.5 h-3.5" /><span>{error}</span>
-          </div>
-        ) : sortedMessages.length === 0 ? (
-          <p className="text-center text-board-muted/50 text-xs py-4">No messages yet</p>
-        ) : (
-          sortedMessages.map((msg) => (
-            <div key={msg.id} className="group">
-              <div className="flex items-baseline gap-2">
-                <span className="text-xs font-medium text-fire-500 shrink-0">{msg.senderName}</span>
-                <span className="text-[10px] text-board-muted/50">{timeAgo(msg.createdAt)}</span>
-              </div>
-              <p className="text-sm text-board-text/90 mt-0.5 leading-relaxed break-words">{msg.message}</p>
-            </div>
-          ))
-        )}
-      </div>
-
       {!showNameInput && (
-        <div className="pt-2 border-t border-board-border/50">
-          <div className="flex gap-2">
-            <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Message the team..." disabled={sending}
-              className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors disabled:opacity-50" />
-            <button onClick={handleSend} disabled={sending || !input.trim()}
-              className="p-2 rounded-lg bg-fire-500 text-white disabled:opacity-40 transition-colors">
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <SharedChatPanel
+          messages={messages}
+          connectionStatus={connectionStatus}
+          unreadCount={0}
+          onSendMessage={sendMessage}
+          title="Team Chat"
+          subtitle={chatAdapter === "native" ? senderName : `${senderName} via ${chatAdapter}`}
+          className="border-l-0 flex-1 min-h-0"
+        />
       )}
     </div>
   );
@@ -270,9 +213,31 @@ function ChatPanel({
 
 function ShowPage() {
   const {
-    members, ontimeState, nativeRundown, rundownAdapter,
-    initialChat, orgId, slug, clockFormat,
+    members: initialMembers, ontimeState, nativeRundown, rundownAdapter,
+    chatAdapter, orgId, slug, clockFormat,
   } = Route.useLoaderData();
+  const [members, setMembers] = useState(initialMembers);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshMembers = async () => {
+      try {
+        const latest = await getCrewMembers({ data: { orgId } });
+        if (!cancelled) {
+          setMembers(latest);
+        }
+      } catch {
+        // Keep last known state.
+      }
+    };
+
+    const interval = setInterval(refreshMembers, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [orgId]);
 
   const activeMembers = members.filter((m) => m.isOnline);
 
@@ -283,7 +248,7 @@ function ShowPage() {
         ontimeState={ontimeState}
         members={members}
         activeMembers={activeMembers}
-        initialChat={initialChat}
+        chatAdapter={chatAdapter}
         orgId={orgId}
         slug={slug}
         clockFormat={clockFormat}
@@ -297,7 +262,7 @@ function ShowPage() {
       initialRundown={nativeRundown}
       members={members}
       activeMembers={activeMembers}
-      initialChat={initialChat}
+      chatAdapter={chatAdapter}
       orgId={orgId}
       slug={slug}
       clockFormat={clockFormat}
@@ -311,7 +276,7 @@ function ShowPageWithNative({
   initialRundown,
   members,
   activeMembers,
-  initialChat,
+  chatAdapter,
   orgId,
   slug,
   clockFormat,
@@ -319,7 +284,7 @@ function ShowPageWithNative({
   initialRundown: RundownState | null;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
-  initialChat: Awaited<ReturnType<typeof getChatMessages>>;
+  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
   slug: string;
   clockFormat: ClockFormat;
@@ -407,7 +372,7 @@ function ShowPageWithNative({
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <div className="h-full flex flex-col overflow-hidden">
         {/* Status bar */}
-        <div className="shrink-0 px-8 py-2.5 flex items-center justify-between border-b border-board-border/50">
+        <div className="shrink-0 px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between border-b border-board-border/50">
           <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
           <div className="flex items-center gap-4">
             <span className="text-xs text-board-muted tabular-nums">
@@ -423,10 +388,10 @@ function ShowPageWithNative({
         </div>
 
         {/* Main */}
-        <main className="flex-1 overflow-hidden px-8 py-5">
-          <div className="flex gap-6 h-full max-w-[1400px] mx-auto">
+        <main className="flex-1 min-h-0 overflow-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-5">
+          <div className="flex flex-col xl:flex-row gap-4 lg:gap-6 min-h-full max-w-[1400px] mx-auto">
             {/* Left: Timer (read-only) + Chat */}
-            <div className="w-[400px] shrink-0 flex flex-col gap-5 h-full">
+            <div className="w-full xl:w-[400px] shrink-0 flex flex-col gap-4 lg:gap-5 min-h-0 xl:h-full">
               {/* Timer display — read-only, no controls */}
               <div className={`p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
                 <div className="flex items-center gap-2 mb-2">
@@ -479,12 +444,12 @@ function ShowPageWithNative({
 
               {/* Chat */}
               <div className="flex-1 min-h-0 p-4 rounded-xl bg-board-card border border-board-border">
-                <ChatPanel orgId={orgId} initialMessages={initialChat} />
+                <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
               </div>
             </div>
 
             {/* Right: Rundown (read-only) */}
-            <div className="flex-1 min-w-0 flex flex-col h-full">
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 xl:h-full">
               <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
                 Rundown
               </h2>
@@ -562,7 +527,7 @@ function ShowPageWithOntime({
   ontimeState: initialOntime,
   members,
   activeMembers,
-  initialChat,
+  chatAdapter,
   orgId,
   slug,
   clockFormat,
@@ -570,7 +535,7 @@ function ShowPageWithOntime({
   ontimeState: OntimeRuntimeState;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
-  initialChat: Awaited<ReturnType<typeof getChatMessages>>;
+  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
   slug: string;
   clockFormat: ClockFormat;
@@ -604,7 +569,7 @@ function ShowPageWithOntime({
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <div className="h-full flex flex-col overflow-hidden">
-        <div className="shrink-0 px-8 py-2.5 flex items-center justify-between border-b border-board-border/50">
+        <div className="shrink-0 px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between border-b border-board-border/50">
           <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
           <div className="flex items-center gap-4">
             <span className="text-xs text-board-muted tabular-nums">
@@ -623,10 +588,10 @@ function ShowPageWithOntime({
           </div>
         </div>
 
-        <main className="flex-1 overflow-hidden px-8 py-5">
-          <div className="flex gap-6 h-full max-w-[1400px] mx-auto">
+        <main className="flex-1 min-h-0 overflow-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-5">
+          <div className="flex flex-col xl:flex-row gap-4 lg:gap-6 min-h-full max-w-[1400px] mx-auto">
             {/* Left: Timer + Chat */}
-            <div className="w-[400px] shrink-0 flex flex-col gap-5 h-full">
+            <div className="w-full xl:w-[400px] shrink-0 flex flex-col gap-4 lg:gap-5 min-h-0 xl:h-full">
               <div className={`p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
                 <div className="flex items-center gap-2 mb-2">
                   {isPlaying ? (
@@ -665,12 +630,12 @@ function ShowPageWithOntime({
               </div>
 
               <div className="flex-1 min-h-0 p-4 rounded-xl bg-board-card border border-board-border">
-                <ChatPanel orgId={orgId} initialMessages={initialChat} />
+                <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
               </div>
             </div>
 
             {/* Right: OnTime Rundown */}
-            <div className="flex-1 min-w-0 flex flex-col h-full">
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 xl:h-full">
               <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
                 Rundown
               </h2>

@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { hasPermission, normalizeRole, type Permission } from "@/lib/app-permissions";
 
-async function assertOrgAccess(orgId: string) {
+async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -12,9 +13,26 @@ async function assertOrgAccess(orgId: string) {
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
     where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
+    select: { role: true },
   });
-  if (!member) throw new Error("Forbidden");
+  const role = normalizeRole(member?.role ?? null);
+  if (!role) throw new Error("Forbidden");
+  return role;
+}
+
+async function assertGraphicPermission(orgId: string, permission: Permission) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, permission)) throw new Error("Forbidden");
+
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { cloud_enabled: true },
+  });
+
+  if (!org?.cloud_enabled) {
+    throw new Error("Forbidden");
+  }
 }
 
 // ─── Graphic Templates ─────────────────────────────────────
@@ -22,7 +40,7 @@ async function assertOrgAccess(orgId: string) {
 export const getGraphicTemplates = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertGraphicPermission(data.orgId, "lowerthird:view");
     const prisma = getPrisma();
     return await prisma.graphicTemplate.findMany({
       where: { orgId: data.orgId },
@@ -41,7 +59,7 @@ export const addGraphicTemplate = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertGraphicPermission(data.orgId, "lowerthird:configure");
     const prisma = getPrisma();
     return await prisma.graphicTemplate.create({
       data: {
@@ -57,6 +75,7 @@ export const addGraphicTemplate = createServerFn({ method: "POST" })
 export const updateGraphicTemplate = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
+      orgId: string;
       id: string;
       updates: Partial<{
         name: string;
@@ -67,18 +86,20 @@ export const updateGraphicTemplate = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
+    await assertGraphicPermission(data.orgId, "lowerthird:configure");
     const prisma = getPrisma();
-    return await prisma.graphicTemplate.update({
-      where: { id: data.id },
+    return await prisma.graphicTemplate.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: data.updates,
     });
   });
 
 export const deleteGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
+    await assertGraphicPermission(data.orgId, "lowerthird:configure");
     const prisma = getPrisma();
-    await prisma.graphicTemplate.delete({ where: { id: data.id } });
+    await prisma.graphicTemplate.deleteMany({ where: { id: data.id, orgId: data.orgId } });
   });
 
 // ─── Active Graphic (via AppSetting) ────────────────────────
@@ -86,7 +107,7 @@ export const deleteGraphicTemplate = createServerFn({ method: "POST" })
 export const setActiveGraphic = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; graphicId: string | null }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
     if (data.graphicId) {
       await prisma.appSetting.upsert({
@@ -104,7 +125,7 @@ export const setActiveGraphic = createServerFn({ method: "POST" })
 export const getActiveGraphic = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertGraphicPermission(data.orgId, "lowerthird:view");
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "active-graphic" } },

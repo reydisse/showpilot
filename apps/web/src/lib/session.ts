@@ -2,6 +2,28 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
+import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+
+async function getOrgMemberRole(orgId: string) {
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { role: true },
+  });
+  const role = normalizeRole(member?.role ?? null);
+  if (!role) throw new Error("Forbidden");
+  return role;
+}
+
+async function assertOrgPermission(orgId: string, permission: Parameters<typeof hasPermission>[1]) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, permission)) throw new Error("Forbidden");
+}
 
 // ─── Request Info ────────────────────────────────────────
 
@@ -120,6 +142,7 @@ export const checkPermission = createServerFn({ method: "POST" })
 export const getOrgMembers = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     const members = await prisma.member.findMany({
       where: { organizationId: data.orgId },
@@ -132,6 +155,14 @@ export const getOrgMembers = createServerFn({ method: "GET" })
 export const updateMemberRole = createServerFn({ method: "POST" })
   .inputValidator((data: { memberId: string; role: string }) => data)
   .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const member = await prisma.member.findUnique({
+      where: { id: data.memberId },
+      select: { organizationId: true },
+    });
+    if (!member) throw new Error("Member not found");
+    await assertOrgPermission(member.organizationId, "settings:members");
+
     const auth = getAuth();
     const headers = getRequestHeaders();
     return await auth.api.updateMemberRole({
@@ -143,6 +174,7 @@ export const updateMemberRole = createServerFn({ method: "POST" })
 export const removeMember = createServerFn({ method: "POST" })
   .inputValidator((data: { memberIdOrEmail: string; orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
     const auth = getAuth();
     const headers = getRequestHeaders();
     return await auth.api.removeMember({
@@ -161,13 +193,14 @@ export const inviteMember = createServerFn({ method: "POST" })
     (data: { email: string; role: string; orgId: string }) => data
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
     const auth = getAuth();
     const headers = getRequestHeaders();
     return await auth.api.createInvitation({
       headers,
       body: {
         email: data.email,
-        role: data.role as "member" | "admin" | "owner",
+        role: data.role as "member" | "admin" | "owner" | "pm" | "tm" | "sm" | "stageManager",
         organizationId: data.orgId,
       },
     });
@@ -176,6 +209,7 @@ export const inviteMember = createServerFn({ method: "POST" })
 export const getOrgInvitations = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     return await prisma.invitation.findMany({
       where: { organizationId: data.orgId, status: "pending" },
@@ -186,6 +220,14 @@ export const getOrgInvitations = createServerFn({ method: "GET" })
 export const cancelInvitation = createServerFn({ method: "POST" })
   .inputValidator((data: { invitationId: string }) => data)
   .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const invitation = await prisma.invitation.findUnique({
+      where: { id: data.invitationId },
+      select: { organizationId: true },
+    });
+    if (!invitation) throw new Error("Invitation not found");
+    await assertOrgPermission(invitation.organizationId, "settings:members");
+
     const auth = getAuth();
     const headers = getRequestHeaders();
     return await auth.api.cancelInvitation({

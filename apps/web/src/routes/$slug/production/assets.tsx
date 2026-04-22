@@ -28,6 +28,8 @@ const CATEGORIES = ["Audio", "Video", "Lighting", "Streaming", "Network", "Power
 export const Route = createFileRoute("/$slug/production/assets")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "assets:view", context.slug, context.orgId);
     const equipment = await getEquipment({ data: { orgId: context.orgId } });
     return { equipment: equipment as EquipmentItem[], orgId: context.orgId };
   },
