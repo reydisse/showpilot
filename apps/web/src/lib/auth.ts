@@ -3,7 +3,7 @@ import { organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
-import { ac, roles } from "@/lib/permissions";
+import { authAccessControl, authRoles } from "@/lib/auth-access";
 import {
   sendEmail,
   passwordResetEmail,
@@ -15,8 +15,8 @@ const orgConfig = {
   allowUserToCreateOrganization: true,
   creatorRole: "owner" as const,
   membershipLimit: 100,
-  ac,
-  roles,
+  ac: authAccessControl,
+  roles: authRoles,
   dynamicAccessControl: {
     enabled: true,
     maximumRolesPerOrganization: 20,

@@ -449,24 +449,25 @@ function ShowPageWithNative({
             </div>
 
             {/* Right: Rundown (read-only) */}
-            <div className="flex-1 min-w-0 flex flex-col min-h-0 xl:h-full">
-              <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
-                Rundown
-              </h2>
-              {items.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                  <Clock className="w-8 h-8 text-board-muted/20" />
-                  <p className="text-sm text-board-muted">No items in the rundown</p>
-                  <p className="text-xs text-board-muted/50">
-                    Add items in the{" "}
-                    <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
-                      Rundown Editor
-                    </Link>
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                  {items.map((event) => {
+            <div className="flex-1 min-w-0 flex flex-col min-h-0 xl:h-full overflow-auto hide-scrollbar">
+              <div className="min-w-[700px] flex flex-col min-h-full">
+                <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
+                  Rundown
+                </h2>
+                {items.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                    <Clock className="w-8 h-8 text-board-muted/20" />
+                    <p className="text-sm text-board-muted">No items in the rundown</p>
+                    <p className="text-xs text-board-muted/50">
+                      Add items in the{" "}
+                      <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
+                        Rundown Editor
+                      </Link>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 overflow-auto flex-1 hide-scrollbar pr-1">
+                    {items.map((event) => {
                     const isCurrent = event.id === timer.currentItemId;
                     const isComplete = event.status === "complete";
                     const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
@@ -507,9 +508,10 @@ function ShowPageWithNative({
                         {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
                       </div>
                     );
-                  })}
-                </div>
-              )}
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </main>

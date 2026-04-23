@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { getPrisma } from "@/lib/db";
 import { getDisplaySettingsBySlug, type DisplaySettingsBySlug } from "@/lib/settings";
 import { formatClockFull, type ClockFormat } from "@/lib/utils";
@@ -348,6 +348,9 @@ function TimerKioskPage() {
               setState(s);
               setConnected(true);
             }
+            if (s.ppSlide !== undefined) {
+              setPpSlide(s.ppSlide);
+            }
           }
         } catch {}
       };
@@ -403,7 +406,7 @@ function TimerKioskPage() {
 
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 2000); // Slower — WS handles real-time
+    const interval = setInterval(poll, 5000); // WS handles real-time; poll is fallback only
     return () => clearInterval(interval);
   }, [poll]);
 
@@ -726,10 +729,48 @@ function FullscreenButton({ isFullscreen, toggleFullscreen }: { isFullscreen: bo
 
 function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" | "small" }) {
   const isLarge = size === "large";
-  const lines = slide.text.split("\n").filter(Boolean);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  const [fontSize, setFontSize] = useState<number | null>(null);
+  const lines = useMemo(() => slide.text.split("\n").filter(Boolean), [slide.text]);
+
+  useLayoutEffect(() => {
+    const fitText = () => {
+      const container = containerRef.current;
+      const text = textRef.current;
+      if (!container || !text) return;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      const maxFont = isLarge
+        ? Math.min(viewportW * 0.08, viewportH * 0.1)
+        : Math.min(viewportW * 0.02, viewportH * 0.025);
+      const minFont = isLarge
+        ? Math.min(viewportW * 0.022, viewportH * 0.03)
+        : Math.min(viewportW * 0.012, viewportH * 0.016);
+
+      let nextSize = Math.max(minFont, maxFont);
+      text.style.fontSize = `${nextSize}px`;
+
+      while (
+        nextSize > minFont &&
+        (text.scrollHeight > container.clientHeight || text.scrollWidth > container.clientWidth)
+      ) {
+        nextSize -= 2;
+        text.style.fontSize = `${nextSize}px`;
+      }
+
+      setFontSize(nextSize);
+    };
+
+    fitText();
+    window.addEventListener("resize", fitText);
+    return () => window.removeEventListener("resize", fitText);
+  }, [isLarge, slide.text, slide.notes, slide.presentationName]);
 
   return (
     <div
+      ref={containerRef}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -737,32 +778,26 @@ function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" 
         justifyContent: "center",
         gap: isLarge ? "1.5vh" : "0.5vh",
         maxWidth: "90vw",
+        width: "100%",
+        maxHeight: isLarge ? "46vh" : "12vh",
+        overflow: "hidden",
         textAlign: "center",
       }}
     >
       {/* Slide text */}
       <div
+        ref={textRef}
         style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: isLarge ? "0.8vh" : "0.3vh",
+          width: "100%",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          fontSize: fontSize ? `${fontSize}px` : undefined,
+          lineHeight: 1.18,
+          fontWeight: 600,
+          color: "#ffffff",
         }}
       >
-        {lines.map((line, i) => (
-          <div
-            key={i}
-            style={{
-              fontSize: isLarge
-                ? lines.length <= 2 ? "min(8vw, 10vh)" : lines.length <= 4 ? "min(5vw, 7vh)" : "min(3.5vw, 5vh)"
-                : "min(2vw, 2.5vh)",
-              fontWeight: 600,
-              color: "#ffffff",
-              lineHeight: 1.2,
-            }}
-          >
-            {line}
-          </div>
-        ))}
+        {lines.join("\n")}
       </div>
 
       {/* Scripture reference / presentation name — below the text */}

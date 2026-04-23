@@ -95,10 +95,16 @@ function pinChallenge(): Response {
 }
 
 async function resolveRole(db: D1Database, userId: string, orgId: string): Promise<Role | null> {
-  const orgMember = await db
-    .prepare("SELECT role FROM org_member WHERE userId = ? AND orgId = ? LIMIT 1")
-    .bind(userId, orgId)
-    .first<OrgRoleRow>();
+  let orgMember: OrgRoleRow | null = null;
+  try {
+    orgMember = await db
+      .prepare("SELECT role FROM org_member WHERE userId = ? AND orgId = ? LIMIT 1")
+      .bind(userId, orgId)
+      .first<OrgRoleRow>();
+  } catch {
+    // Older local databases may not have the additive org_member table yet.
+    // Fall back to the legacy Better Auth member table instead of failing auth.
+  }
 
   if (orgMember?.role) {
     return normalizeRole(orgMember.role);
@@ -113,10 +119,17 @@ async function resolveRole(db: D1Database, userId: string, orgId: string): Promi
 }
 
 async function isCloudEnabled(db: D1Database, orgId: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT cloud_enabled FROM organization WHERE id = ? LIMIT 1")
-    .bind(orgId)
-    .first<CloudEnabledRow>();
+  let row: CloudEnabledRow | null = null;
+  try {
+    row = await db
+      .prepare("SELECT cloud_enabled FROM organization WHERE id = ? LIMIT 1")
+      .bind(orgId)
+      .first<CloudEnabledRow>();
+  } catch {
+    // Older local databases may not have the new cloud_enabled column yet.
+    // Default to disabled rather than crashing route resolution.
+    return false;
+  }
 
   return row?.cloud_enabled === 1;
 }

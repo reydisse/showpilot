@@ -106,6 +106,7 @@ export default {
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

@@ -113,25 +113,27 @@ function ChatMessageRow({
   message: ChatMessage;
   isPinned?: boolean;
 }) {
+  const isSystem = message.type === "system";
+
   return (
     <div
       className={cn(
-        "px-3 py-2 rounded-lg transition-colors",
+        "px-3.5 py-3 rounded-2xl transition-colors shadow-sm",
         message.type === "alert" && "bg-red-500/15 border border-red-500/25",
         message.type === "cue" && "bg-amber-500/10 border border-amber-500/20",
-        message.type === "system" && "bg-transparent",
-        message.type === "text" && "bg-transparent",
+        message.type === "system" && "bg-transparent shadow-none px-1 py-1",
+        message.type === "text" && "bg-board-bg/70 border border-board-border/70",
         isPinned && "ring-1 ring-red-500/40",
       )}
     >
       {/* Header: sender + role + time */}
-      {message.type !== "system" && (
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs font-semibold text-board-text">
+      {!isSystem && (
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-xs font-semibold text-board-text/95">
             {message.senderName}
           </span>
           <RoleBadge role={message.senderRole} />
-          <span className="text-[10px] text-board-muted ml-auto shrink-0">
+          <span className="text-[10px] text-board-muted/80 ml-auto shrink-0">
             {formatTimestamp(message.timestamp)}
           </span>
         </div>
@@ -170,6 +172,8 @@ interface ChatPanelProps {
   onSendMessage: (text: string, type: MessageType) => void;
   onClose?: () => void;
   className?: string;
+  title?: string;
+  subtitle?: string;
 }
 
 export function ChatPanel({
@@ -179,15 +183,19 @@ export function ChatPanel({
   onSendMessage,
   onClose,
   className,
+  title = "Production Chat",
+  subtitle,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const mountedAtRef = useRef(Date.now());
 
   // Track pinned alerts (pinned for 10 seconds)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -195,7 +203,11 @@ export function ChatPanel({
   // Pin new alert messages for 10s
   useEffect(() => {
     const latestAlerts = messages.filter(
-      (m) => m.type === "alert" && !seenAlertIdsRef.current.has(m.id),
+      (m) =>
+        m.type === "alert" &&
+        !dismissedAlertIds.has(m.id) &&
+        !seenAlertIdsRef.current.has(m.id) &&
+        m.timestamp >= mountedAtRef.current - 10000,
     );
     if (latestAlerts.length === 0) return;
 
@@ -217,6 +229,11 @@ export function ChatPanel({
             updated.delete(alert.id);
             return updated;
           });
+          setDismissedAlertIds((current) => {
+            const next = new Set(current);
+            next.add(alert.id);
+            return next;
+          });
           pinTimeoutsRef.current.delete(alert.id);
         }, 10000);
 
@@ -225,7 +242,7 @@ export function ChatPanel({
 
       return next;
     });
-  }, [messages]);
+  }, [dismissedAlertIds, messages]);
 
   useEffect(() => {
     return () => {
@@ -256,6 +273,25 @@ export function ChatPanel({
     setShowScrollButton(false);
   };
 
+  const dismissAlert = (alertId: string) => {
+    const timer = pinTimeoutsRef.current.get(alertId);
+    if (timer) {
+      clearTimeout(timer);
+      pinTimeoutsRef.current.delete(alertId);
+    }
+
+    setPinnedIds((current) => {
+      const next = new Set(current);
+      next.delete(alertId);
+      return next;
+    });
+    setDismissedAlertIds((current) => {
+      const next = new Set(current);
+      next.add(alertId);
+      return next;
+    });
+  };
+
   const handleSend = () => {
     if (!inputText.trim()) return;
     onSendMessage(inputText.trim(), messageType);
@@ -283,6 +319,9 @@ export function ChatPanel({
 
   // Separate pinned alerts from regular messages
   const pinnedAlerts = messages.filter((m) => pinnedIds.has(m.id));
+  const timelineMessages = messages.filter(
+    (m) => m.type !== "alert" && !dismissedAlertIds.has(m.id),
+  );
 
   return (
     <div
@@ -293,10 +332,19 @@ export function ChatPanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-board-border shrink-0">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="w-4 h-4 text-fire-400" />
-          <span className="text-sm font-semibold text-board-text">Production Chat</span>
-          <ConnectionDot status={connectionStatus} />
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-fire-500/10 border border-fire-500/20 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-4 h-4 text-fire-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-board-text truncate">{title}</span>
+              <ConnectionDot status={connectionStatus} />
+            </div>
+            {subtitle && (
+              <p className="text-[11px] text-board-muted truncate mt-0.5">{subtitle}</p>
+            )}
+          </div>
         </div>
         {onClose && (
           <button
@@ -310,9 +358,19 @@ export function ChatPanel({
 
       {/* Pinned alerts */}
       {pinnedAlerts.length > 0 && (
-        <div className="px-3 py-2 space-y-1 border-b border-board-border bg-red-500/5 shrink-0">
+        <div className="px-3 py-2.5 space-y-1.5 border-b border-board-border bg-red-500/5 shrink-0">
           {pinnedAlerts.map((alert) => (
-            <ChatMessageRow key={`pinned-${alert.id}`} message={alert} isPinned />
+            <div key={`pinned-${alert.id}`} className="relative">
+              <ChatMessageRow message={alert} isPinned />
+              <button
+                type="button"
+                onClick={() => dismissAlert(alert.id)}
+                className="absolute top-2 right-2 rounded-md p-1 text-red-300/70 hover:text-red-100 hover:bg-red-500/10 transition-colors touch-manipulation"
+                aria-label="Dismiss alert"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -321,17 +379,19 @@ export function ChatPanel({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto modern-scrollbar px-3 py-2 space-y-1"
+        className="flex-1 overflow-y-auto modern-scrollbar px-3 py-3 space-y-2"
       >
-        {messages.length === 0 && (
+        {timelineMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-board-muted">
             <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
             <p className="text-sm">No messages yet</p>
-            <p className="text-xs mt-1">Production chat will appear here</p>
+            <p className="text-xs mt-1">
+              {pinnedAlerts.length > 0 ? "Only active alerts are showing right now" : "Production chat will appear here"}
+            </p>
           </div>
         )}
 
-        {messages.map((msg) => (
+        {timelineMessages.map((msg) => (
           <ChatMessageRow key={msg.id} message={msg} />
         ))}
         <div ref={messagesEndRef} />
@@ -351,7 +411,7 @@ export function ChatPanel({
       )}
 
       {/* Input area */}
-      <div className="px-3 py-2 border-t border-board-border shrink-0 space-y-2">
+      <div className="px-3 py-2 border-t border-board-border shrink-0 space-y-2 safe-area-bottom">
         <MessageTypeSelector value={messageType} onChange={setMessageType} />
         <div className="flex items-end gap-2">
           <textarea
@@ -378,7 +438,7 @@ export function ChatPanel({
             onClick={handleSend}
             disabled={!inputText.trim()}
             className={cn(
-              "shrink-0 p-2 rounded-lg transition-colors",
+              "shrink-0 p-2 rounded-lg transition-colors touch-manipulation",
               inputText.trim()
                 ? "bg-fire-500 text-white hover:bg-fire-600"
                 : "bg-board-border text-board-muted cursor-not-allowed",

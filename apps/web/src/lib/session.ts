@@ -4,11 +4,25 @@ import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 
-async function getOrgMemberRole(orgId: string) {
+async function getSessionOrThrow() {
   const auth = getAuth();
   const headers = getRequestHeaders();
   const session = await auth.api.getSession({ headers });
   if (!session) throw new Error("Unauthorized");
+  return session;
+}
+
+async function assertOrgMembership(userId: string, orgId: string) {
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
+
+async function getOrgMemberRole(orgId: string) {
+  const session = await getSessionOrThrow();
 
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
@@ -38,17 +52,13 @@ export const getRequestHost = createServerFn({ method: "GET" }).handler(
 
 export const getSession = createServerFn({ method: "GET" }).handler(
   async () => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.getSession({ headers });
+    return await getSessionOrThrow().catch(() => null);
   }
 );
 
 export const getSessionWithOrg = createServerFn({ method: "GET" }).handler(
   async () => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await getSessionOrThrow().catch(() => null);
     if (!session) return null;
 
     const orgId = session.session.activeOrganizationId;
@@ -67,9 +77,7 @@ export const getSessionWithOrg = createServerFn({ method: "GET" }).handler(
 export const getOrgBySlug = createServerFn({ method: "GET" })
   .inputValidator((data: string) => data)
   .handler(async ({ data }) => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await getSessionOrThrow().catch(() => null);
     if (!session) return null;
 
     const prisma = getPrisma();
@@ -93,19 +101,43 @@ export const getOrgBySlug = createServerFn({ method: "GET" })
 export const setActiveOrg = createServerFn({ method: "POST" })
   .inputValidator((data: string) => data)
   .handler(async ({ data }) => {
+    const session = await getSessionOrThrow();
+    await assertOrgMembership(session.user.id, data);
+
     const auth = getAuth();
     const headers = getRequestHeaders();
-    await auth.api.setActiveOrganization({
-      headers,
-      body: { organizationId: data },
-    });
+    try {
+      await auth.api.setActiveOrganization({
+        headers,
+        body: { organizationId: data },
+      });
+      return;
+    } catch {
+      const prisma = getPrisma();
+      await prisma.session.updateMany({
+        where: { id: session.session.id, userId: session.user.id },
+        data: { activeOrganizationId: data },
+      });
+    }
   });
 
 export const listUserOrgs = createServerFn({ method: "GET" }).handler(
   async () => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.listOrganizations({ headers });
+    const session = await getSessionOrThrow().catch(() => null);
+    if (!session) return [];
+
+    const prisma = getPrisma();
+    const memberships = await prisma.member.findMany({
+      where: { userId: session.user.id },
+      include: {
+        organization: {
+          select: { id: true, name: true, slug: true, logo: true },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return memberships.map((membership) => membership.organization);
   }
 );
 
@@ -113,11 +145,26 @@ export const listUserOrgs = createServerFn({ method: "GET" }).handler(
 
 export const getActiveMemberRole = createServerFn({ method: "GET" }).handler(
   async () => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
     try {
-      const result = await auth.api.getActiveMemberRole({ headers });
-      return result?.role ?? "member";
+      const session = await getSessionOrThrow();
+      const prisma = getPrisma();
+
+      const activeOrgId = session.session.activeOrganizationId;
+      if (activeOrgId) {
+        const activeMember = await prisma.member.findFirst({
+          where: { organizationId: activeOrgId, userId: session.user.id },
+          select: { role: true },
+        });
+        const normalized = normalizeRole(activeMember?.role ?? null);
+        if (normalized) return normalized;
+      }
+
+      const firstMember = await prisma.member.findFirst({
+        where: { userId: session.user.id },
+        orderBy: { createdAt: "asc" },
+        select: { role: true },
+      });
+      return normalizeRole(firstMember?.role ?? null) ?? "member";
     } catch {
       return "member";
     }

@@ -19,12 +19,37 @@ interface Env {
   RUNDOWN_RELAY: DurableObjectNamespace;
 }
 
+interface SocketAttachment {
+  role: "bridge" | "client";
+  orgId: string;
+}
+
 export class BridgeRelay extends DurableObject {
   private bridgeWs: WebSocket | null = null;
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
   private bridgeInfo: { version?: string; devices?: number; uptime?: number } = {};
   private orgId = "";
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+
+    for (const ws of ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment?.() as SocketAttachment | null;
+      if (!attachment) continue;
+
+      if (!this.orgId && attachment.orgId) {
+        this.orgId = attachment.orgId;
+      }
+
+      if (attachment.role === "bridge") {
+        this.bridgeWs = ws;
+        this.bridgeOnline = true;
+      } else {
+        this.clientSessions.add(ws);
+      }
+    }
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -40,8 +65,13 @@ export class BridgeRelay extends DurableObject {
         const pair = new WebSocketPair();
         const client = pair[0];
         const server = pair[1];
+        const attachment: SocketAttachment = {
+          role: role === "bridge" ? "bridge" : "client",
+          orgId: this.orgId,
+        };
 
         this.ctx.acceptWebSocket(server);
+        server.serializeAttachment?.(attachment);
 
         if (role === "bridge") {
           // Bridge agent connecting

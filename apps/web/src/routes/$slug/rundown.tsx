@@ -1235,32 +1235,33 @@ function RundownPage() {
           </div>
 
           {/* Right: Runsheet */}
-          <div className="flex-1 min-w-0 flex flex-col">
-            {/* Runsheet header */}
-            <div className="flex items-center justify-between mb-3 shrink-0">
-              <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                Runsheet
-              </h2>
-              <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted">
-                <span>{items.length} items</span>
-                {completedDuration > 0 && (
-                  <span>{formatDuration(completedDuration)} / {formatDuration(totalDuration)}</span>
-                )}
-                <span>{formatDuration(remainingDuration)} remaining</span>
+          <div className="flex-1 min-w-0 flex flex-col overflow-auto hide-scrollbar">
+            <div className="min-w-[760px] flex flex-col min-h-full">
+              {/* Runsheet header */}
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                  Runsheet
+                </h2>
+                <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted whitespace-nowrap">
+                  <span>{items.length} items</span>
+                  {completedDuration > 0 && (
+                    <span>{formatDuration(completedDuration)} / {formatDuration(totalDuration)}</span>
+                  )}
+                  <span>{formatDuration(remainingDuration)} remaining</span>
+                </div>
               </div>
-            </div>
 
-            {items.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                <Clock className="w-10 h-10 text-board-muted/20" />
-                <p className="text-sm text-board-muted">No items in the rundown</p>
-                <p className="text-xs text-board-muted/50">
-                  {canEditRundown ? 'Click "Add Item" or "Load" to get started' : "No rundown items are available for this date"}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                {items.map((item, idx) => {
+              {items.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                  <Clock className="w-10 h-10 text-board-muted/20" />
+                  <p className="text-sm text-board-muted">No items in the rundown</p>
+                  <p className="text-xs text-board-muted/50">
+                    {canEditRundown ? 'Click "Add Item" or "Load" to get started' : "No rundown items are available for this date"}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
+                  {items.map((item, idx) => {
                   const isCurrent = item.id === timer.currentItemId;
                   const config = TYPE_CONFIG[item.type];
                   const Icon = config.icon;
@@ -1382,9 +1383,10 @@ function RundownPage() {
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

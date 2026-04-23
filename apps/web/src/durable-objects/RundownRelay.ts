@@ -1,5 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
 
+interface D1Database {
+  prepare(sql: string): {
+    bind(...params: unknown[]): {
+      first<T>(): Promise<T | null>;
+      all<T>(): Promise<{ results: T[] }>;
+    };
+  };
+}
+
+interface Env {
+  CHAT_RELAY: DurableObjectNamespace;
+  DB: D1Database;
+}
+
 export type ItemType =
   | "segment"
   | "song"
@@ -65,6 +79,7 @@ export class RundownRelay extends DurableObject {
     ppPreviewSlide: null,
   };
   private hydrated = false;
+  private orgId = "";
 
   /** Load state from durable storage on first access */
   private async hydrateFromStorage(): Promise<void> {
@@ -91,6 +106,7 @@ export class RundownRelay extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     await this.hydrateFromStorage();
     const url = new URL(request.url);
+    this.orgId = url.searchParams.get("orgId") ?? this.orgId;
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
@@ -155,6 +171,9 @@ export class RundownRelay extends DurableObject {
     action: string,
     payload?: Record<string, unknown>
   ) {
+    const previousPlayback = this.state.timer.playback;
+    const previousItemId = this.state.timer.currentItemId;
+
     switch (action) {
       case "seed": {
         // Seed DO with DB-loaded state
@@ -390,7 +409,6 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
-
       case "reset": {
         this.state.items.forEach((item) => {
           item.status = "upcoming";
@@ -412,6 +430,140 @@ export class RundownRelay extends DurableObject {
 
     this.persistState();
     this.broadcastState();
+
+    const currentItemId = this.state.timer.currentItemId;
+    if (previousPlayback === "stop" && this.state.timer.playback === "play") {
+      void this.sendAutomationChatMessage("Show is live", "system");
+    }
+    if (currentItemId && currentItemId !== previousItemId) {
+      const currentItem = this.state.items.find((item) => item.id === currentItemId);
+      if (currentItem?.title?.trim()) {
+        void this.sendAutomationChatMessage(`Now live: ${currentItem.title.trim()}`, "system");
+      }
+      if (currentItem?.cue?.trim()) {
+        void this.sendAutomationChatMessage(currentItem.cue.trim(), "cue");
+      }
+    }
+  }
+
+  private async sendAutomationChatMessage(text: string, type: "cue" | "system") {
+    if (!this.orgId || !text.trim()) return;
+
+    try {
+      const env = this.env as unknown as Env;
+      const settingsResult = await env.DB.prepare(
+        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+        .bind(
+          this.orgId,
+          "chat-adapter",
+          "mattermost-url",
+          "mattermost-token",
+          "mattermost-channel",
+          "slack-token",
+          "slack-channel",
+          "discord-bot-token",
+          "discord-channel-id",
+          "teams-webhook-url",
+          "api-key"
+        )
+        .all<{ key: string; value: string }>();
+
+      const settings = Object.fromEntries(
+        (settingsResult.results || []).map((row) => [row.key, row.value])
+      ) as Record<string, string>;
+
+      const adapter = settings["chat-adapter"] || "native";
+      const senderName = "ShowPilot";
+      const prefix = type === "cue" ? "[CUE] " : "";
+      const formatted = `**${senderName}**: ${prefix}${text}`;
+
+      if (adapter === "mattermost") {
+        const url = settings["mattermost-url"];
+        const token = settings["mattermost-token"];
+        const channel = settings["mattermost-channel"];
+        if (url && token && channel) {
+          await fetch(`${url.replace(/\/$/, "")}/api/v4/posts`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              channel_id: channel,
+              message: formatted,
+              props: {
+                override_username: senderName,
+                showpilot_type: type,
+              },
+            }),
+          });
+          return;
+        }
+      }
+
+      if (adapter === "slack") {
+        const token = settings["slack-token"];
+        const channel = settings["slack-channel"];
+        if (token && channel) {
+          await fetch("https://slack.com/api/chat.postMessage", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ channel, text: formatted }),
+          });
+          return;
+        }
+      }
+
+      if (adapter === "discord") {
+        const token = settings["discord-bot-token"];
+        const channelId = settings["discord-channel-id"];
+        if (token && channelId) {
+          await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bot ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ content: formatted }),
+          });
+          return;
+        }
+      }
+
+      if (adapter === "teams") {
+        const webhookUrl = settings["teams-webhook-url"];
+        if (webhookUrl) {
+          await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: formatted }),
+          });
+          return;
+        }
+      }
+
+      const chatId = env.CHAT_RELAY.idFromName(this.orgId);
+      const chatStub = env.CHAT_RELAY.get(chatId);
+      await chatStub.fetch(
+        new Request("https://chat.local/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orgId: this.orgId,
+            senderName,
+            senderRole: "System",
+            text,
+            type,
+          }),
+        })
+      );
+    } catch (err) {
+      console.error("[RundownRelay] failed to send automation chat message", err);
+    }
   }
 
   private getPublicState() {
