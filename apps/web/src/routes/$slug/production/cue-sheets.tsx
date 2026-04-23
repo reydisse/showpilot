@@ -29,6 +29,8 @@ type CueItem = {
 export const Route = createFileRoute("/$slug/production/cue-sheets")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"], context.slug, context.orgId);
     const today = getTodayDateString();
     const items = await getCueSheets({ data: { orgId: context.orgId, serviceDate: today } });
     return { items: items as CueItem[], orgId: context.orgId };

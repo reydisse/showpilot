@@ -8,6 +8,8 @@ export const Route = createFileRoute(
 )({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
     return { orgId: context.orgId };
   },
   component: OverlayPage,

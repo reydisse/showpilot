@@ -118,6 +118,8 @@ const ADAPTER_FIELDS: Record<string, AdapterField[]> = {
 export const Route = createFileRoute("/$slug/dashboard/devices")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "devices:access", context.slug, context.orgId);
     const devices = await getDevices({ data: { orgId: context.orgId } });
     return { devices, orgId: context.orgId };
   },
@@ -133,14 +135,14 @@ function DevicesPage() {
   const [deleting, setDeleting] = useState(false);
 
   const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
-    await updateDevice({ data: { id, updates: { enabled: !currentEnabled } } });
+    await updateDevice({ data: { orgId, id, updates: { enabled: !currentEnabled } } });
     router.invalidate();
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    await deleteDevice({ data: { id: deleteTarget.id } });
+    await deleteDevice({ data: { orgId, id: deleteTarget.id } });
     setDeleting(false);
     setDeleteTarget(null);
     router.invalidate();
@@ -413,6 +415,7 @@ function DeviceFormModal({
     if (existing) {
       await updateDevice({
         data: {
+          orgId,
           id: existing.id,
           updates: {
             name: name.trim(),

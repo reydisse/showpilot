@@ -38,15 +38,31 @@ import { testChatConnection } from "@/lib/chat-proxy";
 import { testProPresenterConnection } from "@/lib/rundown";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { authClient } from "@/lib/auth-client";
+import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 
 // ─── Route ──────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/settings")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, [
+      "settings:organization",
+      "settings:members",
+      "settings:billing",
+      "settings:integrations",
+      "settings:production_defaults",
+      "settings:lowerthird_config",
+      "settings:notifications",
+      "settings:api_keys",
+      "settings:webhooks",
+      "settings:danger_zone",
+      "org:delete",
+    ], context.slug, context.orgId);
+    const canReadMembers = hasPermission(context.role, "settings:members");
     const [settings, members] = await Promise.all([
       getOrgSettings({ data: { orgId: context.orgId } }),
-      getOrgMembers({ data: { orgId: context.orgId } }),
+      canReadMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
     ]);
     return {
       settings,
@@ -99,28 +115,22 @@ function SettingsPage() {
     useState<Record<string, string>>(settings);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Permission checks using Better Auth access control
-  const typedRole = role as "owner" | "admin" | "pm" | "tm" | "stageManager" | "member";
-  const canEditSettings = authClient.organization.checkRolePermission({
-    permissions: { settings: ["update"] },
-    role: typedRole,
-  });
-  const canDeleteOrg = authClient.organization.checkRolePermission({
-    permissions: { organization: ["delete"] },
-    role: typedRole,
-  });
-  const canManageMembers = authClient.organization.checkRolePermission({
-    permissions: { member: ["create"] },
-    role: typedRole,
-  });
-  const canManageKiosk = authClient.organization.checkRolePermission({
-    permissions: { kiosk: ["create"] },
-    role: typedRole,
-  });
-  const canViewIntegrations = authClient.organization.checkRolePermission({
-    permissions: { integrations: ["read"] },
-    role: typedRole,
-  });
+  const canEditSettings = hasAnyPermission(role, [
+    "settings:organization",
+    "settings:integrations",
+    "settings:production_defaults",
+    "settings:lowerthird_config",
+    "settings:notifications",
+    "settings:billing",
+    "settings:api_keys",
+    "settings:webhooks",
+    "settings:danger_zone",
+    "org:delete",
+  ]);
+  const canDeleteOrg = hasPermission(role, "org:delete");
+  const canManageMembers = hasPermission(role, "settings:members");
+  const canManageKiosk = hasPermission(role, "settings:integrations");
+  const canViewIntegrations = hasPermission(role, "settings:integrations");
 
   // Filter nav items based on permissions
   const visibleNavItems = NAV_ITEMS.filter((item) => {
@@ -153,9 +163,9 @@ function SettingsPage() {
   const sectionProps = { orgId, slug, org, getSetting, saveSetting, members };
 
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col lg:flex-row overflow-hidden">
       {/* Settings nav — horizontal scroll on mobile, vertical sidebar on desktop */}
-      <nav className="shrink-0 border-b md:border-b-0 md:border-r border-board-border bg-board-bg md:w-56 md:overflow-y-auto">
+      <nav className="shrink-0 border-b lg:border-b-0 lg:border-r border-board-border bg-board-bg lg:w-56 lg:overflow-y-auto">
         <div className="p-3 md:p-4">
           <button
             onClick={() => router.history.back()}
@@ -164,7 +174,7 @@ function SettingsPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
           </button>
-          <div className="flex md:flex-col gap-1.5 md:gap-0.5 overflow-x-auto hide-scrollbar pb-1 md:pb-0">
+          <div className="flex lg:flex-col gap-1.5 lg:gap-0.5 overflow-x-auto hide-scrollbar pb-1 lg:pb-0">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
@@ -172,7 +182,7 @@ function SettingsPage() {
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`flex items-center gap-2 md:gap-2.5 px-3 py-2 rounded-lg text-xs md:text-sm transition-colors whitespace-nowrap min-h-[44px] md:min-h-0 md:w-full ${
+                  className={`flex items-center gap-2 lg:gap-2.5 px-3 py-2 rounded-lg text-xs md:text-sm transition-colors whitespace-nowrap min-h-[44px] lg:min-h-0 lg:w-full ${
                     isActive
                       ? "bg-fire-500/15 text-fire-500"
                       : item.id === "danger"
@@ -191,7 +201,7 @@ function SettingsPage() {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto min-h-0">
-        <div className="max-w-3xl mx-auto p-4 md:p-6">
+        <div className="max-w-3xl mx-auto p-4 md:p-6 safe-area-bottom">
           {activeSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}

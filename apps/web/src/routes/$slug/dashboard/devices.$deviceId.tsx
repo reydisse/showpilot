@@ -5,8 +5,10 @@ import { useDeviceModule } from "@/hooks/useDeviceModule";
 import { DeviceControlPanel } from "@/components/devices/DeviceControlPanel";
 
 export const Route = createFileRoute("/$slug/dashboard/devices/$deviceId")({
-  loader: async ({ params }) => {
-    const device = await getDevice({ data: { id: params.deviceId } });
+  loader: async ({ context, params }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "devices:access", params.slug, context.orgId);
+    const device = await getDevice({ data: { orgId: context.orgId, id: params.deviceId } });
     if (!device) throw new Error("Device not found");
     return { device };
   },
@@ -21,40 +23,40 @@ function DeviceDetailPage() {
     useDeviceModule(device, context.orgId);
 
   return (
-    <div className="min-h-screen bg-board-bg p-4 md:p-6">
+    <div className="min-h-[100dvh] bg-board-bg p-4 md:p-6">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           <Link
             to={`/${slug}/dashboard/devices`}
             className="rounded-lg border border-board-border bg-board-card p-2 text-board-muted hover:text-board-text transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold text-board-text">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-board-text truncate">
               {device.name}
             </h1>
-            <p className="text-xs text-board-muted">
+            <p className="text-xs text-board-muted truncate">
               {definition?.displayName ?? device.adapterType}
             </p>
           </div>
         </div>
 
         {/* Connection controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <ConnectionBadge status={status} />
           {status === "connected" ? (
             <button
               onClick={disconnect}
-              className="rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-muted hover:text-red-400 hover:border-red-500/20 transition-colors"
+              className="min-h-[44px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-muted hover:text-red-400 hover:border-red-500/20 transition-colors"
             >
               Disconnect
             </button>
           ) : status === "disconnected" || status === "error" ? (
             <button
               onClick={connect}
-              className="rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
+              className="min-h-[44px] rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
             >
               Connect
             </button>

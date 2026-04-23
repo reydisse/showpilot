@@ -9,6 +9,10 @@ import { AutomationEventEditor } from "@/components/timecode/AutomationEventEdit
 import { DEMO_EVENTS } from "@/lib/seed-timecode-demo";
 
 export const Route = createFileRoute("/$slug/timecode")({
+  beforeLoad: async ({ context, params }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "timecode:access", params.slug, context.orgId);
+  },
   component: TimecodePage,
 });
 

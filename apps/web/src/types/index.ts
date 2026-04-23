@@ -51,7 +51,7 @@ export const DEPARTMENTS: Record<RoleDepartment, DepartmentConfig> = {
   production: {
     label: "Production",
     color: "bg-orange-500/15 text-orange-400 border-orange-500/25",
-    roles: ["Stage Manager", "Show Caller", "Production Manager", "Floor Manager"],
+    roles: ["Stage Manager", "Stage Hand", "Show Caller", "Production Manager", "Floor Manager"],
     patterns: ["producer", "production"],
   },
   camera: {

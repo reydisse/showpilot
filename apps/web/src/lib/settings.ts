@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { hasPermission, normalizeRole, type Permission } from "@/lib/app-permissions";
 
-async function assertOrgAccess(orgId: string) {
+async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -12,9 +13,50 @@ async function assertOrgAccess(orgId: string) {
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
     where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
+    select: { role: true },
   });
-  if (!member) throw new Error("Forbidden");
+  const role = normalizeRole(member?.role ?? null);
+  if (!role) throw new Error("Forbidden");
+  return role;
+}
+
+async function assertOrgAccess(orgId: string) {
+  await getOrgMemberRole(orgId);
+}
+
+async function assertOrgPermission(orgId: string, permission: Permission) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, permission)) throw new Error("Forbidden");
+}
+
+function permissionForSettingKey(key: string): Permission {
+  if (key === "api-key") return "settings:api_keys";
+  if (key === "webhook-url") return "settings:webhooks";
+  if (key.startsWith("notify-")) return "settings:notifications";
+  if (key.startsWith("l3-")) return "settings:lowerthird_config";
+  if (
+    key === "chat-adapter" ||
+    key === "rundown-adapter" ||
+    key.startsWith("slack-") ||
+    key.startsWith("mattermost-") ||
+    key.startsWith("teams-") ||
+    key.startsWith("discord-") ||
+    key.startsWith("ontime-") ||
+    key.startsWith("propresenter-") ||
+    key.startsWith("pco-")
+  ) {
+    return "settings:integrations";
+  }
+  if (
+    key.startsWith("default-") ||
+    key === "clock-format" ||
+    key === "timezone-display" ||
+    key === "overtime-behavior"
+  ) {
+    return "settings:production_defaults";
+  }
+  if (key.startsWith("org-")) return "settings:organization";
+  return "settings:organization";
 }
 
 // ─── Org Settings (AppSetting table) ────────────────────────
@@ -37,7 +79,7 @@ export const getOrgSettings = createServerFn({ method: "GET" })
 export const updateOrgSetting = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; key: string; value: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
     const prisma = getPrisma();
     return await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
@@ -52,7 +94,9 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
       data
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    for (const setting of data.settings) {
+      await assertOrgPermission(data.orgId, permissionForSettingKey(setting.key));
+    }
     const prisma = getPrisma();
     const results = [];
     for (const s of data.settings) {
@@ -71,7 +115,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
 export const getOrgMembers = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     return await prisma.member.findMany({
       where: { organizationId: data.orgId },
@@ -84,7 +128,7 @@ export const getOrgMembers = createServerFn({ method: "GET" })
 export const regenerateApiKey = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:api_keys");
     const prisma = getPrisma();
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -220,7 +264,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
 export const deleteOrgSettings = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; keys: string[] }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:danger_zone");
     const prisma = getPrisma();
     await prisma.appSetting.deleteMany({
       where: { orgId: data.orgId, key: { in: data.keys } },

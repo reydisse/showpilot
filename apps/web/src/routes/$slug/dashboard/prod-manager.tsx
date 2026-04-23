@@ -31,6 +31,8 @@ const DEPT_ORDER: RoleDepartment[] = [
 export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "dashboard:pm", context.slug, context.orgId);
     const today = getTodayDateString();
     const [members, templates, entries, incidents, cueItems] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),

@@ -24,10 +24,20 @@ const ROLE_GROUP_ORDER: RoleDepartment[] = [
   "technical",
 ];
 
+const CUSTOM_ROLE_VALUE = "__custom__";
+const BUILT_IN_ROLES = ROLE_GROUP_ORDER.flatMap((dept) => DEPARTMENTS[dept].roles);
+const BUILT_IN_ROLE_SET = new Set(BUILT_IN_ROLES);
+
 export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps) {
+  const initialRole = member?.role || "";
+  const initialUsesCustomRole = Boolean(initialRole) && !BUILT_IN_ROLE_SET.has(initialRole);
   const [memberId, setMemberId] = useState(member?.memberId || "");
   const [name, setName] = useState(member?.name || "");
-  const [role, setRole] = useState(member?.role || "");
+  const [role, setRole] = useState(initialRole);
+  const [selectedRole, setSelectedRole] = useState(
+    initialUsesCustomRole ? CUSTOM_ROLE_VALUE : initialRole
+  );
+  const [customRole, setCustomRole] = useState(initialUsesCustomRole ? initialRole : "");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -161,8 +171,16 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
               </label>
               <div className="relative">
                 <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
+                  value={selectedRole}
+                  onChange={(e) => {
+                    const nextRole = e.target.value;
+                    setSelectedRole(nextRole);
+                    if (nextRole === CUSTOM_ROLE_VALUE) {
+                      setRole(customRole.trim());
+                    } else {
+                      setRole(nextRole);
+                    }
+                  }}
                   className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text outline-none transition-all duration-200 focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 appearance-none pr-10"
                 >
                   <option value="" disabled>
@@ -178,11 +196,25 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
                           </option>
                         ))}
                       </optgroup>
-                    );
-                  })}
+                      );
+                    })}
+                  <option value={CUSTOM_ROLE_VALUE}>Custom role...</option>
                 </select>
                 <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-board-muted pointer-events-none" />
               </div>
+              {selectedRole === CUSTOM_ROLE_VALUE && (
+                <input
+                  type="text"
+                  value={customRole}
+                  onChange={(e) => {
+                    const nextRole = e.target.value;
+                    setCustomRole(nextRole);
+                    setRole(nextRole);
+                  }}
+                  placeholder="e.g. Set Builder"
+                  className="mt-3 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20"
+                />
+              )}
             </div>
           </div>
 

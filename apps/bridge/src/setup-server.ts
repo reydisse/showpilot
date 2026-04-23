@@ -7,12 +7,17 @@ export interface BridgeConfig {
   org: string;
   key?: string;
   url?: string;
+  propresenterHost?: string;
+  propresenterPort?: number;
+  propresenterPassword?: string;
+  propresenterApiPort?: number;
 }
 
 export interface SetupState {
   config: BridgeConfig | null;
   bridgeRunning: boolean;
   bridgeStatus: string;
+  debug?: Record<string, unknown>;
 }
 
 const CONFIG_FILES = ["showpilot-bridge.config.json", "bridge.config.json"];
@@ -28,6 +33,11 @@ export function loadConfigFile(): BridgeConfig | null {
           site: parsed.site,
           org: parsed.org,
           key: parsed.key,
+          url: parsed.url,
+          propresenterHost: parsed.propresenterHost,
+          propresenterPort: parsed.propresenterPort,
+          propresenterPassword: parsed.propresenterPassword,
+          propresenterApiPort: parsed.propresenterApiPort,
         };
       }
     } catch {
@@ -84,7 +94,19 @@ export function startSetupServer(
         site: (form.get("site") || "").trim(),
         org: (form.get("org") || "").trim(),
         key: (form.get("key") || "").trim() || undefined,
+        propresenterHost: (form.get("propresenterHost") || "").trim() || undefined,
+        propresenterPassword: (form.get("propresenterPassword") || "").trim() || undefined,
       };
+
+      const propresenterPort = Number.parseInt((form.get("propresenterPort") || "").trim(), 10);
+      if (Number.isFinite(propresenterPort) && propresenterPort > 0) {
+        config.propresenterPort = propresenterPort;
+      }
+
+      const propresenterApiPort = Number.parseInt((form.get("propresenterApiPort") || "").trim(), 10);
+      if (Number.isFinite(propresenterApiPort) && propresenterApiPort > 0) {
+        config.propresenterApiPort = propresenterApiPort;
+      }
 
       if (!config.site || !config.org) {
         res.writeHead(400, { "Content-Type": "text/plain" });
@@ -156,6 +178,22 @@ export function startSetupServer(
           </div>
           <label for="key">API key</label>
           <input id="key" name="key" placeholder="sp_..." value="${escapeHtml(config?.key ?? "")}" />
+          <div class="muted" style="margin-top:18px">ProPresenter</div>
+          <p class="muted">Optional. If set, the bridge connects to ProPresenter automatically.</p>
+          <label for="propresenterHost">ProPresenter host</label>
+          <input id="propresenterHost" name="propresenterHost" placeholder="192.168.2.48" value="${escapeHtml(config?.propresenterHost ?? "")}" />
+          <div class="grid">
+            <div>
+              <label for="propresenterPort">Stage port</label>
+              <input id="propresenterPort" name="propresenterPort" placeholder="50001" value="${escapeHtml(config?.propresenterPort ? String(config.propresenterPort) : "")}" />
+            </div>
+            <div>
+              <label for="propresenterApiPort">API port</label>
+              <input id="propresenterApiPort" name="propresenterApiPort" placeholder="1025" value="${escapeHtml(config?.propresenterApiPort ? String(config.propresenterApiPort) : "")}" />
+            </div>
+          </div>
+          <label for="propresenterPassword">Stage app password</label>
+          <input id="propresenterPassword" name="propresenterPassword" placeholder="Password from PP" value="${escapeHtml(config?.propresenterPassword ?? "")}" />
           <button type="submit">Start Bridge</button>
         </form>
       </div>

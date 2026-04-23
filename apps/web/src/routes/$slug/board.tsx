@@ -23,6 +23,8 @@ const MEMBERS_PER_PAGE = 8;
 export const Route = createFileRoute("/$slug/board")({
   pendingComponent: () => <BoardSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "showboard:view", context.slug, context.orgId);
     const [members, clockFormat] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
       getClockFormat({ data: { orgId: context.orgId } }),
@@ -183,7 +185,7 @@ function QRCodePanel({ slug }: { slug: string }) {
   const [checkinUrl, setCheckinUrl] = useState("");
 
   useEffect(() => {
-    setCheckinUrl(`${window.location.origin}/${slug}/checkin`);
+    setCheckinUrl(`${window.location.origin}/checkin/${slug}`);
   }, [slug]);
 
   if (!checkinUrl) return null;
@@ -214,9 +216,31 @@ function QRCodePanel({ slug }: { slug: string }) {
 // ─── Show Board Page ─────────────────────────────────────────
 
 function ShowBoardPage() {
-  const { members, slug, clockFormat } = Route.useLoaderData();
+  const { members: initialMembers, slug, orgId, clockFormat } = Route.useLoaderData();
+  const [members, setMembers] = useState(initialMembers);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshMembers = async () => {
+      try {
+        const latest = await getCrewMembers({ data: { orgId } });
+        if (!cancelled) {
+          setMembers(latest as Member[]);
+        }
+      } catch {
+        // Keep showing the last known board state.
+      }
+    };
+
+    const interval = setInterval(refreshMembers, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [orgId]);
 
   useEffect(() => {
     const handleChange = () => setIsFullscreen(!!document.fullscreenElement);

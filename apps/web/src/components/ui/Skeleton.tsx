@@ -57,7 +57,7 @@ export function CardSkeleton({ count = 3 }: { count?: number }) {
 /** Skeleton for the board / full-screen views */
 export function BoardSkeleton() {
   return (
-    <div className="h-screen bg-board-bg p-6 space-y-4">
+    <div className="min-h-[100dvh] bg-board-bg p-6 space-y-4">
       <div className="flex items-center justify-between">
         <Pulse className="h-10 w-64" />
         <div className="flex gap-2">
@@ -77,7 +77,7 @@ export function BoardSkeleton() {
 /** Skeleton for auth pages (login, setup, etc.) */
 export function AuthSkeleton() {
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex items-center justify-center min-h-[100dvh]">
       <div className="w-full max-w-md px-4 space-y-6">
         <div className="flex flex-col items-center gap-2">
           <Pulse className="h-8 w-32" />

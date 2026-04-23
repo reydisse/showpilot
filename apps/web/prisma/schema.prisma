@@ -80,9 +80,11 @@ model Organization {
   name        String
   slug        String
   logo        String?
+  cloud_enabled Boolean    @default(false)
   createdAt   DateTime
   metadata    String?
   members     Member[]
+  orgMembers  OrgMember[]
   invitations Invitation[]
 
   // App relations
@@ -120,6 +122,29 @@ model Member {
   @@index([organizationId])
   @@index([userId])
   @@map("member")
+}
+
+model OrgMember {
+  id           String       @id
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role         Role
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+  @@index([userId])
+  @@map("org_member")
+}
+
+enum Role {
+  owner
+  admin
+  pm
+  tm
+  sm
+  member
 }
 
 model Invitation {

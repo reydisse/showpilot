@@ -15,12 +15,15 @@ import {
   setActiveGraphic,
   getActiveGraphic,
 } from "@/lib/graphics";
+import { hasPermission } from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug/streaming/lt-preview")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
     const active = await getActiveGraphic({ data: { orgId: context.orgId } });
-    return { orgId: context.orgId, activeId: active?.id ?? null };
+    return { orgId: context.orgId, activeId: active?.id ?? null, role: context.role };
   },
   component: TemplatePreviewPage,
 });
@@ -781,8 +784,10 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
-  const { orgId, activeId: initialActiveId } = Route.useLoaderData();
+  const { orgId, activeId: initialActiveId, role } = Route.useLoaderData();
   const router = useRouter();
+  const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
+  const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visible, setVisible] = useState(true);
   const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES | "custom">("person");
@@ -827,6 +832,7 @@ function TemplatePreviewPage() {
   };
 
   const handleSave = async () => {
+    if (!canConfigureGraphics) return;
     const text = getCurrentText();
     if (!text.primary.trim()) return;
     setSaving(true);
@@ -846,6 +852,7 @@ function TemplatePreviewPage() {
   };
 
   const handlePushLive = async () => {
+    if (!canTriggerGraphics) return;
     const text = getCurrentText();
     if (!text.primary.trim()) return;
     setPushing(true);
@@ -874,6 +881,7 @@ function TemplatePreviewPage() {
   };
 
   const handleClearLive = async () => {
+    if (!canTriggerGraphics) return;
     await setActiveGraphic({ data: { orgId, graphicId: null } });
     setActiveId(null);
   };
@@ -990,15 +998,17 @@ function TemplatePreviewPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={handlePushLive}
-                disabled={pushing || (sampleKey === "custom" && !customPrimary.trim())}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
-              >
-                <Play className="w-3.5 h-3.5" />
-                {pushing ? "Pushing..." : "Push Live"}
-              </button>
-              {activeId && (
+              {canTriggerGraphics && (
+                <button
+                  onClick={handlePushLive}
+                  disabled={pushing || (sampleKey === "custom" && !customPrimary.trim())}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  {pushing ? "Pushing..." : "Push Live"}
+                </button>
+              )}
+              {canTriggerGraphics && activeId && (
                 <button
                   onClick={handleClearLive}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
@@ -1007,14 +1017,16 @@ function TemplatePreviewPage() {
                   Clear
                 </button>
               )}
-              <button
-                onClick={handleSave}
-                disabled={saving || (sampleKey === "custom" && !customPrimary.trim())}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
-              >
-                <Save className="w-3.5 h-3.5" />
-                {saving ? "Saving..." : "Save to Library"}
-              </button>
+              {canConfigureGraphics && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving || (sampleKey === "custom" && !customPrimary.trim())}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {saving ? "Saving..." : "Save to Library"}
+                </button>
+              )}
               {savedMsg && (
                 <span className="text-xs text-green-400 font-medium">{savedMsg}</span>
               )}

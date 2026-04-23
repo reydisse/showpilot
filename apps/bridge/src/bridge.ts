@@ -2,12 +2,18 @@ import WebSocket from "ws";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
-import { ProPresenterBridge } from "./protocols/propresenter.js";
+import { ProPresenterBridge, type PPBridgeDebugState } from "./protocols/propresenter.js";
 
 interface BridgeOptions {
   url: string;
   key?: string;
   reconnect?: boolean;
+  propresenter?: {
+    host: string;
+    port?: number;
+    apiPort?: number;
+    password?: string;
+  };
 }
 
 interface CommandMessage {
@@ -42,11 +48,25 @@ export class Bridge {
   private udpConnections = new Map<string, UdpConnection>();
   private ppConnections = new Map<string, ProPresenterBridge>();
   private startTime = Date.now();
+  private propresenter?: BridgeOptions["propresenter"];
 
   constructor(options: BridgeOptions) {
     this.url = options.url;
     this.key = options.key;
     this.reconnect = options.reconnect ?? true;
+    this.propresenter = options.propresenter;
+  }
+
+  getStatus() {
+    const propresenter: Record<string, PPBridgeDebugState> = {};
+    for (const [target, bridge] of this.ppConnections.entries()) {
+      propresenter[target] = bridge.getDebugState();
+    }
+
+    return {
+      connectedToShowPilot: this.ws?.readyState === WebSocket.OPEN,
+      propresenter,
+    };
   }
 
   start(): void {
@@ -79,6 +99,10 @@ export class Bridge {
     this.ws.on("open", () => {
       console.log("[bridge] Connected to ShowPilot");
       this.sendStatus();
+      void this.ensureProPresenterConnection();
+      for (const pp of this.ppConnections.values()) {
+        pp.replayCurrentSlide();
+      }
     });
 
     this.ws.on("message", (data) => {
@@ -137,7 +161,7 @@ export class Bridge {
           await this.executeUdpCommand(msg.target, msg.command);
           break;
         case "propresenter":
-          this.executePPCommand(msg.target, msg.command);
+          await this.executePPCommand(msg.target, msg.command);
           break;
         case "wol":
           await this.executeWol(msg.command);
@@ -169,28 +193,7 @@ export class Bridge {
 
     try {
       if (msg.protocol === "propresenter") {
-        if (!this.ppConnections.has(key)) {
-          const ppHost = (msg.settings?.host as string) || host;
-          const ppPortRaw = msg.settings?.port ?? portStr;
-          const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
-          if (!ppHost || !Number.isFinite(ppPort) || ppPort <= 0) {
-            throw new Error("ProPresenter host and port are required");
-          }
-          const password = (msg.settings?.password as string) || "";
-          const pp = new ProPresenterBridge({
-            host: ppHost,
-            port: ppPort,
-            password,
-            onSlideChange: (data) => {
-              this.send({ type: "device-event", target: key, eventName: "slide", data: JSON.stringify(data) });
-            },
-            onStatusChange: (connected) => {
-              this.send({ type: "device-status", target: key, connected });
-            },
-          });
-          pp.connect();
-          this.ppConnections.set(key, pp);
-        }
+        await this.connectProPresenter(key, msg.settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
@@ -243,11 +246,65 @@ export class Bridge {
 
   // ─── Protocol Execution ─────────────────────────────────
 
-  private executePPCommand(target: string, command: string): void {
+  private async executePPCommand(target: string, command: string): Promise<void> {
     const pp = this.ppConnections.get(target);
     if (pp) {
-      pp.sendCommand(command);
+      await pp.sendCommand(command);
     }
+  }
+
+  private async ensureProPresenterConnection(): Promise<void> {
+    if (!this.propresenter?.host) {
+      return;
+    }
+
+    const effectivePort = this.propresenter.port ?? this.propresenter.apiPort ?? 1025;
+    const target = `propresenter:${this.propresenter.host}:${effectivePort}`;
+    if (this.ppConnections.has(target)) return;
+
+    await this.connectProPresenter(target, {
+      host: this.propresenter.host,
+      port: effectivePort,
+      apiPort: this.propresenter.apiPort,
+      password: this.propresenter.password,
+    });
+  }
+
+  private async connectProPresenter(target: string, settings?: Record<string, unknown>): Promise<void> {
+    if (this.ppConnections.has(target)) return;
+
+    const [fallbackHost, fallbackPort] = target.split(":").slice(-2);
+    const ppHost = (settings?.host as string) || fallbackHost;
+    const ppPortRaw = settings?.port ?? settings?.apiPort ?? fallbackPort;
+    const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
+    const apiPortRaw = settings?.apiPort ?? settings?.api_port ?? settings?.["api-port"];
+    const ppApiPort = Number.parseInt(String(apiPortRaw || ""), 10);
+    if (!ppHost || !Number.isFinite(ppPort) || ppPort <= 0) {
+      throw new Error("ProPresenter host and port are required");
+    }
+
+    const password = (settings?.password as string) || "";
+    const pp = new ProPresenterBridge({
+      host: ppHost,
+      port: ppPort,
+      apiPort: Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
+      password,
+      onSlideChange: (data) => {
+        if (!data) {
+          console.log("[pp-bridge] Clearing forwarded slide");
+          this.send({ type: "device-event", target, eventName: "slide", data: "null" });
+          return;
+        }
+        const text = typeof data.text === "string" ? data.text : "";
+        console.log(`[pp-bridge] Forwarding slide: ${text.slice(0, 80).replace(/\s+/g, " ")}`);
+        this.send({ type: "device-event", target, eventName: "slide", data: JSON.stringify(data) });
+      },
+      onStatusChange: (connected) => {
+        this.send({ type: "device-status", target, connected });
+      },
+    });
+    pp.connect();
+    this.ppConnections.set(target, pp);
   }
 
   private async executeTcpCommand(target: string, command: string): Promise<string> {

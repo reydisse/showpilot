@@ -63,6 +63,8 @@ function parseStyle(json: string) {
 export const Route = createFileRoute("/$slug/streaming/graphics")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
     const [templates, active] = await Promise.all([
       getGraphicTemplates({ data: { orgId: context.orgId } }),
       getActiveGraphic({ data: { orgId: context.orgId } }),
@@ -104,7 +106,7 @@ function GraphicsPage() {
       setActiveId(null);
       await setActiveGraphic({ data: { orgId, graphicId: null } });
     }
-    await deleteGraphicTemplate({ data: { id } });
+    await deleteGraphicTemplate({ data: { orgId, id } });
     router.invalidate();
   };
 
@@ -120,8 +122,8 @@ function GraphicsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               Lower Thirds
@@ -143,23 +145,25 @@ function GraphicsPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-3xl mx-auto space-y-5">
+      <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
         {/* Active indicator */}
         {activeId && (
-          <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
+              <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
               <span className="text-sm font-medium text-fire-500">
                 Graphic on air
               </span>
             </div>
-            <button
-              onClick={handleStop}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
-            >
-              <Square className="w-3 h-3" />
-              Clear
-            </button>
+              {canTriggerGraphics && (
+                <button
+                  onClick={handleStop}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
+                >
+                  <Square className="w-3 h-3" />
+                  Clear
+                </button>
+              )}
           </div>
         )}
 
@@ -207,23 +211,25 @@ function GraphicsPage() {
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <button
-                      onClick={() =>
-                        isActive ? handleStop() : handleTrigger(template.id)
-                      }
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
-                        isActive
-                          ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                          : "bg-fire-500/15 text-fire-500 hover:bg-fire-500/25"
-                      }`}
-                      title={isActive ? "Stop graphic" : "Show graphic"}
-                    >
-                      {isActive ? (
-                        <Square className="w-4 h-4" />
-                      ) : (
-                        <Play className="w-4 h-4" />
-                      )}
-                    </button>
+                    {canTriggerGraphics && (
+                      <button
+                        onClick={() =>
+                          isActive ? handleStop() : handleTrigger(template.id)
+                        }
+                        className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                          isActive
+                            ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                            : "bg-fire-500/15 text-fire-500 hover:bg-fire-500/25"
+                        }`}
+                        title={isActive ? "Stop graphic" : "Show graphic"}
+                      >
+                        {isActive ? (
+                          <Square className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -248,23 +254,25 @@ function GraphicsPage() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        onClick={() => {
-                          setEditTemplate(template);
-                          setShowForm(true);
-                        }}
-                        className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(template.id)}
-                        className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
+                    {canConfigureGraphics && (
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            setEditTemplate(template);
+                            setShowForm(true);
+                          }}
+                          className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(template.id)}
+                          className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {isActive && (
@@ -322,7 +330,7 @@ function GraphicsPage() {
         </div>
 
         {/* Add/Edit Form Modal */}
-        {showForm && (
+        {canConfigureGraphics && showForm && (
           <GraphicFormModal
             existing={editTemplate}
             orgId={orgId}
@@ -377,6 +385,7 @@ function GraphicFormModal({
     if (existing) {
       await updateGraphicTemplate({
         data: {
+          orgId,
           id: existing.id,
           updates: {
             name: name.trim() || title.trim(),

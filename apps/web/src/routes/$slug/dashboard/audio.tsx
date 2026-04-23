@@ -59,6 +59,8 @@ function formatDisplayDate(dateStr: string): string {
 export const Route = createFileRoute("/$slug/dashboard/audio")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
     const today = getTodayDateString();
     const assignments = await getMicAssignments({
       data: { orgId: context.orgId, serviceDate: today },

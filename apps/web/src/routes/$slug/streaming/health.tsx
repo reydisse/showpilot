@@ -29,6 +29,8 @@ import {
 export const Route = createFileRoute("/$slug/streaming/health")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "stream_health:view", context.slug, context.orgId);
     const inputs = await getLiveInputs({ data: { orgId: context.orgId } });
     return { inputs, orgId: context.orgId };
   },
@@ -111,8 +113,8 @@ function StreamHealthPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               Stream Health
@@ -121,24 +123,26 @@ function StreamHealthPage() {
               Live inputs, encoder setup, and health monitoring
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             {polling && (
               <RefreshCw className="w-3.5 h-3.5 text-board-muted animate-spin" />
             )}
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-              Add Input
-            </button>
+            {canManageStreamHealth && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Add Input
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="p-4 rounded-xl bg-board-card border border-board-border">
             <div className="flex items-center gap-2 mb-2">
               <Radio className={`w-4 h-4 ${liveCount > 0 ? "text-green-400" : "text-board-muted"}`} />
@@ -192,13 +196,15 @@ function StreamHealthPage() {
             <p className="text-xs text-board-muted/50 mb-4">
               Create a Cloudflare Stream live input to start receiving video from your encoder
             </p>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-white text-sm font-semibold hover:bg-fire-600 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Create Live Input
-            </button>
+            {canManageStreamHealth && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-white text-sm font-semibold hover:bg-fire-600 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Create Live Input
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -246,12 +252,14 @@ function StreamHealthPage() {
                         </span>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDelete(input.id)}
-                      className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canManageStreamHealth && (
+                      <button
+                        onClick={() => handleDelete(input.id)}
+                        className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Connection details */}

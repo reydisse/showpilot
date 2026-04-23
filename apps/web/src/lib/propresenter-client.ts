@@ -22,6 +22,8 @@ export interface PPSlideData {
   isScripture: boolean;
   /** Timestamp when slide was received */
   receivedAt: number;
+  /** Stable slide identity if PP provides one */
+  slideId?: string;
 }
 
 export type PPConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -61,12 +63,14 @@ export class ProPresenterClient {
   private maxReconnectAttempts = 10;
   private destroyed = false;
   private currentSlide: PPSlideData | null = null;
+  private lastSlideKey = "";
 
   // Polling state
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollFn: ((host: string, port: number) => Promise<PPSlideData | null>) | null = null;
   private pollPort: number | null = null;
   private lastPollText = "";
+  private pollingOnly = false;
 
   // Debug tracking
   private wsMessagesReceived = 0;
@@ -74,6 +78,7 @@ export class ProPresenterClient {
   private wsSlideReceived = false;
   private pollSuccessCount = 0;
   private lastPollResult: string | null = null;
+  private noSlideSince = 0;
 
   constructor(options: PPClientOptions) {
     this.options = options;
@@ -88,6 +93,7 @@ export class ProPresenterClient {
     if (this.destroyed) return;
     this.pollFn = pollFn || null;
     this.pollPort = apiPort || null;
+    this.pollingOnly = false;
     this.clearReconnectTimer();
     this.options.onStatusChange("connecting");
 
@@ -135,6 +141,10 @@ export class ProPresenterClient {
 
       this.ws.onclose = () => {
         if (!this.destroyed) {
+          if (this.pollingOnly && this.pollFn) {
+            // WebSocket failed, but polling is keeping the connection alive.
+            return;
+          }
           this.options.onStatusChange("disconnected");
           this.stopPolling();
           this.scheduleReconnect();
@@ -145,12 +155,12 @@ export class ProPresenterClient {
         // WS failed — try polling-only mode if we have a poll function
         if (this.pollFn && !this.destroyed) {
           console.log("[PP] WebSocket failed, trying REST polling only");
+          this.pollingOnly = true;
           this.options.onStatusChange("connected");
           this.startPolling();
         } else {
           this.options.onStatusChange("error", "Connection failed");
         }
-        this.ws?.close();
       };
     } catch (err) {
       this.options.onStatusChange("error", `Failed to connect: ${err}`);
@@ -161,6 +171,9 @@ export class ProPresenterClient {
   /** Disconnect and stop reconnecting */
   disconnect(): void {
     this.destroyed = true;
+    this.pollingOnly = false;
+    this.lastSlideKey = "";
+    this.noSlideSince = 0;
     this.clearReconnectTimer();
     this.stopPolling();
     if (this.ws) {
@@ -209,17 +222,31 @@ export class ProPresenterClient {
       try {
         const slide = await this.pollFn(this.options.host, this.pollPort ?? this.options.port);
         if (slide && slide.text) {
+          this.noSlideSince = 0;
           this.pollSuccessCount++;
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
 
           // Only emit change if text actually changed
-          if (slide.text !== this.lastPollText) {
+          const slideKey = slide.slideId || slide.text;
+          if (slideKey !== this.lastSlideKey) {
+            this.lastSlideKey = slideKey;
             this.lastPollText = slide.text;
             this.currentSlide = slide;
             this.options.onSlideChange(slide);
           }
         } else {
           this.lastPollResult = "No slide data";
+          if (this.currentSlide) {
+            if (!this.noSlideSince) {
+              this.noSlideSince = Date.now();
+            }
+            if (Date.now() - this.noSlideSince >= 1500) {
+              this.currentSlide = null;
+              this.lastSlideKey = "";
+              this.lastPollText = "";
+              this.options.onSlideChange(null);
+            }
+          }
         }
       } catch (err) {
         this.lastPollResult = `Error: ${err}`;
@@ -264,7 +291,10 @@ export class ProPresenterClient {
 
         if (text) {
           this.wsSlideReceived = true;
-          this.stopPolling(); // WS is working, no need to poll
+          this.noSlideSince = 0;
+          const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+          if (slideKey === this.lastSlideKey) return;
+          this.lastSlideKey = slideKey;
           this.currentSlide = {
             text,
             notes,
@@ -272,6 +302,7 @@ export class ProPresenterClient {
             slideIndex: (data.si as number) || 0,
             isScripture,
             receivedAt: Date.now(),
+            slideId: slideKey,
           };
           this.options.onSlideChange(this.currentSlide);
           this.emitDebug();
@@ -285,7 +316,10 @@ export class ProPresenterClient {
       const text = this.extractTextFromAny(data);
       if (text) {
         this.wsSlideReceived = true;
-        this.stopPolling();
+        this.noSlideSince = 0;
+        const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+        if (slideKey === this.lastSlideKey) return;
+        this.lastSlideKey = slideKey;
         this.currentSlide = {
           text,
           notes: "",
@@ -293,6 +327,7 @@ export class ProPresenterClient {
           slideIndex: 0,
           isScripture: false,
           receivedAt: Date.now(),
+          slideId: slideKey,
         };
         this.options.onSlideChange(this.currentSlide);
         this.emitDebug();
@@ -305,7 +340,10 @@ export class ProPresenterClient {
       const text = this.extractTextFromAny(data);
       if (text && text.length > 1) {
         this.wsSlideReceived = true;
-        this.stopPolling();
+        this.noSlideSince = 0;
+        const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
+        if (slideKey === this.lastSlideKey) return;
+        this.lastSlideKey = slideKey;
         this.currentSlide = {
           text,
           notes: "",
@@ -313,6 +351,7 @@ export class ProPresenterClient {
           slideIndex: (data.si as number) || (data.slideIndex as number) || 0,
           isScripture: false,
           receivedAt: Date.now(),
+          slideId: slideKey,
         };
         this.options.onSlideChange(this.currentSlide);
         this.emitDebug();

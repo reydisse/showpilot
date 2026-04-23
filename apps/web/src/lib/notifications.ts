@@ -5,27 +5,26 @@
  * and notification permission management.
  */
 
-/** Register the service worker if supported */
-export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
-    return null;
+/** Remove any existing service worker and cached assets. */
+export async function clearServiceWorkerState(): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
   }
 
   try {
     // Existing SW cache has been causing stale HTML to be served for JS assets.
     // Unregister any prior workers and clear caches so the app can hydrate cleanly.
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((reg) => reg.unregister()));
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((reg) => reg.unregister()));
+    }
 
     if ("caches" in window) {
       const keys = await caches.keys();
       await Promise.all(keys.map((key) => caches.delete(key)));
     }
-
-    return null;
   } catch (err) {
-    console.warn("[ShowPilot] Service worker registration failed:", err);
-    return null;
+    console.warn("[ShowPilot] Service worker cleanup failed:", err);
   }
 }
 

@@ -38,8 +38,8 @@ interface UseRundownSyncReturn {
   connected: boolean;
   /** True after we've received at least one hydrate/state message from the DO */
   hydrated: boolean;
-  /** ProPresenter slide data from gateway bridge (null = no slide / cleared) */
-  ppSlide: PPSlideState | null;
+  /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
+  ppPreviewSlide: PPSlideState | null;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (items: RundownItem[], timer: TimerState) => void;
@@ -57,7 +57,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   });
   const [connected, setConnected] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [ppSlide, setPpSlide] = useState<PPSlideState | null>(null);
+  const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -92,9 +92,9 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
           if (msg.state.timer) {
             setTimer(msg.state.timer);
           }
-          // PP slide data from gateway bridge
-          if (msg.state.ppSlide !== undefined) {
-            setPpSlide(msg.state.ppSlide);
+          // PP preview slide data from gateway bridge
+          if (msg.state.ppPreviewSlide !== undefined) {
+            setPpPreviewSlide(msg.state.ppPreviewSlide);
           }
           setHydrated(true);
         }
@@ -147,5 +147,5 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     [sendCommand]
   );
 
-  return { items, timer, connected, hydrated, ppSlide, sendCommand, seedState };
+  return { items, timer, connected, hydrated, ppPreviewSlide, sendCommand, seedState };
 }

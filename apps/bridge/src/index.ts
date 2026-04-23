@@ -43,6 +43,14 @@ function startBridge(nextConfig: BridgeConfig) {
     url: nextConfig.url ?? "",
     key: nextConfig.key,
     reconnect: true,
+    propresenter: nextConfig.propresenterHost
+      ? {
+          host: nextConfig.propresenterHost,
+          port: nextConfig.propresenterPort,
+          apiPort: nextConfig.propresenterApiPort,
+          password: nextConfig.propresenterPassword,
+        }
+      : undefined,
   });
   bridge.start();
 }
@@ -51,6 +59,7 @@ startSetupServer(9450, () => ({
   config: currentConfig,
   bridgeRunning: Boolean(bridge),
   bridgeStatus: bridge ? "running" : "waiting",
+  debug: bridge?.getStatus(),
 }), async (nextConfig) => {
   nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
   currentConfig = nextConfig;

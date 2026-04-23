@@ -12,6 +12,32 @@ import type { ChatMessage } from "@/lib/adapters/chat-adapter";
 
 type Platform = "mattermost" | "slack" | "teams" | "discord";
 
+function parseShowPilotFormattedMessage(message: string): {
+  senderName?: string;
+  text: string;
+  type: ChatMessage["type"];
+} {
+  let remaining = message;
+  let senderName: string | undefined;
+
+  const senderMatch = remaining.match(/^\*\*(.+?)\*\*:\s*/);
+  if (senderMatch) {
+    senderName = senderMatch[1];
+    remaining = remaining.slice(senderMatch[0].length);
+  }
+
+  let type: ChatMessage["type"] = "text";
+  if (remaining.startsWith("[ALERT] ")) {
+    type = "alert";
+    remaining = remaining.slice(8);
+  } else if (remaining.startsWith("[CUE] ")) {
+    type = "cue";
+    remaining = remaining.slice(6);
+  }
+
+  return { senderName, text: remaining, type };
+}
+
 // ─── Credential resolution ──────────────────────────────────
 
 const PLATFORM_KEYS: Record<Platform, string[]> = {
@@ -163,6 +189,10 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
                 body: JSON.stringify({
                   channel_id: channel,
                   message: formatted,
+                  props: {
+                    override_username: data.senderName,
+                    showpilot_type: data.type || "text",
+                  },
                 }),
                 signal: AbortSignal.timeout(5000),
               },
@@ -281,19 +311,58 @@ export const getExternalChatHistory = createServerFn({ method: "GET" })
               order: string[];
               posts: Record<string, { id: string; message: string; create_at: number; user_id: string; props?: { override_username?: string } }>;
             };
+            const userIds = Array.from(
+              new Set((body.order || []).map((id) => body.posts[id]?.user_id).filter(Boolean))
+            );
+            let userMap = new Map<string, string>();
+
+            if (userIds.length > 0) {
+              const usersRes = await fetch(`${url.replace(/\/$/, "")}/api/v4/users/ids`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(userIds),
+                signal: AbortSignal.timeout(5000),
+              });
+
+              if (usersRes.ok) {
+                const users = (await usersRes.json()) as Array<{
+                  id: string;
+                  username: string;
+                  first_name?: string;
+                  last_name?: string;
+                  nickname?: string;
+                }>;
+                userMap = new Map(
+                  users.map((user) => {
+                    const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim();
+                    return [user.id, user.nickname || fullName || user.username];
+                  })
+                );
+              }
+            }
+
             const messages: ChatMessage[] = (body.order || [])
               .map((id) => body.posts[id])
               .filter(Boolean)
-              .map((post) => ({
-                id: `mm-${post.id}`,
-                orgId: data.orgId,
-                senderId: post.user_id,
-                senderName:
-                  post.props?.override_username || post.user_id.slice(0, 8),
-                text: post.message,
-                type: "text" as const,
-                timestamp: post.create_at,
-              }))
+              .map((post) => {
+                const parsed = parseShowPilotFormattedMessage(post.message);
+                return {
+                  id: `mm-${post.id}`,
+                  orgId: data.orgId,
+                  senderId: post.user_id,
+                  senderName:
+                    post.props?.override_username ||
+                    parsed.senderName ||
+                    userMap.get(post.user_id) ||
+                    post.user_id.slice(0, 8),
+                  text: parsed.text,
+                  type: (post.props?.showpilot_type as ChatMessage["type"] | undefined) || parsed.type,
+                  timestamp: post.create_at,
+                };
+              })
               .reverse(); // oldest first
             return { ok: true, messages };
           }

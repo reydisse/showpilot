@@ -1,9 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
+import { hasPermission } from "@/lib/app-permissions";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
-async function assertOrgAccess(orgId: string) {
+interface RundownRelayEnv {
+  RUNDOWN_RELAY?: DurableObjectNamespace;
+}
+
+async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -13,9 +19,22 @@ async function assertOrgAccess(orgId: string) {
   const prisma = getPrisma();
   const member = await prisma.member.findFirst({
     where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
+    select: { id: true, role: true },
   });
   if (!member) throw new Error("Forbidden");
+
+  return member.role ?? "member";
+}
+
+async function assertOrgAccess(orgId: string) {
+  await getOrgMemberRole(orgId);
+}
+
+async function assertRundownEditAccess(orgId: string) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, "rundown:edit")) {
+    throw new Error("Forbidden");
+  }
 }
 
 function rundownItemsKey(serviceDate: string) {
@@ -71,7 +90,7 @@ export const getRundownState = createServerFn({ method: "GET" })
 export const saveRundownItems = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; items: RundownItem[] }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownItemsKey(data.serviceDate);
     await prisma.appSetting.upsert({
@@ -92,7 +111,7 @@ export const saveRundownItems = createServerFn({ method: "POST" })
 export const saveRundownTimer = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; timer: NativeTimerState }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownTimerKey(data.serviceDate);
     await prisma.appSetting.upsert({
@@ -117,7 +136,7 @@ function rundownMessageKey(serviceDate: string) {
 export const saveRundownMessage = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; message: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownMessageKey(data.serviceDate);
     if (!data.message) {
@@ -154,6 +173,7 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
     // Note: /v1/stage/layout_map returns stage display fields including timers,
     // so we try slide-specific endpoints first.
     const endpoints = [
+      "/v1/stage/current_slide",
       "/v1/presentation/active",
       "/v1/status/slide",
       "/v1/presentation/slide_index",
@@ -239,7 +259,7 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
   .inputValidator((data: { host: string; port: number; command: "next" | "previous" | "clear" }) => data)
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const { host, port, command } = data;
-    const base = `http://${host}:${port}`;
+    const base = `http://${host}:${port || 1025}`;
     const timeout = 3000;
 
     // PP7 API endpoints vary by version — try multiple known paths and methods.
@@ -303,8 +323,9 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
     const timeout = 3000;
 
     // Try API port first (REST), then stage display port
-    const ports = apiPort && apiPort !== port ? [apiPort, port] : [port];
+    const ports = Array.from(new Set([apiPort || 1025, port].filter((p) => Number.isFinite(p) && p > 0)));
     const testEndpoints = [
+      "/v1/stage/current_slide",
       "/v1/version",
       "/v1/status/slide",
       "/v1/presentation/active",
@@ -348,7 +369,7 @@ export interface PPSlidePayload {
 export const saveProPresenterSlide = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; serviceDate: string; slide: PPSlidePayload | null }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const key = ppSlideKey(data.serviceDate);
     if (!data.slide) {
@@ -366,6 +387,27 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
         create: { orgId: data.orgId, key, value: JSON.stringify(data.slide) },
       });
     }
+
+    const bindings = env as unknown as RundownRelayEnv;
+    if (bindings.RUNDOWN_RELAY) {
+      try {
+        const id = bindings.RUNDOWN_RELAY.idFromName(data.orgId);
+        const stub = bindings.RUNDOWN_RELAY.get(id);
+        await stub.fetch(
+          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "pp-slide",
+              payload: { slide: data.slide },
+            }),
+          })
+        );
+      } catch (err) {
+        console.warn("[SP] PP slide relay sync failed:", err);
+      }
+    }
+
     return { ok: true };
   });
 
@@ -399,7 +441,7 @@ const SAVED_INDEX_KEY = "rundown-saved-index";
 export const listSavedRundowns = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<SavedRundownMeta[]> => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const indexSetting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: SAVED_INDEX_KEY } },
@@ -414,7 +456,7 @@ export const listSavedRundowns = createServerFn({ method: "GET" })
 export const saveRundownTemplate = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; name: string; items: RundownItem[] }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -459,7 +501,7 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
 export const loadSavedRundown = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; rundownId: string }) => data)
   .handler(async ({ data }): Promise<RundownItem[] | null> => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: savedRundownKey(data.rundownId) } },
@@ -475,7 +517,7 @@ export const loadSavedRundown = createServerFn({ method: "GET" })
 export const deleteSavedRundown = createServerFn({ method: "POST" })
   .inputValidator((data: { orgId: string; rundownId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
 
     await prisma.appSetting.deleteMany({
@@ -503,7 +545,7 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
 export const listRundownDates = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<{ date: string; itemCount: number }[]> => {
-    await assertOrgAccess(data.orgId);
+    await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const settings = await prisma.appSetting.findMany({
       where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },

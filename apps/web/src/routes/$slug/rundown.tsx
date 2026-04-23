@@ -51,6 +51,7 @@ import {
 } from "@/lib/rundown";
 import type { SavedRundownMeta, PPSlidePayload } from "@/lib/rundown";
 import type { NativeTimerState } from "@/types/rundown";
+import { hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString } from "@/lib/utils";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
@@ -159,18 +160,21 @@ function buildNativeTimer(
 export const Route = createFileRoute("/$slug/rundown")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, "rundown:view", context.slug, context.orgId);
     const today = getTodayDateString();
     const [state, settings] = await Promise.all([
       getRundownState({ data: { orgId: context.orgId, serviceDate: today } }),
       getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
-    return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings };
+    return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings, role: context.role };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, today, initialState, settings } = Route.useLoaderData();
+  const { orgId, slug, today, initialState, settings, role } = Route.useLoaderData();
+  const canEditRundown = hasPermission(role, "rundown:edit");
   const [serviceDate, setServiceDate] = useState(today);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
@@ -189,7 +193,7 @@ function RundownPage() {
     timer: syncedTimer,
     connected: syncConnected,
     hydrated: syncHydrated,
-    ppSlide: syncedPpSlide,
+    ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
   } = useRundownSync(orgId);
@@ -305,11 +309,10 @@ function RundownPage() {
     }).catch(() => {});
   }, [orgId]);
 
-  // PP slide relay — when slide changes (from direct connection), persist to server for kiosk
+  // PP slide preview — direct ProPresenter connection updates local preview only.
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
     if (!slide || !slide.text) {
       setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
       return;
     }
     const trimmedText = slide.text.trim();
@@ -324,8 +327,7 @@ function RundownPage() {
       updatedAt: Date.now(),
     };
     setPpCurrentSlide(payload);
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide: payload } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
-  }, [orgId, serviceDate]);
+  }, []);
 
   // ProPresenter direct connection (works on local network / dev only)
   const pp = useProPresenter({
@@ -339,18 +341,19 @@ function RundownPage() {
 
   // Use gateway bridge slide (from DO) as primary, direct connection as fallback
   const activePpSlide: PPSlidePayload | null = syncedPpSlide ?? ppCurrentSlide;
-  // Persist gateway slides to DB for kiosk
+
+  // When streaming is enabled, keep kiosk synced to the active slide.
   useEffect(() => {
-    if (syncedPpSlide) {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: syncedPpSlide } }).catch(() => {});
-    }
-  }, [syncedPpSlide, orgId, serviceDate]);
+    if (!ppEnabled) return;
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide ?? null } }).catch(() => {});
+  }, [activePpSlide, ppEnabled, orgId, serviceDate]);
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
   const ppIsConnected = syncedPpSlide !== null || pp.status === "connected";
   const ppSource = syncedPpSlide !== null ? "bridge" : pp.status === "connected" ? "direct" : null;
 
   const togglePP = useCallback(() => {
+    if (!canEditRundown) return;
     if (ppEnabled) {
       setPpEnabled(false);
       setPpCurrentSlide(null);
@@ -358,7 +361,14 @@ function RundownPage() {
     } else {
       setPpEnabled(true);
     }
-  }, [ppEnabled, orgId, serviceDate]);
+  }, [canEditRundown, ppEnabled, orgId, serviceDate]);
+
+  const showOnKiosk = useCallback(() => {
+    if (!canEditRundown) return;
+    const slide = syncedPpSlide ?? ppCurrentSlide;
+    if (!slide) return;
+    saveProPresenterSlide({ data: { orgId, serviceDate, slide } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
+  }, [canEditRundown, orgId, serviceDate, ppCurrentSlide, syncedPpSlide]);
 
   // Persist timer to DB immediately (not debounced — kiosk needs it fast)
   const persistTimer = useCallback((
@@ -477,6 +487,7 @@ function RundownPage() {
   }, [timer.currentItemId]);
 
   const handleStart = useCallback((itemId: string) => {
+    if (!canEditRundown) return;
     // Optimistic local update
     setItems((prev) =>
       prev.map((i) =>
@@ -489,27 +500,30 @@ function RundownPage() {
     // Sync to DO + persist to DB
     sendCommand("timer-start", { itemId });
     persistTimer("play", itemId, 0, startNow);
-  }, [sendCommand, persistTimer]);
+  }, [canEditRundown, sendCommand, persistTimer, timer.mode]);
 
   const handlePause = useCallback(() => {
+    if (!canEditRundown) return;
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
        setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
       sendCommand("timer-pause");
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [timer, sendCommand, persistTimer]);
+  }, [canEditRundown, timer, sendCommand, persistTimer]);
 
   const handleResume = useCallback(() => {
+    if (!canEditRundown) return;
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
        setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendCommand("timer-resume");
       persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
-  }, [timer, sendCommand, persistTimer]);
+  }, [canEditRundown, timer, sendCommand, persistTimer]);
 
   const handleStop = useCallback(() => {
+    if (!canEditRundown) return;
     setItems((prev) =>
       prev.map((i) =>
         i.id === timer.currentItemId ? { ...i, status: "complete" as ItemStatus } : i
@@ -518,9 +532,10 @@ function RundownPage() {
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendCommand("timer-stop");
     persistTimer("stop", null, 0, null, resetTimer.mode);
-  }, [timer.currentItemId, sendCommand, persistTimer]);
+  }, [canEditRundown, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
+    if (!canEditRundown) return;
     // Local optimistic update
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx >= 0) {
@@ -546,9 +561,10 @@ function RundownPage() {
     }
     // Single DO command — DO handles the advance logic
     sendCommand("timer-next");
-  }, [items, timer.currentItemId, sendCommand, persistTimer]);
+  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
 
   const handlePrev = useCallback(() => {
+    if (!canEditRundown) return;
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
       const prevItem = items[currentIdx - 1];
@@ -564,19 +580,21 @@ function RundownPage() {
       sendCommand("timer-prev");
       persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [items, timer.currentItemId, sendCommand, persistTimer]);
+  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
 
   const handleReset = useCallback(() => {
+    if (!canEditRundown) return;
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendCommand("reset");
     persistTimer("stop", null, 0, null);
-  }, [updateItems, sendCommand, persistTimer]);
+  }, [canEditRundown, updateItems, sendCommand, persistTimer, timer.mode]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
   // Negative deltaMs = subtract time (increase elapsed, giving less remaining)
   const handleAdjustTime = useCallback((deltaMs: number) => {
+    if (!canEditRundown) return;
     if (timer.playback === "stop") return;
 
     if (timer.playback === "play" && timer.startedAt) {
@@ -592,9 +610,10 @@ function RundownPage() {
     }
     // Sync to DO → broadcasts to all clients and kiosk
     sendCommand("timer-adjust", { deltaMs });
-  }, [timer, persistTimer, sendCommand]);
+  }, [canEditRundown, timer, persistTimer, sendCommand]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
+    if (!canEditRundown) return;
     const item: RundownItem = {
       id: crypto.randomUUID(),
       title, type,
@@ -611,12 +630,14 @@ function RundownPage() {
   };
 
   const handleRemoveItem = (id: string) => {
+    if (!canEditRundown) return;
     if (timer.currentItemId === id) handleStop();
     sendCommand("remove-item", { id });
     updateItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
+    if (!canEditRundown) return;
     updateItems((prev) => {
       const idx = prev.findIndex((i) => i.id === id);
       if (idx < 0) return prev;
@@ -631,6 +652,7 @@ function RundownPage() {
   };
 
   const handleEditItem = (id: string, title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
+    if (!canEditRundown) return;
     const updates = { title, type, duration: parseDurationInput(durationStr), assignee, notes };
     sendCommand("update-item", { id, updates });
     updateItems((prev) =>
@@ -643,6 +665,7 @@ function RundownPage() {
 
   // Load items into current date (from a previous date or saved template)
   const handleLoadItems = useCallback((loadedItems: RundownItem[]) => {
+    if (!canEditRundown) return;
     const fresh = loadedItems.map((item, idx) => ({
       ...item,
       id: crypto.randomUUID(),
@@ -657,14 +680,16 @@ function RundownPage() {
     persistItems(fresh);
     persistTimer("stop", null, 0, null);
     setShowLoadModal(false);
-  }, [sendCommand, persistItems, persistTimer, defaultTimerMode]);
+  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode]);
 
   const handleSaveTemplate = useCallback(async (name: string) => {
+    if (!canEditRundown) return;
     await saveRundownTemplate({ data: { orgId, name, items } });
     setShowSaveModal(false);
-  }, [orgId, items]);
+  }, [canEditRundown, orgId, items]);
 
   const handleSendMessage = () => {
+    if (!canEditRundown) return;
     if (message.trim()) {
       setActiveMessage(message.trim());
       // Encode priority flag into message string for kiosk
@@ -674,6 +699,7 @@ function RundownPage() {
   };
 
   const handleClearMessage = () => {
+    if (!canEditRundown) return;
     setActiveMessage("");
     setMessagePriority(false);
     saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
@@ -681,6 +707,7 @@ function RundownPage() {
 
   // Keyboard shortcuts
   useEffect(() => {
+    if (!canEditRundown) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
       if (e.key === " ") {
@@ -700,7 +727,7 @@ function RundownPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [timer, items, handlePause, handleResume, handleStart, handleNext, handlePrev, handleStop, handleAdjustTime]);
+  }, [canEditRundown, timer, items, handlePause, handleResume, handleStart, handleNext, handlePrev, handleStop, handleAdjustTime]);
 
   const nextItem = items.find((i) => {
     const currentIdx = items.findIndex((item) => item.id === timer.currentItemId);
@@ -769,37 +796,45 @@ function RundownPage() {
               Kiosk
               {copiedUrl ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
             </button>
-            <button
-              onClick={() => setShowLoadModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
-              title="Load from previous date or saved template"
-            >
-              <FolderOpen className="w-3 h-3" />
-              Load
-            </button>
-            <button
-              onClick={() => setShowSaveModal(true)}
-              disabled={items.length === 0}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40"
-              title="Save as reusable template"
-            >
-              <Save className="w-3 h-3" />
-              Save
-            </button>
-            <button
-              onClick={handleReset}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" />
-              Reset
-            </button>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px] md:min-h-0"
-            >
-              <Plus className="w-3 h-3" />
-              Add
-            </button>
+            {canEditRundown ? (
+              <>
+                <button
+                  onClick={() => setShowLoadModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
+                  title="Load from previous date or saved template"
+                >
+                  <FolderOpen className="w-3 h-3" />
+                  Load
+                </button>
+                <button
+                  onClick={() => setShowSaveModal(true)}
+                  disabled={items.length === 0}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40"
+                  title="Save as reusable template"
+                >
+                  <Save className="w-3 h-3" />
+                  Save
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Reset
+                </button>
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px] md:min-h-0"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </button>
+              </>
+            ) : (
+              <span className="px-3 py-1.5 rounded-lg border border-board-border text-[11px] font-medium uppercase tracking-wider text-board-muted">
+                View only
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -823,9 +858,9 @@ function RundownPage() {
           Loading rundown...
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col md:flex-row gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 max-w-[1400px] mx-auto w-full">
+        <div className="flex-1 overflow-hidden flex flex-col xl:flex-row gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 max-w-[1400px] mx-auto w-full min-h-0">
           {/* Left: Timer + Controls + Message */}
-          <div className="w-full md:w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar">
+          <div className="w-full xl:w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 xl:max-h-full">
             {/* Timer */}
             <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
               <div className="flex items-center gap-2 mb-2">
@@ -888,7 +923,7 @@ function RundownPage() {
             </div>
 
             {/* Timer controls */}
-            <div className="flex gap-2">
+            {canEditRundown && <div className="flex gap-2">
               {timer.playback === "play" ? (
                 <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
                   <Pause className="w-4 h-4" /> Pause
@@ -915,10 +950,10 @@ function RundownPage() {
               <button onClick={handleStop} disabled={timer.playback === "stop"} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40">
                 <Square className="w-4 h-4" />
               </button>
-            </div>
+            </div>}
 
             {/* Add / Subtract time (OnTime-style) */}
-            <div className="rounded-xl border border-board-border bg-board-card p-3">
+            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card p-3">
               <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
                 Adjust Time
               </p>
@@ -979,10 +1014,10 @@ function RundownPage() {
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
-            </div>
+            </div>}
 
             {/* Send message to stage */}
-            <div className="rounded-xl border border-board-border bg-board-card p-4">
+            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card p-4">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
                   Stage Message
@@ -1021,7 +1056,7 @@ function RundownPage() {
                   <Send className="w-4 h-4" />
                 </button>
               </div>
-            </div>
+            </div>}
 
             {/* ProPresenter Slide Feed */}
             {(ppHost || syncedPpSlide) && (
@@ -1033,18 +1068,29 @@ function RundownPage() {
                       ProPresenter
                     </p>
                   </div>
-                  <button
-                    onClick={togglePP}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
-                      ppEnabled
-                        ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
-                        : "bg-board-bg text-board-muted hover:bg-board-border"
-                    }`}
-                  >
-                    {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                    {ppEnabled ? "Streaming" : "Off"}
-                  </button>
-                </div>
+                    {canEditRundown && (
+                      <>
+                        <button
+                          onClick={togglePP}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                            ppEnabled
+                              ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                            : "bg-board-bg text-board-muted hover:bg-board-border"
+                        }`}
+                        >
+                          {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                          {ppEnabled ? "Streaming" : "Off"}
+                        </button>
+                        <button
+                          onClick={showOnKiosk}
+                          disabled={!activePpSlide?.text}
+                          className="px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-40 bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
+                        >
+                          Show on kiosk
+                        </button>
+                      </>
+                    )}
+                  </div>
 
                 {ppEnabled && (
                   <>
@@ -1064,7 +1110,7 @@ function RundownPage() {
                     </div>
 
                     {/* PP Control Buttons */}
-                    {ppIsConnected && (
+                    {canEditRundown && ppIsConnected && (
                       ppCuesEnabled && ppApiPort ? (
                         <div className="mb-2">
                           <div className="flex items-center gap-1.5">
@@ -1133,7 +1179,7 @@ function RundownPage() {
                           {activePpSlide.text.length > 120 ? activePpSlide.text.slice(0, 120) + "..." : activePpSlide.text}
                         </p>
                         <p className="text-[9px] text-board-muted/50 mt-1.5">
-                          {ppSource === "bridge" ? "Via Gateway Bridge → kiosk" : "Live on kiosk stage display"}
+                          {ppSource === "bridge" ? "Gateway Bridge preview" : "Direct ProPresenter preview"}
                         </p>
                       </div>
                     ) : (
@@ -1175,7 +1221,7 @@ function RundownPage() {
             )}
 
             {/* Shortcuts */}
-            <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
+            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
               <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">Shortcuts</p>
               <div className="space-y-1 text-xs text-board-muted">
                 <div className="flex justify-between"><span>Play / Pause</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">Space</kbd></div>
@@ -1185,34 +1231,37 @@ function RundownPage() {
                 <div className="flex justify-between"><span>Add 1 minute</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">+</kbd></div>
                 <div className="flex justify-between"><span>Subtract 1 minute</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">-</kbd></div>
               </div>
-            </div>
+            </div>}
           </div>
 
           {/* Right: Runsheet */}
-          <div className="flex-1 min-w-0 flex flex-col">
-            {/* Runsheet header */}
-            <div className="flex items-center justify-between mb-3 shrink-0">
-              <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                Runsheet
-              </h2>
-              <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted">
-                <span>{items.length} items</span>
-                {completedDuration > 0 && (
-                  <span>{formatDuration(completedDuration)} / {formatDuration(totalDuration)}</span>
-                )}
-                <span>{formatDuration(remainingDuration)} remaining</span>
+          <div className="flex-1 min-w-0 flex flex-col overflow-auto hide-scrollbar">
+            <div className="min-w-[760px] flex flex-col min-h-full">
+              {/* Runsheet header */}
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                  Runsheet
+                </h2>
+                <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted whitespace-nowrap">
+                  <span>{items.length} items</span>
+                  {completedDuration > 0 && (
+                    <span>{formatDuration(completedDuration)} / {formatDuration(totalDuration)}</span>
+                  )}
+                  <span>{formatDuration(remainingDuration)} remaining</span>
+                </div>
               </div>
-            </div>
 
-            {items.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                <Clock className="w-10 h-10 text-board-muted/20" />
-                <p className="text-sm text-board-muted">No items in the rundown</p>
-                <p className="text-xs text-board-muted/50">Click "Add Item" or "Load" to get started</p>
-              </div>
-            ) : (
-              <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                {items.map((item, idx) => {
+              {items.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                  <Clock className="w-10 h-10 text-board-muted/20" />
+                  <p className="text-sm text-board-muted">No items in the rundown</p>
+                  <p className="text-xs text-board-muted/50">
+                    {canEditRundown ? 'Click "Add Item" or "Load" to get started' : "No rundown items are available for this date"}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
+                  {items.map((item, idx) => {
                   const isCurrent = item.id === timer.currentItemId;
                   const config = TYPE_CONFIG[item.type];
                   const Icon = config.icon;
@@ -1294,12 +1343,12 @@ function RundownPage() {
                           )}
 
                           {/* Playback actions (always visible for current, hover for others) */}
-                          <div className={`flex items-center gap-0.5 shrink-0 ${
-                            isCurrent ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                          } transition-opacity`}>
-                            {!isCurrent && item.status !== "complete" && (
-                              <button onClick={() => handleStart(item.id)} className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Start">
-                                <Play className="w-3.5 h-3.5" />
+                            {canEditRundown && <div className={`flex items-center gap-0.5 shrink-0 ${
+                              isCurrent ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            } transition-opacity`}>
+                              {!isCurrent && item.status !== "complete" && (
+                                <button onClick={() => handleStart(item.id)} className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Start">
+                                  <Play className="w-3.5 h-3.5" />
                               </button>
                             )}
                             <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
@@ -1317,8 +1366,8 @@ function RundownPage() {
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </>
-                            )}
-                          </div>
+                              )}
+                            </div>}
                         </div>
 
                         {/* Progress bar for current item */}
@@ -1334,25 +1383,26 @@ function RundownPage() {
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {showAddForm && <AddItemModal defaultDuration={defaultItemDuration} onAdd={handleAddItem} onClose={() => setShowAddForm(false)} />}
-      {editingItem && (
+      {canEditRundown && showAddForm && <AddItemModal defaultDuration={defaultItemDuration} onAdd={handleAddItem} onClose={() => setShowAddForm(false)} />}
+      {canEditRundown && editingItem && (
         <EditItemModal
           item={editingItem}
           onSave={(title, type, duration, assignee, notes) => handleEditItem(editingItem.id, title, type, duration, assignee, notes)}
           onClose={() => setEditingItem(null)}
         />
       )}
-      {showLoadModal && (
+      {canEditRundown && showLoadModal && (
         <LoadRundownModal orgId={orgId} onLoad={handleLoadItems} onClose={() => setShowLoadModal(false)} />
       )}
-      {showSaveModal && (
+      {canEditRundown && showSaveModal && (
         <SaveRundownModal onSave={handleSaveTemplate} onClose={() => setShowSaveModal(false)} />
       )}
     </div>

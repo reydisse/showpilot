@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
+import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -39,20 +40,24 @@ const CATEGORIES = ["Audio", "Video", "Lighting", "Network", "Power", "Software"
 export const Route = createFileRoute("/$slug/production/incidents")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
+    const { withPermission } = await import("@/lib/route-permissions");
+    await withPermission(context.role, ["incidents:report", "incidents:access"], context.slug, context.orgId);
     const today = getTodayDateString();
     const incidents = await getIncidents({ data: { orgId: context.orgId, serviceDate: today } });
-    return { incidents: incidents as IncidentItem[], orgId: context.orgId };
+    return { incidents: incidents as IncidentItem[], orgId: context.orgId, role: context.role };
   },
   component: IncidentsPage,
 });
 
 function IncidentsPage() {
-  const { incidents, orgId } = Route.useLoaderData();
+  const { incidents, orgId, role } = Route.useLoaderData();
   const router = useRouter();
   const [serviceDate, setServiceDate] = useState(getTodayDateString);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const canReportIncidents = hasAnyPermission(role, ["incidents:report", "incidents:access"]);
+  const canManageIncidents = hasPermission(role, "incidents:access");
 
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
@@ -61,6 +66,7 @@ function IncidentsPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canReportIncidents) return;
     if (!form.description.trim()) return;
     await addIncident({ data: { orgId, ...form, serviceDate } });
     setForm({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
@@ -69,13 +75,14 @@ function IncidentsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canManageIncidents) return;
     const ok = await confirm({
       title: "Delete incident",
       description: "Delete this incident? This action cannot be undone.",
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    await deleteIncident({ data: { id } });
+    await deleteIncident({ data: { orgId, id } });
     router.invalidate();
   };
 
@@ -90,14 +97,16 @@ function IncidentsPage() {
               <button onClick={() => { setServiceDate(getTodayDateString()); router.invalidate(); }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">{formatDisplayDate(serviceDate)}</button>
               <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronRight className="w-4 h-4" /></button>
             </div>
-            <button
-              onClick={() => setShowForm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-              style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Report
-            </button>
+            {canReportIncidents && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Report
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -120,7 +129,9 @@ function IncidentsPage() {
                       </div>
                     </div>
                   </div>
-                  <button onClick={() => handleDelete(incident.id)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  {canManageIncidents && (
+                    <button onClick={() => handleDelete(incident.id)} className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  )}
                 </div>
               </div>
             ))}
@@ -132,7 +143,7 @@ function IncidentsPage() {
           </div>
         )}
 
-        {showForm && (
+        {showForm && canReportIncidents && (
           <form onSubmit={handleAdd} className="mt-4 p-4 rounded-xl bg-board-card border border-board-border space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-board-text">Report Incident</h3>

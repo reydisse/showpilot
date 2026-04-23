@@ -10,7 +10,7 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   return (
     <SidebarProvider>
-      <div className="flex h-screen bg-board-bg">
+      <div className="flex h-[100dvh] min-h-[100dvh] overflow-hidden bg-board-bg">
         <Sidebar />
         <div className="flex-1 min-w-0 flex flex-col">
           <MobileHeader />

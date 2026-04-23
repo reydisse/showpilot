@@ -1,12 +1,12 @@
 import { createAuthClient } from "better-auth/react";
 import { organizationClient } from "better-auth/client/plugins";
-import { ac, roles } from "@/lib/permissions";
+import { authAccessControl, authRoles } from "@/lib/auth-access";
 
 export const authClient = createAuthClient({
   plugins: [
     organizationClient({
-      ac,
-      roles,
+      ac: authAccessControl,
+      roles: authRoles,
     }),
   ],
 });
