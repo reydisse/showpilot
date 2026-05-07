@@ -15,9 +15,25 @@ export class ChatRelay extends DurableObject {
   private sessions: Map<WebSocket, { name: string; role?: string }> = new Map();
   private recentMessages: ChatMessage[] = [];
   private readonly MAX_MESSAGES = 200;
+  private historyLoaded = false;
+
+  private async ensureHistoryLoaded() {
+    if (this.historyLoaded) return;
+    this.historyLoaded = true;
+
+    const stored = await this.ctx.storage.get<ChatMessage[]>("recentMessages");
+    if (stored?.length) {
+      this.recentMessages = stored;
+    }
+  }
+
+  private persistMessages() {
+    this.ctx.storage.put("recentMessages", this.recentMessages);
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    await this.ensureHistoryLoaded();
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
@@ -85,12 +101,20 @@ export class ChatRelay extends DurableObject {
 
       if (parsed.type === "message") {
         const session = this.sessions.get(ws);
+        const nextName = parsed.name?.trim() || session?.name || "Anonymous";
+        const nextRole = parsed.role ?? session?.role;
+
+        this.sessions.set(ws, {
+          name: nextName,
+          role: nextRole,
+        });
+
         const message: ChatMessage = {
           id: crypto.randomUUID(),
           orgId: parsed.orgId ?? "",
           senderId: parsed.senderId,
-          senderName: session?.name ?? parsed.name ?? "Unknown",
-          senderRole: session?.role ?? parsed.role,
+          senderName: nextName,
+          senderRole: nextRole,
           text: parsed.text ?? "",
           type: parsed.messageType ?? "text",
           timestamp: Date.now(),
@@ -117,6 +141,7 @@ export class ChatRelay extends DurableObject {
     if (this.recentMessages.length > this.MAX_MESSAGES) {
       this.recentMessages = this.recentMessages.slice(-this.MAX_MESSAGES);
     }
+    this.persistMessages();
   }
 
   private broadcast(data: string, exclude?: WebSocket) {

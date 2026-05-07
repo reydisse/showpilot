@@ -35,8 +35,9 @@ import {
 import { inviteMember } from "@/lib/session";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
-import { testProPresenterConnection } from "@/lib/rundown";
+import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
+import { exportShowReport } from "@/lib/report";
 import { authClient } from "@/lib/auth-client";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 
@@ -129,17 +130,30 @@ function SettingsPage() {
   ]);
   const canDeleteOrg = hasPermission(role, "org:delete");
   const canManageMembers = hasPermission(role, "settings:members");
-  const canManageKiosk = hasPermission(role, "settings:integrations");
   const canViewIntegrations = hasPermission(role, "settings:integrations");
+  const canViewOrganization = hasPermission(role, "settings:organization");
+  const canViewProduction = hasPermission(role, "settings:production_defaults");
+  const canViewLowerThirds = hasPermission(role, "settings:lowerthird_config");
+  const canViewNotifications = hasPermission(role, "settings:notifications");
+  const canViewApi = hasAnyPermission(role, ["settings:api_keys", "settings:webhooks"]);
+  const canViewDanger = hasAnyPermission(role, ["settings:danger_zone", "org:delete"]);
 
   // Filter nav items based on permissions
   const visibleNavItems = NAV_ITEMS.filter((item) => {
-    if (item.id === "danger") return canDeleteOrg;
+    if (item.id === "organization") return canViewOrganization;
     if (item.id === "team") return canManageMembers;
     if (item.id === "integrations") return canViewIntegrations;
-    if (item.id === "api") return canEditSettings;
-    return true; // organization, production, lowerthirds, notifications visible to all
+    if (item.id === "production") return canViewProduction;
+    if (item.id === "lowerthirds") return canViewLowerThirds;
+    if (item.id === "notifications") return canViewNotifications;
+    if (item.id === "api") return canViewApi;
+    if (item.id === "danger") return canViewDanger;
+    return false;
   });
+
+  const resolvedSection = visibleNavItems.some((item) => item.id === activeSection)
+    ? activeSection
+    : (visibleNavItems[0]?.id ?? "organization");
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -177,7 +191,7 @@ function SettingsPage() {
           <div className="flex lg:flex-col gap-1.5 lg:gap-0.5 overflow-x-auto hide-scrollbar pb-1 lg:pb-0">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeSection === item.id;
+              const isActive = resolvedSection === item.id;
               return (
                 <button
                   key={item.id}
@@ -202,24 +216,24 @@ function SettingsPage() {
       {/* Main content */}
       <main className="flex-1 overflow-y-auto min-h-0">
         <div className="max-w-3xl mx-auto p-4 md:p-6 safe-area-bottom">
-          {activeSection === "organization" && (
+          {resolvedSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}
-          {activeSection === "team" && <TeamSection {...sectionProps} />}
-          {activeSection === "integrations" && (
+          {resolvedSection === "team" && <TeamSection {...sectionProps} />}
+          {resolvedSection === "integrations" && (
             <IntegrationsSection {...sectionProps} />
           )}
-          {activeSection === "production" && (
+          {resolvedSection === "production" && (
             <ProductionSection {...sectionProps} />
           )}
-          {activeSection === "lowerthirds" && (
+          {resolvedSection === "lowerthirds" && (
             <LowerThirdsSection {...sectionProps} />
           )}
-          {activeSection === "notifications" && (
+          {resolvedSection === "notifications" && (
             <NotificationsSection {...sectionProps} />
           )}
-          {activeSection === "api" && <ApiSection {...sectionProps} />}
-          {activeSection === "danger" && (
+          {resolvedSection === "api" && <ApiSection {...sectionProps} />}
+          {resolvedSection === "danger" && (
             <DangerSection {...sectionProps} router={router} />
           )}
         </div>
@@ -1111,8 +1125,8 @@ function LowerThirdsSection({ slug, getSetting, saveSetting }: SectionProps) {
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             Overlay URL for OBS / vMix
           </p>
-          <div className="flex items-center gap-2 mb-4">
-            <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg truncate">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4">
+            <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg break-all sm:truncate overflow-x-auto">
               {overlayUrl}
             </code>
             <button
@@ -1132,7 +1146,7 @@ function LowerThirdsSection({ slug, getSetting, saveSetting }: SectionProps) {
           </div>
 
           {/* QR Code */}
-          <div className="flex items-start gap-4">
+          <div className="flex flex-col sm:flex-row items-start gap-4">
             <div className="p-2 bg-white rounded-lg">
               <QRCodeSVG value={overlayUrl} size={96} />
             </div>
@@ -1283,8 +1297,8 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
         {/* API Key */}
         <div className="rounded-xl border border-board-border bg-board-card p-4">
           <p className="text-xs font-medium text-board-muted mb-3">API Key</p>
-          <div className="flex items-center gap-2 mb-3">
-            <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg font-mono truncate">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-3">
+            <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg font-mono break-all sm:truncate overflow-x-auto">
               {apiKey
                 ? showKey
                   ? apiKey
@@ -1355,6 +1369,11 @@ function DangerSection({
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [availableDates, setAvailableDates] = useState<Array<{ date: string; itemCount: number }>>([]);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
+  const [selectedSections, setSelectedSections] = useState<string[]>(["summary", "rundown", "incidents", "checklist", "cueSheets"]);
 
   const handleResetLowerThirds = async () => {
     setBusy("lowerthirds");
@@ -1372,6 +1391,126 @@ function DangerSection({
     } finally {
       setBusy(null);
     }
+  };
+
+  const handleExport = async () => {
+    setBusy("export");
+    try {
+      const serviceDate = selectedDate || availableDates[0]?.date;
+      if (!serviceDate) return;
+
+      const report = await exportShowReport({ data: { orgId: org.id, serviceDate } });
+      const filteredReport = {
+        generatedAt: report.generatedAt,
+        serviceDate: report.serviceDate,
+        organization: report.organization,
+        ...(selectedSections.includes("summary") ? { summary: report.summary } : {}),
+        ...(selectedSections.includes("rundown") ? { rundown: report.rundown } : {}),
+        ...(selectedSections.includes("incidents") ? { incidents: report.incidents } : {}),
+        ...(selectedSections.includes("checklist") ? { checklist: report.checklist } : {}),
+        ...(selectedSections.includes("cueSheets") ? { cueSheets: report.cueSheets } : {}),
+      };
+
+      let blob: Blob;
+      let extension = selectedFormat;
+
+      if (selectedFormat === "json") {
+        blob = new Blob([JSON.stringify(filteredReport, null, 2)], { type: "application/json" });
+      } else if (selectedFormat === "csv") {
+        const rows: string[][] = [["section", "field", "value"]];
+        for (const [section, value] of Object.entries(filteredReport)) {
+          if (section === "organization") {
+            for (const [field, fieldValue] of Object.entries(value as Record<string, unknown>)) {
+              rows.push([section, field, String(fieldValue ?? "")]);
+            }
+            continue;
+          }
+          if (Array.isArray(value)) {
+            value.forEach((item, index) => {
+              for (const [field, fieldValue] of Object.entries(item)) {
+                rows.push([`${section}[${index}]`, field, String(fieldValue ?? "")]);
+              }
+            });
+            continue;
+          }
+          if (value && typeof value === "object") {
+            for (const [field, fieldValue] of Object.entries(value)) {
+              rows.push([section, field, String(fieldValue ?? "")]);
+            }
+            continue;
+          }
+          rows.push([section, "value", String(value ?? "")]);
+        }
+        blob = new Blob([
+          rows
+            .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+            .join("\n"),
+        ], { type: "text/csv" });
+      } else {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.utils.book_new();
+
+        if (selectedSections.includes("summary")) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet([report.summary]),
+            "Summary",
+          );
+        }
+        if (selectedSections.includes("rundown")) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(report.rundown.items),
+            "Rundown",
+          );
+        }
+        if (selectedSections.includes("incidents")) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(report.incidents),
+            "Incidents",
+          );
+        }
+        if (selectedSections.includes("checklist")) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(report.checklist),
+            "Checklist",
+          );
+        }
+        if (selectedSections.includes("cueSheets")) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(report.cueSheets),
+            "Cue Sheets",
+          );
+        }
+
+        const array = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+        blob = new Blob([array], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${org.slug}-show-report-${serviceDate}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openExportModal = async () => {
+    const dates = await listRundownDates({ data: { orgId: org.id } });
+    setAvailableDates(dates);
+    setSelectedDate(dates[0]?.date ?? "");
+    setShowExportModal(true);
   };
 
   return (
@@ -1428,18 +1567,122 @@ function DangerSection({
               Export org data
             </p>
             <p className="text-xs text-board-muted">
-              Download all organization data as JSON
+              Choose a past show date and export its data
             </p>
           </div>
           <button
-            disabled
-            title="Export not wired yet"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium opacity-50 cursor-not-allowed"
+            onClick={openExportModal}
+            disabled={busy !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
           >
             <Download className="w-3 h-3" />
-            Export
+            Export show data
           </button>
         </div>
+
+        {showExportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="w-full max-w-xl rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-semibold text-board-text">Export Show Data</h3>
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <FieldGroup label="Show Date">
+                  <select
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
+                  >
+                    {availableDates.map((entry) => (
+                      <option key={entry.date} value={entry.date}>
+                        {entry.date} ({entry.itemCount} items)
+                      </option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="Format">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    {([
+                      ["json", "JSON"],
+                      ["csv", "CSV"],
+                      ["xlsx", "Excel"],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSelectedFormat(value)}
+                        className={`px-4 py-2.5 rounded-xl border text-sm transition-colors ${
+                          selectedFormat === value
+                            ? "border-fire-500/40 bg-fire-500/10 text-fire-400"
+                            : "border-board-border bg-board-bg text-board-muted hover:text-board-text"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </FieldGroup>
+
+                <FieldGroup label="Include Sections">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {([
+                      ["summary", "Summary"],
+                      ["rundown", "Rundown"],
+                      ["incidents", "Incidents"],
+                      ["checklist", "Checklist"],
+                      ["cueSheets", "Cue Sheets"],
+                    ] as const).map(([value, label]) => {
+                      const enabled = selectedSections.includes(value);
+                      return (
+                        <label key={value} className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) => {
+                              setSelectedSections((prev) =>
+                                e.target.checked
+                                  ? [...prev, value]
+                                  : prev.filter((section) => section !== value)
+                              );
+                            }}
+                            className="w-4 h-4 rounded border-board-border accent-fire-500"
+                          />
+                          <span className="text-sm text-board-text">{label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </FieldGroup>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowExportModal(false)}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    disabled={busy === "export" || !selectedDate || selectedSections.length === 0}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                  >
+                    {busy === "export" ? "Exporting..." : "Download"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Delete organization */}
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">

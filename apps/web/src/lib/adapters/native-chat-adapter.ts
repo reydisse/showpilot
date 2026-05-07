@@ -125,9 +125,15 @@ export class NativeChatAdapter implements ChatAdapter {
     const payload = { text, type, senderName, senderRole };
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: "identify",
+        name: payload.senderName,
+        role: payload.senderRole,
+      }));
       // ChatRelay expects: { type: "message", text, messageType, name, role }
       this.ws.send(JSON.stringify({
         type: "message",
+        orgId: this.orgId,
         text: payload.text,
         messageType: payload.type,
         name: payload.senderName,
@@ -196,7 +202,15 @@ export class NativeChatAdapter implements ChatAdapter {
       const msg = this.messageQueue.shift()!;
       this.ws.send(
         JSON.stringify({
+          type: "identify",
+          name: msg.senderName,
+          role: msg.senderRole,
+        }),
+      );
+      this.ws.send(
+        JSON.stringify({
           type: "message",
+          orgId: this.orgId,
           text: msg.text,
           messageType: msg.type,
           name: msg.senderName,

@@ -33,7 +33,8 @@ export interface AdapterField {
   key: string;
   label: string;
   placeholder?: string;
-  type?: "text" | "number" | "password";
+  type?: "text" | "number" | "password" | "select";
+  options?: { value: string; label: string }[];
   required?: boolean;
 }
 

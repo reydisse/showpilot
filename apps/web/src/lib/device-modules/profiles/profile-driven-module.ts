@@ -15,21 +15,23 @@ import type {
 export class ProfileDrivenModule extends BaseDeviceModule {
   private profile: DeviceProfile;
   private driver: ProtocolDriver;
+  private settings: Record<string, unknown>;
   private commandQueue: Array<{ command: string; resolve: () => void; reject: (e: Error) => void }> = [];
   private draining = false;
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimers: ReturnType<typeof setInterval>[] = [];
 
-  constructor(profile: DeviceProfile, driver: ProtocolDriver) {
+  constructor(profile: DeviceProfile, driver: ProtocolDriver, settings: Record<string, unknown>) {
     super();
     this.profile = profile;
     this.driver = driver;
+    this.settings = settings;
   }
 
   // ─── Connection ─────────────────────────────────────────
 
   protected async doConnect(): Promise<void> {
-    await this.driver.connect({});
+    await this.driver.connect(this.settings);
 
     // Apply connectDelay quirk
     const delay = this.profile.quirks?.connectDelay;

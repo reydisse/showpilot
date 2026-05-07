@@ -280,6 +280,7 @@ function renderSidebarContent({
     if (item.path === "timecode") return hasPermission(role, "timecode:access");
     if (item.path === "chat") return hasPermission(role, "chat:access");
     if (item.path === "checkin") return hasPermission(role, "checkin:access");
+    if (item.path === "team") return hasAnyPermission(role, ["settings:members", "checkin:access"]);
     return true;
   });
 

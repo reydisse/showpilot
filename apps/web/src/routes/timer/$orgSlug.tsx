@@ -19,7 +19,7 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
     });
     if (!org) return null;
 
-    const [itemsSetting, timerSetting, messageSetting, ppSlideSetting] = await Promise.all([
+    const [itemsSetting, timerSetting, messageSetting, ppSlideSetting, ppStageDisplaySetting] = await Promise.all([
       prisma.appSetting.findUnique({
         where: {
           orgId_key: { orgId: org.id, key: `rundown-items:${data.serviceDate}` },
@@ -38,6 +38,11 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       prisma.appSetting.findUnique({
         where: {
           orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.serviceDate}` },
+        },
+      }),
+      prisma.appSetting.findUnique({
+        where: {
+          orgId_key: { orgId: org.id, key: "propresenter-stage-display" },
         },
       }),
     ]);
@@ -60,9 +65,11 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
       ? JSON.parse(timerSetting.value)
       : { ...defaultTimer, serverTime: Date.now() };
 
-    const ppSlide: PPSlidePayload | null = ppSlideSetting && ppSlideSetting.value !== "null"
-      ? JSON.parse(ppSlideSetting.value)
-      : null;
+    const ppSlideEnabled = ppStageDisplaySetting?.value === "true";
+    const ppSlide: PPSlidePayload | null =
+      ppSlideEnabled && ppSlideSetting && ppSlideSetting.value !== "null"
+        ? JSON.parse(ppSlideSetting.value)
+        : null;
 
     return {
       state: { items, timer },
@@ -285,6 +292,7 @@ function TimerKioskPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
+  const lastTodayRef = useRef(serviceDate.current);
 
   // Fetch display defaults once
   useEffect(() => {
@@ -407,6 +415,29 @@ function TimerKioskPage() {
   useEffect(() => {
     poll();
     const interval = setInterval(poll, 5000); // WS handles real-time; poll is fallback only
+    return () => clearInterval(interval);
+  }, [poll]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const nextToday = getTodayDateString();
+      const lastToday = lastTodayRef.current;
+
+      if (nextToday === lastToday) {
+        return;
+      }
+
+      lastTodayRef.current = nextToday;
+      if (serviceDate.current !== lastToday) {
+        return;
+      }
+
+      serviceDate.current = nextToday;
+      if (!wsConnectedRef.current) {
+        void poll();
+      }
+    }, 30000);
+
     return () => clearInterval(interval);
   }, [poll]);
 

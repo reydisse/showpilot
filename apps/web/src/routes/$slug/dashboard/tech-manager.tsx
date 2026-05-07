@@ -1,5 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { useState } from "react";
 import {
   Wrench,
   AlertTriangle,
@@ -15,6 +16,7 @@ import {
   getChecklistEntries,
 } from "@/lib/data";
 import { getTodayDateString } from "@/lib/utils";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 type EquipmentStatus = "operational" | "needs-repair" | "in-repair" | "out-of-service";
 
@@ -70,6 +72,16 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
 
 function TechManagerPage() {
   const { equipment, devices, incidents, templates, entries, slug } = Route.useLoaderData();
+  const router = useRouter();
+  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+
+  useServiceDateRollover({
+    serviceDate,
+    onTodayChanged: async (nextToday) => {
+      setServiceDate(nextToday);
+      await router.invalidate();
+    },
+  });
 
   const operational = equipment.filter((e) => e.status === "operational");
   const needsAttention = equipment.filter(

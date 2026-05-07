@@ -54,7 +54,7 @@ export function profileToModuleDefinition(
     createInstance(settings: Record<string, unknown>) {
       const mergedSettings = { ...profile.protocolDefaults, ...settings };
       const driver = factory(mergedSettings);
-      return new ProfileDrivenModule(profile, driver);
+      return new ProfileDrivenModule(profile, driver, mergedSettings);
     },
   };
 }

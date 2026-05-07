@@ -16,6 +16,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { getDevices, addDevice, updateDevice, deleteDevice } from "@/lib/data";
+import { moduleRegistry } from "@/lib/device-modules/registry";
 
 type DeviceCategory = "mixer" | "streaming" | "timer" | "automation" | "video" | "comms" | "lighting";
 
@@ -39,81 +40,22 @@ const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   lighting: "Lighting",
 };
 
-const ADAPTER_TYPES = [
-  { value: "osc-mixer", label: "Behringer X32 / Wing (OSC)", category: "mixer" as DeviceCategory },
-  { value: "allen-heath-sq", label: "Allen & Heath SQ (TCP)", category: "mixer" as DeviceCategory },
-  { value: "yamaha-tf", label: "Yamaha TF (TCP)", category: "mixer" as DeviceCategory },
-  { value: "obs", label: "OBS Studio", category: "streaming" as DeviceCategory },
-  { value: "vmix", label: "vMix", category: "video" as DeviceCategory },
-  { value: "atem", label: "Blackmagic ATEM", category: "video" as DeviceCategory },
-  { value: "roland-switcher", label: "Roland V-Series", category: "video" as DeviceCategory },
-  { value: "dmx-sacn", label: "DMX / sACN Lighting", category: "lighting" as DeviceCategory },
-  { value: "dmx-artnet", label: "DMX / Art-Net Lighting", category: "lighting" as DeviceCategory },
-  { value: "etc-eos", label: "ETC EOS", category: "lighting" as DeviceCategory },
-  { value: "ontime", label: "OnTime", category: "timer" as DeviceCategory },
-  { value: "restream", label: "Restream", category: "streaming" as DeviceCategory },
-  { value: "homeassistant", label: "Home Assistant", category: "automation" as DeviceCategory },
-  { value: "mattermost", label: "Mattermost", category: "comms" as DeviceCategory },
-];
-
-interface AdapterField {
-  key: string;
-  label: string;
-  placeholder: string;
-  type?: "text" | "number" | "password";
+function getAdapterOptions() {
+  return moduleRegistry
+    .getAll()
+    .map((definition) => ({
+      value: definition.adapterType,
+      label: definition.displayName,
+      category: definition.category as DeviceCategory,
+      fields: definition.configFields,
+      description: definition.description,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-const ADAPTER_FIELDS: Record<string, AdapterField[]> = {
-  "osc-mixer": [
-    { key: "host", label: "Host / IP", placeholder: "192.168.1.100" },
-    { key: "port", label: "Port", placeholder: "2223", type: "number" },
-    { key: "consoleName", label: "Console Type", placeholder: "wing" },
-  ],
-  ontime: [
-    { key: "url", label: "Server URL", placeholder: "http://192.168.1.50:4001" },
-  ],
-  mattermost: [
-    { key: "url", label: "Server URL", placeholder: "https://chat.example.com" },
-    { key: "token", label: "Bot Token", placeholder: "xxxxxxxxxxxxxxxxxxxx", type: "password" },
-    { key: "channelId", label: "Channel ID", placeholder: "abc123def456" },
-  ],
-  vmix: [
-    { key: "host", label: "Host / IP", placeholder: "192.168.1.200" },
-    { key: "port", label: "Port", placeholder: "8088", type: "number" },
-  ],
-  obs: [
-    { key: "host", label: "Host / IP", placeholder: "192.168.1.200" },
-    { key: "port", label: "Port", placeholder: "4455", type: "number" },
-    { key: "password", label: "Password", placeholder: "Optional", type: "password" },
-  ],
-  atem: [
-    { key: "host", label: "Switcher IP", placeholder: "192.168.1.240" },
-  ],
-  "dmx-sacn": [
-    { key: "universe", label: "Universe", placeholder: "1", type: "number" },
-    { key: "host", label: "sACN Target IP (optional)", placeholder: "239.255.0.1" },
-  ],
-  "dmx-artnet": [
-    { key: "host", label: "Art-Net Node IP", placeholder: "192.168.1.50" },
-    { key: "universe", label: "Universe", placeholder: "0", type: "number" },
-  ],
-  "allen-heath-sq": [
-    { key: "host", label: "Console IP", placeholder: "192.168.1.110" },
-    { key: "port", label: "Port", placeholder: "51325", type: "number" },
-  ],
-  "yamaha-tf": [
-    { key: "host", label: "Console IP", placeholder: "192.168.1.120" },
-    { key: "port", label: "Port", placeholder: "49280", type: "number" },
-  ],
-  "roland-switcher": [
-    { key: "host", label: "Switcher IP", placeholder: "192.168.1.230" },
-    { key: "port", label: "Port", placeholder: "8023", type: "number" },
-  ],
-  "etc-eos": [
-    { key: "host", label: "Console IP", placeholder: "192.168.1.150" },
-    { key: "port", label: "OSC Port", placeholder: "8000", type: "number" },
-  ],
-};
+function getAdapterLabel(adapterType: string) {
+  return moduleRegistry.get(adapterType)?.displayName ?? adapterType;
+}
 
 export const Route = createFileRoute("/$slug/dashboard/devices")({
   pendingComponent: () => <PageSkeleton />,
@@ -121,13 +63,13 @@ export const Route = createFileRoute("/$slug/dashboard/devices")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "devices:access", context.slug, context.orgId);
     const devices = await getDevices({ data: { orgId: context.orgId } });
-    return { devices, orgId: context.orgId };
+    return { devices, orgId: context.orgId, slug: context.slug };
   },
   component: DevicesPage,
 });
 
 function DevicesPage() {
-  const { devices, orgId } = Route.useLoaderData();
+  const { devices, orgId, slug } = Route.useLoaderData();
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editDevice, setEditDevice] = useState<typeof devices[0] | null>(null);
@@ -241,12 +183,11 @@ function DevicesPage() {
                       ) : (
                         <WifiOff className="w-3.5 h-3.5 text-red-400" />
                       )}
-                      <span className="text-xs text-board-muted">
-                        {device.adapterType
-                          ? ADAPTER_TYPES.find((a) => a.value === device.adapterType)
-                              ?.label ?? device.adapterType
-                          : "No adapter"}
-                      </span>
+                        <span className="text-xs text-board-muted">
+                          {device.adapterType
+                          ? getAdapterLabel(device.adapterType)
+                           : "No adapter"}
+                        </span>
                     </div>
                   </Link>
 
@@ -368,7 +309,8 @@ function DeviceFormModal({
       })()
     : {};
 
-  const [adapterType, setAdapterType] = useState(existing?.adapterType ?? "osc-mixer");
+  const adapterOptions = getAdapterOptions();
+  const [adapterType, setAdapterType] = useState(existing?.adapterType ?? adapterOptions[0]?.value ?? "obs");
   const [name, setName] = useState(existing?.name ?? "");
   const [settingsMap, setSettingsMap] = useState<Record<string, string>>(
     Object.fromEntries(
@@ -379,14 +321,14 @@ function DeviceFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const fields = ADAPTER_FIELDS[adapterType] ?? [];
-  const adapterMeta = ADAPTER_TYPES.find((a) => a.value === adapterType);
+  const adapterMeta = adapterOptions.find((a) => a.value === adapterType);
+  const fields = adapterMeta?.fields ?? [];
 
   const handleAdapterChange = (newType: string) => {
     setAdapterType(newType);
     setSettingsMap({});
     if (!name) {
-      const meta = ADAPTER_TYPES.find((a) => a.value === newType);
+      const meta = adapterOptions.find((a) => a.value === newType);
       if (meta) setName(meta.label);
     }
   };
@@ -471,7 +413,7 @@ function DeviceFormModal({
               onChange={(e) => handleAdapterChange(e.target.value)}
               className={`${INPUT_CLASS} appearance-none`}
             >
-              {ADAPTER_TYPES.map((t) => (
+              {adapterOptions.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>
@@ -502,15 +444,40 @@ function DeviceFormModal({
                   <label className="block text-sm text-board-muted mb-1.5">
                     {field.label}
                   </label>
-                  <input
-                    type={field.type === "password" ? "password" : field.type === "number" ? "number" : "text"}
-                    value={settingsMap[field.key] ?? ""}
-                    onChange={(e) =>
-                      setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
-                    }
-                    placeholder={field.placeholder}
-                    className={INPUT_CLASS}
-                  />
+                <input
+                  type={field.type === "password" ? "password" : field.type === "number" ? "number" : "text"}
+                  value={settingsMap[field.key] ?? ""}
+                  onChange={(e) =>
+                    setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
+                  }
+                  placeholder={field.placeholder}
+                  className={INPUT_CLASS}
+                />
+                  {field.type === "select" && field.options ? (
+                    <select
+                      value={settingsMap[field.key] ?? field.options[0]?.value ?? ""}
+                      onChange={(e) =>
+                        setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
+                      }
+                      className={`${INPUT_CLASS} appearance-none`}
+                    >
+                      {field.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={field.type === "password" ? "password" : field.type === "number" ? "number" : "text"}
+                      value={settingsMap[field.key] ?? ""}
+                      onChange={(e) =>
+                        setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
+                      }
+                      placeholder={field.placeholder}
+                      className={INPUT_CLASS}
+                    />
+                  )}
                 </div>
               ))}
             </div>

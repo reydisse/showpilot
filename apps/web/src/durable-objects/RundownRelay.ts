@@ -103,6 +103,22 @@ export class RundownRelay extends DurableObject {
     this.ctx.storage.put("state", this.state);
   }
 
+  private async isProPresenterStageDisplayEnabled(): Promise<boolean> {
+    if (!this.orgId) return false;
+
+    try {
+      const row = await this.env.DB.prepare(
+        "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1"
+      )
+        .bind(this.orgId, "propresenter-stage-display")
+        .first<{ value: string | null }>();
+
+      return row?.value === "true";
+    } catch {
+      return false;
+    }
+  }
+
   async fetch(request: Request): Promise<Response> {
     await this.hydrateFromStorage();
     const url = new URL(request.url);
@@ -130,7 +146,7 @@ export class RundownRelay extends DurableObject {
         action: string;
         payload?: Record<string, unknown>;
       };
-      this.handleCommand(body.action, body.payload);
+      await this.handleCommand(body.action, body.payload);
       return Response.json({ ok: true });
     }
 
@@ -152,7 +168,7 @@ export class RundownRelay extends DurableObject {
       }
 
       if (parsed.type === "command" && parsed.action) {
-        this.handleCommand(parsed.action, parsed.payload);
+        await this.handleCommand(parsed.action, parsed.payload);
       }
     } catch {
       // Ignore
@@ -167,12 +183,13 @@ export class RundownRelay extends DurableObject {
     // No manual session tracking needed
   }
 
-  private handleCommand(
+  private async handleCommand(
     action: string,
     payload?: Record<string, unknown>
   ) {
     const previousPlayback = this.state.timer.playback;
     const previousItemId = this.state.timer.currentItemId;
+    const shouldEmitAutomation = action !== "seed";
 
     switch (action) {
       case "seed": {
@@ -399,7 +416,8 @@ export class RundownRelay extends DurableObject {
 
       case "pp-slide": {
         const slide = payload?.slide as PPSlideState | null;
-        this.state.ppSlide = slide ? { ...slide, updatedAt: Date.now() } : null;
+        const enabled = await this.isProPresenterStageDisplayEnabled();
+        this.state.ppSlide = enabled && slide ? { ...slide, updatedAt: Date.now() } : null;
         break;
       }
 
@@ -432,10 +450,10 @@ export class RundownRelay extends DurableObject {
     this.broadcastState();
 
     const currentItemId = this.state.timer.currentItemId;
-    if (previousPlayback === "stop" && this.state.timer.playback === "play") {
+    if (shouldEmitAutomation && previousPlayback === "stop" && this.state.timer.playback === "play") {
       void this.sendAutomationChatMessage("Show is live", "system");
     }
-    if (currentItemId && currentItemId !== previousItemId) {
+    if (shouldEmitAutomation && currentItemId && currentItemId !== previousItemId) {
       const currentItem = this.state.items.find((item) => item.id === currentItemId);
       if (currentItem?.title?.trim()) {
         void this.sendAutomationChatMessage(`Now live: ${currentItem.title.trim()}`, "system");

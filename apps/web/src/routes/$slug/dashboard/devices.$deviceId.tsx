@@ -23,7 +23,7 @@ function DeviceDetailPage() {
     useDeviceModule(device, context.orgId);
 
   return (
-    <div className="min-h-[100dvh] bg-board-bg p-4 md:p-6">
+    <div className="h-full min-h-0 overflow-auto bg-board-bg p-4 md:p-6">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">

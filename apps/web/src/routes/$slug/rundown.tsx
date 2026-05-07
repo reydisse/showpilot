@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type DragEvent, type TouchEvent } from "react";
 import {
   Play,
   Pause,
@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  GripVertical,
   Clock,
   Music,
   Heart,
@@ -25,6 +26,8 @@ import {
   Send,
   Copy,
   Check,
+  Eye,
+  EyeOff,
   MessageSquare,
   X,
   Monitor,
@@ -42,6 +45,7 @@ import {
   saveRundownTimer,
   saveRundownMessage,
   saveProPresenterSlide,
+  setProPresenterStageDisplay,
   sendProPresenterCommand,
   listSavedRundowns,
   saveRundownTemplate,
@@ -56,9 +60,11 @@ import { getTodayDateString } from "@/lib/utils";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
 type ItemStatus = "upcoming" | "live" | "complete";
+const RUNDOWN_MIN_WIDTH = 1280;
 
 interface RundownItem {
   id: string;
@@ -191,7 +197,6 @@ function RundownPage() {
   const {
     items: syncedItems,
     timer: syncedTimer,
-    connected: syncConnected,
     hydrated: syncHydrated,
     ppPreviewSlide: syncedPpSlide,
     sendCommand,
@@ -256,6 +261,8 @@ function RundownPage() {
   const [activeMessage, setActiveMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
 
   // Sync: accept DO state as source of truth, but ONLY after hydration.
   // Skip during date loads — loadDate() sets items directly and we don't
@@ -265,6 +272,15 @@ function RundownPage() {
   useEffect(() => {
     if (!syncHydrated) return;
     if (loadingRef.current) return; // Date load in progress — don't overwrite
+    const relayIsEmpty =
+      syncedItems.length === 0 &&
+      syncedTimer.playback === "stop" &&
+      syncedTimer.currentItemId === null &&
+      syncedTimer.elapsed === 0;
+
+    // Keep the DB-loaded rundown visible until the relay has real state.
+    if (relayIsEmpty && items.length > 0) return;
+
     setItems(syncedItems as RundownItem[]);
     setTimer({
       playback: syncedTimer.playback,
@@ -284,14 +300,23 @@ function RundownPage() {
   const [ppPassword, setPpPassword] = useState("");
   const [ppApiPort, setPpApiPort] = useState(0);
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
+  const [ppOnKiosk, setPpOnKiosk] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
   const saveItemsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ppKioskClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerRef = useRef(timer);
   const itemsRef = useRef(items);
   const progressResetRef = useRef(false);
+  const relayNeedsPriming =
+    syncHydrated &&
+    syncedItems.length === 0 &&
+    syncedTimer.playback === "stop" &&
+    syncedTimer.currentItemId === null &&
+    syncedTimer.elapsed === 0 &&
+    items.length > 0;
 
   // Load PP settings from org config
   useEffect(() => {
@@ -301,11 +326,13 @@ function RundownPage() {
       const pwd = settings["propresenter-password"] || "";
       const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
       const cues = settings["propresenter-send-cues"] === "true";
+      const stageDisplay = settings["propresenter-stage-display"] === "true";
       setPpHost(host);
       setPpPort(port);
       setPpPassword(pwd);
       setPpApiPort(apiPort);
       setPpCuesEnabled(cues);
+      setPpOnKiosk(stageDisplay);
     }).catch(() => {});
   }, [orgId]);
 
@@ -339,18 +366,53 @@ function RundownPage() {
     onSlideChange: handlePPSlideChange,
   });
 
-  // Use gateway bridge slide (from DO) as primary, direct connection as fallback
-  const activePpSlide: PPSlidePayload | null = syncedPpSlide ?? ppCurrentSlide;
+  // Prefer the freshest slide so a stale bridge payload cannot mask a newer
+  // direct update during long-running ProPresenter sessions.
+  const bridgeSlideUpdatedAt = syncedPpSlide?.updatedAt ?? 0;
+  const directSlideUpdatedAt = ppCurrentSlide?.updatedAt ?? 0;
+  const ppSource = bridgeSlideUpdatedAt >= directSlideUpdatedAt && bridgeSlideUpdatedAt > 0
+    ? "bridge"
+    : directSlideUpdatedAt > 0
+      ? "direct"
+      : null;
+  const activePpSlide: PPSlidePayload | null = ppSource === "bridge"
+    ? syncedPpSlide
+    : ppSource === "direct"
+      ? ppCurrentSlide
+      : null;
 
-  // When streaming is enabled, keep kiosk synced to the active slide.
+  // Keep the kiosk slide feed stable. Slide transitions can briefly report no text,
+  // so hold the last good slide unless the feed stays empty for a short window.
   useEffect(() => {
-    if (!ppEnabled) return;
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide ?? null } }).catch(() => {});
-  }, [activePpSlide, ppEnabled, orgId, serviceDate]);
+    if (ppKioskClearTimeoutRef.current) {
+      clearTimeout(ppKioskClearTimeoutRef.current);
+      ppKioskClearTimeoutRef.current = null;
+    }
+
+    if (!(ppEnabled && ppOnKiosk)) {
+      return;
+    }
+
+    if (activePpSlide?.text) {
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide } }).catch(() => {});
+      return;
+    }
+
+    ppKioskClearTimeoutRef.current = setTimeout(() => {
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch(() => {});
+      ppKioskClearTimeoutRef.current = null;
+    }, 700);
+
+    return () => {
+      if (ppKioskClearTimeoutRef.current) {
+        clearTimeout(ppKioskClearTimeoutRef.current);
+        ppKioskClearTimeoutRef.current = null;
+      }
+    };
+  }, [activePpSlide, orgId, ppEnabled, ppOnKiosk, serviceDate]);
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
-  const ppIsConnected = syncedPpSlide !== null || pp.status === "connected";
-  const ppSource = syncedPpSlide !== null ? "bridge" : pp.status === "connected" ? "direct" : null;
+  const ppIsConnected = ppSource !== null || pp.status === "connected";
 
   const togglePP = useCallback(() => {
     if (!canEditRundown) return;
@@ -363,12 +425,30 @@ function RundownPage() {
     }
   }, [canEditRundown, ppEnabled, orgId, serviceDate]);
 
-  const showOnKiosk = useCallback(() => {
+  const togglePPOnKiosk = useCallback(() => {
     if (!canEditRundown) return;
-    const slide = syncedPpSlide ?? ppCurrentSlide;
-    if (!slide) return;
-    saveProPresenterSlide({ data: { orgId, serviceDate, slide } }).catch((e) => console.warn("[SP] PP slide persist failed:", e));
-  }, [canEditRundown, orgId, serviceDate, ppCurrentSlide, syncedPpSlide]);
+
+    const next = !ppOnKiosk;
+    setPpOnKiosk(next);
+    setProPresenterStageDisplay({ data: { orgId, enabled: next } }).catch((e) => {
+      setPpCmdError(String(e));
+      setPpOnKiosk(!next);
+    });
+
+    if (!next || !ppEnabled) {
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) =>
+        console.warn("[SP] PP slide clear failed:", e)
+      );
+      return;
+    }
+
+    const slide = activePpSlide;
+    if (slide?.text) {
+      saveProPresenterSlide({ data: { orgId, serviceDate, slide } }).catch((e) =>
+        console.warn("[SP] PP slide persist failed:", e)
+      );
+    }
+  }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate]);
 
   // Persist timer to DB immediately (not debounced — kiosk needs it fast)
   const persistTimer = useCallback((
@@ -409,6 +489,25 @@ function RundownPage() {
         currentItemId: state.timer.currentItemId,
         elapsed: state.timer.elapsed,
         startedAt: state.timer.startedAt,
+        mode: state.timer.mode,
+      });
+
+      // The relay is scoped per org, not per service date, so switching dates
+      // must explicitly replace the shared relay state with the newly loaded
+      // date-specific state. Otherwise an old running timer can bleed across
+      // dates and overwrite the just-loaded rundown.
+      hasSeededRef.current = true;
+      sendCommand("seed", {
+        items: state.items as RundownItem[],
+        timer: {
+          playback: state.timer.playback,
+          currentItemId: state.timer.currentItemId,
+          elapsed: state.timer.elapsed,
+          startedAt: state.timer.startedAt,
+          pausedAt: state.timer.pausedAt ?? null,
+          mode: state.timer.mode,
+        },
+        force: true,
       });
     } catch {
       // Keep current
@@ -422,10 +521,37 @@ function RundownPage() {
     loadDate(newDate);
   };
 
+  useServiceDateRollover({
+    serviceDate,
+    onTodayChanged: (nextToday) => {
+      setServiceDate(nextToday);
+      void loadDate(nextToday);
+    },
+  });
+
   // Keep refs in sync for RAF access
   timerRef.current = timer;
   itemsRef.current = items;
   progressResetRef.current = progressReset;
+
+  const sendRundownCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
+    if (relayNeedsPriming) {
+      hasSeededRef.current = true;
+      sendCommand("seed", {
+        items: itemsRef.current,
+        timer: {
+          playback: timerRef.current.playback,
+          currentItemId: timerRef.current.currentItemId,
+          elapsed: timerRef.current.elapsed,
+          startedAt: timerRef.current.startedAt,
+          pausedAt: timerRef.current.playback === "pause" ? Date.now() : null,
+          mode: timerRef.current.mode,
+        },
+      });
+    }
+
+    sendCommand(action, payload);
+  }, [relayNeedsPriming, sendCommand]);
 
   // RAF: unconditionally tick `now` every frame for smooth timer + progress bar
   useEffect(() => {
@@ -498,29 +624,29 @@ function RundownPage() {
     const startNow = Date.now();
      setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow, mode: timer.mode });
     // Sync to DO + persist to DB
-    sendCommand("timer-start", { itemId });
+    sendRundownCommand("timer-start", { itemId });
     persistTimer("play", itemId, 0, startNow);
-  }, [canEditRundown, sendCommand, persistTimer, timer.mode]);
+  }, [canEditRundown, sendRundownCommand, persistTimer, timer.mode]);
 
   const handlePause = useCallback(() => {
     if (!canEditRundown) return;
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
        setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
-      sendCommand("timer-pause");
+      sendRundownCommand("timer-pause");
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [canEditRundown, timer, sendCommand, persistTimer]);
+  }, [canEditRundown, timer, sendRundownCommand, persistTimer]);
 
   const handleResume = useCallback(() => {
     if (!canEditRundown) return;
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
        setTimer({ ...timer, playback: "play", startedAt: resumeNow });
-      sendCommand("timer-resume");
+      sendRundownCommand("timer-resume");
       persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
-  }, [canEditRundown, timer, sendCommand, persistTimer]);
+  }, [canEditRundown, timer, sendRundownCommand, persistTimer]);
 
   const handleStop = useCallback(() => {
     if (!canEditRundown) return;
@@ -530,9 +656,9 @@ function RundownPage() {
       )
     );
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
-    sendCommand("timer-stop");
-    persistTimer("stop", null, 0, null, resetTimer.mode);
-  }, [canEditRundown, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
+    sendRundownCommand("timer-stop");
+    persistTimer("stop", null, 0, null, timer.mode);
+  }, [canEditRundown, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
     if (!canEditRundown) return;
@@ -560,8 +686,8 @@ function RundownPage() {
       persistTimer("stop", null, 0, null);
     }
     // Single DO command — DO handles the advance logic
-    sendCommand("timer-next");
-  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
+    sendRundownCommand("timer-next");
+  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handlePrev = useCallback(() => {
     if (!canEditRundown) return;
@@ -577,18 +703,18 @@ function RundownPage() {
       );
       const startNow = Date.now();
        setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
-      sendCommand("timer-prev");
+      sendRundownCommand("timer-prev");
       persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendCommand, persistTimer]);
+  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handleReset = useCallback(() => {
     if (!canEditRundown) return;
     updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
-    sendCommand("reset");
+    sendRundownCommand("reset");
     persistTimer("stop", null, 0, null);
-  }, [canEditRundown, updateItems, sendCommand, persistTimer, timer.mode]);
+  }, [canEditRundown, updateItems, sendRundownCommand, persistTimer, timer.mode]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
@@ -609,8 +735,8 @@ function RundownPage() {
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
     // Sync to DO → broadcasts to all clients and kiosk
-    sendCommand("timer-adjust", { deltaMs });
-  }, [canEditRundown, timer, persistTimer, sendCommand]);
+    sendRundownCommand("timer-adjust", { deltaMs });
+  }, [canEditRundown, timer, persistTimer, sendRundownCommand]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
@@ -624,7 +750,7 @@ function RundownPage() {
       sortOrder: items.length,
       hardStop: false,
     };
-    sendCommand("add-item", item as unknown as Record<string, unknown>);
+    sendRundownCommand("add-item", item as unknown as Record<string, unknown>);
     updateItems((prev) => [...prev, item]);
     setShowAddForm(false);
   };
@@ -632,7 +758,7 @@ function RundownPage() {
   const handleRemoveItem = (id: string) => {
     if (!canEditRundown) return;
     if (timer.currentItemId === id) handleStop();
-    sendCommand("remove-item", { id });
+    sendRundownCommand("remove-item", { id });
     updateItems((prev) => prev.filter((i) => i.id !== id));
   };
 
@@ -646,21 +772,101 @@ function RundownPage() {
       const copy = [...prev];
       [copy[idx], copy[newIdx]] = [copy[newIdx], copy[idx]];
       const reordered = copy.map((i, sortOrder) => ({ ...i, sortOrder }));
-      sendCommand("reorder", { order: reordered.map((i) => i.id) });
+      sendRundownCommand("reorder", { order: reordered.map((i) => i.id) });
       return reordered;
     });
   };
 
+  const reorderItemsById = useCallback((sourceItemId: string, targetItemId: string) => {
+    if (!canEditRundown || sourceItemId === targetItemId) return;
+
+    updateItems((prev) => {
+      const fromIndex = prev.findIndex((item) => item.id === sourceItemId);
+      const toIndex = prev.findIndex((item) => item.id === targetItemId);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+      const reordered = [...prev];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+      const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
+      sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
+      return normalized;
+    });
+  }, [canEditRundown, sendRundownCommand, updateItems]);
+
+  const getTouchTargetItemId = useCallback((touch: { clientX: number; clientY: number }) => {
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    const row = element?.closest<HTMLElement>("[data-rundown-item-id]");
+    return row?.dataset.rundownItemId ?? null;
+  }, []);
+
+  const handleItemDragStart = useCallback((event: DragEvent<HTMLDivElement>, itemId: string) => {
+    if (!canEditRundown) return;
+    setDraggedItemId(itemId);
+    setDropTargetItemId(itemId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemId);
+  }, [canEditRundown]);
+
+  const handleItemDragOver = useCallback((event: DragEvent<HTMLDivElement>, itemId: string) => {
+    if (!canEditRundown) return;
+    if (!draggedItemId || draggedItemId === itemId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetItemId((current) => (current === itemId ? current : itemId));
+  }, [canEditRundown, draggedItemId]);
+
+  const handleItemDrop = useCallback((event: DragEvent<HTMLDivElement>, targetItemId: string) => {
+    event.preventDefault();
+    const sourceItemId = draggedItemId ?? event.dataTransfer.getData("text/plain");
+    setDraggedItemId(null);
+    setDropTargetItemId(null);
+    if (!canEditRundown || !sourceItemId || sourceItemId === targetItemId) return;
+
+    reorderItemsById(sourceItemId, targetItemId);
+  }, [canEditRundown, draggedItemId, reorderItemsById]);
+
+  const handleItemTouchStart = useCallback((itemId: string) => {
+    if (!canEditRundown) return;
+    setDraggedItemId(itemId);
+    setDropTargetItemId(itemId);
+  }, [canEditRundown]);
+
+  const handleItemTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
+    if (!canEditRundown || !draggedItemId) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    event.preventDefault();
+    const targetItemId = getTouchTargetItemId(touch);
+    if (!targetItemId || targetItemId === draggedItemId) return;
+    setDropTargetItemId((current) => (current === targetItemId ? current : targetItemId));
+  }, [canEditRundown, draggedItemId, getTouchTargetItemId]);
+
+  const handleItemTouchEnd = useCallback(() => {
+    const sourceItemId = draggedItemId;
+    const targetItemId = dropTargetItemId;
+    setDraggedItemId(null);
+    setDropTargetItemId(null);
+    if (!sourceItemId || !targetItemId || sourceItemId === targetItemId) return;
+
+    reorderItemsById(sourceItemId, targetItemId);
+  }, [draggedItemId, dropTargetItemId, reorderItemsById]);
+
+  const handleItemDragEnd = useCallback(() => {
+    setDraggedItemId(null);
+    setDropTargetItemId(null);
+  }, []);
+
   const handleEditItem = (id: string, title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
     const updates = { title, type, duration: parseDurationInput(durationStr), assignee, notes };
-    sendCommand("update-item", { id, updates });
-    updateItems((prev) =>
-      prev.map((i) =>
-        i.id === id ? { ...i, ...updates } : i
-      )
-    );
-    setEditingItem(null);
+      sendRundownCommand("update-item", { id, updates });
+      updateItems((prev) =>
+        prev.map((i) =>
+          i.id === id ? { ...i, ...updates } : i
+        )
+      );
+      setEditingItem(null);
   };
 
   // Load items into current date (from a previous date or saved template)
@@ -746,21 +952,22 @@ function RundownPage() {
     : `/timer/${slug}`;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full overflow-auto">
+      <div className="min-h-full flex flex-col overflow-hidden" style={{ minWidth: `${RUNDOWN_MIN_WIDTH}px` }}>
       {/* Header */}
-      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3 md:gap-4">
+      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-4">
             <div>
-              <h1 className="text-base md:text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
+              <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
                 Rundown
               </h1>
-              <p className="text-[10px] md:text-xs text-board-muted mt-0.5">
+              <p className="text-xs text-board-muted mt-0.5 whitespace-nowrap">
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
             {/* Date switcher */}
-            <div className="flex items-center gap-1 ml-2 md:ml-4">
+            <div className="flex items-center gap-1 ml-4 shrink-0">
               <button
                 onClick={() => handleDateChange(-1)}
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
@@ -768,7 +975,11 @@ function RundownPage() {
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                onClick={() => { setServiceDate(today); loadDate(today); }}
+                onClick={() => {
+                  const nextToday = getTodayDateString();
+                  setServiceDate(nextToday);
+                  loadDate(nextToday);
+                }}
                 className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums"
               >
                 {formatDisplayDate(serviceDate)}
@@ -781,7 +992,7 @@ function RundownPage() {
               </button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -789,7 +1000,7 @@ function RundownPage() {
                 setCopiedUrl(true);
                 setTimeout(() => setCopiedUrl(false), 2000);
               }}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
               title="Copy timer kiosk URL"
             >
               <Monitor className="w-3 h-3" />
@@ -800,7 +1011,7 @@ function RundownPage() {
               <>
                 <button
                   onClick={() => setShowLoadModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px] md:min-h-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
                   title="Load from previous date or saved template"
                 >
                   <FolderOpen className="w-3 h-3" />
@@ -809,7 +1020,7 @@ function RundownPage() {
                 <button
                   onClick={() => setShowSaveModal(true)}
                   disabled={items.length === 0}
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
                   title="Save as reusable template"
                 >
                   <Save className="w-3 h-3" />
@@ -817,14 +1028,14 @@ function RundownPage() {
                 </button>
                 <button
                   onClick={handleReset}
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
                 >
                   <RotateCcw className="w-3 h-3" />
                   Reset
                 </button>
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 md:py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px] md:min-h-0"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px]"
                 >
                   <Plus className="w-3 h-3" />
                   Add
@@ -858,9 +1069,9 @@ function RundownPage() {
           Loading rundown...
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-col xl:flex-row gap-4 md:gap-6 px-4 md:px-6 py-4 md:py-5 max-w-[1400px] mx-auto w-full min-h-0">
+        <div className="flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
           {/* Left: Timer + Controls + Message */}
-          <div className="w-full xl:w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 xl:max-h-full">
+          <div className="w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 max-h-full">
             {/* Timer */}
             <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
               <div className="flex items-center gap-2 mb-2">
@@ -1082,11 +1293,16 @@ function RundownPage() {
                           {ppEnabled ? "Streaming" : "Off"}
                         </button>
                         <button
-                          onClick={showOnKiosk}
-                          disabled={!activePpSlide?.text}
-                          className="px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-40 bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
+                          onClick={togglePPOnKiosk}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                            ppOnKiosk
+                              ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
+                              : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
+                          }`}
+                          title={ppOnKiosk ? "Hide ProPresenter on kiosk" : "Show ProPresenter on kiosk"}
                         >
-                          Show on kiosk
+                          {ppOnKiosk ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          {ppOnKiosk ? "On Kiosk" : "Kiosk Off"}
                         </button>
                       </>
                     )}
@@ -1265,8 +1481,9 @@ function RundownPage() {
                   const isCurrent = item.id === timer.currentItemId;
                   const config = TYPE_CONFIG[item.type];
                   const Icon = config.icon;
-                  const isLive = timer.playback !== "stop";
                   const isItemOvertime = isCurrent && elapsed > item.duration;
+                  const isDraggingItem = draggedItemId === item.id;
+                  const isDropTarget = dropTargetItemId === item.id && draggedItemId !== item.id;
 
                   // Extract the bg color class for the binder bar
                   const binderColor = isCurrent
@@ -1278,7 +1495,16 @@ function RundownPage() {
                   return (
                     <div
                       key={item.id}
-                      className={`group flex transition-colors ${
+                      data-rundown-item-id={item.id}
+                      onDragOver={(event) => handleItemDragOver(event, item.id)}
+                      onDrop={(event) => handleItemDrop(event, item.id)}
+                      className={`group flex border transition-[colors,opacity,box-shadow] ${
+                        isDraggingItem
+                          ? "opacity-60 border-fire-500/30"
+                          : isDropTarget
+                            ? "border-fire-500/50 shadow-[0_0_0_1px_rgba(255,193,7,0.28)]"
+                            : "border-transparent"
+                      } ${
                         isCurrent
                           ? "bg-fire-500/8"
                           : item.status === "complete"
@@ -1302,6 +1528,26 @@ function RundownPage() {
                       <div className="flex-1 min-w-0 flex flex-col">
                         {/* Main row */}
                         <div className="flex items-center gap-3 px-3 py-2">
+                          {canEditRundown && (
+                            <div
+                              draggable
+                              onDragStart={(event) => handleItemDragStart(event, item.id)}
+                              onDragEnd={handleItemDragEnd}
+                              onTouchStart={() => handleItemTouchStart(item.id)}
+                              onTouchMove={handleItemTouchMove}
+                              onTouchEnd={handleItemTouchEnd}
+                              onTouchCancel={handleItemDragEnd}
+                              className={`shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
+                                isDraggingItem
+                                  ? "text-fire-400 bg-fire-500/10"
+                                  : "text-board-muted/40 hover:text-board-text hover:bg-board-border/30"
+                              } transition-colors`}
+                              title="Drag to reorder"
+                            >
+                              <GripVertical className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+
                           {/* Duration */}
                           <span className={`shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}>
                             {formatDuration(item.duration)}
@@ -1354,19 +1600,17 @@ function RundownPage() {
                             <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
-                            {!isLive && (
-                              <>
-                                <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
-                                  <ChevronUp className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                              )}
+                            <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            {!isCurrent && (
+                              <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             </div>}
                         </div>
 
@@ -1405,6 +1649,7 @@ function RundownPage() {
       {canEditRundown && showSaveModal && (
         <SaveRundownModal onSave={handleSaveTemplate} onClose={() => setShowSaveModal(false)} />
       )}
+      </div>
     </div>
   );
 }

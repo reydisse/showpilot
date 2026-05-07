@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
@@ -24,6 +24,7 @@ import {
   deleteMicAssignment,
 } from "@/lib/data";
 import { getTodayDateString } from "@/lib/utils";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 type MicType = "wireless-handheld" | "wireless-lav" | "wired" | "headset" | "di-box" | "other";
 type ChannelGroup = "vocals" | "band" | "playback" | "sfx" | "other";
@@ -72,7 +73,6 @@ export const Route = createFileRoute("/$slug/dashboard/audio")({
 
 function AudioPage() {
   const { assignments: initialAssignments, orgId, today } = Route.useLoaderData();
-  const router = useRouter();
   const [serviceDate, setServiceDate] = useState(today);
   const [assignments, setAssignments] = useState(initialAssignments);
   const [showForm, setShowForm] = useState(false);
@@ -85,6 +85,14 @@ function AudioPage() {
     setAssignments(result);
     setLoading(false);
   };
+
+  useServiceDateRollover({
+    serviceDate,
+    onTodayChanged: (nextToday) => {
+      setServiceDate(nextToday);
+      void loadAssignments(nextToday);
+    },
+  });
 
   const handleDateChange = (days: number) => {
     const newDate = shiftDate(serviceDate, days);
@@ -138,8 +146,9 @@ function AudioPage() {
               </button>
               <button
                 onClick={() => {
-                  setServiceDate(today);
-                  loadAssignments(today);
+                  const nextToday = getTodayDateString();
+                  setServiceDate(nextToday);
+                  loadAssignments(nextToday);
                 }}
                 className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors"
               >

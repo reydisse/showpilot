@@ -1,5 +1,6 @@
 import type { TransportType, ConnectivityMode, AdapterField } from "../../types";
 import type { ProtocolDriver } from "../protocol-driver";
+import { getSharedBridgeProxy } from "../../bridge-proxy";
 
 /**
  * Wake-on-LAN protocol driver — bridge-required.
@@ -15,13 +16,28 @@ export class WolDriver implements ProtocolDriver {
     { key: "broadcastAddress", label: "Broadcast Address", placeholder: "255.255.255.255" },
   ];
 
-  async connect(): Promise<void> {
-    throw new Error("Bridge agent required for Wake-on-LAN");
+  private proxy = null as ReturnType<typeof getSharedBridgeProxy> | null;
+  private mac = "";
+  private connected = false;
+
+  async connect(settings: Record<string, unknown>): Promise<void> {
+    const orgId = String(settings.orgId || "");
+    this.mac = String(settings.mac || "");
+    if (!orgId || !this.mac) {
+      throw new Error("Bridge and MAC address are required");
+    }
+
+    this.proxy = getSharedBridgeProxy(orgId);
+    if (!this.proxy.isBridgeOnline()) throw new Error("Bridge is offline");
+    this.connected = true;
   }
-  disconnect(): void {}
-  async sendCommand(): Promise<string | void> {
-    throw new Error("Bridge agent required");
+  disconnect(): void {
+    this.connected = false;
+  }
+  async sendCommand(command: string): Promise<string | void> {
+    if (!this.proxy || !this.connected) throw new Error("Not connected");
+    return await this.proxy.sendCommand(this.protocolId, "wol", command || this.mac);
   }
   onEvent(): () => void { return () => {}; }
-  isConnected(): boolean { return false; }
+  isConnected(): boolean { return this.connected; }
 }

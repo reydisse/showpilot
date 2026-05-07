@@ -157,6 +157,10 @@ function ppSlideKey(serviceDate: string) {
   return `rundown-ppslide:${serviceDate}`;
 }
 
+function ppStageDisplayKey() {
+  return "propresenter-stage-display";
+}
+
 /**
  * Server-side proxy to fetch current slide from PP7 REST API.
  * Runs on the server to bypass browser CORS restrictions.
@@ -408,6 +412,25 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
       }
     }
 
+    return { ok: true };
+  });
+
+export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
+  .inputValidator((data: { orgId: string; enabled: boolean }) => data)
+  .handler(async ({ data }) => {
+    await assertRundownEditAccess(data.orgId);
+    const prisma = getPrisma();
+    await prisma.appSetting.upsert({
+      where: {
+        orgId_key: { orgId: data.orgId, key: ppStageDisplayKey() },
+      },
+      update: { value: data.enabled ? "true" : "false" },
+      create: {
+        orgId: data.orgId,
+        key: ppStageDisplayKey(),
+        value: data.enabled ? "true" : "false",
+      },
+    });
     return { ok: true };
   });
 

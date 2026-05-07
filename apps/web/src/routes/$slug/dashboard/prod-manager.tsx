@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { useState } from "react";
 import {
   Users,
   CheckCircle2,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/data";
 import { getTodayDateString } from "@/lib/utils";
 import { getDepartment, DEPARTMENTS, type RoleDepartment } from "@/types";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 const DEPT_ORDER: RoleDepartment[] = [
   "leadership",
@@ -48,6 +50,16 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
 
 function ProdManagerPage() {
   const { members, templates, entries, incidents, cueItems } = Route.useLoaderData();
+  const router = useRouter();
+  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+
+  useServiceDateRollover({
+    serviceDate,
+    onTodayChanged: async (nextToday) => {
+      setServiceDate(nextToday);
+      await router.invalidate();
+    },
+  });
 
   const servingMembers = members.filter((m) => m.isOnline);
   const checkedCount = entries.filter((e) => e.checked).length;
