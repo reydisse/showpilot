@@ -49,8 +49,6 @@ const TYPE_COLORS: Record<ItemType, string> = {
   custom: "bg-board-muted",
 };
 
-const SHOW_MIN_WIDTH = 1280;
-
 // ─── Route ───────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/show")({
@@ -173,7 +171,7 @@ function ChatPanel({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {showNameInput && (
         <div className="py-3 border-b border-board-border/50 space-y-2">
           <label className="text-xs text-board-muted block">Your name</label>
@@ -373,155 +371,148 @@ function ShowPageWithNative({
   return (
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
-      <div className="h-full overflow-auto">
-        <div className="min-h-full flex flex-col overflow-hidden" style={{ minWidth: `${SHOW_MIN_WIDTH}px` }}>
-          {/* Status bar */}
-          <div className="shrink-0 px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
-            <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-board-muted tabular-nums">
-                {formatTime(new Date(), clockFormat)}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
-                <span className="text-xs text-board-muted">
-                  {isPlaying ? "Live" : "Native"}
-                </span>
+      <div className="h-full overflow-hidden">
+        <div className="h-full min-h-0">
+          <div className="h-full min-h-0 flex flex-col overflow-hidden">
+            {/* Status bar */}
+            <div className="shrink-0 px-4 sm:px-5 lg:px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
+              <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-board-muted tabular-nums">{formatTime(new Date(), clockFormat)}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
+                  <span className="text-xs text-board-muted">{isPlaying ? "Live" : "Native"}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Main */}
-          <main className="flex-1 overflow-hidden px-6 py-5">
-            <div className="flex h-full min-w-0 flex-row gap-6 max-w-[1400px] mx-auto w-full">
-              {/* Left: Timer (read-only) + Chat */}
-              <div className="w-[400px] shrink-0 flex flex-col gap-5 overflow-y-auto hide-scrollbar min-h-0 max-h-full">
-                {/* Timer display — read-only, no controls */}
-                <div className={`p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {isPlaying ? (
-                      <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                    ) : isPaused ? (
-                      <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                    ) : (
-                      <Square className="w-3.5 h-3.5 text-board-muted" />
+            {/* Main */}
+            <main className="flex-1 min-h-0 overflow-hidden px-4 sm:px-5 lg:px-6 py-3 sm:py-4 md:py-5">
+              <div className="grid h-full min-h-0 min-w-0 grid-cols-1 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-4 xl:gap-6 w-full">
+                {/* Left: Timer (read-only) + Chat */}
+                <div className="flex flex-col gap-4 xl:gap-5 xl:items-stretch xl:w-[360px] 2xl:w-[420px] overflow-hidden min-h-0 max-h-full">
+                  {/* Timer display — read-only, no controls */}
+                  <div className={`p-5 xl:p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {isPlaying ? (
+                        <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
+                      ) : isPaused ? (
+                        <Pause className="w-3.5 h-3.5 text-yellow-400" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 text-board-muted" />
+                      )}
+                      <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                        {timer.playback === "stop" ? "Stopped" : isPlaying ? "Playing" : "Paused"}
+                      </span>
+                      {isOvertime && (
+                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+                      )}
+                    </div>
+
+                    <p className={`text-5xl sm:text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
+                      {currentItem ? formatDuration(remaining) : "--:--"}
+                    </p>
+
+                    {/* Progress bar */}
+                    {currentItem && (
+                      <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
+                          style={{ width: `${Math.min(100, (displayTime / currentItem.duration) * 100)}%` }}
+                        />
+                      </div>
                     )}
-                    <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                      {timer.playback === "stop" ? "Stopped" : isPlaying ? "Playing" : "Paused"}
-                    </span>
-                    {isOvertime && (
-                      <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+
+                    {currentItem && (
+                      <div className="mt-3 pt-3 border-t border-board-border/40">
+                        <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
+                        <p className="text-xs text-board-muted mt-0.5">
+                          Duration: {formatDuration(currentItem.duration)}
+                          {currentItem.assignee && ` · ${currentItem.assignee}`}
+                        </p>
+                      </div>
+                    )}
+
+                    {nextItem && (
+                      <p className="text-xs text-board-muted mt-2">
+                        Next: <span className="text-board-text/70">{nextItem.title}</span>
+                        <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
+                      </p>
                     )}
                   </div>
 
-                  <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                    {currentItem ? formatDuration(remaining) : "--:--"}
-                  </p>
-
-                  {/* Progress bar */}
-                  {currentItem && (
-                    <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
-                        style={{ width: `${Math.min(100, (displayTime / currentItem.duration) * 100)}%` }}
-                      />
-                    </div>
-                  )}
-
-                  {currentItem && (
-                    <div className="mt-3 pt-3 border-t border-board-border/40">
-                      <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
-                      <p className="text-xs text-board-muted mt-0.5">
-                        Duration: {formatDuration(currentItem.duration)}
-                        {currentItem.assignee && ` · ${currentItem.assignee}`}
-                      </p>
-                    </div>
-                  )}
-
-                  {nextItem && (
-                    <p className="text-xs text-board-muted mt-2">
-                      Next: <span className="text-board-text/70">{nextItem.title}</span>
-                      <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
-                    </p>
-                  )}
+                  {/* Chat */}
+                  <div className="flex flex-1 min-h-0 flex-col overflow-hidden p-3 xl:p-4 rounded-xl bg-board-card border border-board-border">
+                    <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+                  </div>
                 </div>
 
-                {/* Chat */}
-                <div className="flex-1 min-h-0 p-4 rounded-xl bg-board-card border border-board-border">
-                  <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
-                </div>
-              </div>
+                {/* Right: Rundown (read-only) */}
+                <div className="min-w-0 flex flex-col overflow-auto hide-scrollbar">
+                  <div className="min-w-0 flex flex-col min-h-full">
+                    <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
+                    {items.length === 0 ? (
+                      <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                        <Clock className="w-8 h-8 text-board-muted/20" />
+                        <p className="text-sm text-board-muted">No items in the rundown</p>
+                        <p className="text-xs text-board-muted/50">
+                          Add items in the{" "}
+                          <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
+                            Rundown Editor
+                          </Link>
+                        </p>
+                      </div>
+                    ) : (
+                       <div className="space-y-1 xl:space-y-1.25 overflow-auto flex-1 hide-scrollbar pr-1">
+                        {items.map((event) => {
+                          const isCurrent = event.id === timer.currentItemId;
+                          const isComplete = event.status === "complete";
+                          const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
 
-              {/* Right: Rundown (read-only) */}
-              <div className="flex-1 min-w-0 flex flex-col overflow-auto hide-scrollbar">
-                <div className="min-w-[760px] flex flex-col min-h-full">
-                  <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
-                    Rundown
-                  </h2>
-                  {items.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                      <Clock className="w-8 h-8 text-board-muted/20" />
-                      <p className="text-sm text-board-muted">No items in the rundown</p>
-                      <p className="text-xs text-board-muted/50">
-                        Add items in the{" "}
-                        <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
-                          Rundown Editor
-                        </Link>
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                      {items.map((event) => {
-                      const isCurrent = event.id === timer.currentItemId;
-                      const isComplete = event.status === "complete";
-                      const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
+                          return (
+                            <div
+                              key={event.id}
+                              className={`flex items-center gap-2.5 xl:gap-3 px-3.5 xl:px-4 py-2.5 xl:py-3 rounded-lg border transition-colors ${
+                                isCurrent
+                                  ? "bg-fire-500/8 border-fire-500/25"
+                                  : isComplete
+                                    ? "bg-board-card/30 border-board-border/30 opacity-60"
+                                    : "bg-board-card/50 border-board-border/50"
+                              }`}
+                            >
+                              <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                isCurrent ? "bg-fire-500 animate-pulse" : isComplete ? "bg-green-500" : dotColor
+                              }`} />
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-xs xl:text-sm font-medium truncate ${
+                                  isCurrent ? "text-fire-500" : isComplete ? "text-board-muted line-through" : "text-board-text/80"
+                                }`}>
+                                  {event.title || "Untitled"}
+                                </p>
+                                {event.notes && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.notes}</p>}
+                              </div>
 
-                      return (
-                        <div
-                          key={event.id}
-                          className={`flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors ${
-                            isCurrent
-                              ? "bg-fire-500/8 border-fire-500/25"
-                              : isComplete
-                                ? "bg-board-card/30 border-board-border/30 opacity-60"
-                                : "bg-board-card/50 border-board-border/50"
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full shrink-0 ${
-                            isCurrent ? "bg-fire-500 animate-pulse" : isComplete ? "bg-green-500" : dotColor
-                          }`} />
+                              <div className="text-right shrink-0">
+                                <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">
+                                  <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
+                                  {formatDuration(event.duration)}
+                                </p>
+                              </div>
 
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${
-                              isCurrent ? "text-fire-500" : isComplete ? "text-board-muted line-through" : "text-board-text/80"
-                            }`}>
-                              {event.title || "Untitled"}
-                            </p>
-                            {event.notes && (
-                              <p className="text-xs text-board-muted/60 truncate mt-0.5">{event.notes}</p>
-                            )}
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <p className="text-xs text-board-muted tabular-nums">
-                              <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
-                              {formatDuration(event.duration)}
-                            </p>
-                          </div>
-
-                          {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
-                        </div>
-                      );
-                      })}
-                    </div>
-                  )}
+                              {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          </main>
+            </main>
 
-          {/* Crew ticker */}
-          {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
+            {/* Crew ticker */}
+            {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
+          </div>
         </div>
       </div>
     </>
@@ -575,121 +566,123 @@ function ShowPageWithOntime({
   return (
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
-      <div className="h-full overflow-auto">
-        <div className="min-h-full flex flex-col overflow-hidden" style={{ minWidth: `${SHOW_MIN_WIDTH}px` }}>
-          <div className="shrink-0 px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
-            <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-board-muted tabular-nums">
-                {formatTime(new Date(), clockFormat)}
-              </span>
-              <div className="flex items-center gap-1.5">
-                {ontime.connected ? (
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                ) : (
-                  <WifiOff className="w-3.5 h-3.5 text-red-400" />
-                )}
-                <span className="text-xs text-board-muted">
-                  {ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}
+      <div className="h-full overflow-hidden">
+        <div className="h-full min-h-0">
+          <div className="h-full min-h-0 flex flex-col overflow-hidden">
+            <div className="shrink-0 px-4 sm:px-5 lg:px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
+              <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-board-muted tabular-nums">
+                  {formatTime(new Date(), clockFormat)}
                 </span>
+                <div className="flex items-center gap-1.5">
+                  {ontime.connected ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  ) : (
+                    <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                  )}
+                  <span className="text-xs text-board-muted">
+                    {ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <main className="flex-1 overflow-hidden px-6 py-5">
-            <div className="flex h-full min-w-0 flex-row gap-6 max-w-[1400px] mx-auto w-full">
-              {/* Left: Timer + Chat */}
-              <div className="w-[400px] shrink-0 flex flex-col gap-5 overflow-y-auto hide-scrollbar min-h-0 max-h-full">
-                <div className={`p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {isPlaying ? (
-                      <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                    ) : isPaused ? (
-                      <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                    ) : (
-                      <Square className="w-3.5 h-3.5 text-board-muted" />
+            <main className="flex-1 min-h-0 overflow-hidden px-4 sm:px-5 lg:px-6 py-3 sm:py-4 md:py-5">
+              <div className="grid h-full min-h-0 min-w-0 grid-cols-1 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-4 xl:gap-6 w-full">
+                {/* Left: Timer + Chat */}
+                <div className="flex flex-col gap-4 xl:gap-5 xl:items-stretch xl:w-[360px] 2xl:w-[420px] overflow-hidden min-h-0 max-h-full">
+                   <div className={`p-5 xl:p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {isPlaying ? (
+                        <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
+                      ) : isPaused ? (
+                        <Pause className="w-3.5 h-3.5 text-yellow-400" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5 text-board-muted" />
+                      )}
+                      <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                        {ontime.timer.playback === "stop" ? "Stopped"
+                          : ontime.timer.playback === "armed" ? "Armed"
+                          : ontime.timer.playback === "roll" ? "Rolling"
+                          : isPlaying ? "Playing" : "Paused"}
+                      </span>
+                    </div>
+
+                    <p className={`text-5xl sm:text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
+                        {formatOntimeDuration(ontime.timer.current)}
+                      </p>
+
+                    {ontime.eventNow && (
+                      <div className="mt-3 pt-3 border-t border-board-border/40">
+                        <p className="text-sm font-medium text-board-text truncate">{ontime.eventNow.title}</p>
+                        <p className="text-xs text-board-muted mt-0.5">
+                          {formatOntimeTime(ontime.eventNow.timeStart)} – {formatOntimeTime(ontime.eventNow.timeEnd)}
+                        </p>
+                      </div>
                     )}
-                    <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                      {ontime.timer.playback === "stop" ? "Stopped"
-                        : ontime.timer.playback === "armed" ? "Armed"
-                        : ontime.timer.playback === "roll" ? "Rolling"
-                        : isPlaying ? "Playing" : "Paused"}
-                    </span>
+
+                    {ontime.eventNext && (
+                      <p className="text-xs text-board-muted mt-2">
+                        Next: <span className="text-board-text/70">{ontime.eventNext.title}</span>
+                      </p>
+                    )}
                   </div>
 
-                  <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                    {formatOntimeDuration(ontime.timer.current)}
-                  </p>
-
-                  {ontime.eventNow && (
-                    <div className="mt-3 pt-3 border-t border-board-border/40">
-                      <p className="text-sm font-medium text-board-text truncate">{ontime.eventNow.title}</p>
-                      <p className="text-xs text-board-muted mt-0.5">
-                        {formatOntimeTime(ontime.eventNow.timeStart)} – {formatOntimeTime(ontime.eventNow.timeEnd)}
-                      </p>
-                    </div>
-                  )}
-
-                  {ontime.eventNext && (
-                    <p className="text-xs text-board-muted mt-2">
-                      Next: <span className="text-board-text/70">{ontime.eventNext.title}</span>
-                    </p>
-                  )}
+                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden p-3 xl:p-4 rounded-xl bg-board-card border border-board-border">
+                    <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+                  </div>
                 </div>
 
-                <div className="flex-1 min-h-0 p-4 rounded-xl bg-board-card border border-board-border">
-                  <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+                {/* Right: OnTime Rundown */}
+                <div className="min-w-0 flex flex-col overflow-auto hide-scrollbar">
+                  <div className="min-w-0 flex flex-col min-h-full">
+                    <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
+                      Rundown
+                    </h2>
+                    {ontime.events.length === 0 ? (
+                      <p className="text-center text-board-muted text-sm py-12">No events in the rundown</p>
+                    ) : (
+                       <div className="space-y-1 xl:space-y-1.25 overflow-auto flex-1 hide-scrollbar pr-1">
+                        {ontime.events.map((event) => {
+                          const isCurrent = event.id === currentId;
+                          return (
+                            <div
+                              key={event.id}
+                               className={`flex items-center gap-2.5 xl:gap-3 px-3.5 xl:px-4 py-2.5 xl:py-3 rounded-lg border transition-colors ${
+                                 isCurrent
+                                   ? "bg-fire-500/8 border-fire-500/25"
+                                   : "bg-board-card/50 border-board-border/50 hover:border-board-border"
+                               }`}
+                             >
+                              <div className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: event.colour || (isCurrent ? "#ffc107" : "#444") }} />
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-xs xl:text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}>
+                                  {event.title || "Untitled"}
+                                </p>
+                                {event.note && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.note}</p>}
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">{formatOntimeTime(event.timeStart)}</p>
+                                <p className="text-[10px] text-board-muted/50 tabular-nums mt-0.5">
+                                  <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
+                                  {formatOntimeDuration(event.duration)}
+                                </p>
+                              </div>
+                              {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+            </main>
 
-              {/* Right: OnTime Rundown */}
-              <div className="flex-1 min-w-0 flex flex-col overflow-auto hide-scrollbar">
-                <div className="min-w-[760px] flex flex-col min-h-full">
-                  <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
-                    Rundown
-                  </h2>
-                  {ontime.events.length === 0 ? (
-                    <p className="text-center text-board-muted text-sm py-12">No events in the rundown</p>
-                  ) : (
-                    <div className="space-y-1.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                      {ontime.events.map((event) => {
-                        const isCurrent = event.id === currentId;
-                        return (
-                          <div
-                            key={event.id}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors ${
-                              isCurrent
-                                ? "bg-fire-500/8 border-fire-500/25"
-                                : "bg-board-card/50 border-board-border/50 hover:border-board-border"
-                            }`}
-                          >
-                            <div className="w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: event.colour || (isCurrent ? "#ffc107" : "#444") }} />
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}>
-                                {event.title || "Untitled"}
-                              </p>
-                              {event.note && <p className="text-xs text-board-muted/60 truncate mt-0.5">{event.note}</p>}
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="text-xs text-board-muted tabular-nums">{formatOntimeTime(event.timeStart)}</p>
-                              <p className="text-[10px] text-board-muted/50 tabular-nums mt-0.5">
-                                <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
-                                {formatOntimeDuration(event.duration)}
-                              </p>
-                            </div>
-                            {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </main>
-
-          {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
+            {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
+          </div>
         </div>
       </div>
     </>

@@ -1035,10 +1035,15 @@ function RundownPage() {
                 </button>
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors min-h-[44px]"
+                  className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
+                  style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
                 >
-                  <Plus className="w-3 h-3" />
-                  Add
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
+                    <Plus className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="font-[family-name:var(--font-display)] text-sm font-bold tracking-tight whitespace-nowrap">
+                    Add Item
+                  </span>
                 </button>
               </>
             ) : (
@@ -1134,34 +1139,54 @@ function RundownPage() {
             </div>
 
             {/* Timer controls */}
-            {canEditRundown && <div className="flex gap-2">
-              {timer.playback === "play" ? (
-                <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
-                  <Pause className="w-4 h-4" /> Pause
-                </button>
-              ) : timer.playback === "pause" ? (
-                <button onClick={handleResume} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors">
-                  <Play className="w-4 h-4" /> Resume
-                </button>
-              ) : (
+            {canEditRundown && (
+              <div className="flex gap-2">
+                {timer.playback === "play" ? (
+                  <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
+                    <Pause className="w-4 h-4" /> Pause
+                  </button>
+                ) : timer.playback === "pause" ? (
+                  <button onClick={handleResume} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors">
+                    <Play className="w-4 h-4" /> Resume
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const first = items.find((i) => i.status !== "complete");
+                      if (first) handleStart(first.id);
+                    }}
+                    disabled={items.length === 0}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
+                  >
+                    <Play className="w-4 h-4" /> Start
+                  </button>
+                )}
+
                 <button
-                  onClick={() => { const first = items.find((i) => i.status !== "complete"); if (first) handleStart(first.id); }}
-                  disabled={items.length === 0}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
+                  onClick={handlePrev}
+                  disabled={timer.playback === "stop"}
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                  title="Previous item"
                 >
-                  <Play className="w-4 h-4" /> Start
+                  <SkipBack className="w-4 h-4" />
                 </button>
-              )}
-              <button onClick={handlePrev} disabled={timer.playback === "stop"} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40" title="Previous item">
-                <SkipBack className="w-4 h-4" />
-              </button>
-              <button onClick={handleNext} disabled={timer.playback === "stop"} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40" title="Next item">
-                <SkipForward className="w-4 h-4" />
-              </button>
-              <button onClick={handleStop} disabled={timer.playback === "stop"} className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40">
-                <Square className="w-4 h-4" />
-              </button>
-            </div>}
+                <button
+                  onClick={handleNext}
+                  disabled={timer.playback === "stop"}
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                  title="Next item"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleStop}
+                  disabled={timer.playback === "stop"}
+                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                >
+                  <Square className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             {/* Add / Subtract time (OnTime-style) */}
             {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card p-3">
@@ -1588,30 +1613,36 @@ function RundownPage() {
                             </span>
                           )}
 
-                          {/* Playback actions (always visible for current, hover for others) */}
-                            {canEditRundown && <div className={`flex items-center gap-0.5 shrink-0 ${
-                              isCurrent ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                            } transition-opacity`}>
-                              {!isCurrent && item.status !== "complete" && (
-                                <button onClick={() => handleStart(item.id)} className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Start">
-                                  <Play className="w-3.5 h-3.5" />
-                              </button>
+                            {/* Playback actions (always visible on touch/tables, hover for larger screens) */}
+                            {canEditRundown && (
+                              <div
+                                className={`flex items-center gap-0.5 shrink-0 ${
+                                  isCurrent
+                                    ? "opacity-100"
+                                    : "opacity-100 xl:opacity-0 xl:group-hover:opacity-100"
+                                } transition-opacity`}
+                              >
+                                {!isCurrent && item.status !== "complete" && (
+                                  <button onClick={() => handleStart(item.id)} className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Start">
+                                    <Play className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                                {!isCurrent && (
+                                  <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             )}
-                            <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                            {!isCurrent && (
-                              <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            </div>}
                         </div>
 
                         {/* Progress bar for current item */}

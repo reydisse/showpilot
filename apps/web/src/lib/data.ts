@@ -179,6 +179,96 @@ export const publicCheckInByMemberId = createServerFn({ method: "POST" })
     };
   });
 
+const ALLOWED_PROFILE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+]);
+const MAX_PROFILE_BYTES = 1_500_000;
+
+const getPhotoPayloadBytes = (photoUrl: string) => {
+  const match = /^data:([^;]+);base64,/.exec(photoUrl);
+  if (!match) return null;
+
+  const mimeType = match[1]?.toLowerCase();
+  if (!mimeType || !ALLOWED_PROFILE_MIME_TYPES.has(mimeType)) return null;
+
+  const payload = photoUrl.slice(match[0].length);
+  if (!payload || !/^[A-Za-z0-9+/=]+$/.test(payload)) return null;
+
+  return Math.floor((payload.length * 3) / 4);
+};
+
+export const updatePublicCrewMemberPhotoByMemberId = createServerFn({ method: "POST" })
+  .inputValidator((data: { slug: string; memberId: string; photoUrl?: string; name?: string }) => data)
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+
+    const hasName = typeof data.name === "string";
+    const hasPhoto = typeof data.photoUrl === "string" && data.photoUrl.length > 0;
+
+    if (!hasName && !hasPhoto) {
+      return null;
+    }
+
+    const trimmedName = hasName ? data.name!.trim() : "";
+
+    if (hasName && (!trimmedName || trimmedName.length > 80)) {
+      return null;
+    }
+
+    if (hasPhoto) {
+      const photoBytes = getPhotoPayloadBytes(data.photoUrl!);
+      if (!photoBytes || photoBytes > MAX_PROFILE_BYTES) {
+        return null;
+      }
+    }
+
+    if (!data.memberId || typeof data.memberId !== "string") {
+      return null;
+    }
+
+    const updates: { name?: string; photoUrl?: string } = {};
+
+    if (hasName) {
+      updates.name = trimmedName;
+    }
+
+    if (hasPhoto) {
+      updates.photoUrl = data.photoUrl!;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return null;
+    }
+
+    const org = await prisma.organization.findUnique({
+      where: { slug: data.slug },
+      select: { id: true },
+    });
+    if (!org) return null;
+
+    try {
+      const updated = await prisma.crewMember.update({
+        where: { orgId_memberId: { orgId: org.id, memberId: data.memberId } },
+        data: updates,
+      });
+
+      return {
+        memberId: updated.memberId,
+        photoUrl: updated.photoUrl,
+        name: updated.name,
+      };
+    } catch {
+      return null;
+    }
+  });
+
 export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
   .inputValidator((data: { slug: string; memberId: string }) => data)
   .handler(async ({ data }) => {

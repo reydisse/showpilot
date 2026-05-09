@@ -73,12 +73,16 @@ function OrgLayout() {
   const isBoard = matchRoute({ to: "/$slug/board" });
   const isCrewChat = matchRoute({ to: "/$slug/crew-chat" });
   const isCheckin = matchRoute({ to: "/$slug/checkin" });
+  const standaloneRoute = isBoard || isCrewChat || isCheckin;
 
   // Standalone routes — no sidebar, full screen
-  if (isBoard || isCrewChat || isCheckin) {
+  if (standaloneRoute) {
+    const wrapperClassName =
+      "h-[100dvh] min-h-[100dvh] bg-board-bg " + (isBoard ? "overflow-hidden overscroll-none" : "overflow-auto");
+
     return (
       <ThemeProvider>
-        <div className="h-[100dvh] min-h-[100dvh] bg-board-bg overflow-auto">
+        <div className={wrapperClassName}>
           <Outlet />
         </div>
       </ThemeProvider>
