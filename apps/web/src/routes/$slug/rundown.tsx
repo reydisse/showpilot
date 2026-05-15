@@ -1683,6 +1683,7 @@ function RundownPage() {
         <SaveRundownModal onSave={handleSaveTemplate} onClose={() => setShowSaveModal(false)} />
       )}
       </div>
+      </div>
     </div>
   );
 }
