@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { getRundownStateForOrg } from "@/lib/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
 
 async function assertOrgAccess(orgId: string) {
@@ -72,13 +73,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
     });
     if (!org) throw new Error("Organization not found");
 
-    const [itemsSetting, timerSetting, messageSetting, incidents, entries, templates, cueSheets] = await Promise.all([
-      prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: `rundown-items:${data.serviceDate}` } },
-      }),
-      prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: `rundown-timer:${data.serviceDate}` } },
-      }),
+    const [state, messageSetting, incidents, entries, templates, cueSheets] = await Promise.all([
+      getRundownStateForOrg({ orgId: data.orgId, serviceDate: data.serviceDate }),
       prisma.appSetting.findUnique({
         where: { orgId_key: { orgId: data.orgId, key: `rundown-message:${data.serviceDate}` } },
       }),
@@ -100,18 +96,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
       }),
     ]);
 
-    const items = itemsSetting ? (JSON.parse(itemsSetting.value) as RundownItem[]) : [];
-    const timer = timerSetting
-      ? (JSON.parse(timerSetting.value) as NativeTimerState)
-      : {
-          playback: "stop",
-          currentItemId: null,
-          elapsed: 0,
-          startedAt: null,
-          pausedAt: null,
-          mode: "count-down",
-          serverTime: Date.now(),
-        };
+    const items: RundownItem[] = state.items;
+    const timer: NativeTimerState = state.timer;
 
     const templateMap = new Map(templates.map((template) => [template.id, template]));
     const plannedDurationMs = items.reduce((sum, item) => sum + item.duration, 0);

@@ -14,6 +14,7 @@ import {
   getIncidents,
   getCueSheets,
 } from "@/lib/data";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { getDepartment, DEPARTMENTS, type RoleDepartment } from "@/types";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -35,7 +36,8 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "dashboard:pm", context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const [members, templates, entries, incidents, cueItems] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
       getChecklistTemplates({ data: { orgId: context.orgId } }),
@@ -43,18 +45,28 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
       getIncidents({ data: { orgId: context.orgId, serviceDate: today } }),
       getCueSheets({ data: { orgId: context.orgId, serviceDate: today } }),
     ]);
-    return { members, templates, entries, incidents, cueItems, orgId: context.orgId };
+    return {
+      members,
+      templates,
+      entries,
+      incidents,
+      cueItems,
+      orgId: context.orgId,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: ProdManagerPage,
 });
 
 function ProdManagerPage() {
-  const { members, templates, entries, incidents, cueItems } = Route.useLoaderData();
+  const { members, templates, entries, incidents, cueItems, orgTimezone } =
+    Route.useLoaderData();
   const router = useRouter();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: orgTimezone,
     onTodayChanged: async (nextToday) => {
       setServiceDate(nextToday);
       await router.invalidate();

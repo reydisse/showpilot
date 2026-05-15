@@ -23,6 +23,7 @@ import {
   updateMicAssignment,
   deleteMicAssignment,
 } from "@/lib/data";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
@@ -62,17 +63,23 @@ export const Route = createFileRoute("/$slug/dashboard/audio")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const assignments = await getMicAssignments({
       data: { orgId: context.orgId, serviceDate: today },
     });
-    return { assignments, orgId: context.orgId, today };
+    return {
+      assignments,
+      orgId: context.orgId,
+      today,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: AudioPage,
 });
 
 function AudioPage() {
-  const { assignments: initialAssignments, orgId, today } = Route.useLoaderData();
+  const { assignments: initialAssignments, orgId, today, orgTimezone } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(today);
   const [assignments, setAssignments] = useState(initialAssignments);
   const [showForm, setShowForm] = useState(false);
@@ -88,6 +95,7 @@ function AudioPage() {
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
       void loadAssignments(nextToday);
@@ -146,7 +154,7 @@ function AudioPage() {
               </button>
               <button
                 onClick={() => {
-                  const nextToday = getTodayDateString();
+                  const nextToday = getTodayDateString(orgTimezone);
                   setServiceDate(nextToday);
                   loadAssignments(nextToday);
                 }}

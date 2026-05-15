@@ -3,7 +3,6 @@ import { Plus } from "lucide-react";
 import type {
   AutomationEvent,
   AutomationActionType,
-  TimecodeValue,
 } from "@/types/timecode";
 import { parseTimecodeString } from "@/lib/timecode";
 
@@ -25,7 +24,6 @@ export function AutomationEventEditor({ onAdd }: AutomationEventEditorProps) {
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
-  const [category, setCategory] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
   const [error, setError] = useState("");
 
@@ -53,7 +51,7 @@ export function AutomationEventEditor({ onAdd }: AutomationEventEditorProps) {
       payload,
       label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames: 2,
-      category: category || ACTION_OPTIONS.find((o) => o.value === action)?.category,
+      category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
     });
 
     // Reset

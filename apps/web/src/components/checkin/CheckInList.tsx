@@ -6,9 +6,10 @@ import type { Member } from "@/types";
 
 interface CheckInListProps {
   members: Member[];
+  orgId: string;
 }
 
-export function CheckInList({ members }: CheckInListProps) {
+export function CheckInList({ members, orgId }: CheckInListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [toggling, setToggling] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export function CheckInList({ members }: CheckInListProps) {
   const handleToggle = async (member: Member) => {
     setToggling(member.id);
     try {
-      await toggleCheckIn({ data: { id: member.id, isOnline: member.isOnline } });
+      await toggleCheckIn({ data: { orgId, id: member.id, isOnline: member.isOnline } });
       router.invalidate();
     } catch {
       // silently fail

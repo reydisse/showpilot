@@ -70,6 +70,7 @@ export const addCrewMember = createServerFn({ method: "POST" })
 export const updateCrewMember = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
+      orgId: string;
       id: string;
       updates: Partial<{
         memberId: string;
@@ -90,7 +91,7 @@ export const updateCrewMember = createServerFn({ method: "POST" })
   });
 
 export const deleteCrewMember = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: { orgId: string; id: string }) => data)
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
@@ -98,7 +99,7 @@ export const deleteCrewMember = createServerFn({ method: "POST" })
   });
 
 export const toggleCheckIn = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; isOnline: boolean }) => data)
+  .inputValidator((data: { orgId: string; id: string; isOnline: boolean }) => data)
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();

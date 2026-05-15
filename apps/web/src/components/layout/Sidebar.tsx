@@ -82,9 +82,10 @@ function NavLink({
   active: boolean;
 }) {
   const Icon = item.icon;
+  const resolvedTo = `/${slug}/${item.path}` as unknown as Parameters<typeof Link>[0]["to"];
   return (
     <Link
-      to={`/${slug}/${item.path}`}
+      to={resolvedTo}
       title={item.label}
       className={`flex items-center rounded-lg transition-colors relative min-h-[44px] ${
         collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
@@ -226,7 +227,7 @@ export function Sidebar() {
             }`}
           >
           {/* Drawer uses expanded layout (collapsed=false) */}
-          {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, isSettings: false, role })}
+           {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, role })}
         </aside>
       </>
     );
@@ -241,7 +242,7 @@ export function Sidebar() {
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, isSettings, role })}
+        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, role })}
       </aside>
 
       {/* Spacer div to push main content right */}
@@ -263,14 +264,12 @@ function renderSidebarContent({
   org,
   slug,
   isActive,
-  isSettings,
   role,
 }: {
   collapsed: boolean;
   org: { id: string; name: string; slug: string; logo: string | null } | null;
   slug: string;
   isActive: (path: string) => boolean;
-  isSettings: boolean;
   role: string | null;
 }) {
   const visibleMainNav = mainNav.filter((item) => {

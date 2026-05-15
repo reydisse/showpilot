@@ -17,6 +17,27 @@ interface HomeAssistantEntity {
   attributes?: Record<string, unknown>;
 }
 
+type HomeAssistantSettingsInput = Record<string, unknown>;
+
+function parseHomeAssistantSettings(settings: HomeAssistantSettingsInput): HomeAssistantSettings {
+  const baseUrl =
+    typeof settings.baseUrl === "string" ? settings.baseUrl.trim() : "";
+  const accessToken =
+    typeof settings.accessToken === "string" ? settings.accessToken.trim() : "";
+  const connectionMode = settings.connectionMode === "bridge-required" ? "bridge-required" : "browser-direct";
+  const orgId =
+    typeof settings.orgId === "string" && settings.orgId.trim().length > 0
+      ? settings.orgId
+      : undefined;
+
+  return {
+    orgId,
+    baseUrl,
+    accessToken,
+    connectionMode,
+  };
+}
+
 const SUPPORTED_DOMAINS = new Set(["script", "scene", "switch", "light", "input_button"]);
 
 function toDisplayName(entity: HomeAssistantEntity) {
@@ -202,5 +223,6 @@ export const homeAssistantModuleDefinition: ModuleDefinition = {
   ],
   icon: "Home",
   description: "Discover and trigger Home Assistant scripts, scenes, switches, lights, and input buttons.",
-  createInstance: (settings) => new HomeAssistantModule(settings as HomeAssistantSettings),
+  createInstance: (settings: HomeAssistantSettingsInput) =>
+    new HomeAssistantModule(parseHomeAssistantSettings(settings)),
 };

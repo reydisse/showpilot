@@ -24,7 +24,7 @@ interface SocketAttachment {
   orgId: string;
 }
 
-export class BridgeRelay extends DurableObject {
+export class BridgeRelay extends DurableObject<Env> {
   private bridgeWs: WebSocket | null = null;
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
@@ -173,12 +173,13 @@ export class BridgeRelay extends DurableObject {
         }));
         break;
 
-      case "command-response":
-      case "device-event":
-        if (msg.eventName === "slide") {
-          this.pushPreviewSlide(msg.data as string);
-        }
-      case "device-status":
+        case "command-response":
+        case "device-event":
+          if (msg.eventName === "slide") {
+            this.pushPreviewSlide(msg.data as string);
+          }
+          break;
+        case "device-status":
         if (
           msg.type === "device-status" &&
           msg.connected === false &&

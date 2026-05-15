@@ -11,7 +11,6 @@ interface TimecodeSourceSelectorProps {
   onStartFreerun: (offsetMs?: number) => void;
   onStopGenerator: () => void;
   onStartMtc: (inputId: string) => Promise<void>;
-  onStopMtc: () => void;
   onSetFormat: (format: TimecodeFormat) => void;
 }
 
@@ -23,7 +22,6 @@ export function TimecodeSourceSelector({
   onStartFreerun,
   onStopGenerator,
   onStartMtc,
-  onStopMtc,
   onSetFormat,
 }: TimecodeSourceSelectorProps) {
   const [midiInputs, setMidiInputs] = useState<MIDIInput[]>([]);

@@ -9,6 +9,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
+import {
+  appendWebhookEvent,
+  sanitizePayloadSummary,
+  type WebhookEventInput,
+} from "@/lib/settings";
 
 type Platform = "mattermost" | "slack" | "teams" | "discord";
 
@@ -36,6 +41,16 @@ function parseShowPilotFormattedMessage(message: string): {
   }
 
   return { senderName, text: remaining, type };
+}
+
+type ChatMessageType = ChatMessage["type"];
+
+function parseExternalChatType(value: unknown): ChatMessageType | undefined {
+  if (typeof value !== "string") return undefined;
+  if (value === "text" || value === "alert" || value === "cue" || value === "system") {
+    return value;
+  }
+  return undefined;
 }
 
 // ─── Credential resolution ──────────────────────────────────
@@ -70,27 +85,74 @@ export const testChatConnection = createServerFn({ method: "POST" })
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
       const creds = await getChatCredentials(data.orgId, data.platform);
+      const prisma = getPrisma();
+      const logEvent = (event: WebhookEventInput): void => {
+        void appendWebhookEvent(prisma, data.orgId, event);
+      };
 
       try {
         switch (data.platform) {
           case "mattermost": {
             const url = creds["mattermost-url"];
             const token = creds["mattermost-token"];
-            if (!url || !token) return { ok: false, error: "Missing server URL or bot token" };
+            if (!url || !token) {
+              logEvent({
+                source: "chat-proxy",
+                type: "mattermost-connection-test",
+                direction: "outgoing",
+                status: "warning",
+                details: "Mattermost connection test skipped: missing server URL or bot token.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "mattermost",
+                  missingUrl: !url,
+                  missingToken: !token,
+                }),
+              });
+              return { ok: false, error: "Missing server URL or bot token" };
+            }
             const res = await fetch(`${url.replace(/\/$/, "")}/api/v4/users/me`, {
               headers: { Authorization: `Bearer ${token}` },
               signal: AbortSignal.timeout(5000),
             });
             if (!res.ok) {
               const body = await res.text().catch(() => "");
+              logEvent({
+                source: "chat-proxy",
+                type: "mattermost-connection-test",
+                direction: "outgoing",
+                status: "error",
+                details: `Mattermost test failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary({ platform: "mattermost", status: "error" }),
+              });
               return { ok: false, error: `Mattermost returned ${res.status}: ${body.slice(0, 200)}` };
             }
+            logEvent({
+              source: "chat-proxy",
+              type: "mattermost-connection-test",
+              direction: "outgoing",
+              status: "success",
+              details: "Mattermost test connection successful.",
+              payloadSummary: sanitizePayloadSummary({ platform: "mattermost" }),
+            });
             return { ok: true };
           }
 
           case "slack": {
             const token = creds["slack-token"];
-            if (!token) return { ok: false, error: "Missing bot token" };
+            if (!token) {
+              logEvent({
+                source: "chat-proxy",
+                type: "slack-connection-test",
+                direction: "outgoing",
+                status: "warning",
+                details: "Slack connection test skipped: missing bot token.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "slack",
+                  missingToken: true,
+                }),
+              });
+              return { ok: false, error: "Missing bot token" };
+            }
             const res = await fetch("https://slack.com/api/auth.test", {
               method: "POST",
               headers: {
@@ -100,26 +162,86 @@ export const testChatConnection = createServerFn({ method: "POST" })
               signal: AbortSignal.timeout(5000),
             });
             const body = await res.json() as { ok: boolean; error?: string };
-            if (!body.ok) return { ok: false, error: body.error || "Auth test failed" };
+            if (!body.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "slack-connection-test",
+                direction: "outgoing",
+                status: "error",
+                details: body.error || "Slack auth test failed.",
+                payloadSummary: sanitizePayloadSummary({ platform: "slack", error: body.error }),
+              });
+              return { ok: false, error: body.error || "Auth test failed" };
+            }
+            logEvent({
+              source: "chat-proxy",
+              type: "slack-connection-test",
+              direction: "outgoing",
+              status: "success",
+              details: "Slack test connection successful.",
+              payloadSummary: sanitizePayloadSummary({ platform: "slack" }),
+            });
             return { ok: true };
           }
 
           case "discord": {
             const token = creds["discord-bot-token"];
-            if (!token) return { ok: false, error: "Missing bot token" };
+            if (!token) {
+              logEvent({
+                source: "chat-proxy",
+                type: "discord-connection-test",
+                direction: "outgoing",
+                status: "warning",
+                details: "Discord connection test skipped: missing bot token.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "discord",
+                  missingToken: true,
+                }),
+              });
+              return { ok: false, error: "Missing bot token" };
+            }
             const res = await fetch("https://discord.com/api/v10/users/@me", {
               headers: { Authorization: `Bot ${token}` },
               signal: AbortSignal.timeout(5000),
             });
             if (!res.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "discord-connection-test",
+                direction: "outgoing",
+                status: "error",
+                details: `Discord test failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary({ platform: "discord", status: "error" }),
+              });
               return { ok: false, error: `Discord returned ${res.status}` };
             }
+            logEvent({
+              source: "chat-proxy",
+              type: "discord-connection-test",
+              direction: "outgoing",
+              status: "success",
+              details: "Discord test connection successful.",
+              payloadSummary: sanitizePayloadSummary({ platform: "discord" }),
+            });
             return { ok: true };
           }
 
           case "teams": {
             const webhookUrl = creds["teams-webhook-url"];
-            if (!webhookUrl) return { ok: false, error: "Missing webhook URL" };
+            if (!webhookUrl) {
+              logEvent({
+                source: "chat-proxy",
+                type: "teams-connection-test",
+                direction: "outgoing",
+                status: "warning",
+                details: "Teams connection test skipped: missing webhook URL.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "teams",
+                  missingWebhookUrl: true,
+                }),
+              });
+              return { ok: false, error: "Missing webhook URL" };
+            }
             // Teams webhooks don't have a test endpoint — send a test message
             const res = await fetch(webhookUrl, {
               method: "POST",
@@ -130,8 +252,24 @@ export const testChatConnection = createServerFn({ method: "POST" })
               signal: AbortSignal.timeout(5000),
             });
             if (!res.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "teams-connection-test",
+                direction: "outgoing",
+                status: "error",
+                details: `Teams test failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary({ platform: "teams", test: true }),
+              });
               return { ok: false, error: `Teams webhook returned ${res.status}` };
             }
+            logEvent({
+              source: "chat-proxy",
+              type: "teams-connection-test",
+              direction: "outgoing",
+              status: "success",
+              details: "Teams test message sent successfully.",
+              payloadSummary: sanitizePayloadSummary({ platform: "teams", test: true }),
+            });
             return { ok: true };
           }
 
@@ -139,6 +277,13 @@ export const testChatConnection = createServerFn({ method: "POST" })
             return { ok: false, error: "Unknown platform" };
         }
       } catch (err) {
+        logEvent({
+          source: "chat-proxy",
+          type: `${data.platform}-connection-test`,
+          direction: "outgoing",
+          status: "error",
+          details: err instanceof Error ? err.message : "Connection test failed",
+        });
         return {
           ok: false,
           error: err instanceof Error ? err.message : "Connection failed",
@@ -162,6 +307,10 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
       const creds = await getChatCredentials(data.orgId, data.platform);
+      const prisma = getPrisma();
+      const logEvent = (event: WebhookEventInput): void => {
+        void appendWebhookEvent(prisma, data.orgId, event);
+      };
       const prefix =
         data.type === "alert"
           ? "[ALERT] "
@@ -176,8 +325,22 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
             const url = creds["mattermost-url"];
             const token = creds["mattermost-token"];
             const channel = creds["mattermost-channel"];
-            if (!url || !token || !channel)
+            if (!url || !token || !channel) {
+              logEvent({
+                source: "chat-proxy",
+                type: "mattermost-send",
+                direction: "outgoing",
+                status: "warning",
+                details: "Mattermost send skipped: missing credentials.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "mattermost",
+                  missingUrl: !url,
+                  missingToken: !token,
+                  missingChannel: !channel,
+                }),
+              });
               return { ok: false, error: "Missing credentials" };
+            }
             const res = await fetch(
               `${url.replace(/\/$/, "")}/api/v4/posts`,
               {
@@ -197,15 +360,46 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
                 signal: AbortSignal.timeout(5000),
               },
             );
-            if (!res.ok) return { ok: false, error: `Send failed: ${res.status}` };
+            if (!res.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "mattermost-send",
+                direction: "outgoing",
+                status: "error",
+                details: `Mattermost send failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary(formatted),
+              });
+              return { ok: false, error: `Send failed: ${res.status}` };
+            }
+            logEvent({
+              source: "chat-proxy",
+              type: "mattermost-send",
+              direction: "outgoing",
+              status: "success",
+              details: "Message sent to Mattermost.",
+              payloadSummary: sanitizePayloadSummary(formatted),
+            });
             return { ok: true };
           }
 
           case "slack": {
             const token = creds["slack-token"];
             const channel = creds["slack-channel"];
-            if (!token || !channel)
+            if (!token || !channel) {
+              logEvent({
+                source: "chat-proxy",
+                type: "slack-send",
+                direction: "outgoing",
+                status: "warning",
+                details: "Slack send skipped: missing credentials.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "slack",
+                  missingToken: !token,
+                  missingChannel: !channel,
+                }),
+              });
               return { ok: false, error: "Missing credentials" };
+            }
             const res = await fetch(
               "https://slack.com/api/chat.postMessage",
               {
@@ -219,15 +413,46 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
               },
             );
             const body = await res.json() as { ok: boolean; error?: string };
-            if (!body.ok) return { ok: false, error: body.error || "Send failed" };
+            if (!body.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "slack-send",
+                direction: "outgoing",
+                status: "error",
+                details: body.error || "Slack send failed.",
+                payloadSummary: sanitizePayloadSummary(formatted),
+              });
+              return { ok: false, error: body.error || "Send failed" };
+            }
+            logEvent({
+              source: "chat-proxy",
+              type: "slack-send",
+              direction: "outgoing",
+              status: "success",
+              details: "Message sent to Slack.",
+              payloadSummary: sanitizePayloadSummary(formatted),
+            });
             return { ok: true };
           }
 
           case "discord": {
             const token = creds["discord-bot-token"];
             const channelId = creds["discord-channel-id"];
-            if (!token || !channelId)
+            if (!token || !channelId) {
+              logEvent({
+                source: "chat-proxy",
+                type: "discord-send",
+                direction: "outgoing",
+                status: "warning",
+                details: "Discord send skipped: missing credentials.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "discord",
+                  missingToken: !token,
+                  missingChannel: !channelId,
+                }),
+              });
               return { ok: false, error: "Missing credentials" };
+            }
             const res = await fetch(
               `https://discord.com/api/v10/channels/${channelId}/messages`,
               {
@@ -240,21 +465,69 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
                 signal: AbortSignal.timeout(5000),
               },
             );
-            if (!res.ok) return { ok: false, error: `Send failed: ${res.status}` };
+            if (!res.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "discord-send",
+                direction: "outgoing",
+                status: "error",
+                details: `Discord send failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary(formatted),
+              });
+              return { ok: false, error: `Send failed: ${res.status}` };
+            }
+            logEvent({
+              source: "chat-proxy",
+              type: "discord-send",
+              direction: "outgoing",
+              status: "success",
+              details: "Message sent to Discord.",
+              payloadSummary: sanitizePayloadSummary(formatted),
+            });
             return { ok: true };
           }
 
           case "teams": {
             const webhookUrl = creds["teams-webhook-url"];
-            if (!webhookUrl)
+            if (!webhookUrl) {
+              logEvent({
+                source: "chat-proxy",
+                type: "teams-send",
+                direction: "outgoing",
+                status: "warning",
+                details: "Teams send skipped: missing webhook URL.",
+                payloadSummary: sanitizePayloadSummary({
+                  platform: "teams",
+                  missingWebhookUrl: true,
+                }),
+              });
               return { ok: false, error: "Missing webhook URL" };
+            }
             const res = await fetch(webhookUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ text: formatted }),
               signal: AbortSignal.timeout(5000),
             });
-            if (!res.ok) return { ok: false, error: `Send failed: ${res.status}` };
+            if (!res.ok) {
+              logEvent({
+                source: "chat-proxy",
+                type: "teams-send",
+                direction: "outgoing",
+                status: "error",
+                details: `Teams send failed with ${res.status}`,
+                payloadSummary: sanitizePayloadSummary(formatted),
+              });
+              return { ok: false, error: `Send failed: ${res.status}` };
+            }
+            logEvent({
+              source: "chat-proxy",
+              type: "teams-send",
+              direction: "outgoing",
+              status: "success",
+              details: "Message sent to Teams.",
+              payloadSummary: sanitizePayloadSummary(formatted),
+            });
             return { ok: true };
           }
 
@@ -262,6 +535,14 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
             return { ok: false, error: "Unknown platform" };
         }
       } catch (err) {
+        logEvent({
+          source: "chat-proxy",
+          type: `${data.platform}-send`,
+          direction: "outgoing",
+          status: "error",
+          details: err instanceof Error ? err.message : "Send failed",
+          payloadSummary: sanitizePayloadSummary(data.text),
+        });
         return {
           ok: false,
           error: err instanceof Error ? err.message : "Send failed",
@@ -345,10 +626,11 @@ export const getExternalChatHistory = createServerFn({ method: "GET" })
             }
 
             const messages: ChatMessage[] = (body.order || [])
-              .map((id) => body.posts[id])
-              .filter(Boolean)
-              .map((post) => {
+            .map((id) => body.posts[id])
+            .filter(Boolean)
+            .map((post) => {
                 const parsed = parseShowPilotFormattedMessage(post.message);
+               const postType = parseExternalChatType((post.props as Record<string, unknown>)?.showpilot_type);
                 return {
                   id: `mm-${post.id}`,
                   orgId: data.orgId,
@@ -359,7 +641,7 @@ export const getExternalChatHistory = createServerFn({ method: "GET" })
                     userMap.get(post.user_id) ||
                     post.user_id.slice(0, 8),
                   text: parsed.text,
-                  type: (post.props?.showpilot_type as ChatMessage["type"] | undefined) || parsed.type,
+                  type: postType || parsed.type,
                   timestamp: post.create_at,
                 };
               })

@@ -138,7 +138,7 @@ function CheckInPage() {
 
       <main className="px-5 py-4 pb-8 max-w-lg mx-auto">
         {mode === "browse-all" ? (
-          <CheckInList members={members} />
+          <CheckInList members={members} orgId={orgId} />
         ) : (
           <div className="flex flex-col items-center pt-8">
             {/* Code entry form */}

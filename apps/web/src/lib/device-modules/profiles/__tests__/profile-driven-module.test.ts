@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ProfileDrivenModule } from "../profile-driven-module";
-import type { DeviceProfile, ProfileAction } from "../types";
+import type { DeviceProfile } from "../types";
 import type { ProtocolDriver } from "../../protocols/protocol-driver";
-import type { DeviceConnectionStatus } from "../../types";
 
 // ─── Mock Protocol Driver ─────────────────────────────────
 
@@ -121,7 +120,7 @@ describe("ProfileDrivenModule", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     driver = createMockDriver();
-    module = new ProfileDrivenModule(testProfile, driver);
+    module = new ProfileDrivenModule(testProfile, driver, {});
   });
 
   afterEach(() => {
@@ -142,7 +141,7 @@ describe("ProfileDrivenModule", () => {
       driver = createMockDriver({
         connect: vi.fn().mockRejectedValue(new Error("refused")),
       });
-      module = new ProfileDrivenModule(testProfile, driver);
+      module = new ProfileDrivenModule(testProfile, driver, {});
 
       await module.connect();
       expect(module.connectionStatus()).toBe("error");
@@ -161,7 +160,7 @@ describe("ProfileDrivenModule", () => {
         quirks: { connectDelay: 500 },
       };
       driver = createMockDriver();
-      module = new ProfileDrivenModule(profileWithDelay, driver);
+      module = new ProfileDrivenModule(profileWithDelay, driver, {});
 
       const connectPromise = module.connect();
       expect(module.connectionStatus()).toBe("connecting");
@@ -219,8 +218,8 @@ describe("ProfileDrivenModule", () => {
             mapping: { command: "CMD {{value}}\r" },
           },
         ],
-      };
-      module = new ProfileDrivenModule(profile2, driver);
+        };
+      module = new ProfileDrivenModule(profile2, driver, {});
       await module.connect();
 
       await module.executeAction("raw_cmd", { value: "hello" });

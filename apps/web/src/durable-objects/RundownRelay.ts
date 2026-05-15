@@ -1,4 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
+import { getPrisma } from "@/lib/db";
+import {
+  appendWebhookEvent,
+  sanitizePayloadSummary,
+  type WebhookEventInput,
+} from "@/lib/settings";
 
 interface D1Database {
   prepare(sql: string): {
@@ -13,6 +19,12 @@ interface Env {
   CHAT_RELAY: DurableObjectNamespace;
   DB: D1Database;
 }
+
+const normalizeTimerMode = (value: unknown): "count-up" | "count-down" | "clock" => {
+  return value === "count-up" || value === "count-down" || value === "clock"
+    ? value
+    : "count-down";
+};
 
 export type ItemType =
   | "segment"
@@ -44,7 +56,7 @@ export interface TimerState {
   elapsed: number; // ms
   startedAt: number | null; // timestamp
   pausedAt: number | null;
-  mode: "count-up" | "count-down";
+  mode: "count-up" | "count-down" | "clock";
 }
 
 interface PPSlideState {
@@ -116,6 +128,17 @@ export class RundownRelay extends DurableObject {
       return row?.value === "true";
     } catch {
       return false;
+    }
+  }
+
+  private logWebhookEvent(event: WebhookEventInput): void {
+    if (!this.orgId) return;
+
+    try {
+      const prisma = getPrisma();
+      void appendWebhookEvent(prisma, this.orgId, event);
+    } catch {
+      // Intentionally non-blocking telemetry.
     }
   }
 
@@ -206,7 +229,7 @@ export class RundownRelay extends DurableObject {
               elapsed: t.elapsed ?? 0,
               startedAt: t.startedAt ?? null,
               pausedAt: t.pausedAt ?? null,
-              mode: t.mode ?? "count-down",
+              mode: normalizeTimerMode(t.mode),
             };
           }
         }
@@ -409,8 +432,7 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-mode": {
-        this.state.timer.mode =
-          (payload?.mode as "count-up" | "count-down") ?? "count-down";
+        this.state.timer.mode = normalizeTimerMode(payload?.mode);
         break;
       }
 
@@ -495,13 +517,18 @@ export class RundownRelay extends DurableObject {
       const senderName = "ShowPilot";
       const prefix = type === "cue" ? "[CUE] " : "";
       const formatted = `**${senderName}**: ${prefix}${text}`;
+      const payloadSummary = sanitizePayloadSummary({
+        source: senderName,
+        type,
+        text,
+      });
 
-      if (adapter === "mattermost") {
-        const url = settings["mattermost-url"];
-        const token = settings["mattermost-token"];
-        const channel = settings["mattermost-channel"];
-        if (url && token && channel) {
-          await fetch(`${url.replace(/\/$/, "")}/api/v4/posts`, {
+        if (adapter === "mattermost") {
+          const url = settings["mattermost-url"];
+          const token = settings["mattermost-token"];
+          const channel = settings["mattermost-channel"];
+          if (url && token && channel) {
+          const res = await fetch(`${url.replace(/\/$/, "")}/api/v4/posts`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -516,15 +543,44 @@ export class RundownRelay extends DurableObject {
               },
             }),
           });
-          return;
-        }
-      }
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "mattermost-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Mattermost automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "slack") {
-        const token = settings["slack-token"];
-        const channel = settings["slack-channel"];
-        if (token && channel) {
-          await fetch("https://slack.com/api/chat.postMessage", {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "mattermost-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Mattermost.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "mattermost-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Mattermost adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "slack") {
+          const token = settings["slack-token"];
+          const channel = settings["slack-channel"];
+          if (token && channel) {
+          const res = await fetch("https://slack.com/api/chat.postMessage", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -532,15 +588,47 @@ export class RundownRelay extends DurableObject {
             },
             body: JSON.stringify({ channel, text: formatted }),
           });
-          return;
-        }
-      }
+          const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+          if (!res.ok || body?.ok === false) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "slack-send",
+              direction: "outgoing",
+              status: "error",
+              details:
+                body?.error ||
+                `Slack automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "discord") {
-        const token = settings["discord-bot-token"];
-        const channelId = settings["discord-channel-id"];
-        if (token && channelId) {
-          await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "slack-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Slack.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "slack-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Slack adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "discord") {
+          const token = settings["discord-bot-token"];
+          const channelId = settings["discord-channel-id"];
+          if (token && channelId) {
+          const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
             method: "POST",
             headers: {
               Authorization: `Bot ${token}`,
@@ -548,25 +636,83 @@ export class RundownRelay extends DurableObject {
             },
             body: JSON.stringify({ content: formatted }),
           });
-          return;
-        }
-      }
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "discord-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Discord automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "teams") {
-        const webhookUrl = settings["teams-webhook-url"];
-        if (webhookUrl) {
-          await fetch(webhookUrl, {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "discord-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Discord.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "discord-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Discord adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "teams") {
+          const webhookUrl = settings["teams-webhook-url"];
+          if (webhookUrl) {
+          const res = await fetch(webhookUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: formatted }),
           });
-          return;
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "teams-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Teams automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "teams-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Teams.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "teams-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Teams adapter enabled but webhook URL is missing. Falling back to native chat relay.",
+            payloadSummary,
+          });
         }
-      }
 
       const chatId = env.CHAT_RELAY.idFromName(this.orgId);
       const chatStub = env.CHAT_RELAY.get(chatId);
-      await chatStub.fetch(
+      const relayResponse = await chatStub.fetch(
         new Request("https://chat.local/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -579,8 +725,42 @@ export class RundownRelay extends DurableObject {
           }),
         })
       );
+
+      if (!relayResponse.ok) {
+        this.logWebhookEvent({
+          source: "rundown-relay",
+          type: "chat-relay-send",
+          direction: "outgoing",
+          status: "error",
+          details: `Native relay send failed with ${relayResponse.status}`,
+          payloadSummary,
+        });
+        return;
+      }
+
+      this.logWebhookEvent({
+        source: "rundown-relay",
+        type: "chat-relay-send",
+        direction: "outgoing",
+        status: "success",
+        details: "Automation message routed to native chat relay.",
+        payloadSummary,
+      });
     } catch (err) {
       console.error("[RundownRelay] failed to send automation chat message", err);
+      this.logWebhookEvent({
+        source: "rundown-relay",
+        type: "automation-chat-error",
+        direction: "outgoing",
+        status: "error",
+        details: err instanceof Error
+          ? `Automation chat send failed: ${err.message}`
+          : "Automation chat send failed.",
+        payloadSummary: sanitizePayloadSummary({
+          text,
+          type,
+        }),
+      });
     }
   }
 

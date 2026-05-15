@@ -10,6 +10,7 @@ import {
   deleteChecklistTemplate,
 } from "@/lib/data";
 import { hasPermission } from "@/lib/app-permissions";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -30,16 +31,22 @@ export const Route = createFileRoute("/$slug/production/checklist")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } });
-    return { entries, orgId: context.orgId, role: context.role };
+    return {
+      entries,
+      orgId: context.orgId,
+      role: context.role,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: ChecklistPage,
 });
 
 function ChecklistPage() {
-  const { entries: initialEntries, orgId, role } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const { entries: initialEntries, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
   const [entries, setEntries] = useState(initialEntries as Array<{
     id: string;
     templateId: string;
@@ -71,6 +78,7 @@ function ChecklistPage() {
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
     },
@@ -131,9 +139,12 @@ function ChecklistPage() {
             <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => setServiceDate(getTodayDateString())} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">
-              {formatDisplayDate(serviceDate)}
-            </button>
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
+                {formatDisplayDate(serviceDate)}
+              </button>
             <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>

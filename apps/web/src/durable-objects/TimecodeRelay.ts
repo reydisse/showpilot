@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { getPrisma } from "@/lib/db";
 import type {
   TimecodeState,
   TimecodeFormat,
@@ -6,13 +7,18 @@ import type {
   AutomationEvent,
   TimecodeCommand,
   TimecodeWsMessage,
-  AutomationActionType,
 } from "@/types/timecode";
 import { timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import {
+  appendWebhookEvent,
+  sanitizePayloadSummary,
+  type WebhookEventInput,
+} from "@/lib/settings";
 
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
+  DB: D1Database;
 }
 
 export class TimecodeRelay extends DurableObject {
@@ -28,6 +34,17 @@ export class TimecodeRelay extends DurableObject {
   };
   private events: AutomationEvent[] = [];
   private orgId = "";
+
+  private logWebhookEvent(event: WebhookEventInput): void {
+    if (!this.orgId) return;
+
+    try {
+      const prisma = getPrisma();
+      void appendWebhookEvent(prisma, this.orgId, event);
+    } catch {
+      // Non-blocking telemetry.
+    }
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -228,54 +245,158 @@ export class TimecodeRelay extends DurableObject {
 
   private async executeEventAction(event: AutomationEvent): Promise<void> {
     const env = this.env as unknown as Env;
+    const actionSummary = sanitizePayloadSummary({
+      action: event.action,
+      label: event.label,
+      trigger: event.triggerTimecode,
+    });
+
+    const logResult = (
+      type: string,
+      status: "success" | "error" | "warning",
+      details: string,
+    ) => {
+      this.logWebhookEvent({
+        source: "timecode-relay",
+        type,
+        direction: "outgoing",
+        status,
+        details,
+        payloadSummary: actionSummary,
+      });
+    };
 
     try {
       switch (event.action) {
         case "lower-third-show": {
           const ltId = env.LOWER_THIRDS_RELAY.idFromName(this.orgId);
           const ltStub = env.LOWER_THIRDS_RELAY.get(ltId);
-          await ltStub.fetch(
-            new Request("https://internal/trigger", {
-              method: "POST",
-              body: JSON.stringify(event.payload),
-            })
-          );
+          try {
+            const response = await ltStub.fetch(
+              new Request("https://internal/trigger", {
+                method: "POST",
+                body: JSON.stringify(event.payload),
+              })
+            );
+            if (!response.ok) {
+              logResult(
+                "lower-third-show",
+                "error",
+                `Lower-third show failed with ${response.status}`
+              );
+            } else {
+              logResult(
+                "lower-third-show",
+                "success",
+                "Lower-third show action executed."
+              );
+            }
+          } catch {
+            logResult(
+              "lower-third-show",
+              "error",
+              "Lower-third show action failed."
+            );
+          }
           break;
         }
 
         case "lower-third-clear": {
           const ltId = env.LOWER_THIRDS_RELAY.idFromName(this.orgId);
           const ltStub = env.LOWER_THIRDS_RELAY.get(ltId);
-          await ltStub.fetch(
-            new Request("https://internal/clear", { method: "POST" })
-          );
+          try {
+            const response = await ltStub.fetch(
+              new Request("https://internal/clear", { method: "POST" })
+            );
+            if (!response.ok) {
+              logResult(
+                "lower-third-clear",
+                "error",
+                `Lower-third clear failed with ${response.status}`
+              );
+            } else {
+              logResult(
+                "lower-third-clear",
+                "success",
+                "Lower-third clear action executed."
+              );
+            }
+          } catch {
+            logResult(
+              "lower-third-clear",
+              "error",
+              "Lower-third clear action failed."
+            );
+          }
           break;
         }
 
         case "rundown-advance": {
           const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
-          await rdStub.fetch(
-            new Request("https://internal/command", {
-              method: "POST",
-              body: JSON.stringify({ action: "timer-next" }),
-            })
-          );
+          try {
+            const response = await rdStub.fetch(
+              new Request("https://internal/command", {
+                method: "POST",
+                body: JSON.stringify({ action: "timer-next" }),
+              })
+            );
+            if (!response.ok) {
+              logResult(
+                "rundown-advance",
+                "error",
+                `Rundown advance failed with ${response.status}`
+              );
+            } else {
+              logResult(
+                "rundown-advance",
+                "success",
+                "Rundown advance action executed."
+              );
+            }
+          } catch {
+            logResult(
+              "rundown-advance",
+              "error",
+              "Rundown advance action failed."
+            );
+          }
           break;
         }
 
         case "rundown-start-item": {
           const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
-          await rdStub.fetch(
-            new Request("https://internal/command", {
-              method: "POST",
-              body: JSON.stringify({
-                action: "timer-start",
-                payload: event.payload,
-              }),
-            })
-          );
+          try {
+            const response = await rdStub.fetch(
+              new Request("https://internal/command", {
+                method: "POST",
+                body: JSON.stringify({
+                  action: "timer-start",
+                  payload: event.payload,
+                }),
+              })
+            );
+            if (!response.ok) {
+              logResult(
+                "rundown-start-item",
+                "error",
+                `Rundown start-item failed with ${response.status}`
+              );
+            } else {
+              logResult(
+                "rundown-start-item",
+                "success",
+                "Rundown start-item action executed."
+              );
+            }
+          } catch {
+            logResult(
+              "rundown-start-item",
+              "error",
+              "Rundown start-item action failed."
+            );
+          }
           break;
         }
 
@@ -287,8 +408,17 @@ export class TimecodeRelay extends DurableObject {
 
         case "custom-webhook": {
           const url = event.payload.url as string;
-          if (url) {
-            await fetch(url, {
+          if (!url) {
+            logResult(
+              "custom-webhook",
+              "warning",
+              `Custom webhook skipped for event "${event.label}": no target URL configured.`
+            );
+            break;
+          }
+
+          try {
+            const response = await fetch(url, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -298,7 +428,31 @@ export class TimecodeRelay extends DurableObject {
                 firedAt: Date.now(),
               }),
             });
+
+              if (!response.ok) {
+                logResult(
+                  "custom-webhook",
+                  "error",
+                  `Custom webhook for "${event.label}" failed with ${response.status}`
+                );
+                break;
+              }
+
+              logResult(
+                "custom-webhook",
+                "success",
+                `Custom webhook for "${event.label}" dispatched successfully.`
+              );
+          } catch (err) {
+            logResult(
+              "custom-webhook",
+              "error",
+              err instanceof Error
+                ? `Custom webhook for "${event.label}" failed: ${err.message}`
+                : "Custom webhook dispatch failed."
+            );
           }
+
           break;
         }
       }

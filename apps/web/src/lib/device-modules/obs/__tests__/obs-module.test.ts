@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { OBSModule, obsModuleDefinition } from "../obs-module";
-import { OBS_ACTIONS } from "../obs-actions";
-import type { DeviceConnectionStatus } from "../../types";
 
 // ─── Mock WebSocket ───────────────────────────────────────
 

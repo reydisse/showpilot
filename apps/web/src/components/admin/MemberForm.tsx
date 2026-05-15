@@ -66,6 +66,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
       if (isEditing) {
         await updateCrewMember({
           data: {
+            orgId,
             id: member.id,
             updates: {
               memberId: normalizedId,

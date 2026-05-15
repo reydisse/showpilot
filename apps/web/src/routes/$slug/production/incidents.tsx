@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucid
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
+import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
@@ -60,16 +61,22 @@ export const Route = createFileRoute("/$slug/production/incidents")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["incidents:report", "incidents:access"], context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const incidents = await getIncidents({ data: { orgId: context.orgId, serviceDate: today } });
-    return { incidents: incidents.map(normalizeIncident), orgId: context.orgId, role: context.role };
+    return {
+      incidents: incidents.map(normalizeIncident),
+      orgId: context.orgId,
+      role: context.role,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: IncidentsPage,
 });
 
 function IncidentsPage() {
-  const { incidents: initialIncidents, orgId, role } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const { incidents: initialIncidents, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
   const [incidents, setIncidents] = useState(initialIncidents);
   const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -98,6 +105,7 @@ function IncidentsPage() {
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
     },
@@ -137,7 +145,12 @@ function IncidentsPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => setServiceDate(getTodayDateString())} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">{formatDisplayDate(serviceDate)}</button>
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
+                {formatDisplayDate(serviceDate)}
+              </button>
               <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronRight className="w-4 h-4" /></button>
             </div>
             {canReportIncidents && (

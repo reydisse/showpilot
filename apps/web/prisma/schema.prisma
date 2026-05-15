@@ -20,6 +20,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   members       Member[]
+  orgMembers    OrgMember[]
   invitations   Invitation[]
 
   @@unique([email])
@@ -98,6 +99,7 @@ model Organization {
   notifications      Notification[]
   devices            Device[]
   appSettings        AppSetting[]
+  rundownItems       RundownItem[]
   graphicTemplates   GraphicTemplate[]
   streamDestinations StreamDestination[]
   liveInputs         LiveInput[]
@@ -330,6 +332,31 @@ model AppSetting {
 
   @@unique([orgId, key])
   @@map("app_setting")
+}
+
+model RundownItem {
+  id           String   @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  serviceDate  String
+  itemId       String
+  title        String
+  type         String
+  duration     Int
+  notes        String
+  assignee     String
+  cue          String
+  status       String
+  sortOrder    Int
+  hardStop     Boolean  @default(false)
+  lowerThirdId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([orgId, serviceDate, itemId])
+  @@index([orgId, serviceDate, sortOrder])
+  @@index([orgId, serviceDate])
+  @@map("rundown_item")
 }
 
 model GraphicTemplate {

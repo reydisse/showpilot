@@ -89,7 +89,6 @@ function TimecodePage() {
           onStartFreerun={startFreerun}
           onStopGenerator={stopGenerator}
           onStartMtc={startMtc}
-          onStopMtc={stopMtc}
           onSetFormat={setFormat}
         />
 

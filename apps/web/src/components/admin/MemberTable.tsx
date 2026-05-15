@@ -210,7 +210,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
     if (!ok) return;
     setDeleting(member.id);
     try {
-      await deleteCrewMember({ data: { id: member.id } });
+      await deleteCrewMember({ data: { orgId, id: member.id } });
       router.invalidate();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete.");

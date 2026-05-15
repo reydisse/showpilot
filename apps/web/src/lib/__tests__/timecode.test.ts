@@ -12,7 +12,6 @@ const fmt30: TimecodeFormat = { frameRate: 30, dropFrame: "ndf" };
 const fmt25: TimecodeFormat = { frameRate: 25, dropFrame: "ndf" };
 const fmt24: TimecodeFormat = { frameRate: 24, dropFrame: "ndf" };
 const fmt2997df: TimecodeFormat = { frameRate: 29.97, dropFrame: "df" };
-const fmt2997ndf: TimecodeFormat = { frameRate: 29.97, dropFrame: "ndf" };
 
 function tc(h: number, m: number, s: number, f: number): TimecodeValue {
   return { hours: h, minutes: m, seconds: s, frames: f };

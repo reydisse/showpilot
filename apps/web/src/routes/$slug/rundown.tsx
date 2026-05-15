@@ -168,11 +168,9 @@ export const Route = createFileRoute("/$slug/rundown")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "rundown:view", context.slug, context.orgId);
-    const today = getTodayDateString();
-    const [state, settings] = await Promise.all([
-      getRundownState({ data: { orgId: context.orgId, serviceDate: today } }),
-      getOrgSettings({ data: { orgId: context.orgId } }),
-    ]);
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
+    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
     return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings, role: context.role };
   },
   component: RundownPage,
@@ -238,15 +236,15 @@ function RundownPage() {
     // If DO is empty but we have local items (from DB), seed the DO
     if (syncedItems.length === 0 && items.length > 0) {
       hasSeededRef.current = true;
-      seedState(items as RundownItem[], {
-        playback: timer.playback,
-        currentItemId: timer.currentItemId,
-        elapsed: timer.elapsed,
-        startedAt: timer.startedAt,
-        pausedAt: null,
-        mode: "count-down",
-      });
-    } else if (syncedItems.length > 0) {
+        seedState(items as RundownItem[], {
+          playback: timer.playback,
+          currentItemId: timer.currentItemId,
+          elapsed: timer.elapsed,
+          startedAt: timer.startedAt,
+          pausedAt: null,
+          mode: timer.mode,
+        });
+      } else if (syncedItems.length > 0) {
       // DO already has items — no need to seed
       hasSeededRef.current = true;
     }
@@ -523,6 +521,7 @@ function RundownPage() {
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: settings["org-timezone"],
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
       void loadDate(nextToday);
@@ -976,7 +975,7 @@ function RundownPage() {
               </button>
               <button
                 onClick={() => {
-                  const nextToday = getTodayDateString();
+                  const nextToday = getTodayDateString(settings["org-timezone"]);
                   setServiceDate(nextToday);
                   loadDate(nextToday);
                 }}

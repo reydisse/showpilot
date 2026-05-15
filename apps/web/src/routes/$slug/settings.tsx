@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Building2,
   Users,
@@ -31,6 +31,8 @@ import {
   updateOrgSetting,
   getOrgMembers,
   regenerateApiKey,
+  getRecentWebhookEvents,
+  type WebhookEventLogItem,
 } from "@/lib/settings";
 import { inviteMember } from "@/lib/session";
 import { clearChatHistory } from "@/lib/chat";
@@ -40,6 +42,7 @@ import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
 import { authClient } from "@/lib/auth-client";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
+import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
 
 // ─── Route ──────────────────────────────────────────────────
 
@@ -460,8 +463,11 @@ function OrganizationSection({ org, getSetting, saveSetting }: SectionProps) {
 const ROLE_COLORS: Record<string, string> = {
   owner: "bg-fire-500/15 text-fire-500 border-fire-500/25",
   admin: "bg-purple-500/15 text-purple-400 border-purple-500/25",
+  pm: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+  tm: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25",
+  sm: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+  stageManager: "bg-amber-500/15 text-amber-400 border-amber-500/25",
   member: "bg-blue-500/15 text-blue-400 border-blue-500/25",
-  viewer: "bg-board-border text-board-muted border-board-border",
 };
 
 function TeamSection({ members, orgId }: SectionProps) {
@@ -513,9 +519,14 @@ function TeamSection({ members, orgId }: SectionProps) {
             onChange={(e) => setInviteRole(e.target.value)}
             className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text text-sm appearance-none focus:outline-none focus:border-fire-500"
           >
-            <option value="admin">Admin</option>
-            <option value="member">Operator</option>
-            <option value="viewer">Viewer</option>
+            {ASSIGNABLE_ROLES.map((r) => {
+              const roleMeta = ROLE_META[r];
+              return (
+                <option key={r} value={r}>
+                  {roleMeta?.label ?? r}
+                </option>
+              );
+            })}
           </select>
             <button
               type="button"
@@ -554,7 +565,7 @@ function TeamSection({ members, orgId }: SectionProps) {
                 ROLE_COLORS[member.role] ?? ROLE_COLORS.member
               }`}
             >
-              {member.role}
+              {ROLE_META[member.role]?.label ?? member.role}
             </span>
           </div>
         ))}
@@ -1275,6 +1286,37 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
   const [apiKey, setApiKey] = useState(getSetting("api-key", ""));
   const [showKey, setShowKey] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadEvents = async () => {
+      setIsLoadingEvents(true);
+      setEventsError(null);
+
+      try {
+        const events = await getRecentWebhookEvents({ data: { orgId } });
+        if (mounted) setWebhookEvents(events);
+      } catch (error) {
+        if (!mounted) return;
+        setEventsError(
+          error instanceof Error ? error.message : "Unable to load webhook events.",
+        );
+        setWebhookEvents([]);
+      } finally {
+        if (mounted) setIsLoadingEvents(false);
+      }
+    };
+
+    loadEvents();
+
+    return () => {
+      mounted = false;
+    };
+  }, [orgId]);
 
   const handleRegenerate = async () => {
     setRegenerating(true);
@@ -1350,10 +1392,64 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             Recent Webhook Events
           </p>
-          <div className="text-center py-6">
-            <Webhook className="w-8 h-8 text-board-muted/30 mx-auto mb-2" />
-            <p className="text-xs text-board-muted">No recent events</p>
-          </div>
+          {isLoadingEvents ? (
+            <div className="flex items-center justify-center gap-2 text-xs text-board-muted py-6">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              <span>Loading events...</span>
+            </div>
+          ) : eventsError ? (
+            <div className="text-center py-6 text-xs text-red-400">
+              <p>{eventsError}</p>
+            </div>
+          ) : webhookEvents.length === 0 ? (
+            <div className="text-center py-6">
+              <Webhook className="w-8 h-8 text-board-muted/30 mx-auto mb-2" />
+              <p className="text-xs text-board-muted">No recent events</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {webhookEvents.map((event) => {
+                const statusClass =
+                  event.status === "success"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25"
+                    : event.status === "error"
+                      ? "bg-red-500/15 text-red-400 border-red-500/25"
+                      : event.status === "warning"
+                        ? "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                        : "bg-blue-500/15 text-blue-400 border-blue-500/25";
+
+                return (
+                  <div
+                    key={event.id}
+                    className="rounded-lg border border-board-border bg-board-bg p-3 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <p className="font-medium text-board-text break-words">
+                        {event.source} • {event.type}
+                      </p>
+                      <span
+                        className={`px-2 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wider ${statusClass}`}
+                      >
+                        {event.status}
+                      </span>
+                    </div>
+
+                    <p className="text-[10px] text-board-muted">
+                      {event.direction} · {new Date(event.timestamp).toLocaleString()}
+                    </p>
+
+                    <p className="text-board-text mt-1 break-words">{event.details}</p>
+
+                    {event.payloadSummary && (
+                      <p className="text-[10px] text-board-muted mt-1 font-mono break-all">
+                        {event.payloadSummary}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1370,6 +1466,8 @@ function DangerSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<Array<{ date: string; itemCount: number }>>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
@@ -1395,6 +1493,7 @@ function DangerSection({
 
   const handleExport = async () => {
     setBusy("export");
+    setExportError(null);
     try {
       const serviceDate = selectedDate || availableDates[0]?.date;
       if (!serviceDate) return;
@@ -1418,28 +1517,34 @@ function DangerSection({
         blob = new Blob([JSON.stringify(filteredReport, null, 2)], { type: "application/json" });
       } else if (selectedFormat === "csv") {
         const rows: string[][] = [["section", "field", "value"]];
+        const csvValue = (value: unknown) => {
+          if (value === undefined || value === null) return "";
+          if (typeof value === "string") return value;
+          return JSON.stringify(value);
+        };
+
         for (const [section, value] of Object.entries(filteredReport)) {
           if (section === "organization") {
             for (const [field, fieldValue] of Object.entries(value as Record<string, unknown>)) {
-              rows.push([section, field, String(fieldValue ?? "")]);
+              rows.push([section, field, csvValue(fieldValue)]);
             }
             continue;
           }
           if (Array.isArray(value)) {
             value.forEach((item, index) => {
               for (const [field, fieldValue] of Object.entries(item)) {
-                rows.push([`${section}[${index}]`, field, String(fieldValue ?? "")]);
+                rows.push([`${section}[${index}]`, field, csvValue(fieldValue)]);
               }
             });
             continue;
           }
           if (value && typeof value === "object") {
             for (const [field, fieldValue] of Object.entries(value)) {
-              rows.push([section, field, String(fieldValue ?? "")]);
+              rows.push([section, field, csvValue(fieldValue)]);
             }
             continue;
           }
-          rows.push([section, "value", String(value ?? "")]);
+          rows.push([section, "value", csvValue(value)]);
         }
         blob = new Blob([
           rows
@@ -1501,16 +1606,31 @@ function DangerSection({
       link.remove();
       URL.revokeObjectURL(url);
       setShowExportModal(false);
+    } catch {
+      setExportError("Unable to export show data. Please try again.");
     } finally {
       setBusy(null);
     }
   };
 
   const openExportModal = async () => {
-    const dates = await listRundownDates({ data: { orgId: org.id } });
-    setAvailableDates(dates);
-    setSelectedDate(dates[0]?.date ?? "");
+    setExportError(null);
+    setIsLoadingExportDates(true);
     setShowExportModal(true);
+    try {
+      const dates = await listRundownDates({ data: { orgId: org.id } });
+      setAvailableDates(dates);
+      setSelectedDate(dates[0]?.date ?? "");
+      if (!dates.length) {
+        setExportError("No show data found for this organization.");
+      }
+    } catch {
+      setExportError("Unable to load show dates. Please try again.");
+      setAvailableDates([]);
+      setSelectedDate("");
+    } finally {
+      setIsLoadingExportDates(false);
+    }
   };
 
   return (
@@ -1594,19 +1714,29 @@ function DangerSection({
               </div>
 
               <div className="space-y-5">
-                <FieldGroup label="Show Date">
-                  <select
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
-                  >
-                    {availableDates.map((entry) => (
-                      <option key={entry.date} value={entry.date}>
-                        {entry.date} ({entry.itemCount} items)
-                      </option>
-                    ))}
-                  </select>
-                </FieldGroup>
+                {exportError && <p className="text-xs text-red-400">{exportError}</p>}
+
+                {isLoadingExportDates ? (
+                  <p className="text-xs text-board-muted">Loading available show dates...</p>
+                ) : availableDates.length === 0 ? (
+                  <p className="text-xs text-board-muted">
+                    No show data found for this organization.
+                  </p>
+                ) : (
+                  <FieldGroup label="Show Date">
+                    <select
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
+                    >
+                      {availableDates.map((entry) => (
+                        <option key={entry.date} value={entry.date}>
+                          {entry.date} ({entry.itemCount} items)
+                        </option>
+                      ))}
+                    </select>
+                  </FieldGroup>
+                )}
 
                 <FieldGroup label="Format">
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -1642,7 +1772,10 @@ function DangerSection({
                     ] as const).map(([value, label]) => {
                       const enabled = selectedSections.includes(value);
                       return (
-                        <label key={value} className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5 cursor-pointer">
+                        <label
+                          key={value}
+                          className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5 cursor-pointer"
+                        >
                           <input
                             type="checkbox"
                             checked={enabled}
@@ -1673,7 +1806,13 @@ function DangerSection({
                   <button
                     type="button"
                     onClick={handleExport}
-                    disabled={busy === "export" || !selectedDate || selectedSections.length === 0}
+                    disabled={
+                      busy === "export" ||
+                      isLoadingExportDates ||
+                      availableDates.length === 0 ||
+                      !selectedDate ||
+                      selectedSections.length === 0
+                    }
                     className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
                   >
                     {busy === "export" ? "Exporting..." : "Download"}

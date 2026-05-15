@@ -31,7 +31,12 @@ const config = defineConfig({
     },
   },
   environments: {
-    client: {
+      client: {
+      resolve: {
+        alias: {
+          'cloudflare:workers': path.resolve(__dirname, './src/lib/cloudflare-workers-shim.ts'),
+        },
+      },
       build: {
         rollupOptions: {
           external: [

@@ -1,5 +1,111 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+const isObject = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const toStringValue = (value: unknown, fallback = ""): string => {
+  return typeof value === "string" ? value : fallback;
+};
+
+const toBoolean = (value: unknown, fallback = false): boolean => {
+  return typeof value === "boolean" ? value : fallback;
+};
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return fallback;
+};
+
+const toNullableNumber = (value: unknown, fallback: number | null): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  return fallback;
+};
+
+const toPlayback = (value: unknown): "stop" | "play" | "pause" => {
+  return value === "play" || value === "pause" || value === "stop" ? value : "stop";
+};
+
+const toMode = (value: unknown): "count-up" | "count-down" | "clock" => {
+  return value === "count-up" || value === "clock" ? value : "count-down";
+};
+
+const toItemId = (value: unknown): string | null => {
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
+const normalizeRundownItems = (value: unknown): RundownItem[] => {
+  if (!Array.isArray(value)) return [];
+
+  const items: RundownItem[] = [];
+
+  for (const item of value) {
+    if (!isObject(item)) continue;
+
+    const rawType = toStringValue(item.type);
+    const type = rawType || "segment";
+    const rawStatus = toStringValue(item.status);
+    const status = rawStatus || "upcoming";
+    const safeId = toStringValue(item.id) || `item-${items.length}`;
+
+    items.push({
+      id: safeId,
+      title: toStringValue(item.title),
+      type,
+      duration: Math.max(0, toNumber(item.duration, 300000)),
+      notes: toStringValue(item.notes),
+      assignee: toStringValue(item.assignee),
+      cue: toStringValue(item.cue),
+      status,
+      sortOrder: toNumber(item.sortOrder, 0),
+      hardStop: toBoolean(item.hardStop),
+      lowerThirdId: toStringValue(item.lowerThirdId, "") || undefined,
+    });
+  }
+
+  return items;
+};
+
+const normalizePpPreviewSlide = (value: unknown): PPSlideState | null => {
+  if (!isObject(value)) return null;
+
+  return {
+    text: toStringValue(value.text),
+    notes: toStringValue(value.notes),
+    presentationName: toStringValue(value.presentationName),
+    isScripture: toBoolean(value.isScripture),
+    updatedAt: toNumber(value.updatedAt, Date.now()),
+  };
+};
+
+const normalizeTimerState = (value: unknown): TimerState => {
+  if (!isObject(value)) {
+    return {
+      playback: "stop",
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      pausedAt: null,
+      mode: "count-down",
+      serverTime: Date.now(),
+    };
+  }
+
+  return {
+    playback: toPlayback(value.playback),
+    currentItemId: toItemId(value.currentItemId),
+    elapsed: Math.max(0, toNumber(value.elapsed, 0)),
+    startedAt: toNullableNumber(value.startedAt, null),
+    pausedAt: toNullableNumber(value.pausedAt, null),
+    mode: toMode(value.mode),
+    serverTime: toNumber(value.serverTime, Date.now()),
+  };
+};
+
 interface RundownItem {
   id: string;
   title: string;
@@ -20,7 +126,7 @@ interface TimerState {
   elapsed: number;
   startedAt: number | null;
   pausedAt: number | null;
-  mode: "count-up" | "count-down";
+  mode: "count-up" | "count-down" | "clock";
   serverTime?: number;
 }
 
@@ -60,44 +166,90 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectAttempts = useRef(0);
+  const intentionalClose = useRef(false);
+  const commandQueue = useRef<Array<{ action: string; payload?: Record<string, unknown> }>>([]);
+
+  const clearPingTimer = () => {
+    if (pingTimerRef.current) {
+      clearInterval(pingTimerRef.current);
+      pingTimerRef.current = null;
+    }
+  };
+
+  const scheduleReconnect = useCallback(() => {
+    if (intentionalClose.current) return;
+    if (reconnectTimer.current) return;
+
+    const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
+    reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 6);
+
+    reconnectTimer.current = setTimeout(() => {
+      reconnectTimer.current = null;
+      connect();
+    }, delay);
+  }, []);
+
+  const flushCommandQueue = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    while (commandQueue.current.length > 0) {
+      const entry = commandQueue.current.shift();
+      if (!entry) continue;
+      ws.send(JSON.stringify({ type: "command", action: entry.action, payload: entry.payload }));
+    }
+  }, []);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws`;
 
     const ws = new WebSocket(url);
-    let pingTimer: ReturnType<typeof setInterval> | null = null;
 
     ws.onopen = () => {
+      intentionalClose.current = false;
+      reconnectAttempts.current = 0;
+      clearPingTimer();
       setConnected(true);
       // Keepalive to prevent DO hibernation
-      pingTimer = setInterval(() => {
+      pingTimerRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "ping" }));
         }
       }, 20000);
+      flushCommandQueue();
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
 
-        if (msg.type === "hydrate" || msg.type === "state") {
-          // Always accept DO state — it is the source of truth once connected
-          if (msg.state.items) {
-            setItems(msg.state.items);
-          }
-          if (msg.state.timer) {
-            setTimer(msg.state.timer);
-          }
-          // PP preview slide data from gateway bridge
-          if (msg.state.ppPreviewSlide !== undefined) {
-            setPpPreviewSlide(msg.state.ppPreviewSlide);
-          }
-          setHydrated(true);
+        if (!isObject(msg)) return;
+        if (msg.type !== "hydrate" && msg.type !== "state") return;
+
+        const state = msg.state;
+        if (!isObject(state)) return;
+
+        // Always accept DO state — it is the source of truth once connected
+        if ("items" in state) {
+          setItems(normalizeRundownItems(state.items));
         }
+        if ("timer" in state) {
+          setTimer(normalizeTimerState(state.timer));
+        }
+        if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
+          setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
+        }
+        setHydrated(true);
       } catch {
         // Ignore
       }
@@ -105,22 +257,28 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
 
     ws.onclose = () => {
       setConnected(false);
-      setHydrated(false); // Reset so we wait for fresh hydrate on reconnect
       wsRef.current = null;
-      if (pingTimer) clearInterval(pingTimer);
-      reconnectTimer.current = setTimeout(() => connect(), 1000);
+      clearPingTimer();
+      scheduleReconnect();
     };
 
     ws.onerror = () => {};
 
     wsRef.current = ws;
-  }, [orgId]);
+    reconnectTimer.current && clearTimeout(reconnectTimer.current);
+    reconnectTimer.current = null;
+  }, [orgId, flushCommandQueue, scheduleReconnect]);
 
   useEffect(() => {
+    intentionalClose.current = false;
     connect();
 
     return () => {
+      intentionalClose.current = true;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+      clearPingTimer();
+      commandQueue.current = [];
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -129,10 +287,11 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({ type: "command", action, payload })
-        );
+        wsRef.current.send(JSON.stringify({ type: "command", action, payload }));
+        return;
       }
+
+      commandQueue.current.push({ action, payload });
     },
     []
   );

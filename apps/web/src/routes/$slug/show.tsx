@@ -1,6 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useEffect, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  type CSSProperties,
+} from "react";
 import {
   Flame,
   Clock,
@@ -17,10 +24,11 @@ import { getCrewMembers } from "@/lib/data";
 import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
 import { getRundownState } from "@/lib/rundown";
 import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
-import { getTodayDateString, formatTime, type ClockFormat } from "@/lib/utils";
+import { getTodayDateString, formatTime, formatClockFull, type ClockFormat } from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
+import { ShowPageTabs } from "@/components/ui/ShowPageTabs";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
@@ -39,6 +47,7 @@ function formatDuration(ms: number): string {
 }
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
+type ShowTab = "show" | "chat" | "rundown";
 
 const TYPE_COLORS: Record<ItemType, string> = {
   segment: "bg-blue-500",
@@ -271,6 +280,245 @@ function ShowPage() {
   );
 }
 
+// ─── Shared Show Layout ─────────────────────────────────────
+
+function ShowPageLayout({
+  activeTab,
+  onTabChange,
+  statusClock,
+  statusNode,
+  showPanel,
+  chatPanel,
+  rundownPanel,
+  crewPanel,
+}: {
+  activeTab: ShowTab;
+  onTabChange: (tab: ShowTab) => void;
+  statusClock: string;
+  statusNode: ReactNode;
+  showPanel: ReactNode;
+  chatPanel: ReactNode;
+  rundownPanel: ReactNode;
+  crewPanel?: ReactNode;
+}) {
+  const STORAGE_LEFT_WIDTH = "show-page-left-width";
+  const STORAGE_TOP_HEIGHT = "show-page-top-height";
+  const STORAGE_LAYOUT_VERSION = "show-page-layout-version";
+  const CURRENT_LAYOUT_VERSION = "2";
+
+  const applyStoredLayout = (leftWidth: number, topHeight: number) => {
+    const normalizedLeft = clamp(leftWidth, 24, 72);
+    const normalizedTop = clamp(topHeight, 20, 80);
+    setLeftWidthPercent(normalizedLeft);
+    setTopHeightPercent(normalizedTop);
+  };
+
+  const resetStoredLayout = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(STORAGE_LEFT_WIDTH);
+    window.localStorage.removeItem(STORAGE_TOP_HEIGHT);
+    window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
+    applyStoredLayout(40, 45);
+  };
+
+  const panelsRef = useRef<HTMLDivElement | null>(null);
+  const moveListenerRef = useRef<(event: PointerEvent) => void>(() => {});
+  const upListenerRef = useRef<(event: PointerEvent) => void>(() => {});
+  const resizeRef = useRef<{
+    mode: "horizontal" | "vertical" | null;
+    startX: number;
+    startY: number;
+    baseWidth: number;
+    baseHeight: number;
+    startLeftWidth: number;
+    startTopHeight: number;
+    pointerId: number | null;
+    source?: HTMLButtonElement | null;
+  }>({
+    mode: null,
+    startX: 0,
+    startY: 0,
+    baseWidth: 0,
+    baseHeight: 0,
+    startLeftWidth: 0,
+    startTopHeight: 0,
+    pointerId: null,
+    source: null,
+  });
+
+  const leftWidthRef = useRef(40);
+  const topHeightRef = useRef(45);
+
+  const [leftWidthPercent, setLeftWidthPercent] = useState(40);
+  const [topHeightPercent, setTopHeightPercent] = useState(45);
+
+  useEffect(() => {
+    leftWidthRef.current = leftWidthPercent;
+    topHeightRef.current = topHeightPercent;
+  }, [leftWidthPercent, topHeightPercent]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const savedVersion = window.localStorage.getItem(STORAGE_LAYOUT_VERSION);
+    if (savedVersion !== CURRENT_LAYOUT_VERSION) {
+      resetStoredLayout();
+      return;
+    }
+
+    const savedLeft = Number(window.localStorage.getItem(STORAGE_LEFT_WIDTH));
+    const savedTop = Number(window.localStorage.getItem(STORAGE_TOP_HEIGHT));
+
+    if (Number.isFinite(savedLeft) && savedLeft >= 24 && savedLeft <= 72) {
+      setLeftWidthPercent(savedLeft);
+    }
+
+    if (Number.isFinite(savedTop) && savedTop >= 20 && savedTop <= 80) {
+      setTopHeightPercent(savedTop);
+    }
+  }, []);
+
+  const clamp = (value: number, min: number, max: number) => {
+    if (Number.isNaN(value)) return min;
+    return Math.min(Math.max(value, min), max);
+  };
+
+  const beginResize = (mode: "horizontal" | "vertical") => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const panels = panelsRef.current;
+    if (!panels) return;
+
+    const rect = panels.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    resizeRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseWidth: rect.width,
+      baseHeight: rect.height,
+      startLeftWidth: leftWidthPercent,
+      startTopHeight: topHeightPercent,
+      pointerId: event.pointerId,
+      source: event.currentTarget,
+    };
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const state = resizeRef.current;
+      if (!state.mode || state.pointerId == null || moveEvent.pointerId !== state.pointerId) return;
+
+      if (state.mode === "vertical") {
+        const deltaX = moveEvent.clientX - state.startX;
+        const nextWidth = clamp(state.startLeftWidth + (deltaX / state.baseWidth) * 100, 24, 72);
+        leftWidthRef.current = nextWidth;
+        setLeftWidthPercent(nextWidth);
+        return;
+      }
+
+      const deltaY = moveEvent.clientY - state.startY;
+      const nextTop = clamp(state.startTopHeight + (deltaY / state.baseHeight) * 100, 20, 80);
+      topHeightRef.current = nextTop;
+      setTopHeightPercent(nextTop);
+    };
+
+    const handleUp = (upEvent: PointerEvent) => {
+      const state = resizeRef.current;
+      if (state.pointerId == null || upEvent.pointerId !== state.pointerId) return;
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_LEFT_WIDTH, String(leftWidthRef.current));
+        window.localStorage.setItem(STORAGE_TOP_HEIGHT, String(topHeightRef.current));
+        window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
+      }
+
+      window.removeEventListener("pointermove", moveListenerRef.current);
+      window.removeEventListener("pointerup", upListenerRef.current);
+      window.removeEventListener("pointercancel", upListenerRef.current);
+      resizeRef.current.mode = null;
+      resizeRef.current.pointerId = null;
+      if (state.source && state.pointerId != null && state.source.hasPointerCapture(state.pointerId)) {
+        state.source.releasePointerCapture(state.pointerId);
+      }
+    };
+
+    moveListenerRef.current = handleMove;
+    upListenerRef.current = handleUp;
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+  };
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", moveListenerRef.current);
+      window.removeEventListener("pointerup", upListenerRef.current);
+      window.removeEventListener("pointercancel", upListenerRef.current);
+
+      const state = resizeRef.current;
+      if (state.pointerId == null || !state.source) return;
+      if (state.source.hasPointerCapture(state.pointerId)) {
+        state.source.releasePointerCapture(state.pointerId);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="h-full min-h-0 overflow-hidden">
+      <div className="show-page-root" data-show-tab={activeTab}>
+        <div className="show-page-shell">
+          <header className="show-page-header">
+            <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-board-muted tabular-nums">{statusClock}</span>
+              {statusNode}
+            </div>
+          </header>
+
+          <ShowPageTabs activeTab={activeTab} onChange={onTabChange} />
+
+          <main
+            className="show-page-panels"
+            ref={panelsRef}
+            aria-live="polite"
+              style={{
+                "--show-page-left-width": `${leftWidthPercent}%`,
+                "--show-page-top-height": `${topHeightPercent}%`,
+              } as CSSProperties}
+          >
+            <section data-tab="show" className="show-page-tab-panel show-page-show-panel">
+              {showPanel}
+            </section>
+            <section data-tab="chat" className="show-page-tab-panel show-page-chat-panel">
+              {chatPanel}
+            </section>
+            <section data-tab="rundown" className="show-page-tab-panel show-page-rundown-panel">
+              {rundownPanel}
+            </section>
+
+            <button
+              type="button"
+              aria-label="Resize show and rundown columns"
+              className="show-page-resize-handle show-page-resize-handle-vertical"
+              onPointerDown={beginResize("vertical")}
+            />
+            <button
+              type="button"
+              aria-label="Resize show and chat rows"
+              className="show-page-resize-handle show-page-resize-handle-horizontal"
+              onPointerDown={beginResize("horizontal")}
+            />
+          </main>
+
+          {crewPanel && <section className="show-page-crew-strip">{crewPanel}</section>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Show Page: Native Rundown ───────────────────────────────
 
 function ShowPageWithNative({
@@ -290,6 +538,8 @@ function ShowPageWithNative({
   slug: string;
   clockFormat: ClockFormat;
 }) {
+  const [activeTab, setActiveTab] = useState<ShowTab>("show");
+
   // Real-time sync via RundownRelay Durable Object (replaces DB polling)
   const {
     items: syncedItems,
@@ -339,7 +589,9 @@ function ShowPageWithNative({
   // RAF for smooth timer display
   useEffect(() => {
     const tick = () => {
-      if (timer.playback === "play" && timer.startedAt) {
+      if (timer.mode === "clock") {
+        setDisplayTime(Date.now());
+      } else if (timer.playback === "play" && timer.startedAt) {
         setDisplayTime(timer.elapsed + (Date.now() - timer.startedAt));
       } else {
         setDisplayTime(timer.elapsed);
@@ -348,15 +600,27 @@ function ShowPageWithNative({
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [timer.playback, timer.startedAt, timer.elapsed]);
+  }, [timer.playback, timer.startedAt, timer.elapsed, timer.mode]);
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);
   const currentIdx = timer.currentItemId
     ? items.findIndex((i) => i.id === timer.currentItemId)
     : -1;
   const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
-  const remaining = currentItem ? currentItem.duration - displayTime : 0;
-  const isOvertime = remaining < 0;
+  const remaining = currentItem && timer.mode === "count-down"
+    ? currentItem.duration - (timer.playback === "pause" && timer.startedAt === null ? timer.elapsed : displayTime)
+    : 0;
+  const isOvertime = timer.mode === "count-down" && remaining < 0;
+  const timerDisplay = currentItem
+    ? timer.mode === "clock"
+      ? formatClockFull(new Date(displayTime), clockFormat)
+      : timer.mode === "count-down"
+        ? formatDuration(remaining)
+        : formatDuration(displayTime)
+    : "--:--";
+  const progressPercent = currentItem && timer.mode !== "clock"
+    ? Math.min(100, (Math.max(0, displayTime) / currentItem.duration) * 100)
+    : 0;
 
   // Show flash on transition to play
   const [showFlash, setShowFlash] = useState(false);
@@ -368,153 +632,142 @@ function ShowPageWithNative({
 
   if (members.length === 0) return <EmptyState slug={slug} />;
 
-  return (
-    <>
-      {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
-      <div className="h-full overflow-hidden">
-        <div className="h-full min-h-0">
-          <div className="h-full min-h-0 flex flex-col overflow-hidden">
-            {/* Status bar */}
-            <div className="shrink-0 px-4 sm:px-5 lg:px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
-              <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-board-muted tabular-nums">{formatTime(new Date(), clockFormat)}</span>
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
-                  <span className="text-xs text-board-muted">{isPlaying ? "Live" : "Native"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Main */}
-            <main className="flex-1 min-h-0 overflow-hidden px-4 sm:px-5 lg:px-6 py-3 sm:py-4 md:py-5">
-              <div className="grid h-full min-h-0 min-w-0 grid-cols-1 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-4 xl:gap-6 w-full">
-                {/* Left: Timer (read-only) + Chat */}
-                <div className="flex flex-col gap-4 xl:gap-5 xl:items-stretch xl:w-[360px] 2xl:w-[420px] overflow-hidden min-h-0 max-h-full">
-                  {/* Timer display — read-only, no controls */}
-                  <div className={`p-5 xl:p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      {isPlaying ? (
-                        <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                      ) : isPaused ? (
-                        <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                      ) : (
-                        <Square className="w-3.5 h-3.5 text-board-muted" />
-                      )}
-                      <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                        {timer.playback === "stop" ? "Stopped" : isPlaying ? "Playing" : "Paused"}
-                      </span>
-                      {isOvertime && (
-                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
-                      )}
-                    </div>
-
-                    <p className={`text-5xl sm:text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                      {currentItem ? formatDuration(remaining) : "--:--"}
-                    </p>
-
-                    {/* Progress bar */}
-                    {currentItem && (
-                      <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
-                          style={{ width: `${Math.min(100, (displayTime / currentItem.duration) * 100)}%` }}
-                        />
-                      </div>
-                    )}
-
-                    {currentItem && (
-                      <div className="mt-3 pt-3 border-t border-board-border/40">
-                        <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
-                        <p className="text-xs text-board-muted mt-0.5">
-                          Duration: {formatDuration(currentItem.duration)}
-                          {currentItem.assignee && ` · ${currentItem.assignee}`}
-                        </p>
-                      </div>
-                    )}
-
-                    {nextItem && (
-                      <p className="text-xs text-board-muted mt-2">
-                        Next: <span className="text-board-text/70">{nextItem.title}</span>
-                        <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Chat */}
-                  <div className="flex flex-1 min-h-0 flex-col overflow-hidden p-3 xl:p-4 rounded-xl bg-board-card border border-board-border">
-                    <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
-                  </div>
-                </div>
-
-                {/* Right: Rundown (read-only) */}
-                <div className="min-w-0 flex flex-col overflow-auto hide-scrollbar">
-                  <div className="min-w-0 flex flex-col min-h-full">
-                    <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
-                    {items.length === 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                        <Clock className="w-8 h-8 text-board-muted/20" />
-                        <p className="text-sm text-board-muted">No items in the rundown</p>
-                        <p className="text-xs text-board-muted/50">
-                          Add items in the{" "}
-                          <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
-                            Rundown Editor
-                          </Link>
-                        </p>
-                      </div>
-                    ) : (
-                       <div className="space-y-1 xl:space-y-1.25 overflow-auto flex-1 hide-scrollbar pr-1">
-                        {items.map((event) => {
-                          const isCurrent = event.id === timer.currentItemId;
-                          const isComplete = event.status === "complete";
-                          const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
-
-                          return (
-                            <div
-                              key={event.id}
-                              className={`flex items-center gap-2.5 xl:gap-3 px-3.5 xl:px-4 py-2.5 xl:py-3 rounded-lg border transition-colors ${
-                                isCurrent
-                                  ? "bg-fire-500/8 border-fire-500/25"
-                                  : isComplete
-                                    ? "bg-board-card/30 border-board-border/30 opacity-60"
-                                    : "bg-board-card/50 border-board-border/50"
-                              }`}
-                            >
-                              <div className={`w-2 h-2 rounded-full shrink-0 ${
-                                isCurrent ? "bg-fire-500 animate-pulse" : isComplete ? "bg-green-500" : dotColor
-                              }`} />
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs xl:text-sm font-medium truncate ${
-                                  isCurrent ? "text-fire-500" : isComplete ? "text-board-muted line-through" : "text-board-text/80"
-                                }`}>
-                                  {event.title || "Untitled"}
-                                </p>
-                                {event.notes && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.notes}</p>}
-                              </div>
-
-                              <div className="text-right shrink-0">
-                                <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">
-                                  <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
-                                  {formatDuration(event.duration)}
-                                </p>
-                              </div>
-
-                              {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </main>
-
-            {/* Crew ticker */}
-            {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
-          </div>
-        </div>
+    const showPanel = (
+      <div className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}>
+      <div className="flex items-center gap-2 mb-2">
+        {isPlaying ? (
+          <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
+        ) : isPaused ? (
+          <Pause className="w-3.5 h-3.5 text-yellow-400" />
+        ) : (
+          <Square className="w-3.5 h-3.5 text-board-muted" />
+        )}
+        <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+          {timer.playback === "stop" ? "Stopped" : isPlaying ? "Playing" : "Paused"}
+        </span>
+        {isOvertime && (
+          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+        )}
       </div>
+
+        <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : isPlaying ? "text-board-text" : "text-board-muted"}`}>
+          {timerDisplay}
+        </p>
+
+      {/* Progress bar */}
+        {currentItem && (
+          <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        )}
+
+      {currentItem && (
+        <div className="mt-3 pt-3 border-t border-board-border/40">
+          <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
+          <p className="text-xs text-board-muted mt-0.5">
+            Duration: {formatDuration(currentItem.duration)}
+            {currentItem.assignee && ` · ${currentItem.assignee}`}
+          </p>
+        </div>
+      )}
+
+      {nextItem && (
+        <p className="text-xs text-board-muted mt-2">
+          Next: <span className="text-board-text/70">{nextItem.title}</span>
+          <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
+        </p>
+      )}
+
+    </div>
+  );
+
+  const chatPanel = (
+    <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+    </div>
+  );
+
+    const rundownPanel = (
+      <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
+      {items.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <Clock className="w-8 h-8 text-board-muted/20" />
+          <p className="text-sm text-board-muted">No items in the rundown</p>
+          <p className="text-xs text-board-muted/50">
+            Add items in the{" "}
+            <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
+              Rundown Editor
+            </Link>
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1 overflow-auto flex-1 hide-scrollbar pr-1">
+          {items.map((event) => {
+            const isCurrent = event.id === timer.currentItemId;
+            const isComplete = event.status === "complete";
+            const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
+
+            return (
+              <div
+                key={event.id}
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border transition-colors ${
+                  isCurrent
+                    ? "bg-fire-500/8 border-fire-500/25"
+                    : isComplete
+                      ? "bg-board-card/30 border-board-border/30 opacity-60"
+                      : "bg-board-card/50 border-board-border/50"
+                }`}
+              >
+                <div className={`w-2 h-2 rounded-full shrink-0 ${
+                  isCurrent ? "bg-fire-500 animate-pulse" : isComplete ? "bg-green-500" : dotColor
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-medium truncate ${
+                    isCurrent ? "text-fire-500" : isComplete ? "text-board-muted line-through" : "text-board-text/80"
+                  }`}>
+                    {event.title || "Untitled"}
+                  </p>
+                  {event.notes && <p className="text-[11px] text-board-muted/60 truncate mt-0.5">{event.notes}</p>}
+                </div>
+
+                <div className="text-right shrink-0">
+                  <p className="text-[11px] text-board-muted tabular-nums">
+                    <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
+                    {formatDuration(event.duration)}
+                  </p>
+                </div>
+
+                {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      </div>
+    );
+
+    return (
+      <>
+      {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
+      <ShowPageLayout
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        statusClock={formatTime(new Date(), clockFormat)}
+        statusNode={(
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
+            <span className="text-xs text-board-muted">{isPlaying ? "Live" : "Native"}</span>
+          </div>
+        )}
+        showPanel={showPanel}
+        chatPanel={chatPanel}
+        rundownPanel={rundownPanel}
+        crewPanel={activeMembers.length > 0 ? <CrewTicker activeMembers={activeMembers} /> : null}
+      />
     </>
   );
 }
@@ -539,6 +792,7 @@ function ShowPageWithOntime({
   clockFormat: ClockFormat;
 }) {
   const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
+  const [activeTab, setActiveTab] = useState<ShowTab>("show");
   const currentId = ontime.eventNow?.id;
   const isPlaying = ontime.timer.playback === "play";
   const isPaused = ontime.timer.playback === "pause";
@@ -563,128 +817,118 @@ function ShowPageWithOntime({
 
   if (members.length === 0) return <EmptyState slug={slug} />;
 
+    const showPanel = (
+      <div className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}>
+      <div className="flex items-center gap-2 mb-2">
+        {isPlaying ? (
+          <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
+        ) : isPaused ? (
+          <Pause className="w-3.5 h-3.5 text-yellow-400" />
+        ) : (
+          <Square className="w-3.5 h-3.5 text-board-muted" />
+        )}
+        <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+          {ontime.timer.playback === "stop" ? "Stopped"
+            : ontime.timer.playback === "armed" ? "Armed"
+            : ontime.timer.playback === "roll" ? "Rolling"
+            : isPlaying ? "Playing" : "Paused"}
+        </span>
+        {isOvertime && (
+          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+        )}
+      </div>
+
+      <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
+        {formatOntimeDuration(ontime.timer.current)}
+      </p>
+
+      {ontime.eventNow && (
+        <div className="mt-3 pt-3 border-t border-board-border/40">
+          <p className="text-sm font-medium text-board-text truncate">{ontime.eventNow.title}</p>
+          <p className="text-xs text-board-muted mt-0.5">
+            {formatOntimeTime(ontime.eventNow.timeStart)} – {formatOntimeTime(ontime.eventNow.timeEnd)}
+          </p>
+        </div>
+      )}
+
+      {ontime.eventNext && (
+        <p className="text-xs text-board-muted mt-2">
+          Next: <span className="text-board-text/70">{ontime.eventNext.title}</span>
+        </p>
+      )}
+
+    </div>
+  );
+
+  const chatPanel = (
+    <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+    </div>
+  );
+
+  const rundownPanel = (
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
+      {ontime.events.length === 0 ? (
+        <p className="text-center text-board-muted text-sm py-12">No events in the rundown</p>
+      ) : (
+        <div className="space-y-1 overflow-auto flex-1 hide-scrollbar pr-1">
+          {ontime.events.map((event) => {
+            const isCurrent = event.id === currentId;
+            return (
+              <div
+                key={event.id}
+                className={`flex items-center gap-2.5 xl:gap-3 px-3.5 xl:px-4 py-2.5 xl:py-3 rounded-lg border transition-colors ${
+                  isCurrent
+                    ? "bg-fire-500/8 border-fire-500/25"
+                    : "bg-board-card/50 border-board-border/50 hover:border-board-border"
+                }`}
+              >
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: event.colour || (isCurrent ? "#ffc107" : "#444") }} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs xl:text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}>
+                    {event.title || "Untitled"}
+                  </p>
+                  {event.note && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.note}</p>}
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">{formatOntimeTime(event.timeStart)}</p>
+                  <p className="text-[10px] text-board-muted/50 tabular-nums mt-0.5">
+                    <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
+                    {formatOntimeDuration(event.duration)}
+                  </p>
+                </div>
+                {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
-      <div className="h-full overflow-hidden">
-        <div className="h-full min-h-0">
-          <div className="h-full min-h-0 flex flex-col overflow-hidden">
-            <div className="shrink-0 px-4 sm:px-5 lg:px-6 py-2.5 flex items-center justify-between border-b border-board-border/50">
-              <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-board-muted tabular-nums">
-                  {formatTime(new Date(), clockFormat)}
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {ontime.connected ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                  ) : (
-                    <WifiOff className="w-3.5 h-3.5 text-red-400" />
-                  )}
-                  <span className="text-xs text-board-muted">
-                    {ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <main className="flex-1 min-h-0 overflow-hidden px-4 sm:px-5 lg:px-6 py-3 sm:py-4 md:py-5">
-              <div className="grid h-full min-h-0 min-w-0 grid-cols-1 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] 2xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] gap-4 xl:gap-6 w-full">
-                {/* Left: Timer + Chat */}
-                <div className="flex flex-col gap-4 xl:gap-5 xl:items-stretch xl:w-[360px] 2xl:w-[420px] overflow-hidden min-h-0 max-h-full">
-                   <div className={`p-5 xl:p-6 rounded-xl border shrink-0 ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      {isPlaying ? (
-                        <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                      ) : isPaused ? (
-                        <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                      ) : (
-                        <Square className="w-3.5 h-3.5 text-board-muted" />
-                      )}
-                      <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                        {ontime.timer.playback === "stop" ? "Stopped"
-                          : ontime.timer.playback === "armed" ? "Armed"
-                          : ontime.timer.playback === "roll" ? "Rolling"
-                          : isPlaying ? "Playing" : "Paused"}
-                      </span>
-                    </div>
-
-                    <p className={`text-5xl sm:text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                        {formatOntimeDuration(ontime.timer.current)}
-                      </p>
-
-                    {ontime.eventNow && (
-                      <div className="mt-3 pt-3 border-t border-board-border/40">
-                        <p className="text-sm font-medium text-board-text truncate">{ontime.eventNow.title}</p>
-                        <p className="text-xs text-board-muted mt-0.5">
-                          {formatOntimeTime(ontime.eventNow.timeStart)} – {formatOntimeTime(ontime.eventNow.timeEnd)}
-                        </p>
-                      </div>
-                    )}
-
-                    {ontime.eventNext && (
-                      <p className="text-xs text-board-muted mt-2">
-                        Next: <span className="text-board-text/70">{ontime.eventNext.title}</span>
-                      </p>
-                    )}
-                  </div>
-
-                   <div className="flex flex-1 min-h-0 flex-col overflow-hidden p-3 xl:p-4 rounded-xl bg-board-card border border-board-border">
-                    <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
-                  </div>
-                </div>
-
-                {/* Right: OnTime Rundown */}
-                <div className="min-w-0 flex flex-col overflow-auto hide-scrollbar">
-                  <div className="min-w-0 flex flex-col min-h-full">
-                    <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
-                      Rundown
-                    </h2>
-                    {ontime.events.length === 0 ? (
-                      <p className="text-center text-board-muted text-sm py-12">No events in the rundown</p>
-                    ) : (
-                       <div className="space-y-1 xl:space-y-1.25 overflow-auto flex-1 hide-scrollbar pr-1">
-                        {ontime.events.map((event) => {
-                          const isCurrent = event.id === currentId;
-                          return (
-                            <div
-                              key={event.id}
-                               className={`flex items-center gap-2.5 xl:gap-3 px-3.5 xl:px-4 py-2.5 xl:py-3 rounded-lg border transition-colors ${
-                                 isCurrent
-                                   ? "bg-fire-500/8 border-fire-500/25"
-                                   : "bg-board-card/50 border-board-border/50 hover:border-board-border"
-                               }`}
-                             >
-                              <div className="w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: event.colour || (isCurrent ? "#ffc107" : "#444") }} />
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs xl:text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}>
-                                  {event.title || "Untitled"}
-                                </p>
-                                {event.note && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.note}</p>}
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">{formatOntimeTime(event.timeStart)}</p>
-                                <p className="text-[10px] text-board-muted/50 tabular-nums mt-0.5">
-                                  <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
-                                  {formatOntimeDuration(event.duration)}
-                                </p>
-                              </div>
-                              {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </main>
-
-            {activeMembers.length > 0 && <CrewTicker activeMembers={activeMembers} />}
+      <ShowPageLayout
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        statusClock={formatTime(new Date(), clockFormat)}
+        statusNode={
+          <div className="flex items-center gap-1.5">
+            {ontime.connected ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5 text-red-400" />
+            )}
+            <span className="text-xs text-board-muted">{ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}</span>
           </div>
-        </div>
-      </div>
+        }
+        showPanel={showPanel}
+        chatPanel={chatPanel}
+        rundownPanel={rundownPanel}
+        crewPanel={activeMembers.length > 0 ? <CrewTicker activeMembers={activeMembers} /> : null}
+      />
     </>
   );
 }
@@ -745,9 +989,7 @@ function EmptyState({ slug }: { slug: string }) {
 function CrewTicker({ activeMembers }: { activeMembers: Awaited<ReturnType<typeof getCrewMembers>> }) {
   return (
     <footer className="shrink-0 border-t border-board-border py-2.5 overflow-hidden">
-      <div className="flex items-center gap-3 px-8">
-        <span className="text-[10px] font-medium text-board-muted uppercase tracking-widest shrink-0">On Crew</span>
-        <div className="w-px h-3 bg-board-border shrink-0" />
+      <div className="flex items-center px-8">
         <div className="overflow-hidden flex-1">
           <div className="animate-scroll-left flex items-center gap-5 whitespace-nowrap">
             {[...activeMembers, ...activeMembers].map((member, i) => (

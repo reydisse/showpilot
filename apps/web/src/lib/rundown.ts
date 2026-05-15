@@ -3,10 +3,328 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import { hasPermission } from "@/lib/app-permissions";
-import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+import type { RundownItem, NativeTimerState, RundownState, ItemType, ItemStatus } from "@/types/rundown";
 
 interface RundownRelayEnv {
   RUNDOWN_RELAY?: DurableObjectNamespace;
+}
+
+const VALID_ITEM_TYPES = new Set<ItemType>([
+  "segment",
+  "song",
+  "prayer",
+  "announcement",
+  "offering",
+  "custom",
+]);
+
+const VALID_ITEM_STATUSES = new Set<ItemStatus>(["upcoming", "live", "complete"]);
+
+type RawRundownItemRow = {
+  itemId: string;
+  title: string;
+  type: string;
+  duration: number;
+  notes: string;
+  assignee: string;
+  cue: string;
+  status: string;
+  sortOrder: number;
+  hardStop: boolean;
+  lowerThirdId: string | null;
+};
+
+type RelationalRundownStore = {
+  findMany(args: { where: { orgId: string; serviceDate: string }; orderBy: { sortOrder: "asc" | "desc" } }):
+    Promise<RawRundownItemRow[]>;
+  findFirst(args: { where: { orgId: string; serviceDate: string } }): Promise<RawRundownItemRow | null>;
+  upsert(args: {
+    where: { orgId_serviceDate_itemId: { orgId: string; serviceDate: string; itemId: string } };
+    update: Record<string, unknown>;
+    create: Record<string, unknown>;
+  }): Promise<unknown>;
+  deleteMany(args: { where: { orgId: string; serviceDate: string; itemId?: { notIn: string[] } } }): Promise<unknown>;
+};
+
+function getRelationalRundownStore(prisma: ReturnType<typeof getPrisma>): RelationalRundownStore | null {
+  const store = (prisma as { rundownItem?: RelationalRundownStore }).rundownItem;
+  if (
+    !store ||
+    typeof store.findMany !== "function" ||
+    typeof store.findFirst !== "function" ||
+    typeof store.upsert !== "function" ||
+    typeof store.deleteMany !== "function"
+  ) {
+    return null;
+  }
+
+  return store;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function toBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : fallback;
+}
+
+function toTimerMode(value: unknown): NativeTimerState["mode"] {
+  if (value === "count-up" || value === "count-down" || value === "clock") {
+    return value;
+  }
+  return "count-down";
+}
+
+function normalizeItemType(value: unknown): ItemType {
+  return typeof value === "string" && VALID_ITEM_TYPES.has(value as ItemType)
+    ? (value as ItemType)
+    : "segment";
+}
+
+function normalizeItemStatus(value: unknown): ItemStatus {
+  return typeof value === "string" && VALID_ITEM_STATUSES.has(value as ItemStatus)
+    ? (value as ItemStatus)
+    : "upcoming";
+}
+
+function normalizeLegacyRundownItems(value: unknown): RundownItem[] {
+  if (!Array.isArray(value)) return [];
+
+  const items: RundownItem[] = [];
+
+  value.forEach((item, index) => {
+    if (!isObject(item)) return;
+
+    const id = toString(item.id, `item-${index}`);
+    const rawStatus = toString(item.status, "upcoming");
+
+    items.push({
+      id,
+      title: toString(item.title),
+      type: normalizeItemType(item.type),
+      duration: toNumber(item.duration, 300000),
+      notes: toString(item.notes),
+      assignee: toString(item.assignee),
+      cue: toString(item.cue),
+      status: rawStatus && VALID_ITEM_STATUSES.has(rawStatus as ItemStatus)
+        ? (rawStatus as ItemStatus)
+        : "upcoming",
+      sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+      hardStop: toBoolean(item.hardStop),
+      lowerThirdId: toString(item.lowerThirdId, "") || undefined,
+    });
+  });
+
+  return items;
+}
+
+function parseRundownJson<T>(value: string | undefined | null, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeTimerState(value: string | undefined | null): NativeTimerState {
+  const parsed = parseRundownJson(value, {
+    playback: "stop",
+    currentItemId: null,
+    elapsed: 0,
+    startedAt: null,
+    pausedAt: null,
+    mode: "count-down" as NativeTimerState["mode"],
+    serverTime: Date.now(),
+  });
+
+  if (!isObject(parsed)) {
+    return {
+      playback: "stop",
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      pausedAt: null,
+      mode: "count-down",
+      serverTime: Date.now(),
+    };
+  }
+
+  return {
+    playback:
+      parsed.playback === "play" || parsed.playback === "pause" || parsed.playback === "stop"
+        ? parsed.playback
+        : "stop",
+    currentItemId:
+      typeof parsed.currentItemId === "string" && parsed.currentItemId.trim() ? parsed.currentItemId : null,
+    elapsed: toNumber(parsed.elapsed, 0),
+    startedAt: typeof parsed.startedAt === "number" && Number.isFinite(parsed.startedAt)
+      ? parsed.startedAt
+      : null,
+    pausedAt: typeof parsed.pausedAt === "number" && Number.isFinite(parsed.pausedAt)
+      ? parsed.pausedAt
+      : null,
+    mode: toTimerMode(parsed.mode),
+    serverTime: toNumber(parsed.serverTime, Date.now()),
+  };
+}
+
+function mapRundownRowsToItems(rows: Array<{
+  itemId: string;
+  title: string;
+  type: string;
+  duration: number;
+  notes: string;
+  assignee: string;
+  cue: string;
+  status: string;
+  sortOrder: number;
+  hardStop: boolean;
+  lowerThirdId: string | null;
+}>): RundownItem[] {
+  return rows.map((row) => ({
+    id: row.itemId,
+    title: row.title,
+    type: normalizeItemType(row.type),
+    duration: Math.max(0, row.duration),
+    notes: row.notes,
+    assignee: row.assignee,
+    cue: row.cue,
+    status: normalizeItemStatus(row.status),
+    sortOrder: row.sortOrder,
+    hardStop: row.hardStop,
+    lowerThirdId: row.lowerThirdId || undefined,
+  }));
+}
+
+async function migrateLegacyRundownItems(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  serviceDate: string,
+  legacyItems: RundownItem[],
+) {
+  const store = getRelationalRundownStore(prisma);
+  if (!store) return;
+
+  const hasRows = await store.findFirst({
+    where: { orgId, serviceDate },
+  });
+
+  if (hasRows) return;
+
+  if (legacyItems.length === 0) return;
+
+  const itemIds = legacyItems.map((item) => item.id);
+
+  await store.deleteMany({
+    where: {
+      orgId,
+      serviceDate,
+      ...(itemIds.length > 0
+        ? { itemId: { notIn: itemIds } }
+        : {}),
+    },
+  });
+
+  await Promise.all(
+    legacyItems.map((item, index) =>
+      store.upsert({
+        where: {
+          orgId_serviceDate_itemId: {
+            orgId,
+            serviceDate,
+            itemId: item.id,
+          },
+        },
+        update: {
+          title: item.title,
+          type: item.type,
+          duration: item.duration,
+          notes: item.notes,
+          assignee: item.assignee,
+          cue: item.cue,
+          status: item.status,
+          sortOrder: index,
+          hardStop: item.hardStop,
+          lowerThirdId: item.lowerThirdId ?? null,
+        },
+        create: {
+          orgId,
+          serviceDate,
+          itemId: item.id,
+          title: item.title,
+          type: item.type,
+          duration: item.duration,
+          notes: item.notes,
+          assignee: item.assignee,
+          cue: item.cue,
+          status: item.status,
+          sortOrder: index,
+          hardStop: item.hardStop,
+          lowerThirdId: item.lowerThirdId,
+        },
+      }),
+    ),
+  );
+}
+
+async function getRundownStateFromStorage(orgId: string, serviceDate: string): Promise<RundownState> {
+  const prisma = getPrisma();
+  const store = getRelationalRundownStore(prisma);
+
+  let rows: RawRundownItemRow[] = [];
+
+  if (store) {
+    try {
+      rows = await store.findMany({
+        where: { orgId, serviceDate },
+        orderBy: { sortOrder: "asc" },
+      });
+    } catch {
+      rows = [];
+    }
+  }
+
+  const [itemsSetting, timerSetting] = await Promise.all([
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: rundownItemsKey(serviceDate) } },
+    }),
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: rundownTimerKey(serviceDate) } },
+    }),
+  ]);
+
+  if (rows.length > 0) {
+    return {
+      items: mapRundownRowsToItems(rows),
+      timer: normalizeTimerState(timerSetting?.value ?? null),
+    };
+  }
+
+  const legacyItems = normalizeLegacyRundownItems(parseRundownJson(itemsSetting?.value, []));
+
+  if (itemsSetting?.value) {
+    try {
+      await migrateLegacyRundownItems(prisma, orgId, serviceDate, legacyItems);
+    } catch {
+      // Best effort migration. Keep source-of-truth fallback on legacy JSON if this fails.
+    }
+  }
+
+  return {
+    items: legacyItems,
+    timer: normalizeTimerState(timerSetting?.value ?? null),
+  };
 }
 
 async function getOrgMemberRole(orgId: string) {
@@ -62,27 +380,12 @@ export const getRundownState = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }): Promise<RundownState> => {
     await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-
-    const [itemsSetting, timerSetting] = await Promise.all([
-      prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: rundownItemsKey(data.serviceDate) } },
-      }),
-      prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: rundownTimerKey(data.serviceDate) } },
-      }),
-    ]);
-
-    const items: RundownItem[] = itemsSetting
-      ? JSON.parse(itemsSetting.value)
-      : [];
-
-    const timer: NativeTimerState = timerSetting
-      ? JSON.parse(timerSetting.value)
-      : { ...defaultTimer, serverTime: Date.now() };
-
-    return { items, timer };
+    return getRundownStateFromStorage(data.orgId, data.serviceDate);
   });
+
+export async function getRundownStateForOrg(data: { orgId: string; serviceDate: string }): Promise<RundownState> {
+  return getRundownStateFromStorage(data.orgId, data.serviceDate);
+}
 
 /**
  * Persist rundown items for an org on a specific service date.
@@ -92,16 +395,78 @@ export const saveRundownItems = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
+    const store = getRelationalRundownStore(prisma);
     const key = rundownItemsKey(data.serviceDate);
-    await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key } },
-      update: { value: JSON.stringify(data.items) },
-      create: {
-        orgId: data.orgId,
-        key,
-        value: JSON.stringify(data.items),
-      },
-    });
+    const normalizedItems = normalizeLegacyRundownItems(data.items);
+
+    const writeOperations: Promise<unknown>[] = [
+      prisma.appSetting.upsert({
+        where: { orgId_key: { orgId: data.orgId, key } },
+        update: { value: JSON.stringify(normalizedItems) },
+        create: {
+          orgId: data.orgId,
+          key,
+          value: JSON.stringify(normalizedItems),
+        },
+      }),
+    ];
+
+    if (store) {
+      writeOperations.push(
+        ...[
+          ...normalizedItems.map((item, index) =>
+            store.upsert({
+              where: {
+                orgId_serviceDate_itemId: {
+                  orgId: data.orgId,
+                  serviceDate: data.serviceDate,
+                  itemId: item.id,
+                },
+              },
+              update: {
+                title: item.title,
+                type: item.type,
+                duration: item.duration,
+                notes: item.notes,
+                assignee: item.assignee,
+                cue: item.cue,
+                status: item.status,
+                sortOrder: index,
+                hardStop: item.hardStop,
+                lowerThirdId: item.lowerThirdId ?? null,
+              },
+              create: {
+                orgId: data.orgId,
+                serviceDate: data.serviceDate,
+                itemId: item.id,
+                title: item.title,
+                type: item.type,
+                duration: item.duration,
+                notes: item.notes,
+                assignee: item.assignee,
+                cue: item.cue,
+                status: item.status,
+                sortOrder: index,
+                hardStop: item.hardStop,
+                lowerThirdId: item.lowerThirdId,
+              },
+            }),
+          ),
+          store.deleteMany({
+            where: {
+              orgId: data.orgId,
+              serviceDate: data.serviceDate,
+              ...(normalizedItems.length > 0
+                ? { itemId: { notIn: normalizedItems.map((item) => item.id) } }
+                : {}),
+            },
+          }),
+        ],
+      );
+    }
+
+    await Promise.all(writeOperations);
+
     return { ok: true };
   });
 

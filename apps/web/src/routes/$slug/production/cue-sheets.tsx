@@ -3,6 +3,7 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react";
 import { getCueSheets, addCueSheet, updateCueSheet, deleteCueSheet } from "@/lib/data";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -31,16 +32,21 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"], context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const items = await getCueSheets({ data: { orgId: context.orgId, serviceDate: today } });
-    return { items: items as CueItem[], orgId: context.orgId };
+    return {
+      items: items as CueItem[],
+      orgId: context.orgId,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: CueSheetsPage,
 });
 
 function CueSheetsPage() {
-  const { items: initialItems, orgId } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const { items: initialItems, orgId, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
   const [items, setItems] = useState(initialItems);
   const [loadingItems, setLoadingItems] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -68,6 +74,7 @@ function CueSheetsPage() {
 
   useServiceDateRollover({
     serviceDate,
+    timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
     },
@@ -127,7 +134,10 @@ function CueSheetsPage() {
               <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button onClick={() => setServiceDate(getTodayDateString())} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
                 {formatDisplayDate(serviceDate)}
               </button>
               <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">

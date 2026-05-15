@@ -5,16 +5,18 @@ type UseServiceDateRolloverOptions = {
   serviceDate: string;
   onTodayChanged: (nextToday: string) => void | Promise<void>;
   intervalMs?: number;
+  timeZone?: string;
 };
 
 export function useServiceDateRollover({
   serviceDate,
   onTodayChanged,
   intervalMs = 30000,
+  timeZone,
 }: UseServiceDateRolloverOptions) {
   const serviceDateRef = useRef(serviceDate);
   const onTodayChangedRef = useRef(onTodayChanged);
-  const lastTodayRef = useRef(getTodayDateString());
+  const lastTodayRef = useRef(getTodayDateString(timeZone));
 
   useEffect(() => {
     serviceDateRef.current = serviceDate;
@@ -25,8 +27,12 @@ export function useServiceDateRollover({
   }, [onTodayChanged]);
 
   useEffect(() => {
+    lastTodayRef.current = getTodayDateString(timeZone);
+  }, [timeZone]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
-      const nextToday = getTodayDateString();
+      const nextToday = getTodayDateString(timeZone);
       const lastToday = lastTodayRef.current;
 
       if (nextToday === lastToday) {
@@ -43,5 +49,5 @@ export function useServiceDateRollover({
     }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [intervalMs]);
+  }, [intervalMs, timeZone]);
 }
