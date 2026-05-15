@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-
-const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
+import { QRCodeSVG } from "qrcode.react";
 import {
   Flame,
   ListMusic,
@@ -211,15 +210,13 @@ function QRCodePanel({ slug }: { slug: string }) {
       className='flex items-center gap-4 rounded-xl hover:opacity-80 transition-opacity cursor-pointer'
     >
       <div className='bg-white p-2.5 rounded-xl'>
-        <Suspense fallback={<div className="w-[90px] h-[90px] bg-gray-200 rounded" />}>
-          <QRCodeSVG
-            value={checkinUrl}
-            size={90}
-            level='M'
-            bgColor='#ffffff'
-            fgColor='#0a0a0a'
-          />
-        </Suspense>
+        <QRCodeSVG
+          value={checkinUrl}
+          size={90}
+          level='M'
+          bgColor='#ffffff'
+          fgColor='#0a0a0a'
+        />
       </div>
       <div>
         <p className='text-fire-500 font-[family-name:var(--font-display)] font-semibold text-base'>
@@ -319,7 +316,7 @@ function ShowBoardPage() {
       <div className='fixed inset-0 h-screen w-full overflow-hidden overscroll-none'>
         <div className='h-full min-h-0 flex flex-col'>
           <BoardHeader clockFormat={clockFormat} />
-          <div className='flex-1 flex items-center justify-center px-4'>
+          <div className='flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-4'>
             <div className='w-full max-w-lg animate-float-in'>
               <div className='flex justify-center mb-8'>
                 <div className='relative'>
@@ -389,28 +386,29 @@ function ShowBoardPage() {
               </div>
             </div>
           </div>
+          <footer className="px-4 sm:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3 border-t border-board-border shrink-0">
+            <QRCodePanel slug={slug} />
+            <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-end">
+              <Link
+                to='/$slug/show'
+                params={{ slug }}
+                className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[40px] whitespace-nowrap'
+              >
+                <ListMusic className='w-4 h-4 text-fire-500' />
+                <span className='text-xs sm:text-sm font-semibold text-board-text'>Show Flow</span>
+              </Link>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap'
+              >
+                {isFullscreen ? <Minimize className='w-4 h-4 text-fire-500' /> : <Maximize className='w-4 h-4 text-fire-500' />}
+                <span className='text-xs sm:text-sm font-semibold text-board-text'>{isFullscreen ? "Exit" : "Fullscreen"}</span>
+              </button>
+            </div>
+          </footer>
         </div>
-        <footer className="px-4 sm:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3 border-t border-board-border shrink-0">
-          <QRCodePanel slug={slug} />
-          <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-end">
-            <Link
-              to='/$slug/show'
-              params={{ slug }}
-              className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[40px] whitespace-nowrap'
-            >
-              <ListMusic className='w-4 h-4 text-fire-500' />
-              <span className='text-xs sm:text-sm font-semibold text-board-text'>Show Flow</span>
-            </Link>
-            <button
-              onClick={toggleFullscreen}
-              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-              className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap'
-            >
-              {isFullscreen ? <Minimize className='w-4 h-4 text-fire-500' /> : <Maximize className='w-4 h-4 text-fire-500' />}
-              <span className='text-xs sm:text-sm font-semibold text-board-text'>{isFullscreen ? "Exit" : "Fullscreen"}</span>
-            </button>
-          </div>
-        </footer>
       </div>
     );
   }
