@@ -951,10 +951,9 @@ function RundownPage() {
     : `/timer/${slug}`;
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="min-h-full flex flex-col overflow-hidden" style={{ minWidth: `${RUNDOWN_MIN_WIDTH}px` }}>
-      {/* Header */}
-      <div className="shrink-0 sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Header — outside minWidth so it always fills the viewport */}
+      <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <div>
@@ -1053,6 +1052,10 @@ function RundownPage() {
           </div>
         </div>
       </div>
+
+      {/* Scrollable body — minWidth ensures columns don't collapse, outer overflow-auto handles horizontal scroll */}
+      <div className="flex-1 overflow-auto">
+      <div className="min-h-full flex flex-col" style={{ minWidth: `${RUNDOWN_MIN_WIDTH}px` }}>
 
       {/* Message bar */}
       {activeMessage && (
@@ -1987,6 +1990,8 @@ function LoadRundownModal({
             )
           )}
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

@@ -108,13 +108,13 @@ function MemberCard({ member }: { member: Member }) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center p-3 sm:p-3 lg:p-4 2xl:p-4 rounded-2xl min-h-[160px] sm:min-h-[168px] xl:min-h-[176px] 2xl:min-h-[186px] transition-all duration-700 bg-board-card border ${
+      className={`flex flex-col items-center justify-center p-3 md:p-6 rounded-xl md:rounded-2xl transition-all duration-700 bg-board-card border ${
         member.isOnline
           ? "border-fire-500/30 animate-ember-glow"
           : "border-board-border opacity-50"
       }`}
     >
-      <div className='relative w-16 h-16 sm:w-[70px] sm:h-[70px] lg:w-20 lg:h-20 xl:w-22 xl:h-22'>
+      <div className="relative w-[70px] h-[70px] md:w-[110px] md:h-[110px]">
         {member.photoUrl ? (
           <img
             src={member.photoUrl}
@@ -147,8 +147,8 @@ function MemberCard({ member }: { member: Member }) {
 
 function MemberGrid({ members }: { members: Member[] }) {
   return (
-    <div className='w-full px-3 sm:px-4 xl:px-5 py-2'>
-      <div className='grid grid-cols-1 sm:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-3 w-full'>
+    <div className="w-full h-full flex items-center justify-center px-4 sm:px-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 w-full max-w-[1600px]">
         {members.map((member) => (
           <MemberCard key={member.id} member={member} />
         ))}
@@ -173,16 +173,16 @@ function Carousel({
   currentPage: number;
 }) {
   return (
-    <div className='w-full flex-1 overflow-hidden px-3 sm:px-4 xl:px-5 pb-2'>
-      <AnimatePresence mode='wait'>
+    <div className="relative w-full flex-1 overflow-hidden">
+      <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={currentPage}
           variants={carouselVariants}
-          initial='enter'
-          animate='center'
-          exit='exit'
+          initial="enter"
+          animate="center"
+          exit="exit"
           transition={{ duration: 0.6, ease: "easeInOut" }}
-          className='w-full'
+          className="absolute inset-0 flex items-center justify-center"
         >
           <MemberGrid members={pages[currentPage] || []} />
         </motion.div>
@@ -207,7 +207,7 @@ function QRCodePanel({ slug }: { slug: string }) {
       <div className='bg-white p-2.5 rounded-xl'>
         <QRCodeSVG
           value={checkinUrl}
-          size={72}
+          size={90}
           level='M'
           bgColor='#ffffff'
           fgColor='#0a0a0a'
@@ -418,10 +418,10 @@ function ShowBoardPage() {
         <Carousel pages={pages} currentPage={currentPage} />
 
         {/* Footer: QR code + nav + page dots */}
-        <footer className='px-4 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-4 border-t border-board-border shrink-0'>
+        <footer className="px-4 sm:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3 border-t border-board-border shrink-0">
           <QRCodePanel slug={slug} />
 
-          <div className='flex items-center gap-6 justify-end'>
+          <div className="flex items-center gap-3 md:gap-6 w-full md:w-auto justify-center md:justify-end">
             <div className='flex items-center gap-2'>
               <Link
                 to='/$slug/show'

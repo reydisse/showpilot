@@ -1,5 +1,4 @@
 import handler from "@tanstack/react-start/server-entry";
-import { getAuth } from "./lib/auth";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -21,21 +20,6 @@ interface D1Database {
   prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
 }
 
-function shouldRedirectToHttps(request: Request, url: URL): boolean {
-  if (url.protocol === "https:") return false;
-  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return false;
-
-  const cf = (request as Request & { cf?: { tlsVersion?: string } }).cf;
-  if (cf && !cf.tlsVersion) return true;
-
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  if (forwardedProto === "https") return false;
-
-  const cfVisitor = request.headers.get("cf-visitor");
-  if (cfVisitor?.includes('"scheme":"https"')) return false;
-
-  return true;
-}
 
 async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
   const row = await db
@@ -76,11 +60,6 @@ export default {
     const url = new URL(request.url);
     const e = env as Env;
 
-     if (shouldRedirectToHttps(request, url)) {
-      url.protocol = "https:";
-      return Response.redirect(url.toString(), 308);
-    }
-
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return new Response(null, {
         status: 204,
@@ -91,12 +70,6 @@ export default {
           "Access-Control-Max-Age": "86400",
         },
       });
-    }
-
-    const authMatch = url.pathname.match(/^\/api\/auth(?:\/.*)?$/);
-    if (authMatch) {
-      const auth = getAuth();
-      return await auth.handler(request);
     }
 
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
