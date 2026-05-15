@@ -1992,8 +1992,6 @@ function LoadRundownModal({
           )}
         </div>
       </div>
-      </div>
-      </div>
     </div>
   );
 }
