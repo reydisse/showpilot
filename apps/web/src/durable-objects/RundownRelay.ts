@@ -48,6 +48,8 @@ export interface RundownItem {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId?: string;
+  actualStart?: string | null; // ISO timestamp
+  actualEnd?: string | null;   // ISO timestamp
 }
 
 export interface TimerState {
@@ -72,6 +74,7 @@ interface RundownState {
   timer: TimerState;
   ppSlide: PPSlideState | null;
   ppPreviewSlide: PPSlideState | null;
+  serviceDate?: string;
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -142,10 +145,28 @@ export class RundownRelay extends DurableObject {
     }
   }
 
+  /** Fire-and-forget D1 write for actualStart/actualEnd on a single item. */
+  private persistItemTiming(itemId: string, field: "actualStart" | "actualEnd", value: string): void {
+    if (!this.orgId || !this.state.serviceDate) return;
+    const orgId = this.orgId;
+    const serviceDate = this.state.serviceDate;
+    const env = this.env as unknown as Env;
+    this.ctx.waitUntil(
+      env.DB.prepare(
+        `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`
+      )
+        .bind(value, orgId, serviceDate, itemId)
+        .first()
+        .catch(() => null),
+    );
+  }
+
   async fetch(request: Request): Promise<Response> {
     await this.hydrateFromStorage();
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
+    const serviceDate = url.searchParams.get("serviceDate");
+    if (serviceDate) this.state.serviceDate = serviceDate;
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
@@ -288,6 +309,9 @@ export class RundownRelay extends DurableObject {
         const itemId =
           (payload?.itemId as string) ?? this.state.timer.currentItemId;
         if (itemId) {
+          const now = Date.now();
+          const nowIso = new Date(now).toISOString();
+
           if (
             this.state.timer.currentItemId &&
             this.state.timer.currentItemId !== itemId
@@ -295,11 +319,23 @@ export class RundownRelay extends DurableObject {
             const prev = this.state.items.find(
               (i) => i.id === this.state.timer.currentItemId
             );
-            if (prev) prev.status = "complete";
+            if (prev) {
+              prev.status = "complete";
+              if (!prev.actualEnd) {
+                prev.actualEnd = nowIso;
+                this.persistItemTiming(prev.id, "actualEnd", nowIso);
+              }
+            }
           }
 
           const item = this.state.items.find((i) => i.id === itemId);
-          if (item) item.status = "live";
+          if (item) {
+            item.status = "live";
+            if (!item.actualStart) {
+              item.actualStart = nowIso;
+              this.persistItemTiming(item.id, "actualStart", nowIso);
+            }
+          }
 
           this.state.timer = {
             playback: "play",
@@ -307,7 +343,7 @@ export class RundownRelay extends DurableObject {
             elapsed: this.state.timer.pausedAt
               ? this.state.timer.elapsed
               : 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -344,7 +380,14 @@ export class RundownRelay extends DurableObject {
           const item = this.state.items.find(
             (i) => i.id === this.state.timer.currentItemId
           );
-          if (item) item.status = "complete";
+          if (item) {
+            item.status = "complete";
+            if (!item.actualEnd) {
+              const nowIso = new Date().toISOString();
+              item.actualEnd = nowIso;
+              this.persistItemTiming(item.id, "actualEnd", nowIso);
+            }
+          }
         }
         this.state.timer = {
           playback: "stop",
@@ -358,22 +401,33 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-next": {
+        const now = Date.now();
+        const nowIso = new Date(now).toISOString();
         const currentIdx = this.state.items.findIndex(
           (i) => i.id === this.state.timer.currentItemId
         );
         if (currentIdx >= 0) {
-          this.state.items[currentIdx].status = "complete";
+          const curItem = this.state.items[currentIdx];
+          curItem.status = "complete";
+          if (!curItem.actualEnd) {
+            curItem.actualEnd = nowIso;
+            this.persistItemTiming(curItem.id, "actualEnd", nowIso);
+          }
         }
         const nextItem = this.state.items.find(
           (_, i) => i > currentIdx && this.state.items[i].status !== "complete"
         );
         if (nextItem) {
           nextItem.status = "live";
+          if (!nextItem.actualStart) {
+            nextItem.actualStart = nowIso;
+            this.persistItemTiming(nextItem.id, "actualStart", nowIso);
+          }
           this.state.timer = {
             playback: "play",
             currentItemId: nextItem.id,
             elapsed: 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -391,22 +445,30 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-prev": {
-        // Go back to previous item — reset current to "upcoming", start previous
+        const now = Date.now();
+        const nowIso = new Date(now).toISOString();
         const curIdx = this.state.items.findIndex(
           (i) => i.id === this.state.timer.currentItemId
         );
         if (curIdx > 0) {
-          // Reset current item to upcoming (not complete — we're going backward)
           if (curIdx >= 0) {
-            this.state.items[curIdx].status = "upcoming";
+            const curItem = this.state.items[curIdx];
+            curItem.status = "upcoming";
+            // Clear actualStart so the item can be re-timed cleanly
+            curItem.actualStart = null;
+            curItem.actualEnd = null;
           }
           const prevItem = this.state.items[curIdx - 1];
           prevItem.status = "live";
+          if (!prevItem.actualStart) {
+            prevItem.actualStart = nowIso;
+            this.persistItemTiming(prevItem.id, "actualStart", nowIso);
+          }
           this.state.timer = {
             playback: "play",
             currentItemId: prevItem.id,
             elapsed: 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -452,6 +514,8 @@ export class RundownRelay extends DurableObject {
       case "reset": {
         this.state.items.forEach((item) => {
           item.status = "upcoming";
+          item.actualStart = null;
+          item.actualEnd = null;
         });
         this.state.timer = {
           playback: "stop",

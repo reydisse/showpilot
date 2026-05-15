@@ -38,12 +38,14 @@ import {
   Tv,
   Wifi,
   WifiOff,
+  Download,
 } from "lucide-react";
 import {
   getRundownState,
   saveRundownItems,
   saveRundownTimer,
   saveRundownMessage,
+  saveRundownMeta,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
@@ -54,8 +56,11 @@ import {
   listRundownDates,
 } from "@/lib/rundown";
 import type { SavedRundownMeta, PPSlidePayload } from "@/lib/rundown";
+import { exportShowReport } from "@/lib/report";
 import type { NativeTimerState } from "@/types/rundown";
 import { hasPermission } from "@/lib/app-permissions";
+import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
+import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { getTodayDateString } from "@/lib/utils";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
@@ -77,6 +82,10 @@ interface RundownItem {
   status: ItemStatus;
   sortOrder: number;
   hardStop: boolean;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  scheduledStart?: string | null;
+  expectedEnd?: string | null;
 }
 
 const TYPE_CONFIG: Record<ItemType, { label: string; icon: React.ElementType; color: string }> = {
@@ -199,7 +208,7 @@ function RundownPage() {
     ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
-  } = useRundownSync(orgId);
+  } = useRundownSync(orgId, serviceDate);
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
@@ -249,6 +258,57 @@ function RundownPage() {
       hasSeededRef.current = true;
     }
   }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [scheduledStartTime, setScheduledStartTime] = useState<string>(
+    initialState.meta?.scheduledStartTime
+      ? new Date(initialState.meta.scheduledStartTime).toTimeString().slice(0, 5)
+      : ""
+  );
+  const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleScheduledStartChange = useCallback((timeStr: string) => {
+    setScheduledStartTime(timeStr);
+    if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
+    saveMetaTimeoutRef.current = setTimeout(() => {
+      let isoTime: string | null = null;
+      if (timeStr) {
+        const [h, m] = timeStr.split(":").map(Number);
+        const d = new Date();
+        d.setHours(h, m, 0, 0);
+        isoTime = d.toISOString();
+      }
+      saveRundownMeta({ data: { orgId, serviceDate, scheduledStartTime: isoTime } }).catch(() => {});
+    }, 800);
+  }, [orgId, serviceDate]);
+
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handler = () => setShowExportMenu(false);
+    document.addEventListener("click", handler, { capture: true, once: true });
+    return () => document.removeEventListener("click", handler, { capture: true });
+  }, [showExportMenu]);
+
+  const handleExport = useCallback(async (format: "csv" | "pdf") => {
+    setExporting(true);
+    setShowExportMenu(false);
+    try {
+      const report = await exportShowReport({ data: { orgId, serviceDate } });
+      const exportReport: ExportReport = {
+        ...report,
+        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage },
+      };
+      if (format === "csv") {
+        exportRundownCsv(exportReport);
+      } else {
+        await exportRundownPdf(exportReport);
+      }
+    } catch (err) {
+      console.error("[SP] Export failed:", err);
+    }
+    setExporting(false);
+  }, [orgId, serviceDate]);
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
@@ -489,6 +549,11 @@ function RundownPage() {
         startedAt: state.timer.startedAt,
         mode: state.timer.mode,
       });
+      setScheduledStartTime(
+        state.meta?.scheduledStartTime
+          ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5)
+          : ""
+      );
 
       // The relay is scoped per org, not per service date, so switching dates
       // must explicitly replace the shared relay state with the newly loaded
@@ -950,6 +1015,20 @@ function RundownPage() {
     ? `${window.location.origin}/timer/${slug}`
     : `/timer/${slug}`;
 
+  const rundownMeta = scheduledStartTime
+    ? {
+        serviceDate,
+        scheduledStartTime: (() => {
+          const [h, m] = scheduledStartTime.split(":").map(Number);
+          const d = new Date();
+          d.setHours(h, m, 0, 0);
+          return d.toISOString();
+        })(),
+        status: "stopped" as const,
+      }
+    : undefined;
+  const timedItems = computeCascadedTimes(items, rundownMeta);
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header — outside minWidth so it always fills the viewport */}
@@ -991,6 +1070,19 @@ function RundownPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {/* Show start time */}
+            {canEditRundown && (
+              <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer" title="Scheduled show start time — used for cascade timing">
+                <Clock className="w-3 h-3 shrink-0" />
+                <span className="whitespace-nowrap">Show</span>
+                <input
+                  type="time"
+                  value={scheduledStartTime}
+                  onChange={(e) => handleScheduledStartChange(e.target.value)}
+                  className="bg-transparent text-board-text tabular-nums outline-none w-[72px] cursor-pointer"
+                />
+              </label>
+            )}
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -1024,6 +1116,34 @@ function RundownPage() {
                   <Save className="w-3 h-3" />
                   Save
                 </button>
+                {/* Export dropdown */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowExportMenu((v) => !v)}
+                    disabled={exporting || items.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
+                    title="Export post-show report"
+                  >
+                    <Download className="w-3 h-3" />
+                    {exporting ? "…" : "Export"}
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-board-card border border-board-border rounded-lg shadow-xl overflow-hidden min-w-[120px]">
+                      <button
+                        onClick={() => handleExport("csv")}
+                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
+                      >
+                        CSV
+                      </button>
+                      <button
+                        onClick={() => handleExport("pdf")}
+                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
+                      >
+                        PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleReset}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
@@ -1504,7 +1624,7 @@ function RundownPage() {
                 </div>
               ) : (
                 <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                  {items.map((item, idx) => {
+                  {timedItems.map((item, idx) => {
                   const isCurrent = item.id === timer.currentItemId;
                   const config = TYPE_CONFIG[item.type];
                   const Icon = config.icon;
@@ -1601,6 +1721,37 @@ function RundownPage() {
                               <p className="text-[10px] text-board-muted/40 truncate mt-0.5 pl-6">
                                 {item.assignee}{item.assignee && item.notes ? " · " : ""}{item.notes}
                               </p>
+                            )}
+                            {/* Time display: scheduled start and actual times */}
+                            {(item.scheduledStart || item.actualStart) && (
+                              <div className="flex items-center gap-2 mt-0.5 pl-6">
+                                {item.scheduledStart && (
+                                  <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
+                                    {formatTime(item.scheduledStart)} sched
+                                  </span>
+                                )}
+                                {item.actualStart && (
+                                  <span className={`text-[10px] tabular-nums font-mono ${
+                                    item.status === "complete"
+                                      ? (() => {
+                                          const overrun = itemOverrunMs(item);
+                                          return overrun !== null && overrun > 30000
+                                            ? "text-red-400/70"
+                                            : "text-green-400/70";
+                                        })()
+                                      : "text-fire-400/70"
+                                  }`}>
+                                    {formatTime(item.actualStart)}
+                                    {item.actualEnd && ` – ${formatTime(item.actualEnd)}`}
+                                    {item.status === "complete" && (() => {
+                                      const overrun = itemOverrunMs(item);
+                                      if (overrun === null) return null;
+                                      const sign = overrun > 0 ? "+" : "";
+                                      return ` (${sign}${Math.round(overrun / 1000)}s)`;
+                                    })()}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
 

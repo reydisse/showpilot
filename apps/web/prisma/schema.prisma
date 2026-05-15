@@ -99,6 +99,7 @@ model Organization {
   notifications      Notification[]
   devices            Device[]
   appSettings        AppSetting[]
+  rundowns           Rundown[]
   rundownItems       RundownItem[]
   graphicTemplates   GraphicTemplate[]
   streamDestinations StreamDestination[]
@@ -348,15 +349,34 @@ model RundownItem {
   cue          String
   status       String
   sortOrder    Int
-  hardStop     Boolean  @default(false)
-  lowerThirdId String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  hardStop       Boolean   @default(false)
+  lowerThirdId   String?
+  scheduledStart DateTime?
+  expectedEnd    DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([orgId, serviceDate, itemId])
   @@index([orgId, serviceDate, sortOrder])
   @@index([orgId, serviceDate])
   @@map("rundown_item")
+}
+
+model Rundown {
+  id                 String       @id @default(cuid())
+  orgId              String
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  serviceDate        String
+  scheduledStartTime DateTime?
+  status             String       @default("stopped")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@unique([orgId, serviceDate])
+  @@index([orgId, serviceDate])
+  @@map("rundown")
 }
 
 model GraphicTemplate {

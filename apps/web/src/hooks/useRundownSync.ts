@@ -64,6 +64,8 @@ const normalizeRundownItems = (value: unknown): RundownItem[] => {
       sortOrder: toNumber(item.sortOrder, 0),
       hardStop: toBoolean(item.hardStop),
       lowerThirdId: toStringValue(item.lowerThirdId, "") || undefined,
+      actualStart: typeof item.actualStart === "string" ? item.actualStart : null,
+      actualEnd: typeof item.actualEnd === "string" ? item.actualEnd : null,
     });
   }
 
@@ -118,6 +120,8 @@ interface RundownItem {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId?: string;
+  actualStart?: string | null;
+  actualEnd?: string | null;
 }
 
 interface TimerState {
@@ -151,7 +155,7 @@ interface UseRundownSyncReturn {
   seedState: (items: RundownItem[], timer: TimerState) => void;
 }
 
-export function useRundownSync(orgId: string): UseRundownSyncReturn {
+export function useRundownSync(orgId: string, serviceDate?: string): UseRundownSyncReturn {
   const [items, setItems] = useState<RundownItem[]>([]);
   const [timer, setTimer] = useState<TimerState>({
     playback: "stop",
@@ -211,7 +215,8 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     }
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws`;
+    const qs = serviceDate ? `?serviceDate=${encodeURIComponent(serviceDate)}` : "";
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${qs}`;
 
     const ws = new WebSocket(url);
 
@@ -267,7 +272,7 @@ export function useRundownSync(orgId: string): UseRundownSyncReturn {
     wsRef.current = ws;
     reconnectTimer.current && clearTimeout(reconnectTimer.current);
     reconnectTimer.current = null;
-  }, [orgId, flushCommandQueue, scheduleReconnect]);
+  }, [orgId, serviceDate, flushCommandQueue, scheduleReconnect]);
 
   useEffect(() => {
     intentionalClose.current = false;

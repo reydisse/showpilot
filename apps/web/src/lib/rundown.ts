@@ -3,7 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import { hasPermission } from "@/lib/app-permissions";
-import type { RundownItem, NativeTimerState, RundownState, ItemType, ItemStatus } from "@/types/rundown";
+import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
 
 interface RundownRelayEnv {
   RUNDOWN_RELAY?: DurableObjectNamespace;
@@ -32,6 +32,10 @@ type RawRundownItemRow = {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId: string | null;
+  scheduledStart: Date | null;
+  expectedEnd: Date | null;
+  actualStart: Date | null;
+  actualEnd: Date | null;
 };
 
 type RelationalRundownStore = {
@@ -191,6 +195,10 @@ function mapRundownRowsToItems(rows: Array<{
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId: string | null;
+  scheduledStart?: Date | null;
+  expectedEnd?: Date | null;
+  actualStart?: Date | null;
+  actualEnd?: Date | null;
 }>): RundownItem[] {
   return rows.map((row) => ({
     id: row.itemId,
@@ -204,6 +212,10 @@ function mapRundownRowsToItems(rows: Array<{
     sortOrder: row.sortOrder,
     hardStop: row.hardStop,
     lowerThirdId: row.lowerThirdId || undefined,
+    scheduledStart: row.scheduledStart ? row.scheduledStart.toISOString() : null,
+    expectedEnd: row.expectedEnd ? row.expectedEnd.toISOString() : null,
+    actualStart: row.actualStart ? row.actualStart.toISOString() : null,
+    actualEnd: row.actualEnd ? row.actualEnd.toISOString() : null,
   }));
 }
 
@@ -295,19 +307,31 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
     }
   }
 
-  const [itemsSetting, timerSetting] = await Promise.all([
+  const [itemsSetting, timerSetting, rundownRecord] = await Promise.all([
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId, key: rundownItemsKey(serviceDate) } },
     }),
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId, key: rundownTimerKey(serviceDate) } },
     }),
+    (prisma as unknown as { rundown?: { findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string } | null> } }).rundown?.findUnique({
+      where: { orgId_serviceDate: { orgId, serviceDate } },
+    }).catch(() => null) ?? Promise.resolve(null),
   ]);
+
+  const meta: RundownMeta = {
+    serviceDate,
+    scheduledStartTime: rundownRecord?.scheduledStartTime?.toISOString() ?? null,
+    status: (rundownRecord?.status === "live" || rundownRecord?.status === "complete")
+      ? rundownRecord.status
+      : "stopped",
+  };
 
   if (rows.length > 0) {
     return {
       items: mapRundownRowsToItems(rows),
       timer: normalizeTimerState(timerSetting?.value ?? null),
+      meta,
     };
   }
 
@@ -324,6 +348,7 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
   return {
     items: legacyItems,
     timer: normalizeTimerState(timerSetting?.value ?? null),
+    meta,
   };
 }
 
@@ -488,6 +513,86 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
         value: JSON.stringify(data.timer),
       },
     });
+    return { ok: true };
+  });
+
+type RundownPrismaExt = {
+  rundown?: {
+    upsert(args: {
+      where: { orgId_serviceDate: { orgId: string; serviceDate: string } };
+      update: Record<string, unknown>;
+      create: Record<string, unknown>;
+    }): Promise<unknown>;
+    findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string } | null>;
+  };
+  rundownItem?: RelationalRundownStore & {
+    update(args: {
+      where: { orgId_serviceDate_itemId: { orgId: string; serviceDate: string; itemId: string } };
+      data: Record<string, unknown>;
+    }): Promise<unknown>;
+  };
+};
+
+/**
+ * Upsert the Rundown meta record (scheduledStartTime, status).
+ */
+export const saveRundownMeta = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: { orgId: string; serviceDate: string; scheduledStartTime?: string | null; status?: string }) => data,
+  )
+  .handler(async ({ data }) => {
+    await assertRundownEditAccess(data.orgId);
+    const prisma = getPrisma() as unknown as RundownPrismaExt & ReturnType<typeof getPrisma>;
+    const ext = (prisma as unknown as RundownPrismaExt).rundown;
+    if (!ext) return { ok: true };
+
+    await ext.upsert({
+      where: { orgId_serviceDate: { orgId: data.orgId, serviceDate: data.serviceDate } },
+      update: {
+        ...(data.scheduledStartTime !== undefined
+          ? { scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null }
+          : {}),
+        ...(data.status ? { status: data.status } : {}),
+      },
+      create: {
+        orgId: data.orgId,
+        serviceDate: data.serviceDate,
+        scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null,
+        status: data.status ?? "stopped",
+      },
+    });
+
+    return { ok: true };
+  });
+
+/**
+ * Patch actualStart / actualEnd on a single rundown item.
+ */
+export const patchRundownItemTiming = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      orgId: string;
+      serviceDate: string;
+      itemId: string;
+      actualStart?: string | null;
+      actualEnd?: string | null;
+    }) => data,
+  )
+  .handler(async ({ data }) => {
+    await assertRundownEditAccess(data.orgId);
+    const prisma = getPrisma();
+    const ext = (prisma as unknown as RundownPrismaExt).rundownItem as RundownPrismaExt["rundownItem"];
+    if (!ext?.update) return { ok: true };
+
+    const patch: Record<string, unknown> = {};
+    if (data.actualStart !== undefined) patch.actualStart = data.actualStart ? new Date(data.actualStart) : null;
+    if (data.actualEnd !== undefined) patch.actualEnd = data.actualEnd ? new Date(data.actualEnd) : null;
+
+    await ext.update({
+      where: { orgId_serviceDate_itemId: { orgId: data.orgId, serviceDate: data.serviceDate, itemId: data.itemId } },
+      data: patch,
+    });
+
     return { ok: true };
   });
 
