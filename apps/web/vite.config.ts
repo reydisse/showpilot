@@ -11,6 +11,8 @@ import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 
+const cloudflareWorkersShim = path.resolve(__dirname, './src/lib/cloudflare-workers-shim.ts')
+
 const config = defineConfig({
   server: {
     allowedHosts: true,
@@ -19,6 +21,18 @@ const config = defineConfig({
     hmr: false,
   },
   plugins: [
+    {
+      name: 'cloudflare-workers-client-shim',
+      enforce: 'pre' as const,
+      resolveId(id: string) {
+        if (id === 'cloudflare:workers') {
+          const envName = (this as unknown as { environment?: { name?: string } }).environment?.name
+          if (envName === 'client') {
+            return cloudflareWorkersShim
+          }
+        }
+      },
+    },
     cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tsconfigPaths({ projects: ['./tsconfig.json'] }),
     tailwindcss(),
@@ -40,7 +54,6 @@ const config = defineConfig({
       build: {
         rollupOptions: {
           external: [
-            "cloudflare:workers",
             /generated\/prisma\//,
             /query_compiler_fast_bg\.wasm(\?module)?$/,
             "@prisma/adapter-d1",
