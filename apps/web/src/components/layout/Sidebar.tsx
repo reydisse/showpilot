@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useLocation, useNavigate, useParams, useRouteContext } from "@tanstack/react-router";
+import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
 import { OrgSwitcher } from "./OrgSwitcher";
 import {
   ListMusic,
@@ -27,12 +27,12 @@ import {
   MessageSquare,
   Timer,
   Clock4,
-  LogOut,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
-import { authClient } from "@/lib/auth-client";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
+import { SidebarIdentity } from "./SidebarIdentity";
+import { ROLE_COLOURS } from "./ProfileModal";
 
 interface NavItem {
   icon: React.ElementType;
@@ -154,29 +154,6 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function LogoutButton({ collapsed }: { collapsed: boolean }) {
-  const navigate = useNavigate();
-
-  async function handleLogout() {
-    await authClient.signOut();
-    navigate({ to: "/login" });
-  }
-
-  return (
-    <button
-      onClick={handleLogout}
-      title="Sign out"
-      className={`flex items-center rounded-lg transition-colors w-full text-board-muted hover:bg-red-500/10 hover:text-red-400 ${
-        collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
-      }`}
-    >
-      <LogOut className="w-[18px] h-[18px] shrink-0" />
-      {!collapsed && (
-        <span className="text-sm font-medium whitespace-nowrap">Sign out</span>
-      )}
-    </button>
-  );
-}
 
 export function Sidebar() {
   const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } = useSidebar();
@@ -184,10 +161,12 @@ export function Sidebar() {
   const { slug } = useParams({ strict: false });
   let org: { id: string; name: string; slug: string; logo: string | null } | null = null;
   let role: string | null = null;
+  let user: { id: string; name: string; email: string; image?: string | null } | null = null;
   try {
     const ctx = useRouteContext({ from: "/$slug" });
     org = ctx.org;
     role = ctx.role ?? null;
+    user = ctx.user ?? null;
   } catch {
     // Not inside /$slug route
   }
@@ -227,7 +206,7 @@ export function Sidebar() {
             }`}
           >
           {/* Drawer uses expanded layout (collapsed=false) */}
-           {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, role })}
+           {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, role, user })}
         </aside>
       </>
     );
@@ -242,7 +221,7 @@ export function Sidebar() {
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, role })}
+        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, role, user })}
       </aside>
 
       {/* Spacer div to push main content right */}
@@ -265,12 +244,14 @@ function renderSidebarContent({
   slug,
   isActive,
   role,
+  user,
 }: {
   collapsed: boolean;
   org: { id: string; name: string; slug: string; logo: string | null } | null;
   slug: string;
   isActive: (path: string) => boolean;
   role: string | null;
+  user: { id: string; name: string; email: string; image?: string | null } | null;
 }) {
   const visibleMainNav = mainNav.filter((item) => {
     if (item.path === "show") return hasPermission(role, "show:view");
@@ -308,13 +289,16 @@ function renderSidebarContent({
     return hasPermission(role, "dashboard:tm");
   });
 
+  const roleColour = ROLE_COLOURS[role ?? ""] ?? ROLE_COLOURS.member;
+
   return (
     <>
-      {/* Logo + Gear */}
+      {/* Logo + Gear — role-accent left border */}
       <div
         className={`py-5 flex items-center overflow-hidden ${
           collapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"
         }`}
+        style={{ borderLeft: `3px solid ${roleColour}` }}
       >
         <img
           src="/showpilot-logo.svg"
@@ -437,7 +421,7 @@ function renderSidebarContent({
         )}
       </div>
 
-      {/* Settings + Logout pinned to bottom */}
+      {/* Settings + Identity pinned to bottom */}
       <div className="shrink-0 border-t border-board-border px-2.5 py-3 space-y-0.5">
         {hasAnyPermission(role, [
           "settings:organization",
@@ -459,7 +443,14 @@ function renderSidebarContent({
             active={isActive("settings")}
           />
         )}
-        <LogoutButton collapsed={collapsed} />
+        {user && (
+          <SidebarIdentity
+            collapsed={collapsed}
+            user={user}
+            role={role ?? "member"}
+            orgName={org?.name ?? ""}
+          />
+        )}
       </div>
     </>
   );

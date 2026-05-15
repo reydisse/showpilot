@@ -731,6 +731,7 @@ function ShowPageWithNative({
                   }`}>
                     {event.title || "Untitled"}
                   </p>
+                  {event.assignee && <p className="text-[10px] text-board-muted/40 truncate mt-0.5">{event.assignee}</p>}
                   {event.notes && <p className="text-[11px] text-board-muted/60 truncate mt-0.5">{event.notes}</p>}
                 </div>
 

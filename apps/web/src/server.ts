@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
+import { auth } from "@/lib/auth";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -9,6 +10,7 @@ export { BridgeRelay } from "./durable-objects/BridgeRelay";
 
 interface Env {
   DB: D1Database;
+  STORAGE: R2Bucket;
   TIMECODE_RELAY: DurableObjectNamespace;
   BRIDGE_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
@@ -123,6 +125,35 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    // Avatar upload — POST /api/user/avatar
+    if (url.pathname === "/api/user/avatar" && request.method === "POST") {
+      const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+      if (!session?.user?.id) return new Response("Unauthorized", { status: 401 });
+      const formData = await request.formData();
+      const file = formData.get("file");
+      if (!file || !(file instanceof File)) return new Response("Bad Request", { status: 400 });
+      const arrayBuffer = await file.arrayBuffer();
+      const key = `avatars/${session.user.id}.jpg`;
+      await e.STORAGE.put(key, arrayBuffer, { httpMetadata: { contentType: "image/jpeg" } });
+      const avatarUrl = `${url.origin}/api/user/avatar/${session.user.id}.jpg`;
+      return new Response(JSON.stringify({ url: avatarUrl }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Avatar serve — GET /api/user/avatar/:userId.jpg
+    const avatarServeMatch = url.pathname.match(/^\/api\/user\/avatar\/([^/]+\.jpg)$/);
+    if (avatarServeMatch && request.method === "GET") {
+      const obj = await e.STORAGE.get(`avatars/${avatarServeMatch[1]}`);
+      if (!obj) return new Response("Not Found", { status: 404 });
+      return new Response(obj.body, {
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Cache-Control": "public, max-age=31536000",
+        },
+      });
     }
 
     const ltMatch = url.pathname.match(/^\/api\/lowerthirds\/([^/]+)\/(.+)$/);

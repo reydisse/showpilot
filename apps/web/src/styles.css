@@ -558,3 +558,22 @@ textarea {
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Rundown page container-query layout ── */
+
+@container (max-width: 767px) {
+  .rundown-columns {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .rundown-panel-left {
+    width: 100% !important;
+    flex-shrink: 0;
+    overflow-y: visible;
+    max-height: none;
+  }
+  .rundown-panel-right {
+    overflow-y: visible;
+    flex: unset;
+  }
+}

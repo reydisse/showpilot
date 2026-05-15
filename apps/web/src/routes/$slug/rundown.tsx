@@ -1173,9 +1173,8 @@ function RundownPage() {
         </div>
       </div>
 
-      {/* Scrollable body — minWidth ensures columns don't collapse, outer overflow-auto handles horizontal scroll */}
-      <div className="flex-1 overflow-auto">
-      <div className="min-h-full flex flex-col" style={{ minWidth: `${RUNDOWN_MIN_WIDTH}px` }}>
+      {/* Page body — flex-col container, never scrolls itself */}
+      <div className="rundown-page-body flex-1 overflow-hidden flex flex-col" style={{ containerType: "inline-size" }}>
 
       {/* Message bar */}
       {activeMessage && (
@@ -1196,9 +1195,9 @@ function RundownPage() {
           Loading rundown...
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
+        <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
           {/* Left: Timer + Controls + Message */}
-          <div className="w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 max-h-full">
+          <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
             {/* Timer */}
             <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
               <div className="flex items-center gap-2 mb-2">
@@ -1598,10 +1597,10 @@ function RundownPage() {
           </div>
 
           {/* Right: Runsheet */}
-          <div className="flex-1 min-w-0 flex flex-col overflow-auto hide-scrollbar">
+          <div className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar">
             <div className="min-w-[760px] flex flex-col min-h-full">
-              {/* Runsheet header */}
-              <div className="flex items-center justify-between mb-3 shrink-0">
+              {/* Runsheet header — sticky within its own scroll container */}
+              <div className="flex items-center justify-between mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
                 <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
                   Runsheet
                 </h2>
@@ -1833,7 +1832,6 @@ function RundownPage() {
       {canEditRundown && showSaveModal && (
         <SaveRundownModal onSave={handleSaveTemplate} onClose={() => setShowSaveModal(false)} />
       )}
-      </div>
       </div>
     </div>
   );
