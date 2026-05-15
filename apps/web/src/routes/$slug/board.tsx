@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { QRCodeSVG } from "qrcode.react";
+
+const QRCodeSVG = lazy(() => import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })));
 import {
   Flame,
   ListMusic,
@@ -203,15 +204,22 @@ function QRCodePanel({ slug }: { slug: string }) {
   if (!checkinUrl) return null;
 
   return (
-    <div className='flex items-center gap-4'>
+    <a
+      href={checkinUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className='flex items-center gap-4 rounded-xl hover:opacity-80 transition-opacity cursor-pointer'
+    >
       <div className='bg-white p-2.5 rounded-xl'>
-        <QRCodeSVG
-          value={checkinUrl}
-          size={90}
-          level='M'
-          bgColor='#ffffff'
-          fgColor='#0a0a0a'
-        />
+        <Suspense fallback={<div className="w-[90px] h-[90px] bg-gray-200 rounded" />}>
+          <QRCodeSVG
+            value={checkinUrl}
+            size={90}
+            level='M'
+            bgColor='#ffffff'
+            fgColor='#0a0a0a'
+          />
+        </Suspense>
       </div>
       <div>
         <p className='text-fire-500 font-[family-name:var(--font-display)] font-semibold text-base'>
@@ -221,7 +229,7 @@ function QRCodePanel({ slug }: { slug: string }) {
           Open your camera and point at the code
         </p>
       </div>
-    </div>
+    </a>
   );
 }
 
