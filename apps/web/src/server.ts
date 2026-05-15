@@ -1,5 +1,4 @@
 import handler from "@tanstack/react-start/server-entry";
-import { auth } from "@/lib/auth";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -129,15 +128,22 @@ export default {
 
     // Avatar upload — POST /api/user/avatar
     if (url.pathname === "/api/user/avatar" && request.method === "POST") {
-      const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
-      if (!session?.user?.id) return new Response("Unauthorized", { status: 401 });
+      const cookie = request.headers.get("cookie") ?? "";
+      const tokenMatch = cookie.match(/(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/);
+      const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
+      const sessionRow = token
+        ? await e.DB.prepare("SELECT userId FROM session WHERE token = ? AND expiresAt > datetime('now') LIMIT 1")
+            .bind(token)
+            .first<{ userId: string }>()
+        : null;
+      if (!sessionRow?.userId) return new Response("Unauthorized", { status: 401 });
       const formData = await request.formData();
       const file = formData.get("file");
       if (!file || !(file instanceof File)) return new Response("Bad Request", { status: 400 });
       const arrayBuffer = await file.arrayBuffer();
-      const key = `avatars/${session.user.id}.jpg`;
+      const key = `avatars/${sessionRow.userId}.jpg`;
       await e.STORAGE.put(key, arrayBuffer, { httpMetadata: { contentType: "image/jpeg" } });
-      const avatarUrl = `${url.origin}/api/user/avatar/${session.user.id}.jpg`;
+      const avatarUrl = `${url.origin}/api/user/avatar/${sessionRow.userId}.jpg`;
       return new Response(JSON.stringify({ url: avatarUrl }), {
         headers: { "Content-Type": "application/json" },
       });
