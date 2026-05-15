@@ -382,6 +382,27 @@ function ShowBoardPage() {
             </div>
           </div>
         </div>
+        <footer className="px-4 sm:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center justify-between gap-3 border-t border-board-border shrink-0">
+          <QRCodePanel slug={slug} />
+          <div className="flex items-center gap-3 w-full md:w-auto justify-center md:justify-end">
+            <Link
+              to='/$slug/show'
+              params={{ slug }}
+              className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[40px] whitespace-nowrap'
+            >
+              <ListMusic className='w-4 h-4 text-fire-500' />
+              <span className='text-xs sm:text-sm font-semibold text-board-text'>Show Flow</span>
+            </Link>
+            <button
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              className='flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap'
+            >
+              {isFullscreen ? <Minimize className='w-4 h-4 text-fire-500' /> : <Maximize className='w-4 h-4 text-fire-500' />}
+              <span className='text-xs sm:text-sm font-semibold text-board-text'>{isFullscreen ? "Exit" : "Fullscreen"}</span>
+            </button>
+          </div>
+        </footer>
       </div>
     );
   }
