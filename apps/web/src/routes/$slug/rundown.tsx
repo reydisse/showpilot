@@ -282,6 +282,7 @@ function RundownPage() {
   }, [orgId, serviceDate]);
 
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   useEffect(() => {
     if (!showExportMenu) return;
@@ -292,6 +293,7 @@ function RundownPage() {
 
   const handleExport = useCallback(async (format: "csv" | "pdf") => {
     setExporting(true);
+    setExportError(null);
     setShowExportMenu(false);
     try {
       const report = await exportShowReport({ data: { orgId, serviceDate } });
@@ -305,10 +307,11 @@ function RundownPage() {
         await exportRundownPdf(exportReport);
       }
     } catch (err) {
-      console.error("[SP] Export failed:", err);
+      setExportError(err instanceof Error ? err.message : "Export failed");
     }
     setExporting(false);
   }, [orgId, serviceDate]);
+
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
@@ -780,6 +783,45 @@ function RundownPage() {
     persistTimer("stop", null, 0, null);
   }, [canEditRundown, updateItems, sendRundownCommand, persistTimer, timer.mode]);
 
+  const [clearPhase, setClearPhase] = useState<"idle" | "confirm">("idle");
+  const clearCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [clearCountdown, setClearCountdown] = useState(3);
+  useEffect(() => {
+    if (clearPhase !== "confirm") {
+      if (clearCountdownRef.current) clearInterval(clearCountdownRef.current);
+      setClearCountdown(3);
+      return;
+    }
+    setClearCountdown(3);
+    clearCountdownRef.current = setInterval(() => {
+      setClearCountdown((n) => {
+        if (n <= 1) {
+          clearInterval(clearCountdownRef.current!);
+          setClearPhase("idle");
+          return 3;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => { if (clearCountdownRef.current) clearInterval(clearCountdownRef.current); };
+  }, [clearPhase]);
+
+  const handleClearAll = useCallback(() => {
+    if (!canEditRundown) return;
+    if (clearPhase === "idle") {
+      setClearPhase("confirm");
+      return;
+    }
+    setClearPhase("idle");
+    const clearedTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode };
+    setItems([]);
+    setTimer(clearedTimer);
+    saveRundownItems({ data: { orgId, serviceDate, items: [] } }).catch(() => {});
+    persistTimer("stop", null, 0, null);
+    // Use clear-all command so DO unconditionally clears and broadcasts to all clients
+    sendRundownCommand("clear-all");
+  }, [canEditRundown, clearPhase, setTimer, persistTimer, sendRundownCommand, orgId, serviceDate, timer.mode]);
+
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
   // Negative deltaMs = subtract time (increase elapsed, giving less remaining)
@@ -965,6 +1007,8 @@ function RundownPage() {
       // Encode priority flag into message string for kiosk
       const encoded = messagePriority ? `!!PRIORITY!!${message.trim()}` : message.trim();
       saveRundownMessage({ data: { orgId, serviceDate, message: encoded } }).catch((e) => console.warn("[SP] Message persist failed:", e));
+      // Broadcast via DO so kiosk receives instantly over WebSocket
+      sendRundownCommand("stage-message", { message: encoded });
     }
   };
 
@@ -973,6 +1017,8 @@ function RundownPage() {
     setActiveMessage("");
     setMessagePriority(false);
     saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
+    // Broadcast clear via DO
+    sendRundownCommand("stage-clear");
   };
 
   // Keyboard shortcuts
@@ -1080,6 +1126,7 @@ function RundownPage() {
                   value={scheduledStartTime}
                   onChange={(e) => handleScheduledStartChange(e.target.value)}
                   className="bg-transparent text-board-text tabular-nums outline-none w-[72px] cursor-pointer"
+                  style={{ colorScheme: "dark" }}
                 />
               </label>
             )}
@@ -1152,6 +1199,19 @@ function RundownPage() {
                   Reset
                 </button>
                 <button
+                  onClick={handleClearAll}
+                  disabled={items.length === 0}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[44px] disabled:opacity-40 ${
+                    clearPhase === "confirm"
+                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                      : "text-board-muted hover:text-red-400 hover:bg-red-500/10"
+                  }`}
+                  title="Clear all items from the rundown"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  {clearPhase === "confirm" ? `Confirm (${clearCountdown})` : "Clear All"}
+                </button>
+                <button
                   onClick={() => setShowAddForm(true)}
                   className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
                   style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
@@ -1175,6 +1235,17 @@ function RundownPage() {
 
       {/* Page body — flex-col container, never scrolls itself */}
       <div className="rundown-page-body flex-1 overflow-hidden flex flex-col" style={{ containerType: "inline-size" }}>
+
+      {/* Export error */}
+      {exportError && (
+        <div className="shrink-0 bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center gap-3">
+          <X className="w-4 h-4 text-red-400 shrink-0" />
+          <p className="text-sm text-red-400 flex-1">Export failed: {exportError}</p>
+          <button onClick={() => setExportError(null)} className="p-1 rounded text-red-400 hover:text-red-200 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Message bar */}
       {activeMessage && (

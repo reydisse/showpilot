@@ -36,6 +36,7 @@ import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
+import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
 import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
@@ -186,6 +187,11 @@ const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
   path: '/api/overlay/$orgSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
+  id: '/api/auth/session',
+  path: '/api/auth/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -304,6 +310,7 @@ export interface FileRoutesByFullPath {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -346,6 +353,7 @@ export interface FileRoutesByTo {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -391,6 +399,7 @@ export interface FileRoutesById {
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -436,6 +445,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
@@ -478,6 +488,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
@@ -522,6 +533,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
+    | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
@@ -538,6 +550,7 @@ export interface RootRouteChildren {
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
 }
@@ -731,6 +744,13 @@ declare module '@tanstack/react-router' {
       path: '/api/overlay/$orgSlug'
       fullPath: '/api/overlay/$orgSlug'
       preLoaderRoute: typeof ApiOverlayOrgSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/session': {
+      id: '/api/auth/session'
+      path: '/api/auth/session'
+      fullPath: '/api/auth/session'
+      preLoaderRoute: typeof ApiAuthSessionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -949,6 +969,7 @@ const rootRouteChildren: RootRouteChildren = {
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
 }

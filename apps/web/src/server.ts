@@ -21,6 +21,58 @@ interface D1Database {
   prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
 }
 
+function isAllowedApiOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "showpilot.tech" ||
+    host === "admin.showpilot.tech" ||
+    host === "showpilot.reydisse.workers.dev" ||
+    /^\d+\.\d+\.\d+\.\d+$/.test(host)
+  ) {
+    return true;
+  }
+
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "192.168.2.73" ||
+    host === "192.168.2.108"
+  ) {
+    return true;
+  }
+
+  if (host.endsWith(".showpilot.tech")) return true;
+
+  return false;
+}
+
+function withApiCorsHeaders(request: Request, response: Response): Response {
+  const origin = request.headers.get("origin");
+  if (!isAllowedApiOrigin(origin)) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Access-Control-Allow-Origin", origin);
+  headers.set("Vary", "Origin");
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Allow-Headers", "Content-Type");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 
 async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
   const row = await db
@@ -62,14 +114,24 @@ export default {
     const e = env as Env;
 
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+      const corsOrigin = request.headers.get("origin");
+      const corsHeaders: Record<string, string> = {
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400",
+      };
+
+      if (isAllowedApiOrigin(corsOrigin)) {
+        corsHeaders["Access-Control-Allow-Origin"] = corsOrigin!;
+        corsHeaders["Access-Control-Allow-Credentials"] = "true";
+        corsHeaders["Vary"] = "Origin";
+      } else {
+        corsHeaders["Access-Control-Allow-Origin"] = "*";
+      }
+
       return new Response(null, {
         status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Max-Age": "86400",
-        },
+        headers: corsHeaders,
       });
     }
 
@@ -176,6 +238,7 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    return withApiCorsHeaders(request, response);
   },
 };

@@ -74,6 +74,7 @@ interface RundownState {
   timer: TimerState;
   ppSlide: PPSlideState | null;
   ppPreviewSlide: PPSlideState | null;
+  stageMessage: string;
   serviceDate?: string;
 }
 
@@ -92,6 +93,7 @@ export class RundownRelay extends DurableObject {
     timer: { ...DEFAULT_TIMER },
     ppSlide: null,
     ppPreviewSlide: null,
+    stageMessage: "",
   };
   private hydrated = false;
   private orgId = "";
@@ -108,6 +110,7 @@ export class RundownRelay extends DurableObject {
         timer: stored.timer ?? { ...DEFAULT_TIMER },
         ppSlide: stored.ppSlide ?? null,
         ppPreviewSlide: stored.ppPreviewSlide ?? null,
+        stageMessage: stored.stageMessage ?? "",
       };
     }
   }
@@ -528,6 +531,30 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "clear-all": {
+        this.state.items = [];
+        this.state.timer = {
+          playback: "stop",
+          currentItemId: null,
+          elapsed: 0,
+          startedAt: null,
+          pausedAt: null,
+          mode: this.state.timer.mode,
+        };
+        break;
+      }
+
+      case "stage-message": {
+        const msg = payload?.message;
+        this.state.stageMessage = typeof msg === "string" ? msg : "";
+        break;
+      }
+
+      case "stage-clear": {
+        this.state.stageMessage = "";
+        break;
+      }
+
       default:
         return;
     }
@@ -837,6 +864,7 @@ export class RundownRelay extends DurableObject {
       },
       ppSlide: this.state.ppSlide,
       ppPreviewSlide: this.state.ppPreviewSlide,
+      stageMessage: this.state.stageMessage,
     };
   }
 

@@ -163,6 +163,20 @@ function ChatPanel({
     senderRole: "Operator",
   });
 
+  // Vibrate on new incoming chat message (two short pulses)
+  const prevMessageCountRef = useRef(0);
+  useEffect(() => {
+    const prev = prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+    if (messages.length > prev && prev > 0 && "vibrate" in navigator) {
+      try {
+        navigator.vibrate([100, 50, 100]);
+      } catch {
+        // Silently fail — vibration not supported or blocked
+      }
+    }
+  }, [messages.length]);
+
   useEffect(() => {
     const saved = localStorage.getItem("showpilot-chat-name");
     if (saved) {

@@ -150,6 +150,8 @@ interface UseRundownSyncReturn {
   hydrated: boolean;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
+  /** Current stage message broadcast to kiosk (empty string = none active) */
+  stageMessage: string;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (items: RundownItem[], timer: TimerState) => void;
@@ -168,6 +170,7 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
   const [connected, setConnected] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
+  const [stageMessage, setStageMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -254,6 +257,9 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
         if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
           setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
         }
+        if (Object.prototype.hasOwnProperty.call(state, "stageMessage")) {
+          setStageMessage(typeof state.stageMessage === "string" ? state.stageMessage : "");
+        }
         setHydrated(true);
       } catch {
         // Ignore
@@ -311,5 +317,5 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
     [sendCommand]
   );
 
-  return { items, timer, connected, hydrated, ppPreviewSlide, sendCommand, seedState };
+  return { items, timer, connected, hydrated, ppPreviewSlide, stageMessage, sendCommand, seedState };
 }

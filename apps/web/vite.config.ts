@@ -12,6 +12,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 
 const cloudflareWorkersShim = path.resolve(__dirname, './src/lib/cloudflare-workers-shim.ts')
+const prismaClientShim = path.resolve(__dirname, './src/lib/prisma-client-shim.ts')
 
 const config = defineConfig({
   server: {
@@ -25,11 +26,12 @@ const config = defineConfig({
       name: 'cloudflare-workers-client-shim',
       enforce: 'pre' as const,
       resolveId(id: string) {
-        if (id === 'cloudflare:workers') {
-          const envName = (this as unknown as { environment?: { name?: string } }).environment?.name
-          if (envName === 'client') {
-            return cloudflareWorkersShim
-          }
+        const envName = (this as unknown as { environment?: { name?: string } }).environment?.name
+        if (envName === 'client') {
+          if (id === 'cloudflare:workers') return cloudflareWorkersShim
+          if (id === '@prisma/adapter-d1') return prismaClientShim
+          if (id.includes('generated/prisma') || id.includes('generated\\prisma')) return prismaClientShim
+          if (id.match(/query_compiler_fast_bg\.wasm/)) return prismaClientShim
         }
       },
     },
@@ -53,11 +55,7 @@ const config = defineConfig({
       },
       build: {
         rollupOptions: {
-          external: [
-            /generated\/prisma\//,
-            /query_compiler_fast_bg\.wasm(\?module)?$/,
-            "@prisma/adapter-d1",
-          ],
+          external: [],
           output: {
             manualChunks(id) {
               // Split heavy vendor libs into their own cacheable chunks

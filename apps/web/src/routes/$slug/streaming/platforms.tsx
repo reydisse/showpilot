@@ -79,6 +79,7 @@ function PlatformsPage() {
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [outputStatuses, setOutputStatuses] = useState<Record<string, { status: string; error?: string }>>({});
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -118,13 +119,23 @@ function PlatformsPage() {
   }, [connectedCount, orgId]);
 
   const handleToggle = async (id: string, currentEnabled: boolean) => {
-    await toggleStreamDestination({ data: { id, enabled: !currentEnabled } });
-    router.invalidate();
+    setActionError(null);
+    try {
+      await toggleStreamDestination({ data: { id, enabled: !currentEnabled } });
+      router.invalidate();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to toggle destination");
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteStreamDestination({ data: { id } });
-    router.invalidate();
+    setActionError(null);
+    try {
+      await deleteStreamDestination({ data: { id } });
+      router.invalidate();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete destination");
+    }
   };
 
   const toggleKeyVisibility = (id: string) => {
@@ -142,12 +153,17 @@ function PlatformsPage() {
   const handleGoLive = async () => {
     if (!hasInputs) return;
     setGoingLive(true);
+    setActionError(null);
     try {
-      await connectDestinationsToInput({
+      const results = await connectDestinationsToInput({
         data: { orgId, liveInputId: inputs[0].id },
       });
+      const failed = results.filter((r) => !r.success);
+      if (failed.length > 0) {
+        setActionError(`${failed.length} destination(s) failed to connect: ${failed.map((f) => f.error).join("; ")}`);
+      }
     } catch (err) {
-      console.error("Failed to go live:", err);
+      setActionError(err instanceof Error ? err.message : "Failed to go live");
     }
     setGoingLive(false);
     router.invalidate();
@@ -155,10 +171,11 @@ function PlatformsPage() {
 
   const handleStopAll = async () => {
     setStopping(true);
+    setActionError(null);
     try {
       await disconnectAllDestinations({ data: { orgId } });
     } catch (err) {
-      console.error("Failed to stop:", err);
+      setActionError(err instanceof Error ? err.message : "Failed to stop streams");
     }
     setStopping(false);
     router.invalidate();
@@ -254,6 +271,20 @@ function PlatformsPage() {
             <p className="text-xs text-yellow-400">
               No live input configured. Create one on the Stream Health page to enable simulcasting.
             </p>
+          </div>
+        )}
+
+        {/* Action error banner */}
+        {actionError && (
+          <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
+            <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-400 flex-1">{actionError}</p>
+            <button
+              onClick={() => setActionError(null)}
+              className="text-red-400/60 hover:text-red-400 transition-colors text-sm leading-none"
+            >
+              ✕
+            </button>
           </div>
         )}
 

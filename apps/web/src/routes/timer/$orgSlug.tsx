@@ -366,6 +366,17 @@ function TimerKioskPage() {
             if (s.ppSlide !== undefined) {
               setPpSlide(s.ppSlide);
             }
+            // Stage message is now in DO state — real-time delivery
+            if (Object.prototype.hasOwnProperty.call(s, "stageMessage")) {
+              const raw = typeof s.stageMessage === "string" ? s.stageMessage : "";
+              if (raw.startsWith("!!PRIORITY!!")) {
+                setStageMessage(raw.slice(12));
+                setMessagePriority(true);
+              } else {
+                setStageMessage(raw);
+                setMessagePriority(raw !== "");
+              }
+            }
           }
         } catch {}
       };

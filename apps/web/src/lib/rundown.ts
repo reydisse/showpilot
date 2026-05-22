@@ -424,73 +424,74 @@ export const saveRundownItems = createServerFn({ method: "POST" })
     const key = rundownItemsKey(data.serviceDate);
     const normalizedItems = normalizeLegacyRundownItems(data.items);
 
-    const writeOperations: Promise<unknown>[] = [
-      prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key } },
-        update: { value: JSON.stringify(normalizedItems) },
-        create: {
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key } },
+      update: { value: JSON.stringify(normalizedItems) },
+      create: {
+        orgId: data.orgId,
+        key,
+        value: JSON.stringify(normalizedItems),
+      },
+    });
+
+    if (!store) {
+      return { ok: true };
+    }
+
+    const itemIds = normalizedItems.map((item) => item.id);
+    const relationalWrites: Promise<unknown>[] = [
+      ...normalizedItems.map((item, index) =>
+        store.upsert({
+          where: {
+            orgId_serviceDate_itemId: {
+              orgId: data.orgId,
+              serviceDate: data.serviceDate,
+              itemId: item.id,
+            },
+          },
+          update: {
+            title: item.title,
+            type: item.type,
+            duration: item.duration,
+            notes: item.notes,
+            assignee: item.assignee,
+            cue: item.cue,
+            status: item.status,
+            sortOrder: index,
+            hardStop: item.hardStop,
+            lowerThirdId: item.lowerThirdId ?? null,
+          },
+          create: {
+            orgId: data.orgId,
+            serviceDate: data.serviceDate,
+            itemId: item.id,
+            title: item.title,
+            type: item.type,
+            duration: item.duration,
+            notes: item.notes,
+            assignee: item.assignee,
+            cue: item.cue,
+            status: item.status,
+            sortOrder: index,
+            hardStop: item.hardStop,
+            lowerThirdId: item.lowerThirdId,
+          },
+        }),
+      ),
+      store.deleteMany({
+        where: {
           orgId: data.orgId,
-          key,
-          value: JSON.stringify(normalizedItems),
+          serviceDate: data.serviceDate,
+          ...(itemIds.length > 0 ? { itemId: { notIn: itemIds } } : {}),
         },
       }),
     ];
 
-    if (store) {
-      writeOperations.push(
-        ...[
-          ...normalizedItems.map((item, index) =>
-            store.upsert({
-              where: {
-                orgId_serviceDate_itemId: {
-                  orgId: data.orgId,
-                  serviceDate: data.serviceDate,
-                  itemId: item.id,
-                },
-              },
-              update: {
-                title: item.title,
-                type: item.type,
-                duration: item.duration,
-                notes: item.notes,
-                assignee: item.assignee,
-                cue: item.cue,
-                status: item.status,
-                sortOrder: index,
-                hardStop: item.hardStop,
-                lowerThirdId: item.lowerThirdId ?? null,
-              },
-              create: {
-                orgId: data.orgId,
-                serviceDate: data.serviceDate,
-                itemId: item.id,
-                title: item.title,
-                type: item.type,
-                duration: item.duration,
-                notes: item.notes,
-                assignee: item.assignee,
-                cue: item.cue,
-                status: item.status,
-                sortOrder: index,
-                hardStop: item.hardStop,
-                lowerThirdId: item.lowerThirdId,
-              },
-            }),
-          ),
-          store.deleteMany({
-            where: {
-              orgId: data.orgId,
-              serviceDate: data.serviceDate,
-              ...(normalizedItems.length > 0
-                ? { itemId: { notIn: normalizedItems.map((item) => item.id) } }
-                : {}),
-            },
-          }),
-        ],
-      );
+    try {
+      await Promise.all(relationalWrites);
+    } catch (error) {
+      console.warn("[SP] Relational rundown item write failed. Falling back to app_setting storage.", error);
     }
-
-    await Promise.all(writeOperations);
 
     return { ok: true };
   });
