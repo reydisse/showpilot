@@ -102,6 +102,8 @@ export const Route = createFileRoute("/$slug/show")({
       slug: context.slug,
       serviceDate: today,
       clockFormat,
+      userName: context.user.name,
+      userRole: context.role,
     };
   },
   component: ShowPage,
@@ -148,19 +150,20 @@ function LiveFlash({ onDone }: { onDone: () => void }) {
 function ChatPanel({
   orgId,
   chatAdapter,
+  userName,
+  userRole,
 }: {
   orgId: string;
   chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
+  userName: string;
+  userRole: string;
 }) {
-  const [senderName, setSenderName] = useState("");
-  const [draftName, setDraftName] = useState("");
-  const [showNameInput, setShowNameInput] = useState(true);
   const { messages, sendMessage, connectionStatus } = useChat({
     orgId,
     isVisible: true,
     chatAdapter,
-    senderName,
-    senderRole: "Operator",
+    senderName: userName,
+    senderRole: userRole,
   });
 
   // Vibrate on new incoming chat message (two short pulses)
@@ -177,58 +180,17 @@ function ChatPanel({
     }
   }, [messages.length]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("showpilot-chat-name");
-    if (saved) {
-      setSenderName(saved);
-      setDraftName(saved);
-      setShowNameInput(false);
-    }
-  }, []);
-
-  const handleSetName = () => {
-    if (!draftName.trim()) return;
-    localStorage.setItem("showpilot-chat-name", draftName.trim());
-    setSenderName(draftName.trim());
-    setShowNameInput(false);
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {showNameInput && (
-        <div className="py-3 border-b border-board-border/50 space-y-2">
-          <label className="text-xs text-board-muted block">Your name</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSetName()}
-              placeholder="Enter your name"
-              className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
-            />
-            <button
-              onClick={handleSetName}
-              disabled={!draftName.trim()}
-              className="px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium disabled:opacity-40 transition-colors"
-            >
-              Join
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!showNameInput && (
-        <SharedChatPanel
-          messages={messages}
-          connectionStatus={connectionStatus}
-          unreadCount={0}
-          onSendMessage={sendMessage}
-          title="Team Chat"
-          subtitle={chatAdapter === "native" ? senderName : `${senderName} via ${chatAdapter}`}
-          className="border-l-0 flex-1 min-h-0"
-        />
-      )}
+      <SharedChatPanel
+        messages={messages}
+        connectionStatus={connectionStatus}
+        unreadCount={0}
+        onSendMessage={sendMessage}
+        title="Team Chat"
+        subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
+        className="border-l-0 flex-1 min-h-0"
+      />
     </div>
   );
 }
@@ -238,7 +200,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members: initialMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, clockFormat,
+    chatAdapter, orgId, slug, clockFormat, userName, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -276,6 +238,8 @@ function ShowPage() {
         orgId={orgId}
         slug={slug}
         clockFormat={clockFormat}
+        userName={userName}
+        userRole={userRole}
       />
     );
   }
@@ -290,6 +254,8 @@ function ShowPage() {
       orgId={orgId}
       slug={slug}
       clockFormat={clockFormat}
+      userName={userName}
+      userRole={userRole}
     />
   );
 }
@@ -543,6 +509,8 @@ function ShowPageWithNative({
   orgId,
   slug,
   clockFormat,
+  userName,
+  userRole,
 }: {
   initialRundown: RundownState | null;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -551,6 +519,8 @@ function ShowPageWithNative({
   orgId: string;
   slug: string;
   clockFormat: ClockFormat;
+  userName: string;
+  userRole: string;
 }) {
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
 
@@ -700,7 +670,7 @@ function ShowPageWithNative({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} />
     </div>
   );
 
@@ -797,6 +767,8 @@ function ShowPageWithOntime({
   orgId,
   slug,
   clockFormat,
+  userName,
+  userRole,
 }: {
   ontimeState: OntimeRuntimeState;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -805,6 +777,8 @@ function ShowPageWithOntime({
   orgId: string;
   slug: string;
   clockFormat: ClockFormat;
+  userName: string;
+  userRole: string;
 }) {
   const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
@@ -877,7 +851,7 @@ function ShowPageWithOntime({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} />
     </div>
   );
 

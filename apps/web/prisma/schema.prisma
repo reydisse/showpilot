@@ -452,6 +452,7 @@ model ChatMessage {
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   message      String
   senderName   String
+  senderRole   String?
   createdAt    DateTime     @default(now())
 
   @@index([orgId, createdAt(sort: Desc)])

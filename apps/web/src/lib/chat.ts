@@ -30,15 +30,27 @@ export const getChatMessages = createServerFn({ method: "GET" })
   });
 
 export const sendChatMessage = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; message: string; senderName: string }) => data)
+  .inputValidator((data: { orgId: string; message: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    const { getAuth } = await import("@/lib/auth");
+    const auth = getAuth();
+    const headers = getRequestHeaders();
+    const session = await auth.api.getSession({ headers });
+    if (!session) throw new Error("Unauthorized");
+
     const prisma = getPrisma();
+    const member = await prisma.member.findFirst({
+      where: { organizationId: data.orgId, userId: session.user.id },
+      select: { id: true, role: true },
+    });
+    if (!member) throw new Error("Forbidden");
+
     return await prisma.chatMessage.create({
       data: {
         orgId: data.orgId,
         message: data.message.trim(),
-        senderName: data.senderName.trim(),
+        senderName: session.user.name,
+        senderRole: member.role ?? undefined,
       },
     });
   });
