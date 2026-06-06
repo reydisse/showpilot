@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
 import {
@@ -14,15 +14,23 @@ import {
   Eye,
   Copy,
   Check,
+  Sparkles,
 } from "lucide-react";
+import { hasPermission } from "@/lib/app-permissions";
 import {
   getGraphicTemplates,
   addGraphicTemplate,
   updateGraphicTemplate,
   deleteGraphicTemplate,
-  setActiveGraphic,
-  getActiveGraphic,
+  getActiveGraphics,
+  setActiveGraphics,
+  clearActiveGraphics,
 } from "@/lib/graphics";
+import {
+  DEFAULT_CONTROLS,
+  POSITION_PRESETS,
+  ACCENT_PRESETS,
+} from "@/lib/lt-templates";
 
 type GraphicType = "lower-third" | "scripture" | "announcement" | "title";
 
@@ -54,7 +62,11 @@ const TYPE_CONFIG: Record<
 
 function parseStyle(json: string) {
   try {
-    return JSON.parse(json) as { type?: GraphicType; styleName?: string };
+    return JSON.parse(json) as {
+      type?: GraphicType;
+      styleName?: string;
+      scratch?: boolean;
+    };
   } catch {
     return {};
   }
@@ -67,44 +79,57 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
     const [templates, active] = await Promise.all([
       getGraphicTemplates({ data: { orgId: context.orgId } }),
-      getActiveGraphic({ data: { orgId: context.orgId } }),
+      getActiveGraphics({ data: { orgId: context.orgId } }),
     ]);
-    return { templates, activeId: active?.id ?? null, orgId: context.orgId, slug: context.slug };
+    return {
+      templates,
+      activeIds: active.map((g) => g.id),
+      orgId: context.orgId,
+      slug: context.slug,
+      role: context.role,
+    };
   },
   component: GraphicsPage,
 });
 
 function GraphicsPage() {
-  const { templates, activeId: initialActiveId, orgId, slug } = Route.useLoaderData();
+  const { templates, activeIds: initialActiveIds, orgId, slug, role } = Route.useLoaderData();
   const router = useRouter();
-  const [activeId, setActiveId] = useState<string | null>(initialActiveId);
+  const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
+  const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
+  const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
   const [filterType, setFilterType] = useState<GraphicType | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [editTemplate, setEditTemplate] = useState<typeof templates[0] | null>(null);
   const [copiedOverlay, setCopiedOverlay] = useState(false);
 
+  // Hide the designer's live-preview "scratch" entries from the library.
+  const visibleTemplates = templates.filter((t) => !parseStyle(t.style).scratch);
   const filtered =
     filterType === "all"
-      ? templates
-      : templates.filter((t) => {
-          const style = parseStyle(t.style);
-          return style.type === filterType;
-        });
+      ? visibleTemplates
+      : visibleTemplates.filter((t) => parseStyle(t.style).type === filterType);
 
-  const handleTrigger = async (id: string) => {
-    setActiveId(id);
-    await setActiveGraphic({ data: { orgId, graphicId: id } });
+  // Toggle one graphic on/off — multiple can be live at once (e.g. panelists).
+  // We write the full desired set (absolute write) so rapid clicks can't race.
+  const handleToggle = async (id: string) => {
+    const next = activeIds.includes(id)
+      ? activeIds.filter((x) => x !== id)
+      : [...activeIds, id];
+    setActiveIds(next);
+    await setActiveGraphics({ data: { orgId, graphicIds: next } });
   };
 
-  const handleStop = async () => {
-    setActiveId(null);
-    await setActiveGraphic({ data: { orgId, graphicId: null } });
+  const handleClearAll = async () => {
+    setActiveIds([]);
+    await clearActiveGraphics({ data: { orgId } });
   };
 
   const handleDelete = async (id: string) => {
-    if (activeId === id) {
-      setActiveId(null);
-      await setActiveGraphic({ data: { orgId, graphicId: null } });
+    if (activeIds.includes(id)) {
+      const next = activeIds.filter((x) => x !== id);
+      setActiveIds(next);
+      await setActiveGraphics({ data: { orgId, graphicIds: next } });
     }
     await deleteGraphicTemplate({ data: { orgId, id } });
     router.invalidate();
@@ -132,36 +157,50 @@ function GraphicsPage() {
               Create and control on-screen graphics
             </p>
           </div>
-          <button
-            onClick={() => {
-              setEditTemplate(null);
-              setShowForm(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
-          >
-            <Plus className="w-3 h-3" />
-            New Graphic
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/$slug/streaming/lt-preview"
+              params={{ slug }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
+            >
+              <Sparkles className="w-3 h-3" />
+              Template Designer
+            </Link>
+            {canConfigureGraphics && (
+              <button
+                onClick={() => {
+                  setEditTemplate(null);
+                  setShowForm(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                New Graphic
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
         {/* Active indicator */}
-        {activeId && (
+        {activeIds.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
               <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
               <span className="text-sm font-medium text-fire-500">
-                Graphic on air
+                {activeIds.length === 1
+                  ? "1 graphic on air"
+                  : `${activeIds.length} graphics on air`}
               </span>
             </div>
               {canTriggerGraphics && (
                 <button
-                  onClick={handleStop}
+                  onClick={handleClearAll}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3 h-3" />
-                  Clear
+                  Clear all
                 </button>
               )}
           </div>
@@ -199,7 +238,7 @@ function GraphicsPage() {
               const style = parseStyle(template.style);
               const graphicType = (style.type ?? "lower-third") as GraphicType;
               const config = TYPE_CONFIG[graphicType] ?? TYPE_CONFIG["lower-third"];
-              const isActive = activeId === template.id;
+              const isActive = activeIds.includes(template.id);
 
               return (
                 <div
@@ -213,15 +252,13 @@ function GraphicsPage() {
                   <div className="flex items-start gap-3">
                     {canTriggerGraphics && (
                       <button
-                        onClick={() =>
-                          isActive ? handleStop() : handleTrigger(template.id)
-                        }
+                        onClick={() => handleToggle(template.id)}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
                           isActive
                             ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                             : "bg-fire-500/15 text-fire-500 hover:bg-fire-500/25"
                         }`}
-                        title={isActive ? "Stop graphic" : "Show graphic"}
+                        title={isActive ? "Hide graphic" : "Show graphic"}
                       >
                         {isActive ? (
                           <Square className="w-4 h-4" />
@@ -334,7 +371,6 @@ function GraphicsPage() {
           <GraphicFormModal
             existing={editTemplate}
             orgId={orgId}
-            activeId={activeId}
             onClose={() => {
               setShowForm(false);
               setEditTemplate(null);
@@ -359,19 +395,36 @@ function GraphicFormModal({
 }: {
   existing: { id: string; name: string; title: string; subtitle: string; style: string } | null;
   orgId: string;
-  activeId: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const existingStyle = existing ? parseStyle(existing.style) : {};
+  // Read the full raw style so we keep any designer-authored template + controls.
+  const existingRaw = (() => {
+    try {
+      return existing
+        ? (JSON.parse(existing.style) as {
+            templateId?: string;
+            controls?: Partial<typeof DEFAULT_CONTROLS>;
+          })
+        : {};
+    } catch {
+      return {};
+    }
+  })();
+  const existingControls = existingRaw.controls ?? {};
+  const existingTemplateId = existingRaw.templateId ?? "classic";
+
   const [type, setType] = useState<GraphicType>(
     (existingStyle.type as GraphicType) ?? "lower-third"
   );
   const [name, setName] = useState(existing?.name ?? "");
   const [title, setTitle] = useState(existing?.title ?? "");
   const [subtitle, setSubtitle] = useState(existing?.subtitle ?? "");
-  const [styleName, setStyleName] = useState<string>(
-    existingStyle.styleName ?? "default"
+  const [posX, setPosX] = useState<number>(existingControls.posX ?? DEFAULT_CONTROLS.posX);
+  const [posY, setPosY] = useState<number>(existingControls.posY ?? DEFAULT_CONTROLS.posY);
+  const [accentColor, setAccentColor] = useState<string>(
+    existingControls.accentColor ?? DEFAULT_CONTROLS.accentColor
   );
   const [saving, setSaving] = useState(false);
 
@@ -380,7 +433,10 @@ function GraphicFormModal({
     if (!title.trim()) return;
     setSaving(true);
 
-    const styleJson = JSON.stringify({ type, styleName });
+    // Store real controls (position + accent) so library graphics render where
+    // they're placed and two can sit side-by-side without overlapping.
+    const controls = { ...DEFAULT_CONTROLS, ...existingControls, posX, posY, accentColor };
+    const styleJson = JSON.stringify({ type, templateId: existingTemplateId, controls });
 
     if (existing) {
       await updateGraphicTemplate({
@@ -395,11 +451,7 @@ function GraphicFormModal({
           },
         },
       });
-      // Re-trigger if this graphic is currently on air so overlay picks up changes
-      if (activeId === existing.id) {
-        await setActiveGraphic({ data: { orgId, graphicId: null } });
-        await setActiveGraphic({ data: { orgId, graphicId: existing.id } });
-      }
+      // If it's live, the overlay detects the content change and updates in place.
     } else {
       await addGraphicTemplate({
         data: {
@@ -514,25 +566,62 @@ function GraphicFormModal({
             />
           </div>
 
-          {/* Style */}
+          {/* Position — keeps two graphics from overlapping on screen */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
-              Style
+              Screen Position
             </label>
-            <div className="flex gap-2">
-              {["default", "accent", "minimal"].map((s) => (
+            <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-board-bg border border-board-border">
+              {POSITION_PRESETS.map((preset) => {
+                const isActive =
+                  Math.abs(posX - preset.x) < 5 && Math.abs(posY - preset.y) < 6;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      setPosX(preset.x);
+                      setPosY(preset.y);
+                    }}
+                    title={preset.label}
+                    className={`aspect-video rounded transition-all flex items-center justify-center ${
+                      isActive
+                        ? "bg-fire-500/25 border border-fire-500/40"
+                        : "bg-board-border/30 border border-transparent hover:bg-board-border/60"
+                    }`}
+                  >
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isActive ? "bg-fire-500" : "bg-board-muted/40"
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-board-muted/50 mt-1.5">
+              Place panelists in different corners so they don't overlap.
+            </p>
+          </div>
+
+          {/* Accent color */}
+          <div>
+            <label className="block text-sm text-board-muted mb-1.5">
+              Accent Color
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_PRESETS.map((p) => (
                 <button
-                  key={s}
+                  key={p.value}
                   type="button"
-                  onClick={() => setStyleName(s)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium capitalize border transition-colors ${
-                    styleName === s
-                      ? "bg-fire-500/15 text-fire-500 border-fire-500/25"
-                      : "text-board-muted border-board-border hover:border-board-muted/50"
-                  }`}
-                >
-                  {s}
-                </button>
+                  onClick={() => setAccentColor(p.value)}
+                  title={p.label}
+                  className="w-7 h-7 rounded-full border-2 transition-all"
+                  style={{
+                    background: p.value,
+                    borderColor: accentColor === p.value ? "white" : "transparent",
+                  }}
+                />
               ))}
             </div>
           </div>

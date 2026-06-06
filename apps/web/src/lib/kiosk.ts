@@ -79,7 +79,7 @@ export async function verifyToken(
 
 // ─── Server Functions ────────────────────────────────────
 
-const KIOSK_SECRET = "showpilot-kiosk-secret-v1"; // TODO: move to env var
+export const KIOSK_SECRET = "showpilot-kiosk-secret-v1"; // TODO: move to env var
 
 export const createKioskToken = createServerFn({ method: "POST" })
   .inputValidator(

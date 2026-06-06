@@ -23,9 +23,11 @@ import {
   EyeOff,
   ChevronRight,
   ArrowLeft,
+  Tv,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
+import { KioskSection } from "@/components/settings/KioskSection";
 import {
   getOrgSettings,
   updateOrgSetting,
@@ -88,6 +90,7 @@ type SectionId =
   | "integrations"
   | "production"
   | "lowerthirds"
+  | "kiosk"
   | "notifications"
   | "api"
   | "danger";
@@ -104,6 +107,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "integrations", label: "Integrations", icon: Puzzle },
   { id: "production", label: "Production Defaults", icon: SlidersHorizontal },
   { id: "lowerthirds", label: "Lower Thirds", icon: Type },
+  { id: "kiosk", label: "Kiosk Displays", icon: Tv },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "api", label: "API & Webhooks", icon: Webhook },
   { id: "danger", label: "Danger Zone", icon: AlertTriangle },
@@ -148,6 +152,7 @@ function SettingsPage() {
     if (item.id === "integrations") return canViewIntegrations;
     if (item.id === "production") return canViewProduction;
     if (item.id === "lowerthirds") return canViewLowerThirds;
+    if (item.id === "kiosk") return canManageMembers;
     if (item.id === "notifications") return canViewNotifications;
     if (item.id === "api") return canViewApi;
     if (item.id === "danger") return canViewDanger;
@@ -231,6 +236,9 @@ function SettingsPage() {
           )}
           {resolvedSection === "lowerthirds" && (
             <LowerThirdsSection {...sectionProps} />
+          )}
+          {resolvedSection === "kiosk" && (
+            <KioskSection orgId={orgId} slug={slug} members={members} />
           )}
           {resolvedSection === "notifications" && (
             <NotificationsSection {...sectionProps} />
@@ -1073,8 +1081,8 @@ function LowerThirdsSection({ slug, getSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const overlayUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/${slug}/streaming/graphics/overlay`
-      : `/${slug}/streaming/graphics/overlay`;
+      ? `${window.location.origin}/overlay/${slug}`
+      : `/overlay/${slug}`;
 
   return (
     <div>

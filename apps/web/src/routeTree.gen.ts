@@ -50,6 +50,9 @@ import { Route as SlugDashboardTechManagerRouteImport } from './routes/$slug/das
 import { Route as SlugDashboardProdManagerRouteImport } from './routes/$slug/dashboard/prod-manager'
 import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboard/devices'
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
+import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
+import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
+import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
 
@@ -259,6 +262,21 @@ const SlugDashboardAudioRoute = SlugDashboardAudioRouteImport.update({
   path: '/dashboard/audio',
   getParentRoute: () => SlugRoute,
 } as any)
+const ApiV1KioskRosterRoute = ApiV1KioskRosterRouteImport.update({
+  id: '/api/v1/kiosk/roster',
+  path: '/api/v1/kiosk/roster',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1KioskOrgRoute = ApiV1KioskOrgRouteImport.update({
+  id: '/api/v1/kiosk/org',
+  path: '/api/v1/kiosk/org',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1KioskAssetsRoute = ApiV1KioskAssetsRouteImport.update({
+  id: '/api/v1/kiosk/assets',
+  path: '/api/v1/kiosk/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SlugStreamingGraphicsOverlayRoute =
   SlugStreamingGraphicsOverlayRouteImport.update({
     id: '/overlay',
@@ -315,6 +333,9 @@ export interface FileRoutesByFullPath {
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
+  '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -358,6 +379,9 @@ export interface FileRoutesByTo {
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
+  '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -404,6 +428,9 @@ export interface FileRoutesById {
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
+  '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -450,6 +477,9 @@ export interface FileRouteTypes {
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/org'
+    | '/api/v1/kiosk/roster'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -493,6 +523,9 @@ export interface FileRouteTypes {
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/org'
+    | '/api/v1/kiosk/roster'
   id:
     | '__root__'
     | '/'
@@ -538,6 +571,9 @@ export interface FileRouteTypes {
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/org'
+    | '/api/v1/kiosk/roster'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -553,6 +589,9 @@ export interface RootRouteChildren {
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
+  ApiV1KioskAssetsRoute: typeof ApiV1KioskAssetsRoute
+  ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
+  ApiV1KioskRosterRoute: typeof ApiV1KioskRosterRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -844,6 +883,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugDashboardAudioRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/api/v1/kiosk/roster': {
+      id: '/api/v1/kiosk/roster'
+      path: '/api/v1/kiosk/roster'
+      fullPath: '/api/v1/kiosk/roster'
+      preLoaderRoute: typeof ApiV1KioskRosterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/kiosk/org': {
+      id: '/api/v1/kiosk/org'
+      path: '/api/v1/kiosk/org'
+      fullPath: '/api/v1/kiosk/org'
+      preLoaderRoute: typeof ApiV1KioskOrgRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/kiosk/assets': {
+      id: '/api/v1/kiosk/assets'
+      path: '/api/v1/kiosk/assets'
+      fullPath: '/api/v1/kiosk/assets'
+      preLoaderRoute: typeof ApiV1KioskAssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$slug/streaming/graphics/overlay': {
       id: '/$slug/streaming/graphics/overlay'
       path: '/overlay'
@@ -972,6 +1032,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
+  ApiV1KioskAssetsRoute: ApiV1KioskAssetsRoute,
+  ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,
+  ApiV1KioskRosterRoute: ApiV1KioskRosterRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
