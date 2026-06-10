@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { verifyToken, KIOSK_SECRET } from "@/lib/kiosk";
+import { verifyToken, getKioskSecret } from "@/lib/kiosk";
 
 // ─────────────────────────────────────────────────────────────
 // Kiosk API — read-only endpoints behind a kiosk Bearer token.
@@ -64,7 +64,7 @@ export async function authenticateKiosk(
   if (!token) {
     return { error: { code: "unauthorized", message: "Missing kiosk token", status: 401 } };
   }
-  const payload = await verifyToken(token, KIOSK_SECRET);
+  const payload = await verifyToken(token, getKioskSecret());
   if (!payload || typeof payload.orgId !== "string") {
     return { error: { code: "unauthorized", message: "Invalid or expired kiosk token", status: 401 } };
   }

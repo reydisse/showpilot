@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
@@ -102,7 +103,15 @@ export async function verifyToken(
 
 // ─── Server Functions ────────────────────────────────────
 
-export const KIOSK_SECRET = "showpilot-kiosk-secret-v1"; // TODO: move to env var
+// Fail closed: kiosk tokens cannot be signed or verified without the secret.
+// Set via `wrangler secret put KIOSK_SECRET` (and .dev.vars locally).
+export function getKioskSecret(): string {
+  const secret = (env as unknown as Record<string, unknown>).KIOSK_SECRET as
+    | string
+    | undefined;
+  if (!secret) throw new Error("KIOSK_SECRET is not configured");
+  return secret;
+}
 
 export const createKioskToken = createServerFn({ method: "POST" })
   .inputValidator(
@@ -135,7 +144,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
       ...(exp ? { exp } : {}),
     };
 
-    const token = await signToken(payload, KIOSK_SECRET);
+    const token = await signToken(payload, getKioskSecret());
 
     const kioskToken = await prisma.kioskToken.create({
       data: {
@@ -182,7 +191,7 @@ export const validateKioskToken = createServerFn({ method: "GET" })
   .inputValidator((data: string) => data)
   .handler(async ({ data }) => {
     // First verify the JWT signature + expiration
-    const payload = await verifyToken(data, KIOSK_SECRET);
+    const payload = await verifyToken(data, getKioskSecret());
     if (!payload) return null;
 
     // Then check it hasn't been revoked in the database

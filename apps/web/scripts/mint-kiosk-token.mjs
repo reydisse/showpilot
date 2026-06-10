@@ -14,8 +14,14 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-// Keep in sync with KIOSK_SECRET in src/lib/kiosk.ts.
-const KIOSK_SECRET = "showpilot-kiosk-secret-v1";
+// Must match the KIOSK_SECRET the target deployment uses (wrangler secret /
+// .dev.vars). Never hardcode it here.
+const KIOSK_SECRET = process.env.KIOSK_SECRET;
+if (!KIOSK_SECRET) {
+  console.error("KIOSK_SECRET env var is required, e.g.:");
+  console.error("  KIOSK_SECRET=$(grep '^KIOSK_SECRET=' .dev.vars | cut -d= -f2-) node scripts/mint-kiosk-token.mjs ...");
+  process.exit(1);
+}
 
 function arg(name, fallback = undefined) {
   const i = process.argv.indexOf(`--${name}`);

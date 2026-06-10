@@ -1,0 +1,14 @@
+# Local development secrets — copy to .dev.vars and fill in real values.
+# Production values are set with `wrangler secret put <NAME>`.
+
+# Better Auth session signing secret. Generate: openssl rand -base64 32
+BETTER_AUTH_SECRET=
+
+# Base URL Better Auth uses for cookies/redirects (http://localhost:3000 locally)
+BETTER_AUTH_URL=http://localhost:3000
+
+# Kiosk display token signing secret. Generate: openssl rand -base64 32
+KIOSK_SECRET=
+
+# Resend API key for transactional email (invites, password reset)
+RESEND_API_KEY=

@@ -8,6 +8,11 @@ declare namespace Cloudflare {
 		CHAT_RELAY: DurableObjectNamespace;
 		RUNDOWN_RELAY: DurableObjectNamespace;
 		LOWER_THIRDS_RELAY: DurableObjectNamespace;
+		// Secrets (set via `wrangler secret put`, .dev.vars locally)
+		KIOSK_SECRET: string;
+		BETTER_AUTH_SECRET: string;
+		BETTER_AUTH_URL: string;
+		RESEND_API_KEY: string;
 	}
 }
 interface Env extends Cloudflare.Env {}
