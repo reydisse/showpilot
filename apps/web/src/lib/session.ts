@@ -3,6 +3,11 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
+
+// Role names are org-defined (dynamic access control) — bound, not enumerated.
+const roleNameSchema = z.string().min(1).max(50);
 
 async function getSessionOrThrow() {
   const auth = getAuth();
@@ -99,7 +104,7 @@ export const getOrgBySlug = createServerFn({ method: "GET" })
   });
 
 export const setActiveOrg = createServerFn({ method: "POST" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(idSchema, data))
   .handler(async ({ data }) => {
     const session = await getSessionOrThrow();
     await assertOrgMembership(session.user.id, data);
@@ -172,8 +177,13 @@ export const getActiveMemberRole = createServerFn({ method: "GET" }).handler(
 );
 
 export const checkPermission = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { permissions: Record<string, string[]> }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        permissions: z.record(z.string().max(100), z.array(z.string().max(100)).max(20)),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     const auth = getAuth();
@@ -200,7 +210,9 @@ export const getOrgMembers = createServerFn({ method: "GET" })
   });
 
 export const updateMemberRole = createServerFn({ method: "POST" })
-  .inputValidator((data: { memberId: string; role: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ memberId: idSchema, role: roleNameSchema }), data),
+  )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
     const member = await prisma.member.findUnique({
@@ -219,7 +231,12 @@ export const updateMemberRole = createServerFn({ method: "POST" })
   });
 
 export const removeMember = createServerFn({ method: "POST" })
-  .inputValidator((data: { memberIdOrEmail: string; orgId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ memberIdOrEmail: z.string().min(1).max(254), orgId: idSchema }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
     const auth = getAuth();
@@ -236,8 +253,11 @@ export const removeMember = createServerFn({ method: "POST" })
 // ─── Invitations ─────────────────────────────────────────
 
 export const inviteMember = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { email: string; role: string; orgId: string }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ email: emailSchema, role: roleNameSchema, orgId: idSchema }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
@@ -265,7 +285,7 @@ export const getOrgInvitations = createServerFn({ method: "GET" })
   });
 
 export const cancelInvitation = createServerFn({ method: "POST" })
-  .inputValidator((data: { invitationId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ invitationId: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
     const invitation = await prisma.invitation.findUnique({
@@ -313,7 +333,7 @@ export const getInvitationDetails = createServerFn({ method: "GET" })
   });
 
 export const acceptInvitation = createServerFn({ method: "POST" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(idSchema, data))
   .handler(async ({ data }) => {
     const auth = getAuth();
     const headers = getRequestHeaders();
@@ -324,7 +344,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
   });
 
 export const rejectInvitation = createServerFn({ method: "POST" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(idSchema, data))
   .handler(async ({ data }) => {
     const auth = getAuth();
     const headers = getRequestHeaders();

@@ -4,6 +4,8 @@ import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import { checkPermission } from "@/middleware/withPermission";
 import type { Permission } from "@/lib/permissions";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 
 async function assertOrgMembership(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -22,7 +24,9 @@ async function assertOrgMembership(orgId: string) {
 }
 
 export const validateRundownPin = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; pin: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, pin: z.string().max(64) }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgMembership(data.orgId);
 
@@ -40,8 +44,20 @@ export const validateRundownPin = createServerFn({ method: "POST" })
     return { ok: data.pin.trim() === expectedPin };
   });
 
+const permissionSchema = z.string().min(1).max(100);
+
 export const checkRoutePermission = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; permission: Permission | Permission[] }) => data)
+  .inputValidator((data: unknown) => {
+    const parsed = parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        permission: z.union([permissionSchema, z.array(permissionSchema).max(20)]),
+      }),
+      data,
+    );
+    // checkPermission rejects unknown permission strings, so the cast is safe.
+    return parsed as { orgId: string; permission: Permission | Permission[] };
+  })
   .handler(async ({ data }) => {
     const { getAuth } = await import("@/lib/auth");
     const auth = getAuth();

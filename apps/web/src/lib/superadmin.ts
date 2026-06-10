@@ -8,6 +8,8 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { sendEmail, waitlistInviteEmail } from "@/lib/email";
 import { getPrisma } from "@/lib/db";
+import { z } from "zod";
+import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
 
 export const SUPER_ADMIN_EMAIL = "reydisse@gmail.com";
 
@@ -143,7 +145,12 @@ export const getWaitlistSignups = createServerFn({ method: "GET" }).handler(
 );
 
 export const sendWaitlistInvite = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; email: string; name: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ id: idSchema, email: emailSchema, name: z.string().max(100) }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await requireSuperAdmin();
     const signupUrl = "https://showpilot.tech/login";
@@ -153,7 +160,7 @@ export const sendWaitlistInvite = createServerFn({ method: "POST" })
   });
 
 export const deleteWaitlistSignup = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     await requireSuperAdmin();
     const prisma = getPrisma();

@@ -3,6 +3,8 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -55,7 +57,9 @@ export const getLiveInputs = createServerFn({ method: "GET" })
   });
 
 export const createLiveInput = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; name: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
     const accountId = getAccountId();
@@ -108,7 +112,9 @@ export const createLiveInput = createServerFn({ method: "POST" })
   });
 
 export const deleteLiveInput = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; inputId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, inputId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();

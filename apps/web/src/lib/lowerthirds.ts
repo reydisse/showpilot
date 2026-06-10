@@ -1,6 +1,23 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
+
+const lowerThirdTextSchema = z.string().max(500);
+
+const lowerThirdPayloadSchema = z.object({
+  id: idSchema,
+  type: z.enum(["person", "scripture", "freetext", "style"]),
+  name: lowerThirdTextSchema.optional(),
+  title: lowerThirdTextSchema.optional(),
+  scripture: lowerThirdTextSchema.optional(),
+  translation: z.string().max(40).optional(),
+  line1: lowerThirdTextSchema.optional(),
+  line2: lowerThirdTextSchema.optional(),
+  style: z.string().max(100),
+  triggeredBy: z.string().max(200).optional(),
+});
 
 async function assertOrgAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -87,12 +104,15 @@ export const getLowerThirdStateByOrgId = createServerFn({ method: "GET" })
 // ─── Trigger a Lower Third ───────────────────────────────────
 
 export const triggerLowerThird = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      payload: Omit<LowerThirdPayload, "state" | "triggeredAt">;
-      triggeredBy?: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        payload: lowerThirdPayloadSchema,
+        triggeredBy: z.string().max(200).optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
@@ -125,7 +145,7 @@ export const triggerLowerThird = createServerFn({ method: "POST" })
 // ─── Clear Active Lower Third ─────────────────────────────────
 
 export const clearLowerThird = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
@@ -149,7 +169,7 @@ export const getLowerThirdLibrary = createServerFn({ method: "GET" })
   });
 
 export const resetLowerThirdLibrary = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();

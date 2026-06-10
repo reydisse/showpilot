@@ -2,6 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole, type Permission } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+
+// Style is a JSON blob of overlay styling — bound generously.
+const styleSchema = z.string().max(20_000);
+const graphicTextSchema = z.string().max(500);
+const orgGraphicSchema = z.object({ orgId: idSchema, graphicId: idSchema });
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -49,14 +56,17 @@ export const getGraphicTemplates = createServerFn({ method: "GET" })
   });
 
 export const addGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      name: string;
-      title: string;
-      subtitle?: string;
-      style?: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        name: labelSchema,
+        title: graphicTextSchema,
+        subtitle: graphicTextSchema.optional(),
+        style: styleSchema.optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:configure");
@@ -73,17 +83,22 @@ export const addGraphicTemplate = createServerFn({ method: "POST" })
   });
 
 export const updateGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      id: string;
-      updates: Partial<{
-        name: string;
-        title: string;
-        subtitle: string;
-        style: string;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        updates: z
+          .object({
+            name: labelSchema,
+            title: graphicTextSchema,
+            subtitle: graphicTextSchema,
+            style: styleSchema,
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:configure");
@@ -95,7 +110,9 @@ export const updateGraphicTemplate = createServerFn({ method: "POST" })
   });
 
 export const deleteGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:configure");
     const prisma = getPrisma();
@@ -172,7 +189,9 @@ export const getActiveGraphics = createServerFn({ method: "GET" })
 
 /** Replace the entire active set with the given IDs. */
 export const setActiveGraphics = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; graphicIds: string[] }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, graphicIds: z.array(idSchema).max(50) }), data),
+  )
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
@@ -187,7 +206,7 @@ export const setActiveGraphics = createServerFn({ method: "POST" })
 
 /** Add one graphic to the active set (no-op if already live). */
 export const addActiveGraphic = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; graphicId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(orgGraphicSchema, data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
@@ -204,7 +223,7 @@ export const addActiveGraphic = createServerFn({ method: "POST" })
 
 /** Remove one graphic from the active set. */
 export const removeActiveGraphic = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; graphicId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(orgGraphicSchema, data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
@@ -214,7 +233,7 @@ export const removeActiveGraphic = createServerFn({ method: "POST" })
 
 /** Toggle one graphic on/off; returns the new active ID list. */
 export const toggleActiveGraphic = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; graphicId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(orgGraphicSchema, data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
@@ -235,7 +254,7 @@ export const toggleActiveGraphic = createServerFn({ method: "POST" })
 
 /** Clear all active graphics. */
 export const clearActiveGraphics = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
@@ -246,7 +265,9 @@ export const clearActiveGraphics = createServerFn({ method: "POST" })
 
 /** Replace the active set with a single graphic, or clear it when null. */
 export const setActiveGraphic = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; graphicId: string | null }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, graphicId: idSchema.nullable() }), data),
+  )
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();

@@ -3,6 +3,8 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
+import { z } from "zod";
+import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 async function assertOrgAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -62,7 +64,9 @@ type ShowReport = {
 };
 
 export const exportShowReport = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+  )
   .handler(async ({ data }): Promise<ShowReport> => {
     await assertOrgAccess(data.orgId);
 

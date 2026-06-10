@@ -2,6 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+
+const nameSchema = z.string().min(1).max(200);
+const shortTextSchema = z.string().max(500);
+const longTextSchema = z.string().max(10_000);
+// Photos arrive as data URLs; the public flow re-checks decoded byte size.
+const photoUrlSchema = z.string().max(2_100_000);
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -44,14 +52,17 @@ export const getCrewMembers = createServerFn({ method: "GET" })
   });
 
 export const addCrewMember = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      memberId: string;
-      name: string;
-      role: string;
-      photoUrl?: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        memberId: idSchema,
+        name: nameSchema,
+        role: z.string().max(100),
+        photoUrl: photoUrlSchema.optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
@@ -68,18 +79,23 @@ export const addCrewMember = createServerFn({ method: "POST" })
   });
 
 export const updateCrewMember = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      id: string;
-      updates: Partial<{
-        memberId: string;
-        name: string;
-        role: string;
-        photoUrl: string;
-        isOnline: boolean;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        updates: z
+          .object({
+            memberId: idSchema,
+            name: nameSchema,
+            role: z.string().max(100),
+            photoUrl: photoUrlSchema,
+            isOnline: z.boolean(),
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
@@ -91,7 +107,9 @@ export const updateCrewMember = createServerFn({ method: "POST" })
   });
 
 export const deleteCrewMember = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
@@ -99,7 +117,9 @@ export const deleteCrewMember = createServerFn({ method: "POST" })
   });
 
 export const toggleCheckIn = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string; isOnline: boolean }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema, isOnline: z.boolean() }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
@@ -116,7 +136,9 @@ export const toggleCheckIn = createServerFn({ method: "POST" })
   });
 
 export const checkInByMemberId = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; memberId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, memberId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
@@ -148,7 +170,9 @@ export const getPublicCheckInOrg = createServerFn({ method: "GET" })
   });
 
 export const publicCheckInByMemberId = createServerFn({ method: "POST" })
-  .inputValidator((data: { slug: string; memberId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ slug: z.string().min(1).max(64), memberId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
@@ -206,7 +230,17 @@ const getPhotoPayloadBytes = (photoUrl: string) => {
 };
 
 export const updatePublicCrewMemberPhotoByMemberId = createServerFn({ method: "POST" })
-  .inputValidator((data: { slug: string; memberId: string; photoUrl?: string; name?: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        slug: z.string().min(1).max(64),
+        memberId: idSchema,
+        photoUrl: photoUrlSchema.optional(),
+        name: z.string().max(100).optional(),
+      }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
 
@@ -308,8 +342,16 @@ export const getChecklistTemplates = createServerFn({ method: "GET" })
   });
 
 export const addChecklistTemplate = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; label: string; category: string; sortOrder?: number }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        label: labelSchema,
+        category: z.string().max(100),
+        sortOrder: z.number().int().optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
@@ -325,8 +367,17 @@ export const addChecklistTemplate = createServerFn({ method: "POST" })
   });
 
 export const updateChecklistTemplate = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; id: string; updates: Partial<{ label: string; category: string; sortOrder: number }> }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        updates: z
+          .object({ label: labelSchema, category: z.string().max(100), sortOrder: z.number().int() })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
@@ -338,7 +389,9 @@ export const updateChecklistTemplate = createServerFn({ method: "POST" })
   });
 
 export const deleteChecklistTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
@@ -357,8 +410,16 @@ export const getChecklistEntries = createServerFn({ method: "GET" })
   });
 
 export const toggleChecklistEntry = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; id: string; checked: boolean; checkedBy: string | null }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        checked: z.boolean(),
+        checkedBy: z.string().max(200).nullable(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
@@ -374,8 +435,11 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
   });
 
 export const addChecklistEntry = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; templateId: string; serviceDate: string }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ orgId: idSchema, templateId: idSchema, serviceDate: serviceDateSchema }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
@@ -392,8 +456,11 @@ export const addChecklistEntry = createServerFn({ method: "POST" })
 // ─── Cue Sheets ─────────────────────────────────────────────
 
 export const getCueSheets = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+  )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.cueSheet.findMany({
       where: { orgId: data.orgId, serviceDate: data.serviceDate },
@@ -402,17 +469,21 @@ export const getCueSheets = createServerFn({ method: "GET" })
   });
 
 export const addCueSheet = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      cueNumber: number;
-      rundownItem: string;
-      cameraAssignments?: string;
-      notes?: string;
-      serviceDate: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        cueNumber: z.number().int().min(0).max(100_000),
+        rundownItem: shortTextSchema,
+        cameraAssignments: shortTextSchema.optional(),
+        notes: longTextSchema.optional(),
+        serviceDate: serviceDateSchema,
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.cueSheet.create({
       data: {
@@ -427,19 +498,30 @@ export const addCueSheet = createServerFn({ method: "POST" })
   });
 
 export const updateCueSheet = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      id: string;
-      updates: Partial<{
-        cueNumber: number;
-        rundownItem: string;
-        cameraAssignments: string;
-        notes: string;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        id: idSchema,
+        updates: z
+          .object({
+            cueNumber: z.number().int().min(0).max(100_000),
+            rundownItem: shortTextSchema,
+            cameraAssignments: shortTextSchema,
+            notes: longTextSchema,
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.cueSheet.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Cue sheet not found");
+    await assertOrgAccess(existing.orgId);
     return await prisma.cueSheet.update({
       where: { id: data.id },
       data: data.updates,
@@ -447,9 +529,15 @@ export const updateCueSheet = createServerFn({ method: "POST" })
   });
 
 export const deleteCueSheet = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.cueSheet.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Cue sheet not found");
+    await assertOrgAccess(existing.orgId);
     await prisma.cueSheet.delete({ where: { id: data.id } });
   });
 
@@ -467,15 +555,18 @@ export const getIncidents = createServerFn({ method: "GET" })
   });
 
 export const addIncident = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      category: string;
-      severity: string;
-      description: string;
-      reportedBy: string;
-      serviceDate: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        category: z.string().max(100),
+        severity: z.string().max(50),
+        description: longTextSchema,
+        reportedBy: z.string().max(200),
+        serviceDate: serviceDateSchema,
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
@@ -493,16 +584,21 @@ export const addIncident = createServerFn({ method: "POST" })
   });
 
 export const updateIncident = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      id: string;
-      updates: Partial<{
-        category: string;
-        severity: string;
-        description: string;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        updates: z
+          .object({
+            category: z.string().max(100),
+            severity: z.string().max(50),
+            description: longTextSchema,
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "incidents:access");
@@ -514,7 +610,9 @@ export const updateIncident = createServerFn({ method: "POST" })
   });
 
 export const deleteIncident = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "incidents:access");
     const prisma = getPrisma();
@@ -533,26 +631,36 @@ export const getMicAssignments = createServerFn({ method: "GET" })
     });
   });
 
+const micAssignmentFieldsSchema = z.object({
+  channel: z.number().int().min(0).max(10_000),
+  label: z.string().max(200),
+  micType: z.string().max(100),
+  micModel: z.string().max(200),
+  notes: longTextSchema,
+  gainDb: z.number().min(-200).max(200).nullable(),
+  phantom: z.boolean(),
+  muted: z.boolean(),
+  group: z.string().max(100),
+  mixerConsole: z.string().max(200),
+  mixerChannel: z.number().int().min(0).max(10_000).nullable(),
+  mixerChannelType: z.string().max(100),
+});
+
 export const addMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      channel: number;
-      label: string;
-      micType: string;
-      micModel?: string;
-      notes?: string;
-      gainDb?: number | null;
-      phantom?: boolean;
-      muted?: boolean;
-      group?: string;
-      mixerConsole?: string;
-      mixerChannel?: number | null;
-      mixerChannelType?: string;
-      serviceDate: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      micAssignmentFieldsSchema.partial().extend({
+        orgId: idSchema,
+        channel: z.number().int().min(0).max(10_000),
+        label: z.string().max(200),
+        micType: z.string().max(100),
+        serviceDate: serviceDateSchema,
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.micAssignment.create({
       data: {
@@ -575,27 +683,20 @@ export const addMicAssignment = createServerFn({ method: "POST" })
   });
 
 export const updateMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      id: string;
-      updates: Partial<{
-        channel: number;
-        label: string;
-        micType: string;
-        micModel: string;
-        notes: string;
-        gainDb: number | null;
-        phantom: boolean;
-        muted: boolean;
-        group: string;
-        mixerConsole: string;
-        mixerChannel: number | null;
-        mixerChannelType: string;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ id: idSchema, updates: micAssignmentFieldsSchema.partial() }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.micAssignment.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Mic assignment not found");
+    await assertOrgAccess(existing.orgId);
     return await prisma.micAssignment.update({
       where: { id: data.id },
       data: data.updates,
@@ -603,17 +704,24 @@ export const updateMicAssignment = createServerFn({ method: "POST" })
   });
 
 export const deleteMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.micAssignment.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Mic assignment not found");
+    await assertOrgAccess(existing.orgId);
     await prisma.micAssignment.delete({ where: { id: data.id } });
   });
 
 // ─── Equipment ──────────────────────────────────────────────
 
 export const getEquipment = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.equipment.findMany({
       where: { orgId: data.orgId },
@@ -621,19 +729,28 @@ export const getEquipment = createServerFn({ method: "GET" })
     });
   });
 
+const equipmentFieldsSchema = z.object({
+  name: nameSchema,
+  category: z.string().max(100),
+  status: z.string().max(50),
+  location: z.string().max(200),
+  serialNumber: z.string().max(200),
+  notes: longTextSchema,
+});
+
 export const addEquipment = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      name: string;
-      category: string;
-      status?: string;
-      location?: string;
-      serialNumber?: string;
-      notes?: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      equipmentFieldsSchema.partial().extend({
+        orgId: idSchema,
+        name: nameSchema,
+        category: z.string().max(100),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.equipment.create({
       data: {
@@ -649,21 +766,17 @@ export const addEquipment = createServerFn({ method: "POST" })
   });
 
 export const updateEquipment = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      id: string;
-      updates: Partial<{
-        name: string;
-        category: string;
-        status: string;
-        location: string;
-        serialNumber: string;
-        notes: string;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ id: idSchema, updates: equipmentFieldsSchema.partial() }), data),
   )
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.equipment.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Equipment not found");
+    await assertOrgAccess(existing.orgId);
     return await prisma.equipment.update({
       where: { id: data.id },
       data: data.updates,
@@ -671,17 +784,33 @@ export const updateEquipment = createServerFn({ method: "POST" })
   });
 
 export const deleteEquipment = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.equipment.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Equipment not found");
+    await assertOrgAccess(existing.orgId);
     await prisma.equipment.delete({ where: { id: data.id } });
   });
 
 // ─── Notifications ──────────────────────────────────────────
 
 export const getNotifications = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; target?: string; limit?: number }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        target: z.string().max(100).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.notification.findMany({
       where: {
@@ -695,18 +824,22 @@ export const getNotifications = createServerFn({ method: "GET" })
   });
 
 export const writeNotification = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      type: string;
-      severity: string;
-      title: string;
-      message: string;
-      target: string;
-      source: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        type: z.string().max(100),
+        severity: z.string().max(50),
+        title: z.string().max(200),
+        message: z.string().max(2000),
+        target: z.string().max(100),
+        source: z.string().max(100),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.notification.create({
       data: {
@@ -722,9 +855,15 @@ export const writeNotification = createServerFn({ method: "POST" })
   });
 
 export const dismissNotification = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.notification.findUnique({
+      where: { id: data.id },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Notification not found");
+    await assertOrgAccess(existing.orgId);
     await prisma.notification.update({
       where: { id: data.id },
       data: { dismissed: true },
@@ -753,15 +892,18 @@ export const getDevices = createServerFn({ method: "GET" })
   });
 
 export const addDevice = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      name: string;
-      category: string;
-      adapterType?: string;
-      settings?: string;
-      enabled?: boolean;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        name: nameSchema,
+        category: z.string().max(100),
+        adapterType: z.string().max(100).optional(),
+        settings: z.string().max(20_000).optional(),
+        enabled: z.boolean().optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
@@ -779,18 +921,23 @@ export const addDevice = createServerFn({ method: "POST" })
   });
 
 export const updateDevice = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      id: string;
-      updates: Partial<{
-        name: string;
-        category: string;
-        adapterType: string;
-        settings: string;
-        enabled: boolean;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        id: idSchema,
+        updates: z
+          .object({
+            name: nameSchema,
+            category: z.string().max(100),
+            adapterType: z.string().max(100),
+            settings: z.string().max(20_000),
+            enabled: z.boolean(),
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
@@ -802,7 +949,9 @@ export const updateDevice = createServerFn({ method: "POST" })
   });
 
 export const deleteDevice = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();

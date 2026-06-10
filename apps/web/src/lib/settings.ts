@@ -7,6 +7,13 @@ import {
   normalizeRole,
   type Permission,
 } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
+
+// AppSetting values can be JSON blobs (templates, rundown snapshots) —
+// bound generously but finitely.
+const settingKeySchema = z.string().min(1).max(100);
+const settingValueSchema = z.string().max(200_000);
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -205,7 +212,12 @@ export const getOrgSettings = createServerFn({ method: "GET" })
   });
 
 export const updateOrgSetting = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; key: string; value: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ orgId: idSchema, key: settingKeySchema, value: settingValueSchema }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
     const prisma = getPrisma();
@@ -241,9 +253,16 @@ export const updateOrgSetting = createServerFn({ method: "POST" })
   });
 
 export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; settings: { key: string; value: string }[] }) =>
-      data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        settings: z
+          .array(z.object({ key: settingKeySchema, value: settingValueSchema }))
+          .max(100),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     for (const setting of data.settings) {
@@ -305,7 +324,7 @@ export const getOrgMembers = createServerFn({ method: "GET" })
 // ─── API Key ────────────────────────────────────────────────
 
 export const regenerateApiKey = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:api_keys");
     const prisma = getPrisma();
@@ -441,7 +460,9 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
 // ─── Danger Zone ────────────────────────────────────────────
 
 export const deleteOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; keys: string[] }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, keys: z.array(settingKeySchema).max(100) }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:danger_zone");
     const prisma = getPrisma();

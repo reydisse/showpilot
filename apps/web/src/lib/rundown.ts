@@ -4,6 +4,39 @@ import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import { hasPermission } from "@/lib/app-permissions";
 import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow, serviceDateSchema, textSchema } from "@/lib/validation";
+
+// ─── Input schemas ───────────────────────────────────────────
+// Item arrays are validated as bounded unknowns here; per-item shape is
+// owned by normalizeLegacyRundownItems, which sanitizes legacy payloads.
+
+const orgServiceDateSchema = z.object({ orgId: idSchema, serviceDate: serviceDateSchema });
+
+const rawItemsSchema = z.array(z.unknown()).max(500);
+
+const timerStateSchema = z.object({
+  playback: z.enum(["stop", "play", "pause"]),
+  currentItemId: idSchema.nullable(),
+  elapsed: z.number(),
+  startedAt: z.number().nullable(),
+  pausedAt: z.number().nullable(),
+  mode: z.enum(["count-up", "count-down", "clock"]),
+  serverTime: z.number(),
+});
+
+const hostPortSchema = z.object({
+  host: z.string().min(1).max(253),
+  port: z.number().int().min(1).max(65535),
+});
+
+const ppSlideSchema = z.object({
+  text: textSchema,
+  notes: textSchema,
+  presentationName: z.string().max(500),
+  isScripture: z.boolean(),
+  updatedAt: z.number(),
+});
 
 interface RundownRelayEnv {
   RUNDOWN_RELAY?: DurableObjectNamespace;
@@ -402,7 +435,7 @@ const defaultTimer: NativeTimerState = {
  * Get the rundown state for an org on a specific service date.
  */
 export const getRundownState = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
   .handler(async ({ data }): Promise<RundownState> => {
     await assertOrgAccess(data.orgId);
     return getRundownStateFromStorage(data.orgId, data.serviceDate);
@@ -416,7 +449,9 @@ export async function getRundownStateForOrg(data: { orgId: string; serviceDate: 
  * Persist rundown items for an org on a specific service date.
  */
 export const saveRundownItems = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; serviceDate: string; items: RundownItem[] }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(orgServiceDateSchema.extend({ items: rawItemsSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -500,7 +535,9 @@ export const saveRundownItems = createServerFn({ method: "POST" })
  * Persist timer state for an org on a specific service date.
  */
 export const saveRundownTimer = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; serviceDate: string; timer: NativeTimerState }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(orgServiceDateSchema.extend({ timer: timerStateSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -538,8 +575,14 @@ type RundownPrismaExt = {
  * Upsert the Rundown meta record (scheduledStartTime, status).
  */
 export const saveRundownMeta = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; serviceDate: string; scheduledStartTime?: string | null; status?: string }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      orgServiceDateSchema.extend({
+        scheduledStartTime: z.string().max(40).nullish(),
+        status: z.string().max(20).optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
@@ -570,14 +613,15 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
  * Patch actualStart / actualEnd on a single rundown item.
  */
 export const patchRundownItemTiming = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      serviceDate: string;
-      itemId: string;
-      actualStart?: string | null;
-      actualEnd?: string | null;
-    }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      orgServiceDateSchema.extend({
+        itemId: idSchema,
+        actualStart: z.string().max(40).nullish(),
+        actualEnd: z.string().max(40).nullish(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
@@ -605,7 +649,9 @@ function rundownMessageKey(serviceDate: string) {
  * Persist a stage message for an org on a specific service date.
  */
 export const saveRundownMessage = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; serviceDate: string; message: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(orgServiceDateSchema.extend({ message: z.string().max(2000) }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -638,7 +684,7 @@ function ppStageDisplayKey() {
  * Tries multiple PP7 API endpoints since versions differ.
  */
 export const pollProPresenterSlide = createServerFn({ method: "GET" })
-  .inputValidator((data: { host: string; port: number }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(hostPortSchema, data))
   .handler(async ({ data }): Promise<PPSlidePayload | null> => {
     const { host, port } = data;
     const base = `http://${host}:${port}`;
@@ -731,7 +777,9 @@ function extractTextFromPPResponse(data: Record<string, unknown>): string {
  * Commands: next, previous, clear
  */
 export const sendProPresenterCommand = createServerFn({ method: "POST" })
-  .inputValidator((data: { host: string; port: number; command: "next" | "previous" | "clear" }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(hostPortSchema.extend({ command: z.enum(["next", "previous", "clear"]) }), data),
+  )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const { host, port, command } = data;
     const base = `http://${host}:${port || 1025}`;
@@ -792,7 +840,9 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
  * Returns success if any endpoint responds.
  */
 export const testProPresenterConnection = createServerFn({ method: "POST" })
-  .inputValidator((data: { host: string; port: number; apiPort?: number }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(hostPortSchema.extend({ apiPort: z.number().int().min(1).max(65535).optional() }), data),
+  )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const { host, apiPort, port } = data;
     const timeout = 3000;
@@ -842,7 +892,9 @@ export interface PPSlidePayload {
  * Called by operator's browser when PP slide changes.
  */
 export const saveProPresenterSlide = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; serviceDate: string; slide: PPSlidePayload | null }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(orgServiceDateSchema.extend({ slide: ppSlideSchema.nullable() }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -887,7 +939,9 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
   });
 
 export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; enabled: boolean }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, enabled: z.boolean() }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -933,7 +987,7 @@ const SAVED_INDEX_KEY = "rundown-saved-index";
  * List all saved rundown templates for an org.
  */
 export const listSavedRundowns = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }): Promise<SavedRundownMeta[]> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -948,14 +1002,16 @@ export const listSavedRundowns = createServerFn({ method: "GET" })
  * Save current rundown items as a named template.
  */
 export const saveRundownTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; name: string; items: RundownItem[] }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema, items: rawItemsSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    const cleanItems = data.items.map((item) => ({
+    const cleanItems = normalizeLegacyRundownItems(data.items).map((item) => ({
       ...item,
       status: "upcoming" as const,
     }));
@@ -993,7 +1049,9 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
  * Load a saved rundown template by ID.
  */
 export const loadSavedRundown = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; rundownId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, rundownId: idSchema }), data),
+  )
   .handler(async ({ data }): Promise<RundownItem[] | null> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -1009,7 +1067,9 @@ export const loadSavedRundown = createServerFn({ method: "GET" })
  * Delete a saved rundown template.
  */
 export const deleteSavedRundown = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; rundownId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, rundownId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
@@ -1037,7 +1097,7 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
  * List dates that have rundown data for an org.
  */
 export const listRundownDates = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }): Promise<{ date: string; itemCount: number }[]> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();

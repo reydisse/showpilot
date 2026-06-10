@@ -4,6 +4,8 @@ import { env } from "cloudflare:workers";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
 // Kiosk tokens are org-scoped API credentials, so creating, listing, and
 // revoking them requires the same permission as other API keys. Returns the
@@ -113,15 +115,15 @@ export function getKioskSecret(): string {
   return secret;
 }
 
+const createKioskTokenSchema = z.object({
+  orgId: idSchema,
+  label: labelSchema,
+  view: z.enum(["timer", "overlay", "board"]),
+  expiresInDays: z.number().int().min(1).max(3650).nullable(), // null = permanent
+});
+
 export const createKioskToken = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      label: string;
-      view: KioskView;
-      expiresInDays: number | null; // null = permanent
-    }) => data
-  )
+  .inputValidator((data: unknown) => parseOrThrow(createKioskTokenSchema, data))
   .handler(async ({ data }) => {
     const userId = await assertKioskTokenPermission(data.orgId);
 
@@ -161,7 +163,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
   });
 
 export const listKioskTokens = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertKioskTokenPermission(data.orgId);
     const prisma = getPrisma();
@@ -172,7 +174,7 @@ export const listKioskTokens = createServerFn({ method: "GET" })
   });
 
 export const revokeKioskToken = createServerFn({ method: "POST" })
-  .inputValidator((data: { tokenId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ tokenId: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
     const existing = await prisma.kioskToken.findUnique({
@@ -188,7 +190,7 @@ export const revokeKioskToken = createServerFn({ method: "POST" })
   });
 
 export const validateKioskToken = createServerFn({ method: "GET" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.string().min(1).max(2048), data))
   .handler(async ({ data }) => {
     // First verify the JWT signature + expiration
     const payload = await verifyToken(data, getKioskSecret());

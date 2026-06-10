@@ -1,6 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { sendEmail, waitlistConfirmationEmail } from "@/lib/email";
+import { emailSchema } from "@/lib/validation";
+
+const waitlistBodySchema = z.object({
+  email: emailSchema,
+  name: z.string().max(100).optional(),
+  role: z.string().max(50).optional(),
+  orgName: z.string().max(200).optional(),
+});
 
 export const Route = createFileRoute("/api/waitlist/")({
   server: {
@@ -24,16 +33,11 @@ export const Route = createFileRoute("/api/waitlist/")({
         };
 
         try {
-          const body = (await request.json()) as {
-            email?: string;
-            name?: string;
-            role?: string;
-            orgName?: string;
-          };
-
-          if (!body.email || typeof body.email !== "string") {
+          const parsed = waitlistBodySchema.safeParse(await request.json().catch(() => null));
+          if (!parsed.success) {
+            const issue = parsed.error.issues[0];
             return new Response(
-              JSON.stringify({ error: "Email is required" }),
+              JSON.stringify({ error: issue ? issue.message : "Invalid request body" }),
               {
                 status: 400,
                 headers: {
@@ -43,6 +47,7 @@ export const Route = createFileRoute("/api/waitlist/")({
               }
             );
           }
+          const body = parsed.data;
 
           const prisma = getPrisma();
           const existing = await prisma.waitlistSignup.findUnique({

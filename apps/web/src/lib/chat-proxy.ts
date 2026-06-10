@@ -7,6 +7,7 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
 import {
@@ -14,8 +15,29 @@ import {
   sanitizePayloadSummary,
   type WebhookEventInput,
 } from "@/lib/settings";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 
 type Platform = "mattermost" | "slack" | "teams" | "discord";
+
+const platformSchema = z.enum(["mattermost", "slack", "teams", "discord"]);
+
+// These functions act on an org's connected chat platform (send as the org,
+// read its history) — they must never be reachable without org membership.
+async function assertOrgAccess(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { id: true },
+  });
+  if (!member) throw new Error("Forbidden");
+}
 
 function parseShowPilotFormattedMessage(message: string): {
   senderName?: string;
@@ -79,11 +101,12 @@ async function getChatCredentials(
 // ─── Test Connection ────────────────────────────────────────
 
 export const testChatConnection = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; platform: Platform }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, platform: platformSchema }), data),
   )
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+      await assertOrgAccess(data.orgId);
       const creds = await getChatCredentials(data.orgId, data.platform);
       const prisma = getPrisma();
       const logEvent = (event: WebhookEventInput): void => {
@@ -295,17 +318,21 @@ export const testChatConnection = createServerFn({ method: "POST" })
 // ─── Send Message ───────────────────────────────────────────
 
 export const sendExternalChatMessage = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      platform: Platform;
-      text: string;
-      senderName: string;
-      type?: string;
-    }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        platform: platformSchema,
+        text: z.string().min(1).max(4000),
+        senderName: z.string().max(200),
+        type: z.string().max(20).optional(),
+      }),
+      data,
+    ),
   )
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+      await assertOrgAccess(data.orgId);
       const creds = await getChatCredentials(data.orgId, data.platform);
       const prisma = getPrisma();
       const logEvent = (event: WebhookEventInput): void => {
@@ -554,18 +581,22 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
 // ─── Get History / Poll ─────────────────────────────────────
 
 export const getExternalChatHistory = createServerFn({ method: "GET" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      platform: Platform;
-      limit?: number;
-      since?: string;
-    }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        platform: platformSchema,
+        limit: z.number().int().min(1).max(200).optional(),
+        since: z.string().max(64).optional(),
+      }),
+      data,
+    ),
   )
   .handler(
     async ({
       data,
     }): Promise<{ ok: boolean; messages: ChatMessage[]; error?: string }> => {
+      await assertOrgAccess(data.orgId);
       const creds = await getChatCredentials(data.orgId, data.platform);
       const limit = data.limit ?? 50;
 

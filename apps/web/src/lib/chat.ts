@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 
 async function assertOrgAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -30,7 +32,9 @@ export const getChatMessages = createServerFn({ method: "GET" })
   });
 
 export const sendChatMessage = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; message: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, message: z.string().min(1).max(4000) }), data),
+  )
   .handler(async ({ data }) => {
     const { getAuth } = await import("@/lib/auth");
     const auth = getAuth();
@@ -56,7 +60,7 @@ export const sendChatMessage = createServerFn({ method: "POST" })
   });
 
 export const clearChatHistory = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();

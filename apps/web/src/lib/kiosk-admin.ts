@@ -3,6 +3,11 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+
+const colorSchema = z.string().max(30); // hex or css color token
+const weekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
 // ─────────────────────────────────────────────────────────────
 // Admin CRUD for the kiosk Org Chart (teams) and On-Duty roster.
@@ -98,7 +103,9 @@ export const getKioskTeams = createServerFn({ method: "GET" })
   });
 
 export const createTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; name: string; color: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema, color: colorSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     const next = await db()
@@ -114,7 +121,12 @@ export const createTeam = createServerFn({ method: "POST" })
   });
 
 export const updateTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string; name: string; color: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ orgId: idSchema, id: idSchema, name: z.string().max(200), color: colorSchema }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     await db()
@@ -124,7 +136,9 @@ export const updateTeam = createServerFn({ method: "POST" })
   });
 
 export const deleteTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     // Explicit child delete — D1 doesn't enforce FK cascades by default.
@@ -133,8 +147,16 @@ export const deleteTeam = createServerFn({ method: "POST" })
   });
 
 export const setTeamMember = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; teamId: string; userId: string; role: "lead" | "member" }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        teamId: idSchema,
+        userId: idSchema,
+        role: z.enum(["lead", "member"]),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
@@ -163,7 +185,9 @@ export const setTeamMember = createServerFn({ method: "POST" })
   });
 
 export const removeTeamMember = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; teamId: string; userId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, teamId: idSchema, userId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     const owns = await db()
@@ -211,7 +235,7 @@ export const getRosterRoles = createServerFn({ method: "GET" })
   });
 
 export const seedRosterRoles = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     const existing = await db()
@@ -229,7 +253,17 @@ export const seedRosterRoles = createServerFn({ method: "POST" })
   });
 
 export const createRosterRole = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; code: string; name: string; short: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        code: z.string().max(50),
+        name: labelSchema,
+        short: z.string().max(10),
+      }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     const code = data.code.trim().toLowerCase().replace(/\s+/g, "-");
@@ -247,7 +281,9 @@ export const createRosterRole = createServerFn({ method: "POST" })
   });
 
 export const deleteRosterRole = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     await db().prepare("DELETE FROM roster_assignment WHERE orgId = ? AND roleId = ?").bind(data.orgId, data.id).run();
@@ -277,13 +313,16 @@ export const getRosterWeek = createServerFn({ method: "GET" })
   });
 
 export const saveRosterWeek = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      weekStart: string;
-      tech: { roleId: string; userId: string }[];
-      pmUserId: string | null;
-    }) => data,
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        weekStart: weekStartSchema,
+        tech: z.array(z.object({ roleId: idSchema, userId: idSchema })).max(100),
+        pmUserId: idSchema.nullable(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
