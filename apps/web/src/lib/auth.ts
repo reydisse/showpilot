@@ -77,7 +77,9 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   const cfEnv = env as unknown as Record<string, unknown>;
-  const secret = (cfEnv.BETTER_AUTH_SECRET as string) || "showpilot-better-auth-secret";
+  // Fail closed: never run with a guessable session-signing secret.
+  const secret = cfEnv.BETTER_AUTH_SECRET as string | undefined;
+  if (!secret) throw new Error("BETTER_AUTH_SECRET is not configured");
   const baseURL = (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
 
   return betterAuth({
