@@ -2,6 +2,28 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
+import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+
+// Kiosk tokens are org-scoped API credentials, so creating, listing, and
+// revoking them requires the same permission as other API keys. Returns the
+// caller's userId (used for createdBy) so callers don't re-fetch the session.
+async function assertKioskTokenPermission(orgId: string): Promise<string> {
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { role: true },
+  });
+  const role = normalizeRole(member?.role ?? null);
+  if (!role || !hasPermission(role, "settings:api_keys")) {
+    throw new Error("Forbidden");
+  }
+  return session.user.id;
+}
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -52,20 +74,20 @@ export async function verifyToken(
   const [header, body, signature] = parts;
   const data = `${header}.${body}`;
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
-  const sigBytes = Uint8Array.from(
-    atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
-    (c) => c.charCodeAt(0)
-  );
-  const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(data));
-  if (!valid) return null;
   try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+    const sigBytes = Uint8Array.from(
+      atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0)
+    );
+    const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(data));
+    if (!valid) return null;
     const payload = JSON.parse(
       atob(body.replace(/-/g, "+").replace(/_/g, "/"))
     );
@@ -73,6 +95,7 @@ export async function verifyToken(
     if (payload.exp && Date.now() / 1000 > payload.exp) return null;
     return payload;
   } catch {
+    // Malformed base64 / JSON / crypto input → treat as an invalid token.
     return null;
   }
 }
@@ -91,10 +114,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
     }) => data
   )
   .handler(async ({ data }) => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
-    if (!session) throw new Error("Unauthorized");
+    const userId = await assertKioskTokenPermission(data.orgId);
 
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
@@ -124,7 +144,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
         view: data.view,
         token,
         expiresAt: exp ? new Date(exp * 1000) : null,
-        createdBy: session.user.id,
+        createdBy: userId,
       },
     });
 
@@ -134,6 +154,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
 export const listKioskTokens = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertKioskTokenPermission(data.orgId);
     const prisma = getPrisma();
     return await prisma.kioskToken.findMany({
       where: { orgId: data.orgId, revokedAt: null },
@@ -145,6 +166,12 @@ export const revokeKioskToken = createServerFn({ method: "POST" })
   .inputValidator((data: { tokenId: string }) => data)
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.kioskToken.findUnique({
+      where: { id: data.tokenId },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Token not found");
+    await assertKioskTokenPermission(existing.orgId);
     return await prisma.kioskToken.update({
       where: { id: data.tokenId },
       data: { revokedAt: new Date() },

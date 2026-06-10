@@ -1,5 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Crown, X, Users, CalendarDays } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Crown,
+  X,
+  Users,
+  CalendarDays,
+  KeyRound,
+  Copy,
+  Check,
+} from "lucide-react";
 import {
   getKioskTeams,
   getRosterRoles,
@@ -16,6 +26,11 @@ import {
   type AdminTeam,
   type RosterRole,
 } from "@/lib/kiosk-admin";
+import {
+  createKioskToken,
+  listKioskTokens,
+  revokeKioskToken,
+} from "@/lib/kiosk";
 
 type Member = { id: string; name: string; image: string | null };
 
@@ -47,7 +62,7 @@ export function KioskSection({
     image: m.user.image,
   }));
 
-  const [tab, setTab] = useState<"org" | "roster">("org");
+  const [tab, setTab] = useState<"org" | "roster" | "tokens">("org");
   const [teams, setTeams] = useState<AdminTeam[]>([]);
   const [roles, setRoles] = useState<RosterRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,6 +96,7 @@ export function KioskSection({
         {[
           { id: "org" as const, label: "Org Chart", icon: Users },
           { id: "roster" as const, label: "On-Duty Roster", icon: CalendarDays },
+          { id: "tokens" as const, label: "Access Tokens", icon: KeyRound },
         ].map((t) => {
           const Icon = t.icon;
           return (
@@ -104,8 +120,10 @@ export function KioskSection({
         <div className="py-10 text-center text-sm text-board-muted">Loading…</div>
       ) : tab === "org" ? (
         <OrgChartTab orgId={orgId} teams={teams} members={members} onChange={reload} />
-      ) : (
+      ) : tab === "roster" ? (
         <RosterTab orgId={orgId} roles={roles} members={members} onChange={reload} />
+      ) : (
+        <AccessTokensTab orgId={orgId} slug={slug} />
       )}
 
       <p className="mt-8 text-[10px] text-board-muted/50">
@@ -113,6 +131,155 @@ export function KioskSection({
         <code className="text-board-muted">/api/v1/kiosk/roster</code> for org{" "}
         <span className="font-mono">{slug}</span> (kiosk token required).
       </p>
+    </div>
+  );
+}
+
+// ─── Access Tokens ───────────────────────────────────────────
+
+type KioskTokenRow = {
+  id: string;
+  label: string;
+  token: string;
+  expiresAt: string | Date | null;
+  createdAt: string | Date;
+};
+
+function maskToken(t: string): string {
+  return t.length > 18 ? `${t.slice(0, 10)}…${t.slice(-6)}` : t;
+}
+
+function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
+  const [tokens, setTokens] = useState<KioskTokenRow[]>([]);
+  const [label, setLabel] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    const rows = (await listKioskTokens({ data: { orgId } })) as KioskTokenRow[];
+    setTokens(rows);
+    setLoading(false);
+  }, [orgId]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const generate = async () => {
+    if (!label.trim() || busy) return;
+    setBusy(true);
+    try {
+      // view "board" — the read-only kiosk data endpoints ignore it, but the
+      // schema requires a value and "board" matches the lobby/booth use case.
+      const created = (await createKioskToken({
+        data: { orgId, label: label.trim(), view: "board", expiresInDays: null },
+      })) as KioskTokenRow;
+      setLabel("");
+      // Reveal the new token immediately so it can be copied.
+      setRevealed((prev) => new Set(prev).add(created.id));
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (id: string) => {
+    await revokeKioskToken({ data: { tokenId: id } });
+    await reload();
+  };
+
+  const copy = async (row: KioskTokenRow) => {
+    await navigator.clipboard.writeText(row.token);
+    setCopiedId(row.id);
+    setTimeout(() => setCopiedId((c) => (c === row.id ? null : c)), 1500);
+  };
+
+  const toggleReveal = (id: string) =>
+    setRevealed((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-board-border bg-board-card p-3">
+        <div className="flex items-center gap-2">
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && generate()}
+            placeholder="Token label (e.g. Lobby rotator)"
+            className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500"
+          />
+          <button
+            onClick={generate}
+            disabled={busy || !label.trim()}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50"
+          >
+            <Plus className="w-3.5 h-3.5" /> Generate
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-board-muted/70">
+          Send as <code className="text-board-muted">Authorization: Bearer &lt;token&gt;</code> to{" "}
+          <code className="text-board-muted">/api/v1/kiosk/*</code> for org{" "}
+          <span className="font-mono">{slug}</span>. Copy it now — store it somewhere safe.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="py-10 text-center text-sm text-board-muted">Loading…</div>
+      ) : tokens.length === 0 ? (
+        <div className="text-center py-10 text-sm text-board-muted">
+          No tokens yet — generate one above for your kiosk displays.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {tokens.map((row) => {
+            const shown = revealed.has(row.id);
+            return (
+              <div
+                key={row.id}
+                className="flex items-center gap-2 rounded-xl border border-board-border bg-board-card p-3"
+              >
+                <KeyRound className="w-4 h-4 text-board-muted shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-board-text truncate">{row.label}</div>
+                  <code className="text-[11px] text-board-muted font-mono break-all">
+                    {shown ? row.token : maskToken(row.token)}
+                  </code>
+                </div>
+                <button
+                  onClick={() => toggleReveal(row.id)}
+                  className="px-2 py-1 rounded-lg text-[11px] text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
+                >
+                  {shown ? "Hide" : "Reveal"}
+                </button>
+                <button
+                  onClick={() => copy(row)}
+                  title="Copy token"
+                  className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
+                >
+                  {copiedId === row.id ? (
+                    <Check className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+                <button
+                  onClick={() => revoke(row.id)}
+                  title="Revoke token"
+                  className="p-2 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
