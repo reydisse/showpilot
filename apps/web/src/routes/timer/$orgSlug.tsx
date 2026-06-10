@@ -1119,7 +1119,6 @@ function FullTimerView({
   phase,
   phaseColors,
   timer,
-  now,
   connected,
   totalElapsed,
   stageMessage,

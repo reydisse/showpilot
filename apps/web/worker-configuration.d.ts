@@ -13,6 +13,8 @@ declare namespace Cloudflare {
 		BETTER_AUTH_SECRET: string;
 		BETTER_AUTH_URL: string;
 		RESEND_API_KEY: string;
+		CLOUDFLARE_API_TOKEN: string;
+		CLOUDFLARE_ACCOUNT_ID: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

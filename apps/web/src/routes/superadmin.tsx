@@ -7,8 +7,6 @@ import {
   Mail,
   Shield,
   Monitor,
-  Clock,
-  ChevronDown,
   ListChecks,
   Send,
   Trash2,

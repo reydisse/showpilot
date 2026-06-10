@@ -48,11 +48,9 @@ const config = defineConfig({
   },
   environments: {
       client: {
-      resolve: {
-        alias: {
-          'cloudflare:workers': path.resolve(__dirname, './src/lib/cloudflare-workers-shim.ts'),
-        },
-      },
+      // 'cloudflare:workers' is shimmed for the client by the
+      // cloudflare-workers-client-shim plugin above (per-environment
+      // resolve.alias is not a supported Vite option).
       build: {
         rollupOptions: {
           external: [],

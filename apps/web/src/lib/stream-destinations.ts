@@ -39,7 +39,7 @@ async function assertDestinationAccess(id: string) {
 }
 
 function getCfHeaders() {
-  const token = (env as Record<string, string>).CLOUDFLARE_API_TOKEN;
+  const token: string | undefined = env.CLOUDFLARE_API_TOKEN;
   if (!token) throw new Error("CLOUDFLARE_API_TOKEN not configured");
   return {
     Authorization: `Bearer ${token}`,
@@ -48,7 +48,7 @@ function getCfHeaders() {
 }
 
 function getAccountId() {
-  const id = (env as Record<string, string>).CLOUDFLARE_ACCOUNT_ID;
+  const id: string | undefined = env.CLOUDFLARE_ACCOUNT_ID;
   if (!id) throw new Error("CLOUDFLARE_ACCOUNT_ID not configured");
   return id;
 }

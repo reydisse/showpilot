@@ -84,7 +84,7 @@ type RelationalRundownStore = {
 };
 
 function getRelationalRundownStore(prisma: ReturnType<typeof getPrisma>): RelationalRundownStore | null {
-  const store = (prisma as { rundownItem?: RelationalRundownStore }).rundownItem;
+  const store = (prisma as unknown as { rundownItem?: RelationalRundownStore }).rundownItem;
   if (
     !store ||
     typeof store.findMany !== "function" ||
@@ -175,7 +175,7 @@ function parseRundownJson<T>(value: string | undefined | null, fallback: T): T {
 }
 
 function normalizeTimerState(value: string | undefined | null): NativeTimerState {
-  const parsed = parseRundownJson(value, {
+  const parsed = parseRundownJson<unknown>(value, {
     playback: "stop",
     currentItemId: null,
     elapsed: 0,
@@ -421,15 +421,6 @@ function rundownTimerKey(serviceDate: string) {
   return `rundown-timer:${serviceDate}`;
 }
 
-const defaultTimer: NativeTimerState = {
-  playback: "stop",
-  currentItemId: null,
-  elapsed: 0,
-  startedAt: null,
-  pausedAt: null,
-  mode: "count-down",
-  serverTime: Date.now(),
-};
 
 /**
  * Get the rundown state for an org on a specific service date.

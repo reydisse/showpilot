@@ -42,7 +42,6 @@ import { testChatConnection } from "@/lib/chat-proxy";
 import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
-import { authClient } from "@/lib/auth-client";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
 
@@ -123,19 +122,6 @@ function SettingsPage() {
     useState<Record<string, string>>(settings);
   const [toast, setToast] = useState<string | null>(null);
 
-  const canEditSettings = hasAnyPermission(role, [
-    "settings:organization",
-    "settings:integrations",
-    "settings:production_defaults",
-    "settings:lowerthird_config",
-    "settings:notifications",
-    "settings:billing",
-    "settings:api_keys",
-    "settings:webhooks",
-    "settings:danger_zone",
-    "org:delete",
-  ]);
-  const canDeleteOrg = hasPermission(role, "org:delete");
   const canManageMembers = hasPermission(role, "settings:members");
   const canViewIntegrations = hasPermission(role, "settings:integrations");
   const canViewOrganization = hasPermission(role, "settings:organization");
@@ -573,7 +559,7 @@ function TeamSection({ members, orgId }: SectionProps) {
                 ROLE_COLORS[member.role] ?? ROLE_COLORS.member
               }`}
             >
-              {ROLE_META[member.role]?.label ?? member.role}
+              {ROLE_META[member.role as keyof typeof ROLE_META]?.label ?? member.role}
             </span>
           </div>
         ))}

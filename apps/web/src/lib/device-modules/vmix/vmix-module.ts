@@ -103,5 +103,5 @@ export const vmixModuleDefinition: ModuleDefinition = {
   ],
   icon: "Monitor",
   description: "Control vMix via HTTP API. Switch inputs, trigger transitions, manage streaming and recording.",
-  createInstance: (settings) => new VMixModule(settings as VMixSettings),
+  createInstance: (settings) => new VMixModule(settings as unknown as VMixSettings),
 };

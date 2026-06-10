@@ -151,7 +151,8 @@ function DevicesPage() {
                   }`}
                 >
                   <Link
-                    to={`/${slug}/dashboard/devices/${device.id}`}
+                    to="/$slug/dashboard/devices/$deviceId"
+                    params={{ slug, deviceId: device.id }}
                     className="block mb-3 group cursor-pointer"
                   >
                     <div className="flex items-start justify-between mb-3">

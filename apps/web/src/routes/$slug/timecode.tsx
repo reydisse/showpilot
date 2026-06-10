@@ -21,18 +21,14 @@ function TimecodePage() {
 
   const {
     state,
-    display,
     connected,
     events,
     isMaster,
     startFreerun,
     stopGenerator,
     startMtc,
-    stopMtc,
-    setTimecode,
     setFormat,
     addEvent,
-    updateEvent,
     removeEvent,
     resetEvents,
     mtcSupported,

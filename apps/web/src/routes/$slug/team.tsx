@@ -26,7 +26,6 @@ import {
   removeMember,
   cancelInvitation,
 } from "@/lib/session";
-import { authClient } from "@/lib/auth-client";
 import { ROLE_META, ASSIGNABLE_ROLES } from "@/lib/permissions";
 import { hasPermission } from "@/lib/app-permissions";
 import { MemberTable } from "@/components/admin/MemberTable";
@@ -426,7 +425,10 @@ function InvitationRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm text-board-text truncate">{invitation.email}</p>
         <p className="text-[10px] text-board-muted">
-          {ROLE_META[invitation.role ?? "member"]?.label ?? invitation.role ?? "member"} &middot; expires{" "}
+          {ROLE_META[(invitation.role ?? "member") as keyof typeof ROLE_META]?.label ??
+            invitation.role ??
+            "member"}{" "}
+          &middot; expires{" "}
           {new Date(invitation.expiresAt).toLocaleDateString()}
         </p>
       </div>
@@ -480,7 +482,7 @@ function OrgMemberRow({
 
   const roleStyle = ROLE_STYLES[member.role] ?? ROLE_STYLES.member;
   const roleIcon = ROLE_ICONS[member.role] ?? ROLE_ICONS.member;
-  const roleLabel = ROLE_META[member.role]?.label ?? member.role;
+  const roleLabel = ROLE_META[member.role as keyof typeof ROLE_META]?.label ?? member.role;
   const isOwner = member.role === "owner";
 
   return (

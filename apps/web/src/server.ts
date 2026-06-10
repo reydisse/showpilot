@@ -57,7 +57,7 @@ function isAllowedApiOrigin(origin: string | null): boolean {
 
 function withApiCorsHeaders(request: Request, response: Response): Response {
   const origin = request.headers.get("origin");
-  if (!isAllowedApiOrigin(origin)) return response;
+  if (!origin || !isAllowedApiOrigin(origin)) return response;
 
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", origin);
@@ -109,7 +109,7 @@ async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
 }
 
 export default {
-  async fetch(request: Request, env: unknown, ctx: unknown) {
+  async fetch(request: Request, env: unknown, _ctx: unknown) {
     const url = new URL(request.url);
     const e = env as Env;
 
@@ -238,7 +238,9 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
-    const response = await handler.fetch(request, env, ctx);
+    // TanStack Start's handler reads env/ctx via `cloudflare:workers` itself;
+    // its fetch only takes (request, options?).
+    const response = await handler.fetch(request);
     return withApiCorsHeaders(request, response);
   },
 };

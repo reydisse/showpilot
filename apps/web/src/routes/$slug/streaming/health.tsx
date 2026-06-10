@@ -620,7 +620,6 @@ function CopyField({
 /* ─── Setup Guide Accordion ─────────────────────────────── */
 
 function SetupGuide({
-  id,
   icon,
   title,
   subtitle,

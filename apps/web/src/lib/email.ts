@@ -7,9 +7,7 @@ interface SendEmailOptions {
 }
 
 export async function sendEmail({ to, subject, html }: SendEmailOptions) {
-  const apiKey = (env as Record<string, unknown>).RESEND_API_KEY as
-    | string
-    | undefined;
+  const apiKey: string | undefined = env.RESEND_API_KEY;
 
   console.log("[email] sendEmail called:", { to, subject, hasApiKey: !!apiKey });
 

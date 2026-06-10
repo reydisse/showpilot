@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_auth")({
 
     // If already logged in with an active org, redirect to their dashboard
     if (result.session.activeOrganizationId && result.org && !isSetupOrInvitations) {
-      throw redirect({ to: `/${result.org.slug}` });
+      throw redirect({ to: "/$slug", params: { slug: result.org.slug } });
     }
 
     // If logged in but no active org, try to auto-activate an existing one
@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_auth")({
         const orgs = await listUserOrgs();
         if (orgs && orgs.length > 0) {
           await setActiveOrg({ data: orgs[0].id });
-          throw redirect({ to: `/${orgs[0].slug}` });
+          throw redirect({ to: "/$slug", params: { slug: orgs[0].slug } });
         }
       } catch (e) {
         if (isRedirect(e)) throw e;

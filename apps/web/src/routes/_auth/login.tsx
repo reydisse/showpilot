@@ -1,7 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { getUserInvitations } from "@/lib/session";
 
 export const Route = createFileRoute("/_auth/login")({
   component: LoginPage,
@@ -46,7 +45,6 @@ function EyeOffIcon({ className }: { className?: string }) {
 }
 
 function LoginPage() {
-  const navigate = useNavigate();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -62,10 +62,21 @@ export const getOntimeState = createServerFn({ method: "GET" })
 
     try {
       // OnTime v3 uses /api/poll for live state and /data/rundown for event list
-      const [pollRes, rundownRes] = await Promise.all([
+      type PollResponse = {
+        payload?: {
+          timer?: Partial<OntimeTimer>;
+          eventNow?: OntimeEvent | null;
+          eventNext?: OntimeEvent | null;
+          clock?: number;
+        };
+      };
+      type RundownResponse =
+        | OntimeEvent[]
+        | { order?: string[]; entries?: Record<string, OntimeEvent> };
+      const [pollRes, rundownRes] = (await Promise.all([
         fetch(`${baseUrl}/api/poll`).then((r) => r.ok ? r.json() : null).catch(() => null),
         fetch(`${baseUrl}/data/rundown`).then((r) => r.ok ? r.json() : null).catch(() => null),
-      ]);
+      ])) as [PollResponse | null, RundownResponse | null];
 
       const poll = pollRes?.payload;
       if (!poll) {
@@ -95,8 +106,9 @@ export const getOntimeState = createServerFn({ method: "GET" })
           );
         } else if (rundownRes.order && rundownRes.entries) {
           // Fallback: v3 format with order + entries map
+          const entries = rundownRes.entries;
           events = rundownRes.order
-            .map((id: string) => rundownRes.entries[id])
+            .map((id: string) => entries[id])
             .filter((e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip);
         }
       }

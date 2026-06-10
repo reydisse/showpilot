@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
@@ -7,7 +7,6 @@ export const Route = createFileRoute("/_auth/setup")({
 });
 
 function SetupPage() {
-  const navigate = useNavigate();
   const [orgName, setOrgName] = useState("");
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);

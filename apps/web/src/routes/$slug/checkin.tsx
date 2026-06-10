@@ -222,7 +222,8 @@ function CheckInPage() {
                 {result.isOnline && (
                   <div className="space-y-2 pt-2 w-full max-w-xs mx-auto">
                     <Link
-                      to={`/${slug}/crew-chat`}
+                      to="/$slug/crew-chat"
+                      params={{ slug }}
                       search={{ name: result.name }}
                       className="flex items-center justify-center gap-2.5 w-full px-5 py-3.5 rounded-2xl bg-fire-500 text-white font-semibold text-base hover:bg-fire-600 transition-colors"
                     >
@@ -230,7 +231,8 @@ function CheckInPage() {
                       Join Production Chat
                     </Link>
                     <Link
-                      to={`/${slug}/rundown`}
+                      to="/$slug/rundown"
+                      params={{ slug }}
                       className="flex items-center justify-center gap-2.5 w-full px-5 py-3.5 rounded-2xl bg-board-card border border-board-border text-board-text font-medium text-base hover:bg-board-border/50 transition-colors"
                     >
                       <Timer className="w-5 h-5" />

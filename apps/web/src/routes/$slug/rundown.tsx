@@ -69,7 +69,6 @@ import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
 type ItemStatus = "upcoming" | "live" | "complete";
-const RUNDOWN_MIN_WIDTH = 1280;
 
 interface RundownItem {
   id: string;

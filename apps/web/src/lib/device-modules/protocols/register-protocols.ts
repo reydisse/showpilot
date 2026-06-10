@@ -5,8 +5,8 @@ import { TcpCommandDriver } from "./tcp-command/tcp-command-driver";
 import { ViscaDriver } from "./visca/visca-driver";
 import { WolDriver } from "./wol/wol-driver";
 
-registerProtocol("http-command", (settings) => new HttpCommandDriver());
-registerProtocol("pjlink", (settings) => new PJLinkDriver());
-registerProtocol("tcp-command", (settings) => new TcpCommandDriver());
-registerProtocol("visca-ip", (settings) => new ViscaDriver());
-registerProtocol("wol", (settings) => new WolDriver());
+registerProtocol("http-command", () => new HttpCommandDriver());
+registerProtocol("pjlink", () => new PJLinkDriver());
+registerProtocol("tcp-command", () => new TcpCommandDriver());
+registerProtocol("visca-ip", () => new ViscaDriver());
+registerProtocol("wol", () => new WolDriver());
