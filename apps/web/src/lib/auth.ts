@@ -85,6 +85,14 @@ export function getAuth() {
   return betterAuth({
     baseURL,
     secret,
+    // Code-level minimum against credential stuffing / signup abuse.
+    // In-memory storage is per-isolate on Workers; Cloudflare WAF rules
+    // provide the durable layer in production.
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 10,
+    },
     trustedOrigins: [
       "http://localhost:3000",
       "http://localhost:5173",
