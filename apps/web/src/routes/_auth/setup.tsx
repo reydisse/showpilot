@@ -1,23 +1,274 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
-import { MailWarning } from "lucide-react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Check, MailWarning } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { identifyAnalytics, track } from "@/lib/analytics";
+import {
+  checkOrgSlug,
+  getOnboardingProgress,
+  markOnboardingStarted,
+} from "@/lib/onboarding";
+import { deriveResumeScene } from "@/lib/onboarding-flow";
+
+// ─────────────────────────────────────────────────────────────
+// "First show in 5 minutes" — cinematic onboarding wizard.
+// Five scenes, broadcast-dark, every animation ≤ 400ms, all skippable,
+// reduced-motion clean. Visual reference: showpilot-onboarding-prototype.jsx.
+// Progress persists server-side (appSettings) — refresh resumes the scene.
+// ─────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute("/_auth/setup")({
-  component: SetupPage,
+  loader: async () => {
+    const progress = await getOnboardingProgress();
+    if (!progress.authenticated) {
+      throw redirect({ to: "/login" });
+    }
+    const decision = deriveResumeScene({
+      hasOrg: progress.hasOrg,
+      isOwner: progress.isOwner,
+      started: progress.started,
+      hasRole: Boolean(progress.archetype),
+      hasSeed: Boolean(progress.seededTemplate),
+      completed: progress.completed,
+    });
+    if (decision.kind === "redirect" && progress.org) {
+      throw redirect({ to: "/$slug", params: { slug: progress.org.slug } });
+    }
+    return {
+      progress,
+      initialScene: decision.kind === "scene" ? decision.scene : 1,
+    };
+  },
+  component: SetupWizard,
 });
 
-function SetupPage() {
+// Broadcast palette — matches the approved prototype exactly.
+const T = {
+  stage: "#0A0B0D",
+  panel: "#13151A",
+  panelHover: "#191C22",
+  border: "#262A32",
+  text: "#E9EBEE",
+  muted: "#8B919C",
+  faint: "#5A6069",
+  amber: "#FFB224",
+  red: "#E5484D",
+  green: "#3DD68C",
+} as const;
+
+const SCENE_TITLES = ["On the air", "Your role", "Pick a show", "Build", "Crew & go"] as const;
+
+const WIZARD_CSS = `
+  @keyframes spob-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spob-lowerThird { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spob-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(229,72,77,.45);} 50% { box-shadow: 0 0 0 16px rgba(229,72,77,0);} }
+  @keyframes spob-powerOn {
+    0% { opacity: 0; transform: scale(.85); box-shadow: 0 0 0 rgba(229,72,77,0); }
+    55% { opacity: 1; transform: scale(1.04); box-shadow: 0 0 90px rgba(229,72,77,.55); }
+    100% { opacity: 1; transform: scale(1); box-shadow: 0 0 36px rgba(229,72,77,.3); }
+  }
+  @keyframes spob-vignette { from { opacity: 0; } to { opacity: 1; } }
+  .spob .rise { animation: spob-rise .38s ease-out both; }
+  .spob .lt { animation: spob-lowerThird .38s ease-out both; }
+  .spob .pulse3 { animation: spob-pulse 2s ease-out 3; }
+  .spob .powerOn { animation: spob-powerOn .4s ease-out both; }
+  .spob .vig { animation: spob-vignette .4s ease-out .15s both; }
+  .spob .card { transition: transform .15s ease-out, background .15s ease-out, border-color .15s ease-out; }
+  .spob .card:hover { transform: translateY(-2px); background: ${T.panelHover}; border-color: #3A3F49; }
+  .spob input::placeholder { color: ${T.faint}; }
+  /* Everything skippable: any click/keypress jumps animations to their end state. */
+  .spob[data-skip="true"] .rise, .spob[data-skip="true"] .lt {
+    animation-duration: 0s !important; animation-delay: 0s !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spob .rise, .spob .lt, .spob .powerOn, .spob .vig, .spob .pulse3 { animation: none !important; }
+    .spob .card, .spob .card:hover { transition: none; transform: none; }
+  }
+`;
+
+// ─── Persistent timecode clock — runs through every scene ────
+
+function Timecode() {
+  const [now, setNow] = useState(() => new Date());
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNow(new Date());
+      setFrame((f) => (f + 1) % 30);
+    }, 33);
+    return () => clearInterval(id);
+  }, []);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    <div
+      className="font-mono flex items-center gap-2 text-[13px] tracking-[0.14em]"
+      style={{ color: T.amber }}
+    >
+      <span
+        className="h-[7px] w-[7px] rounded-full"
+        style={{ background: T.amber, boxShadow: `0 0 8px ${T.amber}` }}
+      />
+      {p(now.getHours())}:{p(now.getMinutes())}:{p(now.getSeconds())}:{p(frame)}
+    </div>
+  );
+}
+
+function Slate({ scene }: { scene: number }) {
+  return (
+    <div
+      className="font-mono text-[11px] uppercase tracking-[0.22em]"
+      style={{ color: T.faint }}
+    >
+      Setup · Scene {scene}/5 — {SCENE_TITLES[scene - 1]}
+    </div>
+  );
+}
+
+// ─── Wizard shell ────────────────────────────────────────────
+
+type SceneNumber = 1 | 2 | 3 | 4 | 5;
+
+interface WizardOrg {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+function SetupWizard() {
+  const { progress, initialScene } = Route.useLoaderData();
   const { user } = Route.useRouteContext() as {
-    user: { email: string; emailVerified?: boolean } | null;
+    user: { id?: string; email: string; emailVerified?: boolean } | null;
   };
+
+  const [scene, setScene] = useState<SceneNumber>(initialScene);
+  const [cut, setCut] = useState(false);
+  const [skip, setSkip] = useState(false);
+  const [org, setOrg] = useState<WizardOrg | null>(progress.org);
+
+  useEffect(() => {
+    identifyAnalytics(user?.id ?? user?.email);
+    track("onboarding_started", { resumedAtScene: initialScene });
+    // Fire once per wizard mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Broadcast cut between scenes: dip to black, 220ms, with a breath.
+  const go = (next: SceneNumber) => {
+    setCut(true);
+    setTimeout(() => {
+      setScene(next);
+      setSkip(false);
+      setCut(false);
+    }, 220);
+  };
+
+  return (
+    <div
+      className="spob fixed inset-0 z-10 overflow-y-auto"
+      data-skip={skip}
+      style={{ background: T.stage, color: T.text }}
+      onClickCapture={() => setSkip(true)}
+      onKeyDownCapture={() => setSkip(true)}
+    >
+      <style>{WIZARD_CSS}</style>
+
+      {/* Persistent header */}
+      <div className="absolute inset-x-0 top-0 z-[5] flex items-center justify-between px-6 py-[18px]">
+        <Timecode />
+        <Slate scene={scene} />
+      </div>
+
+      {/* Switcher cut */}
+      {cut && <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />}
+
+      <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]">
+        {scene === 1 && (
+          <SceneOrgCreate
+            user={user}
+            onCreated={(created) => {
+              setOrg(created);
+              go(2);
+            }}
+          />
+        )}
+        {scene !== 1 && org && <ScenePlaceholder org={org} />}
+      </div>
+    </div>
+  );
+}
+
+// Temporary stand-in while Scenes 2–5 land in subsequent commits.
+function ScenePlaceholder({ org }: { org: WizardOrg }) {
+  return (
+    <div className="rise">
+      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">{org.name} is ready.</h1>
+      <p className="mb-7" style={{ color: T.muted }}>
+        The rest of the pre-show flow is on its way.
+      </p>
+      <a
+        href={`/${org.slug}`}
+        className="inline-flex items-center gap-2.5 rounded-[10px] px-5 py-3.5 text-base font-semibold"
+        style={{ background: T.text, color: T.stage }}
+      >
+        Head to your org <ArrowRight size={17} />
+      </a>
+    </div>
+  );
+}
+
+// ─── Scene 1 — "Get your show on the air" ────────────────────
+
+type SlugState = "idle" | "checking" | "ok" | "taken";
+
+function deriveSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 40);
+}
+
+function SceneOrgCreate({
+  user,
+  onCreated,
+}: {
+  user: { email: string; emailVerified?: boolean } | null;
+  onCreated: (org: WizardOrg) => void;
+}) {
   const needsVerification = Boolean(user && !user.emailVerified);
   const [orgName, setOrgName] = useState("");
-  const [slug, setSlug] = useState("");
+  const [slugOverride, setSlugOverride] = useState<string | null>(null);
+  const [slugState, setSlugState] = useState<SlugState>("idle");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [verificationSent, setVerificationSent] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
+  const latestSlug = useRef("");
+
+  const slug = slugOverride ?? deriveSlug(orgName);
+
+  // Debounced live uniqueness check with inline availability indicator.
+  useEffect(() => {
+    latestSlug.current = slug;
+    if (slug.length < 3) {
+      setSlugState("idle");
+      return;
+    }
+    setSlugState("checking");
+    const id = setTimeout(async () => {
+      try {
+        const result = await checkOrgSlug({ data: { slug } });
+        if (latestSlug.current !== slug) return; // stale response
+        setSlugState(result.available ? "ok" : "taken");
+        setSuggestion(result.suggestion);
+      } catch {
+        if (latestSlug.current === slug) setSlugState("idle");
+      }
+    }, 450);
+    return () => clearTimeout(id);
+  }, [slug]);
 
   async function handleResendVerification() {
     if (!user?.email) return;
@@ -37,161 +288,160 @@ function SetupPage() {
     }
   }
 
-  function handleNameChange(value: string) {
-    setOrgName(value);
-    // Auto-generate slug from name
-    setSlug(
-      value
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-    );
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (slugState !== "ok" || creating || needsVerification) return;
     setError(null);
-    setLoading(true);
-
+    setCreating(true);
     try {
-      // Create the organization
-      const { error: createError } =
-        await authClient.organization.create({
-          name: orgName,
-          slug,
-        });
-      if (createError) throw new Error(createError.message);
+      const name = orgName.trim();
+      const { data: created, error: createError } = await authClient.organization.create({
+        name,
+        slug,
+      });
+      if (createError || !created) {
+        // Collision despite the live check, or any create failure:
+        // inline error, stay on Scene 1, re-run the availability check.
+        setSlugState("idle");
+        throw new Error(createError?.message ?? "Could not create your organization");
+      }
+      const { error: activeError } = await authClient.organization.setActive({
+        organizationSlug: slug,
+      });
+      if (activeError) throw new Error(activeError.message);
 
-      // Set it as active
-      const { error: setActiveError } =
-        await authClient.organization.setActive({
-          organizationSlug: slug,
-        });
-      if (setActiveError) throw new Error(setActiveError.message);
-
-      // Full reload to pick up the updated session
-      window.location.href = `/${slug}`;
+      await markOnboardingStarted({ data: { orgId: created.id } });
+      track("org_created", { slug });
+      onCreated({ id: created.id, name, slug });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create organization"
-      );
+      setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
-      setLoading(false);
+      setCreating(false);
     }
   }
 
+  const ctaReady = slugState === "ok" && !needsVerification && !creating;
+
   return (
-    <div className="animate-float-in">
-      <div className="mb-8 flex flex-col items-center">
-        <h1 className="text-3xl font-bold tracking-tight">
-          <span className="text-fire-500">Show</span>
-          <span className="text-board-text">Pilot</span>
-        </h1>
-        <p className="mt-1 text-sm tracking-widest uppercase text-board-muted">
-          Set up your organization
-        </p>
-      </div>
+    <form className="rise" onSubmit={handleSubmit}>
+      <h1 className="mb-2.5 mt-12 text-[40px] font-extrabold leading-tight tracking-[-0.02em]">
+        Let's get your first show
+        <br />
+        on the air.
+      </h1>
+      <p className="mb-9 text-base" style={{ color: T.muted }}>
+        Name your organization — everything else takes about four minutes.
+      </p>
 
-      <div
-        className="rounded-2xl border border-white/[0.08] p-8 shadow-2xl backdrop-blur-xl"
-        style={{
-          background:
-            "linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)",
+      {needsVerification && (
+        <div
+          className="mb-5 rounded-xl border px-4 py-3"
+          style={{ borderColor: `${T.amber}40`, background: `${T.amber}14` }}
+        >
+          <div className="flex items-start gap-2.5">
+            <MailWarning className="mt-0.5 h-4 w-4 shrink-0" style={{ color: T.amber }} />
+            <div>
+              <p className="text-sm">
+                Verify your email to create an organization. We sent a link to{" "}
+                <strong>{user?.email}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={sendingVerification || verificationSent}
+                className="mt-1.5 text-sm font-medium disabled:pointer-events-none disabled:opacity-60"
+                style={{ color: T.amber }}
+              >
+                {verificationSent
+                  ? "Email sent — check your inbox"
+                  : sendingVerification
+                    ? "Sending..."
+                    : "Resend verification email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <input
+        autoFocus
+        value={orgName}
+        onChange={(e) => {
+          setOrgName(e.target.value);
+          setSlugOverride(null);
         }}
-      >
-        <h2 className="mb-2 text-center text-xl font-semibold text-board-text">
-          Create your team
-        </h2>
-        <p className="mb-6 text-center text-sm text-board-muted">
-          This is your production team workspace.
-        </p>
+        placeholder="e.g. Faithfire Church"
+        className="w-full rounded-xl border px-5 py-[18px] text-[22px] font-medium outline-none"
+        style={{ background: T.panel, borderColor: T.border, color: T.text }}
+      />
 
-        {needsVerification && (
-          <div className="mb-5 rounded-xl border border-fire-500/25 bg-fire-500/10 px-4 py-3">
-            <div className="flex items-start gap-2.5">
-              <MailWarning className="mt-0.5 h-4 w-4 shrink-0 text-fire-500" />
-              <div>
-                <p className="text-sm text-board-text">
-                  Verify your email to create an organization. We sent a link to{" "}
-                  <strong>{user?.email}</strong>.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleResendVerification}
-                  disabled={sendingVerification || verificationSent}
-                  className="mt-1.5 text-sm font-medium text-fire-500 hover:text-fire-400 disabled:pointer-events-none disabled:opacity-60"
-                >
-                  {verificationSent
-                    ? "Email sent — check your inbox"
-                    : sendingVerification
-                      ? "Sending..."
-                      : "Resend verification email"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="group">
-            <label
-              htmlFor="orgName"
-              className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500"
-            >
-              Organization Name
-            </label>
-            <input
-              id="orgName"
-              type="text"
-              required
-              value={orgName}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="e.g. Grace Community Church"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
-            />
-          </div>
-
-          <div className="group">
-            <label
-              htmlFor="slug"
-              className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500"
-            >
-              URL Slug
-            </label>
-            <input
-              id="slug"
-              type="text"
-              required
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder="grace-community"
-              pattern="[a-z0-9-]+"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
-            />
-            <p className="mt-1 text-xs text-board-muted/60">
-              Letters, numbers, and hyphens only
-            </p>
-          </div>
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-              <p className="text-sm text-red-300">{error}</p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || !orgName || !slug || needsVerification}
-            className="relative mt-2 w-full overflow-hidden rounded-xl px-4 py-3 font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
+      {/* Slug lower third — slides in, updates live as they type */}
+      {slug.length >= 3 && (
+        <div key={slug} className="lt mt-3.5 flex flex-wrap items-center gap-2.5 font-mono text-[13px]">
+          <span
+            className="rounded-md border px-3 py-2"
             style={{
-              background:
-                "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+              background: T.panel,
+              borderColor: T.border,
+              borderLeft: `3px solid ${slugState === "ok" ? T.green : slugState === "taken" ? T.red : T.amber}`,
+              color: T.muted,
             }}
           >
-            {loading ? "Creating..." : "Create & Continue"}
-          </button>
-        </form>
-      </div>
-    </div>
+            showpilot.tech/<span style={{ color: T.text }}>{slug}</span>
+          </span>
+          {slugState === "checking" && <span style={{ color: T.faint }}>checking…</span>}
+          {slugState === "ok" && (
+            <span className="flex items-center gap-1" style={{ color: T.green }}>
+              <Check size={13} /> available
+            </span>
+          )}
+          {slugState === "taken" && (
+            <span className="flex items-center gap-1.5" style={{ color: T.red }}>
+              <span
+                className="inline-block h-[7px] w-[7px] rounded-full"
+                style={{ background: T.red }}
+              />
+              taken
+              {suggestion && (
+                <>
+                  {" — try "}
+                  <button
+                    type="button"
+                    onClick={() => setSlugOverride(suggestion)}
+                    className="underline underline-offset-2"
+                    style={{ color: T.text }}
+                  >
+                    {suggestion}
+                  </button>
+                </>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div
+          className="mt-4 rounded-lg border px-3 py-2.5 text-sm"
+          style={{ borderColor: `${T.red}40`, background: `${T.red}14`, color: "#FCA5A5" }}
+        >
+          {error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={!ctaReady}
+        className="mt-9 inline-flex items-center gap-2.5 rounded-[10px] border px-[22px] py-3.5 text-base font-semibold"
+        style={{
+          color: ctaReady ? T.stage : T.faint,
+          background: ctaReady ? T.text : T.panel,
+          borderColor: T.border,
+          cursor: ctaReady ? "pointer" : "default",
+        }}
+      >
+        {creating ? "Building…" : "Build my show"} <ArrowRight size={17} />
+      </button>
+    </form>
   );
 }

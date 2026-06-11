@@ -9,7 +9,7 @@ import {
   type TemplateSeedStore,
 } from "@/lib/templates";
 import { z } from "zod";
-import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import { idSchema, orgSlugSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 // ─────────────────────────────────────────────────────────────
 // Onboarding wizard server functions. Wizard progress lives in
@@ -18,6 +18,12 @@ import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 // ─────────────────────────────────────────────────────────────
 
 const ONBOARDING_SEED_KEY = "onboarding-template-seeded";
+const ONBOARDING_STARTED_KEY = "onboarding-started";
+const ONBOARDING_COMPLETED_KEY = "onboarding-completed";
+
+function onboardingRoleKey(userId: string) {
+  return `onboarding-role:${userId}`;
+}
 
 async function getSessionUser() {
   const { getAuth } = await import("@/lib/auth");
@@ -64,6 +70,142 @@ export async function getSeedMarkerForOrg(orgId: string): Promise<SeedMarker | n
   });
   return parseSeedMarker(setting?.value);
 }
+
+// ─── Wizard progress (resume derivation source) ──────────────
+
+export interface OnboardingProgressPayload {
+  authenticated: boolean;
+  hasOrg: boolean;
+  isOwner: boolean;
+  started: boolean;
+  completed: boolean;
+  archetype: string | null;
+  landing: string | null;
+  seededTemplate: string | null;
+  seedServiceDate: string | null;
+  org: { id: string; name: string; slug: string } | null;
+}
+
+const EMPTY_PROGRESS: OnboardingProgressPayload = {
+  authenticated: false,
+  hasOrg: false,
+  isOwner: false,
+  started: false,
+  completed: false,
+  archetype: null,
+  landing: null,
+  seededTemplate: null,
+  seedServiceDate: null,
+  org: null,
+};
+
+/**
+ * Server-derived wizard state for the setup route. A refresh mid-wizard
+ * resumes from this — no localStorage.
+ */
+export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
+  async (): Promise<OnboardingProgressPayload> => {
+    const user = await getSessionUser().catch(() => null);
+    if (!user) return EMPTY_PROGRESS;
+
+    const prisma = getPrisma();
+    const membership = await prisma.member.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: "asc" },
+      include: { organization: { select: { id: true, name: true, slug: true } } },
+    });
+    if (!membership) return { ...EMPTY_PROGRESS, authenticated: true };
+
+    const orgId = membership.organizationId;
+    const roleKey = onboardingRoleKey(user.id);
+    const settings = await prisma.appSetting.findMany({
+      where: {
+        orgId,
+        key: { in: [ONBOARDING_STARTED_KEY, ONBOARDING_COMPLETED_KEY, ONBOARDING_SEED_KEY, roleKey] },
+      },
+    });
+    const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+
+    let archetype: string | null = null;
+    let landing: string | null = null;
+    const roleValue = byKey.get(roleKey);
+    if (roleValue) {
+      try {
+        const parsed = JSON.parse(roleValue) as { archetype?: string; landing?: string };
+        archetype = typeof parsed.archetype === "string" ? parsed.archetype : null;
+        landing = typeof parsed.landing === "string" ? parsed.landing : null;
+      } catch {
+        archetype = null;
+      }
+    }
+
+    const seedMarker = parseSeedMarker(byKey.get(ONBOARDING_SEED_KEY));
+
+    return {
+      authenticated: true,
+      hasOrg: true,
+      isOwner: membership.role === "owner",
+      started: Boolean(byKey.get(ONBOARDING_STARTED_KEY)),
+      completed: Boolean(byKey.get(ONBOARDING_COMPLETED_KEY)),
+      archetype,
+      landing,
+      seededTemplate: seedMarker?.template ?? null,
+      seedServiceDate: seedMarker?.serviceDate ?? null,
+      org: membership.organization,
+    };
+  },
+);
+
+async function upsertOrgSetting(orgId: string, key: string, value: string) {
+  const prisma = getPrisma();
+  await prisma.appSetting.upsert({
+    where: { orgId_key: { orgId, key } },
+    update: { value },
+    create: { orgId, key, value },
+  });
+}
+
+/**
+ * Checkpoint #1 marker: the org was created through the wizard. Orgs
+ * without it (pre-existing, invited members) never see the wizard.
+ */
+export const markOnboardingStarted = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }) => {
+    const role = await getOrgMemberRole(data.orgId);
+    if (role !== "owner") throw new Error("Forbidden");
+    await upsertOrgSetting(data.orgId, ONBOARDING_STARTED_KEY, new Date().toISOString());
+    return { ok: true };
+  });
+
+// ─── Slug availability (Scene 1 live check) ──────────────────
+
+export const checkOrgSlug = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ slug: z.string().max(60) }), data))
+  .handler(async ({ data }): Promise<{ available: boolean; suggestion: string | null }> => {
+    await getSessionUser();
+
+    const parsed = orgSlugSchema.safeParse(data.slug);
+    if (!parsed.success) return { available: false, suggestion: null };
+
+    const prisma = getPrisma();
+    const existing = await prisma.organization.findUnique({
+      where: { slug: parsed.data },
+      select: { id: true },
+    });
+    if (!existing) return { available: true, suggestion: null };
+
+    // Taken — offer the first free numbered variant, e.g. faithfire-2.
+    const base = parsed.data.slice(0, 37);
+    const candidates = Array.from({ length: 8 }, (_, i) => `${base}-${i + 2}`);
+    const taken = await prisma.organization.findMany({
+      where: { slug: { in: candidates } },
+      select: { slug: true },
+    });
+    const takenSet = new Set(taken.map((org) => org.slug));
+    const suggestion = candidates.find((candidate) => !takenSet.has(candidate)) ?? null;
+    return { available: false, suggestion };
+  });
 
 /**
  * Seed the org's first show from an onboarding template: rundown items,
