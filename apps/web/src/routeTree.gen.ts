@@ -35,6 +35,7 @@ import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -185,6 +186,11 @@ const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
   path: '/api/waitlist/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe/webhook',
+  path: '/api/stripe/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
   id: '/api/overlay/$orgSlug',
   path: '/api/overlay/$orgSlug',
@@ -330,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -376,6 +383,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -425,6 +433,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -474,6 +483,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
+    | '/api/stripe/webhook'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -520,6 +530,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
+    | '/api/stripe/webhook'
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -568,6 +579,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
+    | '/api/stripe/webhook'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -588,6 +600,7 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
+  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
   ApiV1KioskAssetsRoute: typeof ApiV1KioskAssetsRoute
   ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
@@ -776,6 +789,13 @@ declare module '@tanstack/react-router' {
       path: '/api/waitlist'
       fullPath: '/api/waitlist/'
       preLoaderRoute: typeof ApiWaitlistIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/stripe/webhook': {
+      id: '/api/stripe/webhook'
+      path: '/api/stripe/webhook'
+      fullPath: '/api/stripe/webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/overlay/$orgSlug': {
@@ -1031,6 +1051,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
+  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
   ApiV1KioskAssetsRoute: ApiV1KioskAssetsRoute,
   ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,

@@ -15,6 +15,11 @@ declare namespace Cloudflare {
 		RESEND_API_KEY: string;
 		CLOUDFLARE_API_TOKEN: string;
 		CLOUDFLARE_ACCOUNT_ID: string;
+		STRIPE_SECRET_KEY: string;
+		STRIPE_WEBHOOK_SECRET: string;
+		STRIPE_PRICE_STARTER: string;
+		STRIPE_PRICE_PRO: string;
+		STRIPE_PRICE_FOUNDING: string;
 	}
 }
 interface Env extends Cloudflare.Env {}
