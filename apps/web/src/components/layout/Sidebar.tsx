@@ -188,6 +188,10 @@ export function Sidebar() {
   const hidden = fullscreen || isSettings;
   const w = hidden ? 0 : collapsed ? 68 : 240;
 
+  if (hidden && !isMobile) {
+    return null;
+  }
+
   // Mobile: overlay drawer
   if (isMobile) {
     return (

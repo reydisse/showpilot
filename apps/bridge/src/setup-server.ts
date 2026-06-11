@@ -53,13 +53,30 @@ export function saveConfigFile(config: BridgeConfig): void {
   fs.writeFileSync(fullPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
-export function buildBridgeUrl(site: string, org: string): string {
-  const normalized = site.startsWith("http://") || site.startsWith("https://") ? site : `https://${site}`;
-  const url = new URL(normalized.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:"));
+function toBridgeUrl(siteUrl: string, org: string): string {
+  const url = new URL(siteUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:"));
   url.pathname = `/api/bridge/${org}/ws`;
   url.searchParams.delete("role");
   url.searchParams.delete("key");
   return url.toString();
+}
+
+export async function resolveBridgeUrl(site: string, org: string): Promise<string> {
+  const normalized = site.startsWith("http://") || site.startsWith("https://") ? site : `https://${site}`;
+
+  try {
+    const response = await fetch(normalized, {
+      method: "GET",
+      redirect: "follow",
+    });
+    if (response.url) {
+      return toBridgeUrl(response.url, org);
+    }
+  } catch {
+    // Fall back to the site URL directly if we can't resolve redirects.
+  }
+
+  return toBridgeUrl(normalized, org);
 }
 
 export function startSetupServer(
@@ -97,7 +114,7 @@ export function startSetupServer(
         return;
       }
 
-      config.url = buildBridgeUrl(config.site, config.org);
+      config.url = await resolveBridgeUrl(config.site, config.org);
       saveConfigFile(config);
       await onSave(config);
       res.writeHead(303, { Location: "/?saved=1" });
@@ -182,7 +199,7 @@ export function startSetupServer(
       </div>
       <div class="card">
         <div class="muted">Current bridge URL</div>
-        <div style="word-break:break-all;margin-top:6px">${escapeHtml(config?.url ?? (config ? buildBridgeUrl(config.site, config.org) : "not configured"))}</div>
+        <div style="word-break:break-all;margin-top:6px">${escapeHtml(config?.url ?? "not configured")}</div>
       </div>
     </div>
   </body>

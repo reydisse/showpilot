@@ -12,9 +12,11 @@ export async function clearServiceWorkerState(): Promise<void> {
   }
 
   try {
+    // Existing SW cache has been causing stale HTML to be served for JS assets.
+    // Unregister any prior workers and clear caches so the app can hydrate cleanly.
     if ("serviceWorker" in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
+      await Promise.all(registrations.map((reg) => reg.unregister()));
     }
 
     if ("caches" in window) {

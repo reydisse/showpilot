@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
+import { getAuth } from "./lib/auth";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -133,6 +134,12 @@ export default {
         status: 204,
         headers: corsHeaders,
       });
+    }
+
+    const authMatch = url.pathname.match(/^\/api\/auth(?:\/.*)?$/);
+    if (authMatch) {
+      const auth = getAuth();
+      return await auth.handler(request);
     }
 
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
