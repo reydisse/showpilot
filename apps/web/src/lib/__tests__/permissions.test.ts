@@ -47,6 +47,20 @@ describe("director roles (td/cd/pd)", () => {
   });
 });
 
+describe("invite role dropdown derivation", () => {
+  it("every assignable role carries ROLE_META — the onboarding dropdown derives with zero changes", () => {
+    for (const role of ASSIGNABLE_ROLES) {
+      expect(ROLE_META[role]).toBeDefined();
+      expect(ROLE_META[role].label.length).toBeGreaterThan(0);
+      expect(ROLE_META[role].description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("lead roster order: directors, managers, admin, member", () => {
+    expect([...ASSIGNABLE_ROLES]).toEqual(["td", "cd", "pd", "pm", "tm", "sm", "admin", "member"]);
+  });
+});
+
 describe("manager scoping regression (unchanged by director roles)", () => {
   const expectExactPermissions = (role: Role, expected: readonly Permission[]) => {
     expect([...getPermissions(role)].sort()).toEqual([...expected].sort());

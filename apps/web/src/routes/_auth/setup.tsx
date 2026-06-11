@@ -9,6 +9,8 @@ import {
   Headset,
   MailWarning,
   Palette,
+  Plus,
+  QrCode,
   SlidersHorizontal,
   Timer,
   type LucideIcon,
@@ -17,6 +19,7 @@ import { authClient } from "@/lib/auth-client";
 import { identifyAnalytics, track } from "@/lib/analytics";
 import {
   checkOrgSlug,
+  completeOnboarding,
   getOnboardingProgress,
   markOnboardingStarted,
   saveOnboardingRole,
@@ -24,9 +27,15 @@ import {
 } from "@/lib/onboarding";
 import {
   ONBOARDING_ARCHETYPES,
+  archetypeLanding,
   deriveResumeScene,
   type OnboardingArchetype,
 } from "@/lib/onboarding-flow";
+import { addCrewMember } from "@/lib/data";
+import { inviteMember } from "@/lib/session";
+import { generateMemberId } from "@/lib/import-members-csv";
+import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
+import { DEPARTMENTS, getDepartment } from "@/types/index";
 import {
   ONBOARDING_TEMPLATES,
   templateBadge,
@@ -184,6 +193,10 @@ function SetupWizard() {
   const [cut, setCut] = useState(false);
   const [skip, setSkip] = useState(false);
   const [org, setOrg] = useState<WizardOrg | null>(progress.org);
+  const [archetype, setArchetype] = useState<OnboardingArchetype | null>(
+    (progress.archetype as OnboardingArchetype | null) ?? null,
+  );
+  const [flash, setFlash] = useState(false);
   const [seed, setSeed] = useState<SeedState>({
     status: progress.seededTemplate ? "done" : "idle",
     template: (progress.seededTemplate as OnboardingTemplateId | null) ?? null,
@@ -239,8 +252,8 @@ function SetupWizard() {
         <Slate scene={scene} />
       </div>
 
-      {/* Switcher cut */}
-      {cut && <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />}
+      {/* Switcher cut + ON AIR take (brief dip to black) */}
+      {(cut || flash) && <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />}
 
       <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]">
         {scene === 1 && (
@@ -255,6 +268,7 @@ function SetupWizard() {
         {scene === 2 && org && (
           <SceneRole
             onSelect={(selected) => {
+              setArchetype(selected);
               track("role_selected", { role: selected });
               // Optimistic: advance on tap, persist in the background.
               // A failed write just means a refresh re-asks the question.
@@ -281,7 +295,46 @@ function SetupWizard() {
             onDone={() => go(5)}
           />
         )}
-        {scene === 5 && org && <ScenePlaceholder org={org} seeded={seed.status === "done"} />}
+        {scene === 5 && org && (
+          <SceneTeam
+            onGoLive={async ({ crew, invites }) => {
+              const used = new Set<string>();
+              const work: Promise<unknown>[] = [];
+              for (const row of crew) {
+                work.push(
+                  addCrewMember({
+                    data: {
+                      orgId: org.id,
+                      memberId: generateMemberId(row.name, used),
+                      name: row.name,
+                      role: row.pos,
+                    },
+                  }),
+                );
+              }
+              for (const row of invites) {
+                work.push(
+                  inviteMember({
+                    data: { orgId: org.id, email: row.email, role: row.role },
+                  }),
+                );
+              }
+              if (crew.length > 0) track("crew_added", { count: crew.length });
+              if (invites.length > 0) track("invite_sent", { count: invites.length });
+              track("went_live", { archetype });
+
+              setFlash(true); // the "take" — brief dip to black
+              const landing = `/${org.slug}${archetypeLanding(archetype)}`;
+              await Promise.allSettled(work);
+              await completeOnboarding({ data: { orgId: org.id } }).catch(() => {});
+              // ON AIR flash ≤ 400ms, then land on the role-based route.
+              // Full reload picks up the new org session context.
+              setTimeout(() => {
+                window.location.href = landing;
+              }, 260);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -336,23 +389,199 @@ function SceneRole({ onSelect }: { onSelect: (archetype: OnboardingArchetype) =>
   );
 }
 
-// Temporary stand-in while Scenes 4–5 land in subsequent commits.
-function ScenePlaceholder({ org, seeded }: { org: WizardOrg; seeded?: boolean }) {
+// ─── Scene 5 — Build your team + GO LIVE ─────────────────────
+// Two distinct populations, never conflated:
+//   Crew (operators)   → CrewMember records: show board only, no account.
+//   App members (leads) → Better Auth invitations with real RBAC roles.
+
+interface CrewRow {
+  name: string;
+  pos: string;
+}
+
+interface InviteRow {
+  email: string;
+  role: string;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const inputStyle = {
+  background: T.stage,
+  borderColor: T.border,
+  color: T.text,
+} as const;
+
+function SceneTeam({
+  onGoLive,
+}: {
+  onGoLive: (team: { crew: CrewRow[]; invites: InviteRow[] }) => Promise<void>;
+}) {
+  const [crew, setCrew] = useState<CrewRow[]>([{ name: "", pos: "" }]);
+  const [invites, setInvites] = useState<InviteRow[]>([{ email: "", role: "member" }]);
+  const [taking, setTaking] = useState(false);
+
+  const handleGoLive = () => {
+    if (taking) return;
+    setTaking(true);
+    void onGoLive({
+      crew: crew.filter((row) => row.name.trim() && row.pos.trim()),
+      invites: invites.filter((row) => EMAIL_RE.test(row.email.trim())),
+    });
+  };
+
   return (
     <div className="rise">
-      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">
-        {seeded ? "Your show is built." : `${org.name} is ready.`}
-      </h1>
-      <p className="mb-7" style={{ color: T.muted }}>
-        The rest of the pre-show flow is on its way.
+      <h1 className="mb-1.5 mt-9 text-[30px] font-extrabold">Build your team.</h1>
+      <p className="mb-[26px]" style={{ color: T.muted }}>
+        Two kinds of people run a show — both optional for now.
       </p>
-      <a
-        href={`/${org.slug}`}
-        className="inline-flex items-center gap-2.5 rounded-[10px] px-5 py-3.5 text-base font-semibold"
-        style={{ background: T.text, color: T.stage }}
-      >
-        Head to your org <ArrowRight size={17} />
-      </a>
+      <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+        {/* Panel A — Crew: show board only, no accounts */}
+        <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
+          <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.amber }}>
+            SHOW BOARD
+          </div>
+          <div className="text-base font-bold">Add your crew</div>
+          <p className="mb-3.5 mt-1 text-[13px]" style={{ color: T.muted }}>
+            Operators who appear on the board and check in on show day — no account, no login.
+          </p>
+          {crew.map((row, i) => {
+            const dept = row.pos.trim() ? getDepartment(row.pos) : null;
+            const deptConfig = dept ? DEPARTMENTS[dept] : null;
+            return (
+              <div key={i} className="mb-2.5">
+                <div className="flex gap-2">
+                  <input
+                    value={row.name}
+                    onChange={(e) =>
+                      setCrew(crew.map((v, j) => (j === i ? { ...v, name: e.target.value } : v)))
+                    }
+                    placeholder="Name"
+                    className="min-w-0 flex-[1.2] rounded-lg border px-3 py-2.5 text-sm outline-none"
+                    style={inputStyle}
+                  />
+                  <input
+                    value={row.pos}
+                    onChange={(e) =>
+                      setCrew(crew.map((v, j) => (j === i ? { ...v, pos: e.target.value } : v)))
+                    }
+                    placeholder="Position (e.g. Camera 2, A1)"
+                    className="min-w-0 flex-[1.4] rounded-lg border px-3 py-2.5 text-sm outline-none"
+                    style={inputStyle}
+                  />
+                </div>
+                {/* Department chip — inferred via the existing taxonomy,
+                    sliding in like a lower third. Grouping stays inferred;
+                    there is intentionally no department field. */}
+                {deptConfig && (
+                  <div
+                    key={dept}
+                    className={`lt mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] font-mono text-[10px] uppercase tracking-[0.14em] ${deptConfig.color}`}
+                  >
+                    <span className="h-[5px] w-[5px] rounded-full bg-current" />
+                    {deptConfig.label}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {crew.length < 4 && (
+            <button
+              type="button"
+              onClick={() => setCrew([...crew, { name: "", pos: "" }])}
+              className="flex items-center gap-1.5 text-[13px]"
+              style={{ color: T.faint }}
+            >
+              <Plus size={14} /> Add another
+            </button>
+          )}
+          <div
+            className="mt-3.5 flex items-center gap-2 border-t pt-3 text-xs"
+            style={{ borderColor: T.border, color: T.faint }}
+          >
+            <QrCode size={14} className="shrink-0" style={{ color: T.amber }} />
+            On show day, your board shows a "Scan to Serve" code — crew check in from their phones.
+          </div>
+        </div>
+
+        {/* Panel B — App members: accounts with real RBAC roles */}
+        <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
+          <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.green }}>
+            APP ACCESS
+          </div>
+          <div className="text-base font-bold">Invite your leads</div>
+          <p className="mb-3.5 mt-1 text-[13px]" style={{ color: T.muted }}>
+            People who log in to run rundowns, devices, and dashboards.
+          </p>
+          {invites.map((row, i) => (
+            <div key={i} className="mb-2.5">
+              <div className="flex gap-2">
+                <input
+                  value={row.email}
+                  onChange={(e) =>
+                    setInvites(invites.map((v, j) => (j === i ? { ...v, email: e.target.value } : v)))
+                  }
+                  placeholder="name@church.org"
+                  type="email"
+                  className="min-w-0 flex-1 rounded-lg border px-3 py-2.5 text-sm outline-none"
+                  style={inputStyle}
+                />
+                {/* Role options derive from ASSIGNABLE_ROLES + ROLE_META —
+                    never hardcoded, so future roles appear automatically. */}
+                <select
+                  value={row.role}
+                  onChange={(e) =>
+                    setInvites(invites.map((v, j) => (j === i ? { ...v, role: e.target.value } : v)))
+                  }
+                  className="rounded-lg border px-2 text-[13px] outline-none"
+                  style={{ background: T.stage, borderColor: T.border, color: T.muted }}
+                >
+                  {ASSIGNABLE_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_META[role].label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-1 text-[11px]" style={{ color: T.faint }}>
+                {ROLE_META[row.role as (typeof ASSIGNABLE_ROLES)[number]]?.description}
+              </div>
+            </div>
+          ))}
+          {invites.length < 3 && (
+            <button
+              type="button"
+              onClick={() => setInvites([...invites, { email: "", role: "member" }])}
+              className="flex items-center gap-1.5 text-[13px]"
+              style={{ color: T.faint }}
+            >
+              <Plus size={14} /> Add another
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* The finale */}
+      <div className="mt-11 grid place-items-center">
+        <button
+          type="button"
+          onClick={handleGoLive}
+          disabled={taking}
+          className="pulse3 h-[130px] w-[130px] rounded-full border font-mono text-[17px] font-semibold leading-snug tracking-[0.18em] text-white"
+          style={{
+            background: `radial-gradient(circle at 35% 30%, #FF6A6E, ${T.red} 65%)`,
+            borderColor: "#FF7A7E",
+          }}
+        >
+          GO
+          <br />
+          LIVE
+        </button>
+        <div className="mt-3.5 font-mono text-[11px] tracking-[0.2em]" style={{ color: T.faint }}>
+          TAKE YOUR SHOW TO AIR
+        </div>
+      </div>
     </div>
   );
 }

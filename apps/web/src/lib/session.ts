@@ -279,7 +279,10 @@ export const inviteMember = createServerFn({ method: "POST" })
       headers,
       body: {
         email: data.email,
-        role: data.role as "member" | "admin" | "owner" | "pm" | "tm" | "sm" | "stageManager",
+        role: data.role as
+          | "member" | "admin" | "owner"
+          | "td" | "cd" | "pd"
+          | "pm" | "tm" | "sm" | "stageManager",
         organizationId: data.orgId,
       },
     });
