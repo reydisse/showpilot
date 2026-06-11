@@ -131,22 +131,11 @@ pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/000
 
 For local development use `--local` instead of `--remote`.
 
-### ⚠️ Currently pending in production (verified 2026-06-10)
+### Current state
 
-`0006_rate_limit.sql` **and** `0007_billing.sql` have not been applied to the
-remote database (confirmed via read-only `sqlite_master` /
-`pragma_table_info` queries). The first deploy from `main` will block until
-this is done. Apply **in order**, from `apps/web`:
-
-```sh
-pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/0006_rate_limit.sql
-pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/0007_billing.sql
-```
-
-then append `0006_rate_limit.sql` and `0007_billing.sql` to
-`apps/web/prisma/migrations/applied-remote.txt` and commit. Note that the
-billing code on `feature/launch-readiness` requires 0007's columns — apply it
-before (or together with) deploying that branch.
+All migrations through `0007_billing.sql` were applied to production and
+verified (via read-only `sqlite_master` / `pragma_table_info` queries) on
+2026-06-10. The manifest is up to date.
 
 ---
 

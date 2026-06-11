@@ -5,11 +5,10 @@
 # append its filename on its own line below and commit. The deploy workflow
 # (.github/workflows/deploy.yml) fails if any 000N_*.sql file in this
 # directory is missing from this list. See DEPLOY.md → "D1 migrations".
-#
-# NOTE: 0006_rate_limit.sql and 0007_billing.sql were verified UNAPPLIED in
-# production on 2026-06-10 — apply them (in order) before the next deploy.
 0001_init.sql
 0002_streaming_graphics.sql
 0003_chat_messages.sql
 0004_org_roles_and_kiosk.sql
 0005_kiosk_org_roster.sql
+0006_rate_limit.sql
+0007_billing.sql
