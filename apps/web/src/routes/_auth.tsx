@@ -12,9 +12,11 @@ export const Route = createFileRoute("/_auth")({
       return { user: null };
     }
 
+    // Pages a logged-in user should still be able to reach directly.
     const isSetupOrInvitations =
       location.pathname.startsWith("/setup") ||
-      location.pathname.startsWith("/invitations");
+      location.pathname.startsWith("/invitations") ||
+      location.pathname.startsWith("/verify-email");
 
     // If already logged in with an active org, redirect to their dashboard
     if (result.session.activeOrganizationId && result.org && !isSetupOrInvitations) {

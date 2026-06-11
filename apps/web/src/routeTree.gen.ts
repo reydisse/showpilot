@@ -18,6 +18,7 @@ import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
 import { Route as CheckinSlugRouteImport } from './routes/checkin/$slug'
+import { Route as AuthVerifyEmailRouteImport } from './routes/_auth/verify-email'
 import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
@@ -100,6 +101,11 @@ const CheckinSlugRoute = CheckinSlugRouteImport.update({
   id: '/checkin/$slug',
   path: '/checkin/$slug',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => AuthRoute,
 } as any)
 const AuthSetupRoute = AuthSetupRouteImport.update({
   id: '/setup',
@@ -316,6 +322,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -363,6 +370,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/reset-password': typeof AuthResetPasswordRoute
   '/setup': typeof AuthSetupRoute
+  '/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -413,6 +421,7 @@ export interface FileRoutesById {
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/reset-password': typeof AuthResetPasswordRoute
   '/_auth/setup': typeof AuthSetupRoute
+  '/_auth/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
@@ -463,6 +472,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -510,6 +520,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reset-password'
     | '/setup'
+    | '/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -559,6 +570,7 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/reset-password'
     | '/_auth/setup'
+    | '/_auth/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
     | '/overlay/$orgSlug'
@@ -671,6 +683,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/checkin/$slug'
       preLoaderRoute: typeof CheckinSlugRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_auth/verify-email': {
+      id: '/_auth/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof AuthVerifyEmailRouteImport
+      parentRoute: typeof AuthRoute
     }
     '/_auth/setup': {
       id: '/_auth/setup'
@@ -1027,6 +1046,7 @@ interface AuthRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   AuthSetupRoute: typeof AuthSetupRoute
+  AuthVerifyEmailRoute: typeof AuthVerifyEmailRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
@@ -1035,6 +1055,7 @@ const AuthRouteChildren: AuthRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   AuthSetupRoute: AuthSetupRoute,
+  AuthVerifyEmailRoute: AuthVerifyEmailRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
