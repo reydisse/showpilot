@@ -29,6 +29,7 @@ import { useRundownSync } from "@/hooks/useRundownSync";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
 import { ShowPageTabs } from "@/components/ui/ShowPageTabs";
+import { FirstSessionChecklist } from "@/components/onboarding/FirstSessionChecklist";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 
@@ -230,8 +231,28 @@ function ShowPage() {
   // Determine which rundown mode to render
   if (rundownAdapter === "ontime" && ontimeState) {
     return (
-      <ShowPageWithOntime
-        ontimeState={ontimeState}
+      <>
+        <ShowPageWithOntime
+          ontimeState={ontimeState}
+          members={members}
+          activeMembers={activeMembers}
+          chatAdapter={chatAdapter}
+          orgId={orgId}
+          slug={slug}
+          clockFormat={clockFormat}
+          userName={userName}
+          userRole={userRole}
+        />
+        <FirstSessionChecklist orgId={orgId} slug={slug} />
+      </>
+    );
+  }
+
+  // Default: native rundown
+  return (
+    <>
+      <ShowPageWithNative
+        initialRundown={nativeRundown}
         members={members}
         activeMembers={activeMembers}
         chatAdapter={chatAdapter}
@@ -241,22 +262,8 @@ function ShowPage() {
         userName={userName}
         userRole={userRole}
       />
-    );
-  }
-
-  // Default: native rundown
-  return (
-    <ShowPageWithNative
-      initialRundown={nativeRundown}
-      members={members}
-      activeMembers={activeMembers}
-      chatAdapter={chatAdapter}
-      orgId={orgId}
-      slug={slug}
-      clockFormat={clockFormat}
-      userName={userName}
-      userRole={userRole}
-    />
+      <FirstSessionChecklist orgId={orgId} slug={slug} />
+    </>
   );
 }
 

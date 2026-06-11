@@ -114,6 +114,13 @@ const member = authAccessControl.newRole({
 export const authRoles = {
   owner,
   admin,
+  // Director roles (Technical/Creative/Production) carry the admin
+  // statement set — all directors have admin-level access. Distinct
+  // names so the title renders on the team page and invitations, and
+  // the sets can diverge later without a migration.
+  td: admin,
+  cd: admin,
+  pd: admin,
   pm,
   tm,
   stageManager,
