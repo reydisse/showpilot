@@ -164,6 +164,16 @@ export async function appendWebhookEvent(
   });
 }
 
+// Plan gating: configuring an integration requires a plan that includes
+// integrations. Clearing a value or reverting an adapter to "native" is
+// always allowed so downgraded orgs can untangle themselves.
+async function assertIntegrationPlanAllows(orgId: string, key: string, value: string) {
+  if (permissionForSettingKey(key) !== "settings:integrations") return;
+  if (!value || value === "native") return;
+  const { requirePlanFeature } = await import("@/lib/plan-limits");
+  await requirePlanFeature(orgId, "integrations");
+}
+
 function permissionForSettingKey(key: string): Permission {
   if (key === "api-key") return "settings:api_keys";
   if (key === "webhook-url") return "settings:webhooks";
@@ -220,6 +230,7 @@ export const updateOrgSetting = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
+    await assertIntegrationPlanAllows(data.orgId, data.key, data.value);
     const prisma = getPrisma();
     const previousSetting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
@@ -267,6 +278,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     for (const setting of data.settings) {
       await assertOrgPermission(data.orgId, permissionForSettingKey(setting.key));
+      await assertIntegrationPlanAllows(data.orgId, setting.key, setting.value);
     }
     const prisma = getPrisma();
     const results = [];

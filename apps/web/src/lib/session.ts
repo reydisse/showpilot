@@ -261,6 +261,18 @@ export const inviteMember = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
+
+    // Plan gating: members + outstanding invitations count against the cap.
+    const { checkPlanLimit } = await import("@/lib/plan-limits");
+    const prisma = getPrisma();
+    const [memberCount, pendingInviteCount] = await Promise.all([
+      prisma.member.count({ where: { organizationId: data.orgId } }),
+      prisma.invitation.count({
+        where: { organizationId: data.orgId, status: "pending" },
+      }),
+    ]);
+    await checkPlanLimit(data.orgId, "members", memberCount + pendingInviteCount);
+
     const auth = getAuth();
     const headers = getRequestHeaders();
     return await auth.api.createInvitation({

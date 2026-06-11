@@ -450,6 +450,20 @@ export const saveRundownItems = createServerFn({ method: "POST" })
     const key = rundownItemsKey(data.serviceDate);
     const normalizedItems = normalizeLegacyRundownItems(data.items);
 
+    // Plan gating: a new service date counts as a new show. Existing
+    // dates can always be edited regardless of plan.
+    const existing = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key } },
+      select: { id: true },
+    });
+    if (!existing) {
+      const { checkPlanLimit } = await import("@/lib/plan-limits");
+      const showCount = await prisma.appSetting.count({
+        where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },
+      });
+      await checkPlanLimit(data.orgId, "shows", showCount);
+    }
+
     await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key } },
       update: { value: JSON.stringify(normalizedItems) },

@@ -908,6 +908,11 @@ export const addDevice = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
+
+    const { checkPlanLimit } = await import("@/lib/plan-limits");
+    const deviceCount = await prisma.device.count({ where: { orgId: data.orgId } });
+    await checkPlanLimit(data.orgId, "devices", deviceCount);
+
     return await prisma.device.create({
       data: {
         orgId: data.orgId,

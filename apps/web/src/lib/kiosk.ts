@@ -69,6 +69,9 @@ export const createKioskToken = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const userId = await assertKioskTokenPermission(data.orgId);
 
+    const { requirePlanFeature } = await import("@/lib/plan-limits");
+    await requirePlanFeature(data.orgId, "kiosk");
+
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
       where: { id: data.orgId },
