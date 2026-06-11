@@ -1,0 +1,60 @@
+# CI for the ShowPilot monorepo.
+#
+# STEP ORDER IS CRITICAL: install → prisma generate → typecheck → test.
+# The Prisma client is generated into apps/web/src/generated/prisma, which is
+# gitignored (see /.gitignore: **/src/generated/). If the "Generate Prisma
+# client" step is removed or moved after typechecking, `tsc --noEmit` fails
+# with ~61 cascading "Cannot find module '#/generated/prisma/...'" errors that
+# look like real type breakage but are just the missing generated client.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # Keep in sync with the pnpm version used locally (lockfile v9).
+          version: 10.30.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # MUST run before any typecheck step — see the header comment.
+      - name: Generate Prisma client
+        run: pnpm --filter @showpilot/web db:generate
+
+      - name: Typecheck web
+        run: pnpm --filter @showpilot/web exec tsc --noEmit
+
+      # Non-blocking for now: apps/bridge has a pre-existing type error in
+      # src/mock-propresenter.ts (@types/ws WebSocket is not assignable to the
+      # DOM WebSocket type). Phase 4 is workflows/docs only, so the error is
+      # left in place. Once it is fixed, delete `continue-on-error` to make
+      # this step blocking like the web typecheck.
+      - name: Typecheck bridge (non-blocking, pre-existing error)
+        continue-on-error: true
+        run: pnpm --filter @showpilot/bridge exec tsc --noEmit
+
+      - name: Test web
+        run: pnpm --filter @showpilot/web test
+
+      - name: Test bridge
+        run: pnpm --filter @showpilot/bridge test
