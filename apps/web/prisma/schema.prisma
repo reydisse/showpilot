@@ -187,6 +187,7 @@ model CrewMember {
   memberId     String
   name         String
   role         String
+  email        String       @default("")
   photoUrl     String       @default("")
   isOnline     Boolean      @default(false)
   lastCheckIn  DateTime?
@@ -195,6 +196,7 @@ model CrewMember {
 
   @@unique([orgId, memberId])
   @@index([orgId, name])
+  @@index([orgId, email])
   @@map("crew_member")
 }
 
