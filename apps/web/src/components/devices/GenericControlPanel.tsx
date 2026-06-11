@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  Play,
-  Square,
-  ToggleLeft,
-  ToggleRight,
-  Volume2,
-  Sliders,
-} from "lucide-react";
+import { ToggleLeft, ToggleRight, Sliders } from "lucide-react";
 import type {
   DeviceModule,
   DeviceConnectionStatus,

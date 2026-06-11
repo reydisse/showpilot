@@ -7,6 +7,7 @@
  */
 
 type BridgeStatusCallback = (online: boolean) => void;
+type DeviceStatusCallback = (target: string, connected: boolean) => void;
 
 interface PendingCommand {
   resolve: (response?: string) => void;
@@ -21,6 +22,7 @@ export class BridgeProxy {
   private pendingCommands = new Map<string, PendingCommand>();
   private commandId = 0;
   private statusListeners = new Set<BridgeStatusCallback>();
+  private deviceStatusListeners = new Set<DeviceStatusCallback>();
   private eventListeners = new Set<(target: string, eventName: string, data: string) => void>();
   private orgId: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -88,6 +90,12 @@ export class BridgeProxy {
   onBridgeStatus(callback: BridgeStatusCallback): () => void {
     this.statusListeners.add(callback);
     return () => this.statusListeners.delete(callback);
+  }
+
+  /** Listen for device connected/disconnected changes */
+  onDeviceStatus(callback: DeviceStatusCallback): () => void {
+    this.deviceStatusListeners.add(callback);
+    return () => this.deviceStatusListeners.delete(callback);
   }
 
   /** Listen for device events from bridge */
@@ -169,6 +177,15 @@ export class BridgeProxy {
         }
         break;
       }
+
+      case "device-status": {
+        const target = msg.target as string;
+        const connected = Boolean(msg.connected);
+        for (const cb of this.deviceStatusListeners) {
+          cb(target, connected);
+        }
+        break;
+      }
     }
   }
 
@@ -183,4 +200,16 @@ export class BridgeProxy {
       cb(online);
     }
   }
+}
+
+const sharedBridgeProxies = new Map<string, BridgeProxy>();
+
+export function getSharedBridgeProxy(orgId: string): BridgeProxy {
+  let proxy = sharedBridgeProxies.get(orgId);
+  if (!proxy) {
+    proxy = new BridgeProxy(orgId);
+    proxy.connect();
+    sharedBridgeProxies.set(orgId, proxy);
+  }
+  return proxy;
 }

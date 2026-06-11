@@ -26,7 +26,6 @@ import {
   removeMember,
   cancelInvitation,
 } from "@/lib/session";
-import { authClient } from "@/lib/auth-client";
 import { ROLE_META, ASSIGNABLE_ROLES } from "@/lib/permissions";
 import { hasPermission } from "@/lib/app-permissions";
 import { MemberTable } from "@/components/admin/MemberTable";
@@ -37,10 +36,11 @@ export const Route = createFileRoute("/$slug/team")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "settings:members", context.slug, context.orgId);
+    await withPermission(context.role, ["settings:members", "checkin:access"], context.slug, context.orgId);
+    const canManageMembers = hasPermission(context.role, "settings:members");
     const [orgMembers, invitations, crewMembers] = await Promise.all([
-      getOrgMembers({ data: { orgId: context.orgId } }),
-      getOrgInvitations({ data: { orgId: context.orgId } }),
+      canManageMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
+      canManageMembers ? getOrgInvitations({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       getCrewMembers({ data: { orgId: context.orgId } }),
     ]);
     return {
@@ -59,9 +59,9 @@ type Tab = "members" | "crew";
 function TeamPage() {
   const { orgMembers, invitations, crewMembers, orgId, role } =
     Route.useLoaderData();
-  const [activeTab, setActiveTab] = useState<Tab>("members");
 
   const canManage = hasPermission(role, "settings:members");
+  const [activeTab, setActiveTab] = useState<Tab>(canManage ? "members" : "crew");
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto min-h-0">
@@ -74,13 +74,15 @@ function TeamPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-6 border-b border-board-border overflow-x-auto hide-scrollbar">
-        <TabButton
-          active={activeTab === "members"}
-          onClick={() => setActiveTab("members")}
-          icon={<Shield className="w-4 h-4" />}
-          label="Members"
-          count={orgMembers.length}
-        />
+        {canManage && (
+          <TabButton
+            active={activeTab === "members"}
+            onClick={() => setActiveTab("members")}
+            icon={<Shield className="w-4 h-4" />}
+            label="Members"
+            count={orgMembers.length}
+          />
+        )}
         <TabButton
           active={activeTab === "crew"}
           onClick={() => setActiveTab("crew")}
@@ -347,8 +349,8 @@ function InviteForm({
       onSubmit={handleSubmit}
       className="p-4 rounded-xl border border-board-border bg-board-card space-y-3"
     >
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex-1 min-w-0">
           <input
             type="email"
             required
@@ -358,7 +360,7 @@ function InviteForm({
             className="w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20"
           />
         </div>
-        <div className="relative">
+        <div className="relative sm:w-[180px] shrink-0">
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
@@ -381,7 +383,7 @@ function InviteForm({
         <p className="text-xs text-red-400">{error}</p>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
         <button
           type="submit"
           disabled={loading}
@@ -423,7 +425,10 @@ function InvitationRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm text-board-text truncate">{invitation.email}</p>
         <p className="text-[10px] text-board-muted">
-          {ROLE_META[invitation.role ?? "member"]?.label ?? invitation.role ?? "member"} &middot; expires{" "}
+          {ROLE_META[(invitation.role ?? "member") as keyof typeof ROLE_META]?.label ??
+            invitation.role ??
+            "member"}{" "}
+          &middot; expires{" "}
           {new Date(invitation.expiresAt).toLocaleDateString()}
         </p>
       </div>
@@ -477,7 +482,7 @@ function OrgMemberRow({
 
   const roleStyle = ROLE_STYLES[member.role] ?? ROLE_STYLES.member;
   const roleIcon = ROLE_ICONS[member.role] ?? ROLE_ICONS.member;
-  const roleLabel = ROLE_META[member.role]?.label ?? member.role;
+  const roleLabel = ROLE_META[member.role as keyof typeof ROLE_META]?.label ?? member.role;
   const isOwner = member.role === "owner";
 
   return (

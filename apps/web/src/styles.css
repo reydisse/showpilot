@@ -258,6 +258,278 @@ textarea {
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Show page container-query layout */
+
+.show-page-root {
+  --show-page-tab-bar-height: 2.375rem;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+  container-name: show-page;
+}
+
+.show-page-shell {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.625rem;
+  overflow: hidden;
+}
+
+.show-page-crew-strip {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--board-border) 75%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--board-bg) 82%, transparent);
+  overflow: hidden;
+  min-height: 2.4rem;
+  max-height: 2.8rem;
+}
+
+.show-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--board-border) 70%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--board-bg) 85%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.show-page-tabs {
+  display: none;
+  border: 1px solid color-mix(in srgb, var(--board-border) 70%, transparent);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--board-card) 80%, transparent);
+  overflow: hidden;
+}
+
+.show-page-tab-button {
+  flex: 1;
+  height: var(--show-page-tab-bar-height);
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--board-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.show-page-tab-button[data-active="true"] {
+  background: color-mix(in srgb, var(--board-bg) 85%, transparent);
+  color: var(--board-text);
+}
+
+.show-page-panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: block;
+  min-width: 0;
+  --show-page-left-width: 40%;
+  --show-page-top-height: 45%;
+  --show-page-vertical-handle-size: 0.5rem;
+  --show-page-horizontal-handle-size: 0.5rem;
+}
+
+.show-page-tab-panel {
+  display: none;
+  min-height: 0;
+}
+
+.show-page-resize-handle {
+  display: none;
+  position: relative;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+  user-select: none;
+  touch-action: none;
+  z-index: 10;
+  transition: background 120ms;
+}
+
+.show-page-resize-handle:hover,
+.show-page-resize-handle:active {
+  background: color-mix(in srgb, var(--board-border) 60%, transparent);
+}
+
+.show-page-resize-handle::before {
+  content: "";
+  position: absolute;
+  background: color-mix(in srgb, var(--board-text) 18%, transparent);
+  border-radius: 999px;
+  transition: background 120ms, width 120ms, height 120ms;
+}
+
+.show-page-resize-handle:hover::before,
+.show-page-resize-handle:active::before {
+  background: var(--fire-500);
+}
+
+.show-page-resize-handle-vertical {
+  cursor: col-resize;
+}
+
+.show-page-resize-handle-vertical::before {
+  width: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 10%;
+  height: 80%;
+}
+
+.show-page-resize-handle-horizontal {
+  cursor: row-resize;
+}
+
+.show-page-resize-handle-horizontal::before {
+  height: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  left: 20%;
+  width: 60%;
+}
+
+.show-page-tab-panel[data-tab="show"] {
+  padding: 0;
+}
+
+.show-page-tab-panel[data-tab="chat"] {
+  padding: 0;
+}
+
+.show-page-tab-panel[data-tab="rundown"] {
+  padding: 0;
+}
+
+.show-page-root[data-show-tab="show"] .show-page-tab-panel[data-tab="show"],
+.show-page-root[data-show-tab="chat"] .show-page-tab-panel[data-tab="chat"],
+.show-page-root[data-show-tab="rundown"] .show-page-tab-panel[data-tab="rundown"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.show-page-shell .show-page-show-panel,
+.show-page-shell .show-page-chat-panel,
+.show-page-shell .show-page-rundown-panel {
+  min-width: 0;
+}
+
+.show-page-shell .show-page-chat-panel {
+  min-height: 0;
+}
+
+.show-page-crew-strip footer {
+  border-top: 0;
+  padding-top: 0.5rem;
+  padding-bottom: 0.45rem;
+}
+
+@container show-page (max-width: 39.999rem) {
+.show-page-root[data-show-tab="show"] .show-page-tab-panel[data-tab="show"],
+.show-page-root[data-show-tab="chat"] .show-page-tab-panel[data-tab="chat"],
+.show-page-root[data-show-tab="rundown"] .show-page-tab-panel[data-tab="rundown"] {
+    position: absolute;
+    inset: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+    display: flex;
+  }
+
+  .show-page-tabs {
+    display: flex;
+  }
+
+  .show-page-panels {
+    position: relative;
+  }
+
+  .show-page-resize-handle {
+    display: none;
+  }
+
+  .show-page-show-panel,
+  .show-page-chat-panel,
+  .show-page-rundown-panel {
+    height: 100%;
+  }
+
+  .show-page-crew-strip {
+    min-height: 2.5rem;
+  }
+}
+
+@container show-page (min-width: 40rem) {
+  .show-page-tabs {
+    display: none;
+  }
+
+.show-page-panels {
+    display: grid;
+    gap: 0;
+    grid-template-columns: var(--show-page-left-width) var(--show-page-vertical-handle-size) minmax(0, 1fr);
+    grid-template-rows: minmax(0, var(--show-page-top-height)) var(--show-page-horizontal-handle-size) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .show-page-tab-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .show-page-root[data-show-tab="show"] .show-page-tab-panel,
+  .show-page-root[data-show-tab="chat"] .show-page-tab-panel,
+  .show-page-root[data-show-tab="rundown"] .show-page-tab-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .show-page-tab-panel[data-tab="show"] {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .show-page-tab-panel[data-tab="chat"] {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+.show-page-tab-panel[data-tab="rundown"] {
+  grid-column: 3;
+  grid-row: 1 / span 3;
+}
+
+  .show-page-resize-handle {
+    display: block;
+  }
+
+  .show-page-resize-handle-vertical {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+
+  .show-page-resize-handle-horizontal {
+    grid-column: 1;
+    grid-row: 2;
+  }
+}
+
 .dark {
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
@@ -298,5 +570,24 @@ textarea {
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* ── Rundown page container-query layout ── */
+
+@container (max-width: 767px) {
+  .rundown-columns {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .rundown-panel-left {
+    width: 100% !important;
+    flex-shrink: 0;
+    overflow-y: visible;
+    max-height: none;
+  }
+  .rundown-panel-right {
+    overflow-y: visible;
+    flex: unset;
   }
 }

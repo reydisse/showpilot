@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { moduleRegistry } from "@/lib/device-modules/registry";
-import { BridgeProxy } from "@/lib/device-modules/bridge-proxy";
+import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
 import type {
   DeviceModule,
   DeviceConnectionStatus,
@@ -21,19 +21,6 @@ interface UseDeviceModuleReturn {
   bridgeOnline: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
-}
-
-/** Shared BridgeProxy per orgId — avoids duplicate connections */
-const bridgeProxies = new Map<string, BridgeProxy>();
-
-function getOrCreateBridgeProxy(orgId: string): BridgeProxy {
-  let proxy = bridgeProxies.get(orgId);
-  if (!proxy) {
-    proxy = new BridgeProxy(orgId);
-    proxy.connect();
-    bridgeProxies.set(orgId, proxy);
-  }
-  return proxy;
 }
 
 export function useDeviceModule(
@@ -60,7 +47,7 @@ export function useDeviceModule(
     if (!orgId || !definitionRef.current) return;
     if (definitionRef.current.connectivity !== "bridge-required") return;
 
-    const proxy = getOrCreateBridgeProxy(orgId);
+    const proxy = getSharedBridgeProxy(orgId);
     setBridgeOnline(proxy.isBridgeOnline());
 
     const unsub = proxy.onBridgeStatus((online) => {
@@ -100,7 +87,7 @@ export function useDeviceModule(
       settings = {};
     }
 
-    const mod = definitionRef.current.createInstance(settings);
+    const mod = definitionRef.current.createInstance({ ...settings, orgId });
     moduleRef.current = mod;
 
     // Wire listeners

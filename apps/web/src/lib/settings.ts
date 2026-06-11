@@ -1,7 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
-import { hasPermission, normalizeRole, type Permission } from "@/lib/app-permissions";
+import {
+  hasAnyPermission,
+  hasPermission,
+  normalizeRole,
+  type Permission,
+} from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
+
+// AppSetting values can be JSON blobs (templates, rundown snapshots) —
+// bound generously but finitely.
+const settingKeySchema = z.string().min(1).max(100);
+const settingValueSchema = z.string().max(200_000);
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -27,6 +39,139 @@ async function assertOrgAccess(orgId: string) {
 async function assertOrgPermission(orgId: string, permission: Permission) {
   const role = await getOrgMemberRole(orgId);
   if (!hasPermission(role, permission)) throw new Error("Forbidden");
+}
+
+async function assertApiOrWebhookPermission(orgId: string) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasAnyPermission(role, ["settings:api_keys", "settings:webhooks"])) {
+    throw new Error("Forbidden");
+  }
+}
+
+const WEBHOOK_EVENTS_KEY = "webhook-events";
+const MAX_WEBHOOK_EVENTS = 50;
+
+interface StoredWebhookEvent {
+  id?: string;
+  timestamp?: string;
+  source?: string;
+  type?: string;
+  direction?: "incoming" | "outgoing" | "system";
+  status?: "success" | "error" | "info" | "warning";
+  details?: string;
+  payloadSummary?: string;
+}
+
+export interface WebhookEventLogItem {
+  id: string;
+  timestamp: string;
+  source: string;
+  type: string;
+  direction: "incoming" | "outgoing" | "system";
+  status: "success" | "error" | "info" | "warning";
+  details: string;
+  payloadSummary?: string;
+}
+
+export interface WebhookEventInput
+  extends Omit<WebhookEventLogItem, "id" | "timestamp"> {}
+
+export function sanitizePayloadSummary(payload: unknown): string | undefined {
+  if (typeof payload === "string") {
+    if (!payload.trim()) return undefined;
+    return payload.length > 180 ? `${payload.slice(0, 177)}...` : payload;
+  }
+
+  if (payload == null) return undefined;
+
+  try {
+    const json = JSON.stringify(payload);
+    if (!json) return undefined;
+    return json.length > 180 ? `${json.slice(0, 177)}...` : json;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeWebhookEvent(raw: unknown, fallbackIndex: number): WebhookEventLogItem | null {
+  const event = raw as StoredWebhookEvent | null;
+  if (!event || typeof event !== "object") return null;
+
+  const direction =
+    event.direction === "incoming" || event.direction === "outgoing" || event.direction === "system"
+      ? event.direction
+      : "system";
+  const status =
+    event.status === "success" || event.status === "error" || event.status === "warning"
+      ? event.status
+      : "info";
+  const timestamp =
+    typeof event.timestamp === "string" && !Number.isNaN(Date.parse(event.timestamp))
+      ? event.timestamp
+      : new Date().toISOString();
+
+  return {
+    id:
+      event.id && event.id.length > 0
+        ? event.id
+        : `webhook-event-${Date.now()}-${fallbackIndex}`,
+    timestamp,
+    source: event.source && event.source.trim().length > 0 ? event.source : "system",
+    type: event.type && event.type.trim().length > 0 ? event.type : "webhook-event",
+    direction,
+    status,
+    details: event.details?.trim() ? event.details : "No details provided.",
+    payloadSummary:
+      event.payloadSummary || sanitizePayloadSummary((event as Record<string, unknown>).payload),
+  };
+}
+
+export async function appendWebhookEvent(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  event: WebhookEventInput,
+) {
+  const existing = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
+  });
+
+  const parsed = existing?.value ? (() => {
+    try {
+      return JSON.parse(existing.value);
+    } catch {
+      return [];
+    }
+  })() : [];
+
+  const previousEvents = Array.isArray(parsed) ? (parsed as unknown[]) : [];
+  const normalizedEvents = previousEvents
+    .map((entry, index) => normalizeWebhookEvent(entry, index))
+    .filter((entry): entry is WebhookEventLogItem => Boolean(entry));
+
+  const nextEvents: WebhookEventLogItem[] = [
+    {
+      ...event,
+      id: `webhook-event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+    },
+    ...normalizedEvents,
+  ];
+
+  await prisma.appSetting.upsert({
+    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
+    update: { value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
+    create: { orgId, key: WEBHOOK_EVENTS_KEY, value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
+  });
+}
+
+// Plan gating: configuring an integration requires a plan that includes
+// integrations. Clearing a value or reverting an adapter to "native" is
+// always allowed so downgraded orgs can untangle themselves.
+async function assertIntegrationPlanAllows(orgId: string, key: string, value: string) {
+  if (permissionForSettingKey(key) !== "settings:integrations") return;
+  if (!value || value === "native") return;
+  const { requirePlanFeature } = await import("@/lib/plan-limits");
+  await requirePlanFeature(orgId, "integrations");
 }
 
 function permissionForSettingKey(key: string): Permission {
@@ -77,25 +222,63 @@ export const getOrgSettings = createServerFn({ method: "GET" })
   });
 
 export const updateOrgSetting = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; key: string; value: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ orgId: idSchema, key: settingKeySchema, value: settingValueSchema }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
+    await assertIntegrationPlanAllows(data.orgId, data.key, data.value);
     const prisma = getPrisma();
-    return await prisma.appSetting.upsert({
+    const previousSetting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: data.key } },
+      select: { value: true },
+    });
+    const result = await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
       update: { value: data.value },
       create: { orgId: data.orgId, key: data.key, value: data.value },
     });
+
+    if (data.key === "webhook-url") {
+      try {
+        await appendWebhookEvent(prisma, data.orgId, {
+          source: "settings",
+          type: previousSetting?.value
+            ? "webhook-url-updated"
+            : "webhook-url-set",
+          direction: "system",
+          status: "info",
+          details: data.value
+            ? "Incoming webhook URL has been configured."
+            : "Incoming webhook URL has been cleared.",
+        });
+      } catch {
+        // Non-blocking telemetry
+      }
+    }
+
+    return result;
   });
 
 export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { orgId: string; settings: { key: string; value: string }[] }) =>
-      data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        settings: z
+          .array(z.object({ key: settingKeySchema, value: settingValueSchema }))
+          .max(100),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
     for (const setting of data.settings) {
       await assertOrgPermission(data.orgId, permissionForSettingKey(setting.key));
+      await assertIntegrationPlanAllows(data.orgId, setting.key, setting.value);
     }
     const prisma = getPrisma();
     const results = [];
@@ -108,6 +291,33 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
       results.push(r);
     }
     return results;
+  });
+
+export const getRecentWebhookEvents = createServerFn({ method: "GET" })
+  .inputValidator((data: { orgId: string }) => data)
+  .handler(async ({ data }) => {
+    await assertApiOrWebhookPermission(data.orgId);
+    const prisma = getPrisma();
+    const setting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: WEBHOOK_EVENTS_KEY } },
+    });
+
+    if (!setting?.value) return [];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(setting.value);
+    } catch {
+      return [];
+    }
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .slice(0, MAX_WEBHOOK_EVENTS)
+      .map((entry, index) => normalizeWebhookEvent(entry, index))
+      .filter((event): event is WebhookEventLogItem => Boolean(event))
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   });
 
 // ─── Org Members ────────────────────────────────────────────
@@ -126,7 +336,7 @@ export const getOrgMembers = createServerFn({ method: "GET" })
 // ─── API Key ────────────────────────────────────────────────
 
 export const regenerateApiKey = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:api_keys");
     const prisma = getPrisma();
@@ -262,7 +472,9 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
 // ─── Danger Zone ────────────────────────────────────────────
 
 export const deleteOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; keys: string[] }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, keys: z.array(settingKeySchema).max(100) }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:danger_zone");
     const prisma = getPrisma();

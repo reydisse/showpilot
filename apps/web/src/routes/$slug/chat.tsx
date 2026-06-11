@@ -19,7 +19,7 @@ export const Route = createFileRoute("/$slug/chat")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "chat:access", context.slug, context.orgId);
     const messages = await getChatMessages({ data: { orgId: context.orgId, limit: 100 } });
-    return { messages, orgId: context.orgId };
+    return { messages, orgId: context.orgId, userName: context.user.name, userRole: context.role };
   },
   component: ChatPage,
 });
@@ -35,16 +35,9 @@ function timeAgo(timestamp: string | Date): string {
 }
 
 function ChatPage() {
-  const { messages: initialMessages, orgId } = Route.useLoaderData();
+  const { messages: initialMessages, orgId, userName, userRole } = Route.useLoaderData();
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
-  const [senderName, setSenderName] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("showpilot-chat-name") ?? "";
-    }
-    return "";
-  });
-  const [showNameInput, setShowNameInput] = useState(!senderName);
   const [msgType, setMsgType] = useState<MessageType>("text");
   const [sending, setSending] = useState(false);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
@@ -54,14 +47,8 @@ function ChatPage() {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, dismissedAlertIds.size]);
 
-  const handleSetName = () => {
-    if (!senderName.trim()) return;
-    localStorage.setItem("showpilot-chat-name", senderName.trim());
-    setShowNameInput(false);
-  };
-
   const handleSend = async () => {
-    if (!input.trim() || !senderName.trim()) return;
+    if (!input.trim()) return;
     setSending(true);
     try {
       const text = msgType === "cue"
@@ -69,7 +56,7 @@ function ChatPage() {
         : msgType === "alert"
           ? `[ALERT] ${input.trim()}`
           : input.trim();
-      await sendChatMessage({ data: { orgId, message: text, senderName: senderName.trim() } });
+      await sendChatMessage({ data: { orgId, message: text } });
       setInput("");
       const fresh = await getChatMessages({ data: { orgId, limit: 100 } });
       setMessages(fresh);
@@ -108,42 +95,14 @@ function ChatPage() {
               Team communication during live production
             </p>
           </div>
-          {senderName && !showNameInput && (
-            <button
-              onClick={() => setShowNameInput(true)}
-              className="text-xs text-board-muted hover:text-board-text px-3 py-1.5 rounded-lg border border-board-border transition-colors"
-            >
-              {senderName}
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border">
+            <span className="text-xs font-medium text-board-text">{userName}</span>
+            {userRole && <span className="text-[10px] text-board-muted uppercase tracking-wider">{userRole}</span>}
+          </div>
         </div>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col max-w-3xl mx-auto w-full px-4 sm:px-6">
-        {/* Name input */}
-        {showNameInput && (
-          <div className="py-4 border-b border-board-border/50">
-            <label className="text-xs text-board-muted mb-1.5 block">Your name</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={senderName}
-                onChange={(e) => setSenderName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSetName()}
-                placeholder="Enter your name"
-                className="flex-1 px-3 py-2 rounded-lg bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
-              />
-              <button
-                onClick={handleSetName}
-                disabled={!senderName.trim()}
-                className="px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium disabled:opacity-40 transition-colors"
-              >
-                Set
-              </button>
-            </div>
-          </div>
-        )}
-
         {activeAlerts.length > 0 && (
           <div className="py-3 border-b border-red-500/20 bg-red-500/5 space-y-2">
             {activeAlerts.map((msg) => (
@@ -218,7 +177,7 @@ function ChatPage() {
         </div>
 
         {/* Input */}
-        {!showNameInput && (
+        {(
           <div className="shrink-0 py-4 border-t border-board-border/50 safe-area-bottom">
             {/* Message type selector */}
             <div className="flex items-center gap-1 mb-2 flex-wrap">

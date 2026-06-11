@@ -6,9 +6,9 @@ export interface Member {
   role: string;
   photoUrl: string;
   isOnline: boolean;
-  lastCheckIn: string | null;
-  lastCheckOut: string | null;
-  createdAt: string;
+  lastCheckIn: Date | string | null;
+  lastCheckOut: Date | string | null;
+  createdAt: Date | string;
 }
 
 export type MemberFormData = {

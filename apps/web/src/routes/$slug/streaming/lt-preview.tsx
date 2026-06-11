@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,21 +9,37 @@ import {
   Play,
   Square,
   Save,
+  Plus,
+  X,
+  Layers,
 } from "lucide-react";
 import {
   addGraphicTemplate,
-  setActiveGraphic,
-  getActiveGraphic,
+  updateGraphicTemplate,
+  setActiveGraphics,
+  clearActiveGraphics,
+  getActiveGraphics,
 } from "@/lib/graphics";
 import { hasPermission } from "@/lib/app-permissions";
+import {
+  type Controls,
+  DEFAULT_CONTROLS,
+  ACCENT_PRESETS,
+  POSITION_PRESETS,
+  PRIMARY_SIZE_RANGE,
+  SECONDARY_SIZE_RANGE,
+  TEMPLATES,
+  LtStage,
+  getTemplate,
+} from "@/lib/lt-templates";
 
 export const Route = createFileRoute("/$slug/streaming/lt-preview")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
-    const active = await getActiveGraphic({ data: { orgId: context.orgId } });
-    return { orgId: context.orgId, activeId: active?.id ?? null, role: context.role };
+    const active = await getActiveGraphics({ data: { orgId: context.orgId } });
+    return { orgId: context.orgId, activeIds: active.map((g) => g.id), role: context.role };
   },
   component: TemplatePreviewPage,
 });
@@ -45,556 +61,34 @@ const SAMPLES = {
   song: { primary: "Way Maker", secondary: "Sinach" },
 };
 
-// ─── Controls ────────────────────────────────────────────────
+// ─── Scene composition ───────────────────────────────────────
+// A "scene" is a set of lower thirds composed together and pushed at once,
+// so you can place two panelists side by side before going live.
 
-interface Controls {
-  accentColor: string;
-  bgOpacity: number;
-  primarySize: number;
-  secondarySize: number;
-  posX: number; // 0–100 percentage from left
-  posY: number; // 0–100 percentage from top
-  animSpeed: "fast" | "normal" | "slow";
+interface SceneItem {
+  key: string;
+  templateId: string;
+  primary: string;
+  secondary: string;
+  controls: Controls;
 }
 
-const DEFAULT_CONTROLS: Controls = {
-  accentColor: "#f59e0b",
-  bgOpacity: 85,
-  primarySize: 26,
-  secondarySize: 15,
-  posX: 5,
-  posY: 82,
-  animSpeed: "normal",
-};
-
-const ACCENT_PRESETS = [
-  { label: "Amber", value: "#f59e0b" },
-  { label: "Fire", value: "#ffc107" },
-  { label: "Blue", value: "#3b82f6" },
-  { label: "Emerald", value: "#10b981" },
-  { label: "Purple", value: "#8b5cf6" },
-  { label: "Rose", value: "#f43f5e" },
-  { label: "Cyan", value: "#06b6d4" },
-  { label: "White", value: "#ffffff" },
+// Corners to drop successive LTs into so they don't stack on top of each other.
+const CORNERS = [
+  { x: 5, y: 82 },
+  { x: 95, y: 82 },
+  { x: 5, y: 8 },
+  { x: 95, y: 8 },
 ];
 
-// 3x3 position grid presets
-const POSITION_PRESETS = [
-  { label: "TL", x: 5, y: 5 },
-  { label: "TC", x: 50, y: 5 },
-  { label: "TR", x: 95, y: 5 },
-  { label: "ML", x: 5, y: 45 },
-  { label: "MC", x: 50, y: 45 },
-  { label: "MR", x: 95, y: 45 },
-  { label: "BL", x: 5, y: 82 },
-  { label: "BC", x: 50, y: 82 },
-  { label: "BR", x: 95, y: 82 },
-];
+const uid = () => Math.random().toString(36).slice(2, 9);
 
-function getAnimDuration(speed: Controls["animSpeed"]) {
-  return speed === "fast" ? 150 : speed === "slow" ? 600 : 300;
+function posLabel(c: Controls) {
+  const m = POSITION_PRESETS.find(
+    (p) => Math.abs(p.x - c.posX) < 6 && Math.abs(p.y - c.posY) < 8
+  );
+  return m?.label ?? `${Math.round(c.posX)},${Math.round(c.posY)}`;
 }
-
-function hexToRgba(hex: string, alpha: number) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-// Compute CSS position + alignment from X/Y percentages
-function getPositionStyles(c: Controls) {
-  const isLeft = c.posX < 33;
-  const isCenter = c.posX >= 33 && c.posX <= 67;
-  const isRight = c.posX > 67;
-  const isTop = c.posY < 33;
-
-  let left: string | number = `${c.posX}%`;
-  let right: string | number = "auto";
-  let top: string | number = `${c.posY}%`;
-  let bottom: string | number = "auto";
-  let translateX = "0%";
-  let textAlign: "left" | "center" | "right" = "left";
-
-  if (isCenter) {
-    translateX = "-50%";
-    textAlign = "center";
-  } else if (isRight) {
-    left = "auto";
-    right = `${100 - c.posX}%`;
-    textAlign = "right";
-  }
-
-  return { left, right, top, bottom, translateX, textAlign, isLeft, isCenter, isRight, isTop };
-}
-
-// ─── Template Definitions ────────────────────────────────────
-
-interface TemplateStyle {
-  id: string;
-  name: string;
-  description: string;
-  fullWidth?: boolean; // full-width templates ignore horizontal position
-  render: (
-    primary: string,
-    secondary: string,
-    visible: boolean,
-    c: Controls
-  ) => React.ReactNode;
-}
-
-const TEMPLATES: TemplateStyle[] = [
-  // ── 1. Classic Bar ──
-  {
-    id: "classic",
-    name: "Classic Bar",
-    description: "Dark translucent bar with accent border. Clean broadcast standard.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = p.isTop ? "-40px" : "40px";
-      return (
-        <div
-          className="absolute max-w-[560px]"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "translateY(0)" : `translateY(${slideDir})`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            textAlign: p.textAlign,
-          }}
-        >
-          <div
-            className="backdrop-blur-xl rounded-md px-8 py-5"
-            style={{
-              background: `rgba(0, 0, 0, ${c.bgOpacity / 100})`,
-              borderLeft: p.isRight ? "none" : `4px solid ${c.accentColor}`,
-              borderRight: p.isRight ? `4px solid ${c.accentColor}` : "none",
-            }}
-          >
-            <p className="text-white font-bold leading-tight tracking-tight" style={{ fontSize: c.primarySize }}>
-              {primary}
-            </p>
-            {secondary && (
-              <p className="text-white/65 font-normal mt-1" style={{ fontSize: c.secondarySize }}>
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 2. Gradient Slab ──
-  {
-    id: "gradient-slab",
-    name: "Gradient Slab",
-    description: "Modern gradient from accent to transparent. Bold, contemporary feel.",
-    fullWidth: true,
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = p.isTop ? "-100%" : "100%";
-      return (
-        <div
-          className="absolute left-0 right-0"
-          style={{
-            top: p.top,
-            transform: visible ? "translateY(0)" : `translateY(${slideDir})`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur + 200}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-          }}
-        >
-          <div
-            className="px-12 py-5"
-            style={{
-              background: p.isRight
-                ? `linear-gradient(to left, ${hexToRgba(c.accentColor, 0.92)}, ${hexToRgba(c.accentColor, 0.5)} 50%, transparent)`
-                : p.isCenter
-                  ? `linear-gradient(to right, transparent, ${hexToRgba(c.accentColor, 0.85)} 25%, ${hexToRgba(c.accentColor, 0.85)} 75%, transparent)`
-                  : `linear-gradient(to right, ${hexToRgba(c.accentColor, 0.92)}, ${hexToRgba(c.accentColor, 0.5)} 50%, transparent)`,
-              textAlign: p.textAlign,
-            }}
-          >
-            <p className="text-white font-extrabold leading-tight tracking-tight" style={{ fontSize: c.primarySize + 2 }}>
-              {primary}
-            </p>
-            {secondary && (
-              <p className="text-white/80 font-medium mt-1 tracking-wide uppercase" style={{ fontSize: c.secondarySize }}>
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 3. Glass Panel ──
-  {
-    id: "glass-panel",
-    name: "Glass Panel",
-    description: "Frosted glass with subtle glow. Premium, modern aesthetic.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = p.isTop ? "-20px" : "20px";
-      return (
-        <div
-          className="absolute max-w-[540px]"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "translateY(0) scale(1)" : `translateY(${slideDir}) scale(0.97)`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur + 100}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            textAlign: p.textAlign,
-          }}
-        >
-          <div
-            className="rounded-xl px-8 py-5 border border-white/10"
-            style={{
-              background: `rgba(15, 15, 15, ${c.bgOpacity / 130})`,
-              backdropFilter: "blur(24px) saturate(1.4)",
-              boxShadow: `0 0 40px ${hexToRgba(c.accentColor, 0.1)}, inset 0 1px 0 rgba(255,255,255,0.05)`,
-            }}
-          >
-            <p className="text-white font-semibold leading-tight" style={{ fontSize: c.primarySize }}>
-              {primary}
-            </p>
-            {secondary && (
-              <p className="text-white/50 font-normal mt-1.5" style={{ fontSize: c.secondarySize }}>
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 4. Split Two-Tone ──
-  {
-    id: "split",
-    name: "Split Two-Tone",
-    description: "Name in accent block, title in dark block. High contrast, unmissable.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideX = p.isRight ? "60px" : "-60px";
-      return (
-        <div
-          className="absolute flex"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "" : `translateX(${slideX})`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            flexDirection: p.isRight ? "row-reverse" : "row",
-          }}
-        >
-          <div className="px-7 py-4 flex items-center" style={{ background: c.accentColor }}>
-            <p className="text-black font-extrabold leading-tight whitespace-nowrap" style={{ fontSize: c.primarySize - 2 }}>
-              {primary}
-            </p>
-          </div>
-          {secondary && (
-            <div className="px-7 py-4 flex items-center" style={{ background: `rgba(0,0,0,${c.bgOpacity / 100})` }}>
-              <p className="text-white/80 font-medium whitespace-nowrap" style={{ fontSize: c.secondarySize + 1 }}>
-                {secondary}
-              </p>
-            </div>
-          )}
-        </div>
-      );
-    },
-  },
-
-  // ── 5. Cinematic Strip ──
-  {
-    id: "cinematic",
-    name: "Cinematic Strip",
-    description: "Ultra-wide thin strip, centered text. Elegant film/broadcast look.",
-    fullWidth: true,
-    render: (primary, secondary, visible, c) => {
-      const dur = getAnimDuration(c.animSpeed);
-      return (
-        <div
-          className="absolute left-0 right-0"
-          style={{
-            top: `${c.posY}%`,
-            opacity: visible ? 1 : 0,
-            clipPath: visible ? "inset(0 0 0 0)" : "inset(0 50% 0 50%)",
-            transition: `all ${dur + 200}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-          }}
-        >
-          <div
-            className="backdrop-blur-lg px-0 py-4 text-center"
-            style={{
-              background: `rgba(0, 0, 0, ${c.bgOpacity / 100})`,
-              borderTop: "1px solid rgba(255,255,255,0.05)",
-              borderBottom: "1px solid rgba(255,255,255,0.05)",
-            }}
-          >
-            <p className="text-white font-light tracking-[0.15em] uppercase" style={{ fontSize: c.primarySize - 4 }}>
-              {primary}
-              {secondary && (
-                <span className="mx-4 font-normal" style={{ color: hexToRgba(c.accentColor, 0.8) }}>|</span>
-              )}
-              {secondary && (
-                <span className="text-white/50 tracking-widest font-light" style={{ fontSize: c.secondarySize + 1 }}>
-                  {secondary}
-                </span>
-              )}
-            </p>
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 6. Accent Line ──
-  {
-    id: "accent-line",
-    name: "Accent Line",
-    description: "Minimal — just text with a thin accent underline. No background.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = p.isTop ? "-30px" : "30px";
-      return (
-        <div
-          className="absolute max-w-[480px]"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "translateY(0)" : `translateY(${slideDir})`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            textAlign: p.textAlign,
-          }}
-        >
-          <div className="pb-3" style={{ borderBottom: `2px solid ${c.accentColor}` }}>
-            <p
-              className="text-white font-semibold leading-tight"
-              style={{ fontSize: c.primarySize, textShadow: "0 2px 12px rgba(0,0,0,0.9)" }}
-            >
-              {primary}
-            </p>
-            {secondary && (
-              <p
-                className="text-white/60 font-normal mt-1"
-                style={{ fontSize: c.secondarySize, textShadow: "0 2px 8px rgba(0,0,0,0.8)" }}
-              >
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 7. Scripture Card ──
-  {
-    id: "scripture-card",
-    name: "Scripture Card",
-    description: "Centered frosted card optimized for Bible verses. Large italic text.",
-    render: (primary, secondary, visible, c) => {
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = c.posY < 33 ? "-30px" : "30px";
-      return (
-        <div
-          className="absolute w-[85%] max-w-[780px]"
-          style={{
-            left: `${c.posX}%`,
-            top: `${c.posY}%`,
-            transform: visible
-              ? "translateX(-50%) translateY(0)"
-              : `translateX(-50%) translateY(${slideDir})`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur + 200}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-          }}
-        >
-          <div
-            className="rounded-xl px-10 py-8 text-center border border-white/8"
-            style={{
-              background: `rgba(0, 0, 0, ${c.bgOpacity / 120})`,
-              backdropFilter: "blur(20px)",
-            }}
-          >
-            <p className="text-white font-light italic leading-relaxed" style={{ fontSize: c.primarySize + 2 }}>
-              &ldquo;{primary}&rdquo;
-            </p>
-            {secondary && (
-              <p
-                className="font-semibold mt-4 tracking-[0.08em] uppercase"
-                style={{ fontSize: c.secondarySize + 1, color: c.accentColor }}
-              >
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 8. Corner Badge ──
-  {
-    id: "corner-badge",
-    name: "Corner Badge",
-    description: "Compact badge with initials circle. Great for persistent identifiers.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideX = p.isRight ? "20px" : "-20px";
-      return (
-        <div
-          className="absolute"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "scale(1)" : `translateX(${slideX}) scale(0.9)`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-          }}
-        >
-          <div
-            className="flex items-center gap-3 rounded-full pl-1.5 pr-6 py-1.5"
-            style={{
-              background: `rgba(0, 0, 0, ${c.bgOpacity / 100})`,
-              flexDirection: p.isRight ? "row-reverse" : "row",
-            }}
-          >
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ background: c.accentColor }}
-            >
-              <span className="text-black text-[14px] font-black">
-                {primary.split(" ").map((w) => w[0]).join("").slice(0, 2)}
-              </span>
-            </div>
-            <div style={{ textAlign: p.isRight ? "right" : "left" }}>
-              <p className="text-white font-semibold leading-tight" style={{ fontSize: c.primarySize - 10 }}>
-                {primary}
-              </p>
-              {secondary && (
-                <p className="text-white/50 font-normal" style={{ fontSize: c.secondarySize - 3 }}>
-                  {secondary}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 9. Boxed Highlight ──
-  {
-    id: "boxed",
-    name: "Boxed Highlight",
-    description: "Bold accent header block + dark subtitle. High-energy, conference feel.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideDir = p.isTop ? "-50px" : "50px";
-      return (
-        <div
-          className="absolute max-w-[520px]"
-          style={{
-            left: p.left,
-            right: p.right,
-            top: p.top,
-            transform: `translateX(${p.translateX}) ${visible ? "translateY(0)" : `translateY(${slideDir})`}`,
-            opacity: visible ? 1 : 0,
-            transition: `all ${dur + 100}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            textAlign: p.textAlign,
-          }}
-        >
-          <div>
-            <div className="px-7 py-3.5 rounded-t-lg" style={{ background: c.accentColor }}>
-              <p className="text-black font-extrabold leading-tight" style={{ fontSize: c.primarySize - 2 }}>
-                {primary}
-              </p>
-            </div>
-            {secondary && (
-              <div className="px-7 py-3 rounded-b-lg" style={{ background: `rgba(0,0,0,${c.bgOpacity / 100})` }}>
-                <p className="text-white/75 font-medium" style={{ fontSize: c.secondarySize }}>
-                  {secondary}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-
-  // ── 10. Revealer ──
-  {
-    id: "revealer",
-    name: "Revealer",
-    description: "Accent line reveals from left, text fades in after. Theatrical entrance.",
-    render: (primary, secondary, visible, c) => {
-      const p = getPositionStyles(c);
-      const dur = getAnimDuration(c.animSpeed);
-      const slideX = p.isRight ? "20px" : "-20px";
-      return (
-        <div
-          className="absolute max-w-[520px]"
-          style={{ left: p.left, right: p.right, top: p.top, textAlign: p.textAlign }}
-        >
-          <div
-            className="h-0.75 mb-3"
-            style={{
-              background: c.accentColor,
-              transformOrigin: p.isRight ? "right" : "left",
-              transform: visible ? "scaleX(1)" : "scaleX(0)",
-              transition: `transform ${dur + 200}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-            }}
-          />
-          <div
-            style={{
-              transform: visible ? "translateX(0)" : `translateX(${slideX})`,
-              opacity: visible ? 1 : 0,
-              transition: `all ${dur + 200}ms cubic-bezier(0.16, 1, 0.3, 1)`,
-              transitionDelay: visible ? `${dur * 0.6}ms` : "0ms",
-            }}
-          >
-            <p
-              className="text-white font-bold leading-tight"
-              style={{ fontSize: c.primarySize, textShadow: "0 2px 16px rgba(0,0,0,0.9)" }}
-            >
-              {primary}
-            </p>
-            {secondary && (
-              <p
-                className="font-medium mt-1 tracking-wide uppercase"
-                style={{
-                  fontSize: c.secondarySize,
-                  color: hexToRgba(c.accentColor, 0.7),
-                  textShadow: "0 2px 8px rgba(0,0,0,0.8)",
-                }}
-              >
-                {secondary}
-              </p>
-            )}
-          </div>
-        </div>
-      );
-    },
-  },
-];
 
 // ─── Control Panel Component ─────────────────────────────────
 
@@ -670,7 +164,7 @@ function ControlPanel({
           <span className="text-[10px] text-board-muted font-mono">{controls.primarySize}px</span>
         </div>
         <input
-          type="range" min={16} max={42} value={controls.primarySize}
+          type="range" min={PRIMARY_SIZE_RANGE.min} max={PRIMARY_SIZE_RANGE.max} value={controls.primarySize}
           onChange={(e) => update({ primarySize: Number(e.target.value) })}
           className="w-full h-1.5 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
         />
@@ -685,7 +179,7 @@ function ControlPanel({
           <span className="text-[10px] text-board-muted font-mono">{controls.secondarySize}px</span>
         </div>
         <input
-          type="range" min={10} max={28} value={controls.secondarySize}
+          type="range" min={SECONDARY_SIZE_RANGE.min} max={SECONDARY_SIZE_RANGE.max} value={controls.secondarySize}
           onChange={(e) => update({ secondarySize: Number(e.target.value) })}
           className="w-full h-1.5 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
         />
@@ -705,7 +199,7 @@ function ControlPanel({
         {/* 3x3 visual grid */}
         <div className="grid grid-cols-3 gap-1 p-2 rounded-lg bg-board-bg border border-board-border mb-2.5">
           {POSITION_PRESETS.map((preset) => {
-            const isActive = Math.abs(controls.posX - preset.x) < 5 && Math.abs(controls.posY - preset.y) < 5;
+            const isActive = Math.abs(controls.posX - preset.x) < 5 && Math.abs(controls.posY - preset.y) < 6;
             return (
               <button
                 key={preset.label}
@@ -784,7 +278,7 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
-  const { orgId, activeId: initialActiveId, role } = Route.useLoaderData();
+  const { orgId, activeIds: initialActiveIds, role } = Route.useLoaderData();
   const router = useRouter();
   const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
   const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
@@ -795,14 +289,18 @@ function TemplatePreviewPage() {
   const [showControls, setShowControls] = useState(true);
   const [customPrimary, setCustomPrimary] = useState("");
   const [customSecondary, setCustomSecondary] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(initialActiveId);
+  const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
+  // The current scene — additional LTs composed alongside the one being edited.
+  const [scene, setScene] = useState<SceneItem[]>([]);
+  // Reusable scratch records (one per scene item + the draft) so re-pushing
+  // updates in place instead of littering the library.
+  const [scratchId, setScratchId] = useState<string | null>(null);
+  const sceneRecordsRef = useRef<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
-  const viewportRef = useRef<HTMLDivElement>(null);
 
   const template = TEMPLATES[currentIndex];
-  const sampleKeys = Object.keys(SAMPLES) as (keyof typeof SAMPLES)[];
 
   const next = () => {
     setVisible(false);
@@ -842,7 +340,11 @@ function TemplatePreviewPage() {
         name: text.primary.trim(),
         title: text.primary.trim(),
         subtitle: text.secondary?.trim() ?? "",
-        style: JSON.stringify({ type: "lower-third", styleName: "default", templateId: template.id }),
+        style: JSON.stringify({
+          type: "lower-third",
+          templateId: template.id,
+          controls,
+        }),
       },
     });
     setSaving(false);
@@ -851,42 +353,108 @@ function TemplatePreviewPage() {
     router.invalidate();
   };
 
+  // Does the in-progress draft carry real text (vs. an empty custom field)?
+  const draftHasText =
+    sampleKey === "custom" ? customPrimary.trim().length > 0 : true;
+
+  // Add the current design to the scene, then nudge the draft to a free corner.
+  const addToScene = () => {
+    if (!draftHasText) return;
+    const text = getCurrentText();
+    setScene((prev) => [
+      ...prev,
+      {
+        key: uid(),
+        templateId: template.id,
+        primary: text.primary.trim(),
+        secondary: text.secondary?.trim() ?? "",
+        controls,
+      },
+    ]);
+    const corner = CORNERS[(scene.length + 1) % CORNERS.length];
+    setControls((c) => ({ ...c, posX: corner.x, posY: corner.y }));
+    if (sampleKey === "custom") {
+      setCustomPrimary("");
+      setCustomSecondary("");
+    }
+  };
+
+  const removeFromScene = (key: string) => {
+    setScene((prev) => prev.filter((s) => s.key !== key));
+  };
+
+  // Pull a scene item back into the editor to tweak it.
+  const editSceneItem = (item: SceneItem) => {
+    const idx = TEMPLATES.findIndex((t) => t.id === item.templateId);
+    if (idx >= 0) setCurrentIndex(idx);
+    setControls(item.controls);
+    setSampleKey("custom");
+    setCustomPrimary(item.primary);
+    setCustomSecondary(item.secondary);
+    setVisible(true);
+    setScene((prev) => prev.filter((s) => s.key !== item.key));
+  };
+
+  // Everything currently shown in the preview: scene items + the draft.
+  const composed = (): SceneItem[] => {
+    const items = [...scene];
+    if (draftHasText) {
+      const text = getCurrentText();
+      items.push({
+        key: "__draft__",
+        templateId: template.id,
+        primary: text.primary.trim(),
+        secondary: text.secondary?.trim() ?? "",
+        controls,
+      });
+    }
+    return items;
+  };
+
+  // Push the whole composition live at once — the output matches the preview.
   const handlePushLive = async () => {
     if (!canTriggerGraphics) return;
-    const text = getCurrentText();
-    if (!text.primary.trim()) return;
+    const items = composed();
+    if (items.length === 0) return;
     setPushing(true);
-    // Clear first so the overlay detects a change even if same text
-    if (activeId) {
-      await setActiveGraphic({ data: { orgId, graphicId: null } });
+
+    const ids: string[] = [];
+    for (const item of items) {
+      const style = JSON.stringify({
+        type: "lower-third",
+        templateId: item.templateId,
+        controls: item.controls,
+        scratch: true, // hidden from the library — these are live-preview records
+      });
+      const fields = { name: item.primary, title: item.primary, subtitle: item.secondary };
+      const mapped =
+        item.key === "__draft__" ? scratchId : sceneRecordsRef.current[item.key];
+      if (mapped) {
+        await updateGraphicTemplate({ data: { orgId, id: mapped, updates: { ...fields, style } } });
+        ids.push(mapped);
+      } else {
+        const created = await addGraphicTemplate({ data: { orgId, ...fields, style } });
+        if (item.key === "__draft__") setScratchId(created.id);
+        else sceneRecordsRef.current[item.key] = created.id;
+        ids.push(created.id);
+      }
     }
-    // Save with full controls so the overlay can render exactly what's previewed
-    const created = await addGraphicTemplate({
-      data: {
-        orgId,
-        name: text.primary.trim(),
-        title: text.primary.trim(),
-        subtitle: text.secondary?.trim() ?? "",
-        style: JSON.stringify({
-          type: "lower-third",
-          templateId: template.id,
-          controls,
-        }),
-      },
-    });
-    await setActiveGraphic({ data: { orgId, graphicId: created.id } });
-    setActiveId(created.id);
+
+    // Absolute write: the live set becomes exactly the composed scene.
+    await setActiveGraphics({ data: { orgId, graphicIds: ids } });
+    setActiveIds(ids);
     setPushing(false);
     router.invalidate();
   };
 
   const handleClearLive = async () => {
     if (!canTriggerGraphics) return;
-    await setActiveGraphic({ data: { orgId, graphicId: null } });
-    setActiveId(null);
+    await clearActiveGraphics({ data: { orgId } });
+    setActiveIds([]);
   };
 
   const sample = getCurrentText();
+  const composedCount = scene.length + (draftHasText ? 1 : 0);
 
   return (
     <div className="h-full overflow-auto bg-board-bg">
@@ -898,7 +466,7 @@ function TemplatePreviewPage() {
               Lower Third Templates
             </h1>
             <p className="text-xs text-board-muted mt-0.5">
-              Drag to position. Click to show/hide. Customize with controls.
+              Design, add multiple LTs to a scene, then push them together — what you see is what airs.
             </p>
           </div>
           <button
@@ -932,7 +500,7 @@ function TemplatePreviewPage() {
                 >
                   Custom
                 </button>
-                {sampleKeys.map((key) => (
+                {(Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]).map((key) => (
                   <button
                     key={key}
                     onClick={() => setSampleKey(key)}
@@ -998,23 +566,36 @@ function TemplatePreviewPage() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
+              <button
+                onClick={addToScene}
+                disabled={!draftHasText}
+                title="Add this lower third to the scene, then design the next one"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fire-500/30 text-fire-500 text-xs font-medium hover:bg-fire-500/10 disabled:opacity-40 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add LT
+              </button>
               {canTriggerGraphics && (
                 <button
                   onClick={handlePushLive}
-                  disabled={pushing || (sampleKey === "custom" && !customPrimary.trim())}
+                  disabled={pushing || composedCount === 0}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  {pushing ? "Pushing..." : "Push Live"}
+                  {pushing
+                    ? "Pushing..."
+                    : composedCount > 1
+                      ? `Push Scene (${composedCount})`
+                      : "Push Live"}
                 </button>
               )}
-              {canTriggerGraphics && activeId && (
+              {canTriggerGraphics && activeIds.length > 0 && (
                 <button
                   onClick={handleClearLive}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3.5 h-3.5" />
-                  Clear
+                  Clear All
                 </button>
               )}
               {canConfigureGraphics && (
@@ -1030,23 +611,77 @@ function TemplatePreviewPage() {
               {savedMsg && (
                 <span className="text-xs text-green-400 font-medium">{savedMsg}</span>
               )}
-              {activeId && (
+              {activeIds.length > 0 && (
                 <div className="flex items-center gap-1.5 ml-auto">
                   <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
-                  <span className="text-xs font-medium text-fire-500">On Air</span>
+                  <span className="text-xs font-medium text-fire-500">
+                    {activeIds.length === 1 ? "On Air" : `${activeIds.length} On Air`}
+                  </span>
                 </div>
               )}
             </div>
 
-            {/* Preview viewport — 16:9 OBS canvas with drag support */}
+            {/* Scene tray — LTs composed alongside the one being edited */}
+            {scene.length > 0 && (
+              <div className="rounded-lg border border-board-border bg-board-card/50 p-2.5">
+                <div className="flex items-center gap-1.5 mb-2 px-0.5">
+                  <Layers className="w-3 h-3 text-board-muted" />
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">
+                    Scene · {scene.length + (draftHasText ? 1 : 0)} LTs
+                  </span>
+                  <span className="text-[10px] text-board-muted/50">
+                    (these push together)
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {scene.map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-board-bg border border-board-border"
+                    >
+                      <button
+                        onClick={() => editSceneItem(item)}
+                        title="Edit this lower third"
+                        className="flex items-center gap-1.5 max-w-[180px]"
+                      >
+                        <span className="text-[9px] font-mono text-fire-500 shrink-0">
+                          {posLabel(item.controls)}
+                        </span>
+                        <span className="text-xs text-board-text truncate">
+                          {item.primary}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => removeFromScene(item.key)}
+                        title="Remove from scene"
+                        className="p-0.5 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {draftHasText && (
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-fire-500/10 border border-dashed border-fire-500/30">
+                      <span className="text-[9px] font-mono text-fire-500 shrink-0">
+                        {posLabel(controls)}
+                      </span>
+                      <span className="text-xs text-fire-500 truncate max-w-[180px]">
+                        {getCurrentText().primary} <span className="opacity-60">· editing</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Preview viewport — 16:9 OBS canvas, scaled 1:1 with the stream */}
             <div
-              ref={viewportRef}
-              className="relative w-full rounded-xl overflow-hidden border border-board-border select-none cursor-default"
+              className="relative w-full rounded-xl overflow-hidden border border-board-border select-none"
               style={{ aspectRatio: "16 / 9", background: "#111" }}
             >
               {/* Grid overlay */}
               <div
-                className="absolute inset-0 opacity-[0.03] pointer-events-none"
+                className="absolute inset-0 opacity-[0.03] pointer-events-none z-10"
                 style={{
                   backgroundImage:
                     "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
@@ -1054,16 +689,16 @@ function TemplatePreviewPage() {
                 }}
               />
               {/* Center cross */}
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 pointer-events-none">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 pointer-events-none z-10">
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
               </div>
               {/* Safe area */}
-              <div className="absolute inset-[5%] border border-white/3 rounded pointer-events-none" />
+              <div className="absolute inset-[5%] border border-white/3 rounded pointer-events-none z-10" />
 
               {/* Crosshair at current position */}
               <div
-                className="absolute w-4 h-4 pointer-events-none transition-all duration-75"
+                className="absolute w-4 h-4 pointer-events-none transition-all duration-75 z-10"
                 style={{
                   left: `${controls.posX}%`,
                   top: `${controls.posY}%`,
@@ -1076,13 +711,25 @@ function TemplatePreviewPage() {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-fire-500" />
               </div>
 
-              {/* Template render */}
-              <div className="pointer-events-none">
-                {template.render(sample.primary, sample.secondary, visible, controls)}
-              </div>
+              {/* Template render — the full scene on the scaled broadcast stage */}
+              <LtStage>
+                {scene.map((item) => (
+                  <div key={item.key}>
+                    {getTemplate(item.templateId).render(
+                      item.primary,
+                      item.secondary,
+                      true,
+                      item.controls,
+                    )}
+                  </div>
+                ))}
+                {draftHasText && (
+                  <div>{template.render(sample.primary, sample.secondary, visible, controls)}</div>
+                )}
+              </LtStage>
 
               {/* Status */}
-              <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none">
+              <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
                 {visible ? (
                   <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/20">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
@@ -1096,7 +743,12 @@ function TemplatePreviewPage() {
 
             {/* Template info */}
             <div>
-              <h2 className="text-base font-semibold text-board-text">{template.name}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-board-text">{template.name}</h2>
+                <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border border-board-border text-board-muted">
+                  {template.category}
+                </span>
+              </div>
               <p className="text-sm text-board-muted mt-0.5">{template.description}</p>
               {template.fullWidth && (
                 <p className="text-[10px] text-board-muted/50 mt-1 italic">
@@ -1106,7 +758,7 @@ function TemplatePreviewPage() {
             </div>
 
             {/* Dot navigation */}
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 flex-wrap">
               {TEMPLATES.map((t, i) => (
                 <button
                   key={t.id}
@@ -1148,11 +800,14 @@ function TemplatePreviewPage() {
                       className="relative w-full rounded-lg overflow-hidden mb-2.5"
                       style={{ aspectRatio: "16 / 9", background: "#111" }}
                     >
-                      <div className="absolute inset-0 [transform:scale(0.5)] [transform-origin:bottom_left]">
+                      <LtStage>
                         {t.render(SAMPLES.person.primary, SAMPLES.person.secondary, true, controls)}
-                      </div>
+                      </LtStage>
                     </div>
-                    <p className="text-xs font-semibold text-board-text">{t.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-semibold text-board-text">{t.name}</p>
+                      <span className="text-[9px] text-board-muted/60 uppercase tracking-wider">{t.category}</span>
+                    </div>
                     <p className="text-[10px] text-board-muted mt-0.5 line-clamp-1">{t.description}</p>
                   </button>
                 ))}

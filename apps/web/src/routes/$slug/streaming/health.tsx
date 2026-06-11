@@ -1,6 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect } from "react";
+import { hasPermission } from "@/lib/app-permissions";
 import {
   Activity,
   Wifi,
@@ -32,13 +33,14 @@ export const Route = createFileRoute("/$slug/streaming/health")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "stream_health:view", context.slug, context.orgId);
     const inputs = await getLiveInputs({ data: { orgId: context.orgId } });
-    return { inputs, orgId: context.orgId };
+    return { inputs, orgId: context.orgId, role: context.role };
   },
   component: StreamHealthPage,
 });
 
 function StreamHealthPage() {
-  const { inputs, orgId } = Route.useLoaderData();
+  const { inputs, orgId, role } = Route.useLoaderData();
+  const canManageStreamHealth = hasPermission(role, "stream_health:manage");
   const router = useRouter();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
@@ -618,7 +620,6 @@ function CopyField({
 /* ─── Setup Guide Accordion ─────────────────────────────── */
 
 function SetupGuide({
-  id,
   icon,
   title,
   subtitle,

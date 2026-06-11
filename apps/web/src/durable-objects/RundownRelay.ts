@@ -1,4 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
+import { getPrisma } from "@/lib/db";
+import {
+  appendWebhookEvent,
+  sanitizePayloadSummary,
+  type WebhookEventInput,
+} from "@/lib/settings";
 
 interface D1Database {
   prepare(sql: string): {
@@ -13,6 +19,12 @@ interface Env {
   CHAT_RELAY: DurableObjectNamespace;
   DB: D1Database;
 }
+
+const normalizeTimerMode = (value: unknown): "count-up" | "count-down" | "clock" => {
+  return value === "count-up" || value === "count-down" || value === "clock"
+    ? value
+    : "count-down";
+};
 
 export type ItemType =
   | "segment"
@@ -36,6 +48,8 @@ export interface RundownItem {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId?: string;
+  actualStart?: string | null; // ISO timestamp
+  actualEnd?: string | null;   // ISO timestamp
 }
 
 export interface TimerState {
@@ -44,7 +58,7 @@ export interface TimerState {
   elapsed: number; // ms
   startedAt: number | null; // timestamp
   pausedAt: number | null;
-  mode: "count-up" | "count-down";
+  mode: "count-up" | "count-down" | "clock";
 }
 
 interface PPSlideState {
@@ -60,6 +74,8 @@ interface RundownState {
   timer: TimerState;
   ppSlide: PPSlideState | null;
   ppPreviewSlide: PPSlideState | null;
+  stageMessage: string;
+  serviceDate?: string;
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -77,6 +93,7 @@ export class RundownRelay extends DurableObject {
     timer: { ...DEFAULT_TIMER },
     ppSlide: null,
     ppPreviewSlide: null,
+    stageMessage: "",
   };
   private hydrated = false;
   private orgId = "";
@@ -93,6 +110,7 @@ export class RundownRelay extends DurableObject {
         timer: stored.timer ?? { ...DEFAULT_TIMER },
         ppSlide: stored.ppSlide ?? null,
         ppPreviewSlide: stored.ppPreviewSlide ?? null,
+        stageMessage: stored.stageMessage ?? "",
       };
     }
   }
@@ -103,10 +121,55 @@ export class RundownRelay extends DurableObject {
     this.ctx.storage.put("state", this.state);
   }
 
+  private async isProPresenterStageDisplayEnabled(): Promise<boolean> {
+    if (!this.orgId) return false;
+
+    try {
+      const row = await this.env.DB.prepare(
+        "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1"
+      )
+        .bind(this.orgId, "propresenter-stage-display")
+        .first<{ value: string | null }>();
+
+      return row?.value === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  private logWebhookEvent(event: WebhookEventInput): void {
+    if (!this.orgId) return;
+
+    try {
+      const prisma = getPrisma();
+      void appendWebhookEvent(prisma, this.orgId, event);
+    } catch {
+      // Intentionally non-blocking telemetry.
+    }
+  }
+
+  /** Fire-and-forget D1 write for actualStart/actualEnd on a single item. */
+  private persistItemTiming(itemId: string, field: "actualStart" | "actualEnd", value: string): void {
+    if (!this.orgId || !this.state.serviceDate) return;
+    const orgId = this.orgId;
+    const serviceDate = this.state.serviceDate;
+    const env = this.env as unknown as Env;
+    this.ctx.waitUntil(
+      env.DB.prepare(
+        `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`
+      )
+        .bind(value, orgId, serviceDate, itemId)
+        .first()
+        .catch(() => null),
+    );
+  }
+
   async fetch(request: Request): Promise<Response> {
     await this.hydrateFromStorage();
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
+    const serviceDate = url.searchParams.get("serviceDate");
+    if (serviceDate) this.state.serviceDate = serviceDate;
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
@@ -130,7 +193,7 @@ export class RundownRelay extends DurableObject {
         action: string;
         payload?: Record<string, unknown>;
       };
-      this.handleCommand(body.action, body.payload);
+      await this.handleCommand(body.action, body.payload);
       return Response.json({ ok: true });
     }
 
@@ -152,7 +215,7 @@ export class RundownRelay extends DurableObject {
       }
 
       if (parsed.type === "command" && parsed.action) {
-        this.handleCommand(parsed.action, parsed.payload);
+        await this.handleCommand(parsed.action, parsed.payload);
       }
     } catch {
       // Ignore
@@ -167,12 +230,13 @@ export class RundownRelay extends DurableObject {
     // No manual session tracking needed
   }
 
-  private handleCommand(
+  private async handleCommand(
     action: string,
     payload?: Record<string, unknown>
   ) {
     const previousPlayback = this.state.timer.playback;
     const previousItemId = this.state.timer.currentItemId;
+    const shouldEmitAutomation = action !== "seed";
 
     switch (action) {
       case "seed": {
@@ -189,7 +253,7 @@ export class RundownRelay extends DurableObject {
               elapsed: t.elapsed ?? 0,
               startedAt: t.startedAt ?? null,
               pausedAt: t.pausedAt ?? null,
-              mode: t.mode ?? "count-down",
+              mode: normalizeTimerMode(t.mode),
             };
           }
         }
@@ -248,6 +312,9 @@ export class RundownRelay extends DurableObject {
         const itemId =
           (payload?.itemId as string) ?? this.state.timer.currentItemId;
         if (itemId) {
+          const now = Date.now();
+          const nowIso = new Date(now).toISOString();
+
           if (
             this.state.timer.currentItemId &&
             this.state.timer.currentItemId !== itemId
@@ -255,11 +322,23 @@ export class RundownRelay extends DurableObject {
             const prev = this.state.items.find(
               (i) => i.id === this.state.timer.currentItemId
             );
-            if (prev) prev.status = "complete";
+            if (prev) {
+              prev.status = "complete";
+              if (!prev.actualEnd) {
+                prev.actualEnd = nowIso;
+                this.persistItemTiming(prev.id, "actualEnd", nowIso);
+              }
+            }
           }
 
           const item = this.state.items.find((i) => i.id === itemId);
-          if (item) item.status = "live";
+          if (item) {
+            item.status = "live";
+            if (!item.actualStart) {
+              item.actualStart = nowIso;
+              this.persistItemTiming(item.id, "actualStart", nowIso);
+            }
+          }
 
           this.state.timer = {
             playback: "play",
@@ -267,7 +346,7 @@ export class RundownRelay extends DurableObject {
             elapsed: this.state.timer.pausedAt
               ? this.state.timer.elapsed
               : 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -304,7 +383,14 @@ export class RundownRelay extends DurableObject {
           const item = this.state.items.find(
             (i) => i.id === this.state.timer.currentItemId
           );
-          if (item) item.status = "complete";
+          if (item) {
+            item.status = "complete";
+            if (!item.actualEnd) {
+              const nowIso = new Date().toISOString();
+              item.actualEnd = nowIso;
+              this.persistItemTiming(item.id, "actualEnd", nowIso);
+            }
+          }
         }
         this.state.timer = {
           playback: "stop",
@@ -318,22 +404,33 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-next": {
+        const now = Date.now();
+        const nowIso = new Date(now).toISOString();
         const currentIdx = this.state.items.findIndex(
           (i) => i.id === this.state.timer.currentItemId
         );
         if (currentIdx >= 0) {
-          this.state.items[currentIdx].status = "complete";
+          const curItem = this.state.items[currentIdx];
+          curItem.status = "complete";
+          if (!curItem.actualEnd) {
+            curItem.actualEnd = nowIso;
+            this.persistItemTiming(curItem.id, "actualEnd", nowIso);
+          }
         }
         const nextItem = this.state.items.find(
           (_, i) => i > currentIdx && this.state.items[i].status !== "complete"
         );
         if (nextItem) {
           nextItem.status = "live";
+          if (!nextItem.actualStart) {
+            nextItem.actualStart = nowIso;
+            this.persistItemTiming(nextItem.id, "actualStart", nowIso);
+          }
           this.state.timer = {
             playback: "play",
             currentItemId: nextItem.id,
             elapsed: 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -351,22 +448,30 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-prev": {
-        // Go back to previous item — reset current to "upcoming", start previous
+        const now = Date.now();
+        const nowIso = new Date(now).toISOString();
         const curIdx = this.state.items.findIndex(
           (i) => i.id === this.state.timer.currentItemId
         );
         if (curIdx > 0) {
-          // Reset current item to upcoming (not complete — we're going backward)
           if (curIdx >= 0) {
-            this.state.items[curIdx].status = "upcoming";
+            const curItem = this.state.items[curIdx];
+            curItem.status = "upcoming";
+            // Clear actualStart so the item can be re-timed cleanly
+            curItem.actualStart = null;
+            curItem.actualEnd = null;
           }
           const prevItem = this.state.items[curIdx - 1];
           prevItem.status = "live";
+          if (!prevItem.actualStart) {
+            prevItem.actualStart = nowIso;
+            this.persistItemTiming(prevItem.id, "actualStart", nowIso);
+          }
           this.state.timer = {
             playback: "play",
             currentItemId: prevItem.id,
             elapsed: 0,
-            startedAt: Date.now(),
+            startedAt: now,
             pausedAt: null,
             mode: this.state.timer.mode,
           };
@@ -392,14 +497,14 @@ export class RundownRelay extends DurableObject {
       }
 
       case "timer-mode": {
-        this.state.timer.mode =
-          (payload?.mode as "count-up" | "count-down") ?? "count-down";
+        this.state.timer.mode = normalizeTimerMode(payload?.mode);
         break;
       }
 
       case "pp-slide": {
         const slide = payload?.slide as PPSlideState | null;
-        this.state.ppSlide = slide ? { ...slide, updatedAt: Date.now() } : null;
+        const enabled = await this.isProPresenterStageDisplayEnabled();
+        this.state.ppSlide = enabled && slide ? { ...slide, updatedAt: Date.now() } : null;
         break;
       }
 
@@ -412,6 +517,8 @@ export class RundownRelay extends DurableObject {
       case "reset": {
         this.state.items.forEach((item) => {
           item.status = "upcoming";
+          item.actualStart = null;
+          item.actualEnd = null;
         });
         this.state.timer = {
           playback: "stop",
@@ -424,6 +531,30 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
+      case "clear-all": {
+        this.state.items = [];
+        this.state.timer = {
+          playback: "stop",
+          currentItemId: null,
+          elapsed: 0,
+          startedAt: null,
+          pausedAt: null,
+          mode: this.state.timer.mode,
+        };
+        break;
+      }
+
+      case "stage-message": {
+        const msg = payload?.message;
+        this.state.stageMessage = typeof msg === "string" ? msg : "";
+        break;
+      }
+
+      case "stage-clear": {
+        this.state.stageMessage = "";
+        break;
+      }
+
       default:
         return;
     }
@@ -432,10 +563,10 @@ export class RundownRelay extends DurableObject {
     this.broadcastState();
 
     const currentItemId = this.state.timer.currentItemId;
-    if (previousPlayback === "stop" && this.state.timer.playback === "play") {
+    if (shouldEmitAutomation && previousPlayback === "stop" && this.state.timer.playback === "play") {
       void this.sendAutomationChatMessage("Show is live", "system");
     }
-    if (currentItemId && currentItemId !== previousItemId) {
+    if (shouldEmitAutomation && currentItemId && currentItemId !== previousItemId) {
       const currentItem = this.state.items.find((item) => item.id === currentItemId);
       if (currentItem?.title?.trim()) {
         void this.sendAutomationChatMessage(`Now live: ${currentItem.title.trim()}`, "system");
@@ -477,13 +608,18 @@ export class RundownRelay extends DurableObject {
       const senderName = "ShowPilot";
       const prefix = type === "cue" ? "[CUE] " : "";
       const formatted = `**${senderName}**: ${prefix}${text}`;
+      const payloadSummary = sanitizePayloadSummary({
+        source: senderName,
+        type,
+        text,
+      });
 
-      if (adapter === "mattermost") {
-        const url = settings["mattermost-url"];
-        const token = settings["mattermost-token"];
-        const channel = settings["mattermost-channel"];
-        if (url && token && channel) {
-          await fetch(`${url.replace(/\/$/, "")}/api/v4/posts`, {
+        if (adapter === "mattermost") {
+          const url = settings["mattermost-url"];
+          const token = settings["mattermost-token"];
+          const channel = settings["mattermost-channel"];
+          if (url && token && channel) {
+          const res = await fetch(`${url.replace(/\/$/, "")}/api/v4/posts`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -498,15 +634,44 @@ export class RundownRelay extends DurableObject {
               },
             }),
           });
-          return;
-        }
-      }
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "mattermost-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Mattermost automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "slack") {
-        const token = settings["slack-token"];
-        const channel = settings["slack-channel"];
-        if (token && channel) {
-          await fetch("https://slack.com/api/chat.postMessage", {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "mattermost-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Mattermost.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "mattermost-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Mattermost adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "slack") {
+          const token = settings["slack-token"];
+          const channel = settings["slack-channel"];
+          if (token && channel) {
+          const res = await fetch("https://slack.com/api/chat.postMessage", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
@@ -514,15 +679,47 @@ export class RundownRelay extends DurableObject {
             },
             body: JSON.stringify({ channel, text: formatted }),
           });
-          return;
-        }
-      }
+          const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+          if (!res.ok || body?.ok === false) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "slack-send",
+              direction: "outgoing",
+              status: "error",
+              details:
+                body?.error ||
+                `Slack automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "discord") {
-        const token = settings["discord-bot-token"];
-        const channelId = settings["discord-channel-id"];
-        if (token && channelId) {
-          await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "slack-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Slack.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "slack-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Slack adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "discord") {
+          const token = settings["discord-bot-token"];
+          const channelId = settings["discord-channel-id"];
+          if (token && channelId) {
+          const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
             method: "POST",
             headers: {
               Authorization: `Bot ${token}`,
@@ -530,25 +727,83 @@ export class RundownRelay extends DurableObject {
             },
             body: JSON.stringify({ content: formatted }),
           });
-          return;
-        }
-      }
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "discord-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Discord automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
 
-      if (adapter === "teams") {
-        const webhookUrl = settings["teams-webhook-url"];
-        if (webhookUrl) {
-          await fetch(webhookUrl, {
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "discord-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Discord.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "discord-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Discord adapter enabled but credentials are incomplete. Falling back to native chat relay.",
+            payloadSummary,
+          });
+        }
+
+        if (adapter === "teams") {
+          const webhookUrl = settings["teams-webhook-url"];
+          if (webhookUrl) {
+          const res = await fetch(webhookUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: formatted }),
           });
-          return;
+          if (!res.ok) {
+            this.logWebhookEvent({
+              source: "rundown-relay",
+              type: "teams-send",
+              direction: "outgoing",
+              status: "error",
+              details: `Teams automation send failed with ${res.status}`,
+              payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "teams-send",
+            direction: "outgoing",
+            status: "success",
+            details: "Automation message sent to Teams.",
+            payloadSummary,
+            });
+            return;
+          }
+
+          this.logWebhookEvent({
+            source: "rundown-relay",
+            type: "teams-send",
+            direction: "outgoing",
+            status: "warning",
+            details: "Teams adapter enabled but webhook URL is missing. Falling back to native chat relay.",
+            payloadSummary,
+          });
         }
-      }
 
       const chatId = env.CHAT_RELAY.idFromName(this.orgId);
       const chatStub = env.CHAT_RELAY.get(chatId);
-      await chatStub.fetch(
+      const relayResponse = await chatStub.fetch(
         new Request("https://chat.local/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -561,8 +816,42 @@ export class RundownRelay extends DurableObject {
           }),
         })
       );
+
+      if (!relayResponse.ok) {
+        this.logWebhookEvent({
+          source: "rundown-relay",
+          type: "chat-relay-send",
+          direction: "outgoing",
+          status: "error",
+          details: `Native relay send failed with ${relayResponse.status}`,
+          payloadSummary,
+        });
+        return;
+      }
+
+      this.logWebhookEvent({
+        source: "rundown-relay",
+        type: "chat-relay-send",
+        direction: "outgoing",
+        status: "success",
+        details: "Automation message routed to native chat relay.",
+        payloadSummary,
+      });
     } catch (err) {
       console.error("[RundownRelay] failed to send automation chat message", err);
+      this.logWebhookEvent({
+        source: "rundown-relay",
+        type: "automation-chat-error",
+        direction: "outgoing",
+        status: "error",
+        details: err instanceof Error
+          ? `Automation chat send failed: ${err.message}`
+          : "Automation chat send failed.",
+        payloadSummary: sanitizePayloadSummary({
+          text,
+          type,
+        }),
+      });
     }
   }
 
@@ -575,6 +864,7 @@ export class RundownRelay extends DurableObject {
       },
       ppSlide: this.state.ppSlide,
       ppPreviewSlide: this.state.ppPreviewSlide,
+      stageMessage: this.state.stageMessage,
     };
   }
 

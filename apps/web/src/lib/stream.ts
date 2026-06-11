@@ -3,6 +3,8 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -27,8 +29,11 @@ async function assertOrgPermission(orgId: string, permission: "stream_health:vie
 }
 
 function getCfHeaders() {
-  const token = (env as Record<string, string>).CLOUDFLARE_API_TOKEN;
-  if (!token) throw new Error("CLOUDFLARE_API_TOKEN not configured");
+  // Transitional: prefer CLOUDFLARE_STREAM_API_TOKEN, fall back to the legacy
+  // CLOUDFLARE_API_TOKEN until the old secret is deleted from prod.
+  const token: string | undefined =
+    env.CLOUDFLARE_STREAM_API_TOKEN || env.CLOUDFLARE_API_TOKEN;
+  if (!token) throw new Error("CLOUDFLARE_STREAM_API_TOKEN not configured");
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -36,7 +41,7 @@ function getCfHeaders() {
 }
 
 function getAccountId() {
-  const id = (env as Record<string, string>).CLOUDFLARE_ACCOUNT_ID;
+  const id: string | undefined = env.CLOUDFLARE_ACCOUNT_ID;
   if (!id) throw new Error("CLOUDFLARE_ACCOUNT_ID not configured");
   return id;
 }
@@ -55,7 +60,9 @@ export const getLiveInputs = createServerFn({ method: "GET" })
   });
 
 export const createLiveInput = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; name: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
     const accountId = getAccountId();
@@ -108,7 +115,9 @@ export const createLiveInput = createServerFn({ method: "POST" })
   });
 
 export const deleteLiveInput = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; inputId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, inputId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();

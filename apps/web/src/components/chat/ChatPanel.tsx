@@ -326,7 +326,7 @@ export function ChatPanel({
   return (
     <div
       className={cn(
-        "flex flex-col h-full bg-board-card border-l border-board-border",
+        "relative flex h-full min-h-0 flex-col overflow-hidden bg-board-card border-l border-board-border",
         className,
       )}
     >
@@ -379,7 +379,7 @@ export function ChatPanel({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto modern-scrollbar px-3 py-3 space-y-2"
+        className="min-h-0 flex-1 overflow-y-auto modern-scrollbar px-3 py-3 space-y-2"
       >
         {timelineMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-board-muted">

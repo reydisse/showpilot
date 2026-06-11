@@ -90,7 +90,9 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   useEffect(() => {
     const tick = () => {
       const t = timerRef.current;
-      if (t.mode === "clock") {
+      const tMode = t.mode as NativeTimerState["mode"];
+
+      if (tMode === "clock") {
         setDisplayTime(getClockMs());
       } else if (t.playback === "play" && t.startedAt !== null) {
         const elapsed = Date.now() - t.startedAt;
@@ -113,7 +115,9 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
     } else if (timer.playback === "pause") {
       // Show frozen time
       const item = items.find((i) => i.id === timer.currentItemId);
-      if (timer.mode === "clock") {
+      const timerMode = timer.mode as NativeTimerState["mode"];
+
+      if (timerMode === "clock") {
         setDisplayTime(getClockMs());
       } else if (timer.mode === "count-down" && item) {
         setDisplayTime(item.duration - timer.elapsed);

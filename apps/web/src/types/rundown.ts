@@ -13,6 +13,16 @@ export interface RundownItem {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId?: string;
+  scheduledStart?: string | null; // ISO timestamp
+  expectedEnd?: string | null;    // ISO timestamp
+  actualStart?: string | null;    // ISO timestamp
+  actualEnd?: string | null;      // ISO timestamp
+}
+
+export interface RundownMeta {
+  serviceDate: string;
+  scheduledStartTime?: string | null; // ISO timestamp
+  status: "stopped" | "live" | "complete";
 }
 
 export interface NativeTimerState {
@@ -28,4 +38,5 @@ export interface NativeTimerState {
 export interface RundownState {
   items: RundownItem[];
   timer: NativeTimerState;
+  meta?: RundownMeta;
 }

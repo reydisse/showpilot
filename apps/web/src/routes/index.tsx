@@ -24,7 +24,7 @@ export const Route = createFileRoute("/")({
 
     // Has an active org → go to dashboard
     if (result.session.activeOrganizationId && result.org) {
-      throw redirect({ to: `/${result.org.slug}` });
+      throw redirect({ to: "/$slug", params: { slug: result.org.slug } });
     }
 
     // No active org → find one and activate it
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/")({
       const orgs = await listUserOrgs();
       if (orgs && orgs.length > 0) {
         await setActiveOrg({ data: orgs[0].id });
-        throw redirect({ to: `/${orgs[0].slug}` });
+        throw redirect({ to: "/$slug", params: { slug: orgs[0].slug } });
       }
     } catch (e) {
       if (isRedirect(e)) throw e;

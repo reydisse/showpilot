@@ -13,3 +13,5 @@ dist/
 .turbo/
 .DS_Store
 vite.config.timestamp_*
+dev.db
+apps/bridge/showpilot-bridge.config.json

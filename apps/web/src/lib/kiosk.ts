@@ -1,7 +1,33 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
+import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { signToken, verifyToken } from "@/lib/kiosk-token";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+
+// Kiosk tokens are org-scoped API credentials, so creating, listing, and
+// revoking them requires the same permission as other API keys. Returns the
+// caller's userId (used for createdBy) so callers don't re-fetch the session.
+async function assertKioskTokenPermission(orgId: string): Promise<string> {
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { role: true },
+  });
+  const role = normalizeRole(member?.role ?? null);
+  if (!role || !hasPermission(role, "settings:api_keys")) {
+    throw new Error("Forbidden");
+  }
+  return session.user.id;
+}
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -14,87 +40,37 @@ export const KIOSK_VIEWS: Record<KioskView, { label: string; description: string
 };
 
 // ─── Token Generation ────────────────────────────────────
-// Simple HMAC-signed token. In production, use a proper JWT
-// library. For Cloudflare Workers, we use the Web Crypto API.
+// HMAC-SHA256 signing/verification lives in kiosk-token.ts (pure,
+// unit-testable). Re-exported here for existing consumers.
 
-async function signToken(payload: Record<string, unknown>, secret: string): Promise<string> {
-  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }))
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-  const body = btoa(JSON.stringify(payload))
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-  const data = `${header}.${body}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  const signature = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-  return `${data}.${signature}`;
-}
-
-export async function verifyToken(
-  token: string,
-  secret: string
-): Promise<Record<string, unknown> | null> {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  const [header, body, signature] = parts;
-  const data = `${header}.${body}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
-  const sigBytes = Uint8Array.from(
-    atob(signature.replace(/-/g, "+").replace(/_/g, "/")),
-    (c) => c.charCodeAt(0)
-  );
-  const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(data));
-  if (!valid) return null;
-  try {
-    const payload = JSON.parse(
-      atob(body.replace(/-/g, "+").replace(/_/g, "/"))
-    );
-    // Check expiration
-    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
+export { verifyToken };
 
 // ─── Server Functions ────────────────────────────────────
 
-const KIOSK_SECRET = "showpilot-kiosk-secret-v1"; // TODO: move to env var
+// Fail closed: kiosk tokens cannot be signed or verified without the secret.
+// Set via `wrangler secret put KIOSK_SECRET` (and .dev.vars locally).
+export function getKioskSecret(): string {
+  const secret = (env as unknown as Record<string, unknown>).KIOSK_SECRET as
+    | string
+    | undefined;
+  if (!secret) throw new Error("KIOSK_SECRET is not configured");
+  return secret;
+}
+
+const createKioskTokenSchema = z.object({
+  orgId: idSchema,
+  label: labelSchema,
+  view: z.enum(["timer", "overlay", "board"]),
+  expiresInDays: z.number().int().min(1).max(3650).nullable(), // null = permanent
+});
 
 export const createKioskToken = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      label: string;
-      view: KioskView;
-      expiresInDays: number | null; // null = permanent
-    }) => data
-  )
+  .inputValidator((data: unknown) => parseOrThrow(createKioskTokenSchema, data))
   .handler(async ({ data }) => {
-    const auth = getAuth();
-    const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
-    if (!session) throw new Error("Unauthorized");
+    const userId = await assertKioskTokenPermission(data.orgId);
+
+    const { requirePlanFeature } = await import("@/lib/plan-limits");
+    await requirePlanFeature(data.orgId, "kiosk");
 
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
@@ -115,7 +91,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
       ...(exp ? { exp } : {}),
     };
 
-    const token = await signToken(payload, KIOSK_SECRET);
+    const token = await signToken(payload, getKioskSecret());
 
     const kioskToken = await prisma.kioskToken.create({
       data: {
@@ -124,7 +100,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
         view: data.view,
         token,
         expiresAt: exp ? new Date(exp * 1000) : null,
-        createdBy: session.user.id,
+        createdBy: userId,
       },
     });
 
@@ -132,8 +108,9 @@ export const createKioskToken = createServerFn({ method: "POST" })
   });
 
 export const listKioskTokens = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
+    await assertKioskTokenPermission(data.orgId);
     const prisma = getPrisma();
     return await prisma.kioskToken.findMany({
       where: { orgId: data.orgId, revokedAt: null },
@@ -142,9 +119,15 @@ export const listKioskTokens = createServerFn({ method: "GET" })
   });
 
 export const revokeKioskToken = createServerFn({ method: "POST" })
-  .inputValidator((data: { tokenId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ tokenId: idSchema }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
+    const existing = await prisma.kioskToken.findUnique({
+      where: { id: data.tokenId },
+      select: { orgId: true },
+    });
+    if (!existing) throw new Error("Token not found");
+    await assertKioskTokenPermission(existing.orgId);
     return await prisma.kioskToken.update({
       where: { id: data.tokenId },
       data: { revokedAt: new Date() },
@@ -152,10 +135,10 @@ export const revokeKioskToken = createServerFn({ method: "POST" })
   });
 
 export const validateKioskToken = createServerFn({ method: "GET" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.string().min(1).max(2048), data))
   .handler(async ({ data }) => {
     // First verify the JWT signature + expiration
-    const payload = await verifyToken(data, KIOSK_SECRET);
+    const payload = await verifyToken(data, getKioskSecret());
     if (!payload) return null;
 
     // Then check it hasn't been revoked in the database

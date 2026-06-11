@@ -21,6 +21,22 @@ const orgConfig = {
     enabled: true,
     maximumRolesPerOrganization: 20,
   },
+  organizationHooks: {
+    // Every new org gets a 14-day pro trial, no card required. On expiry
+    // the org naturally evaluates as free via getEffectivePlan — no cron.
+    afterCreateOrganization: async ({ organization }: { organization: { id: string } }) => {
+      try {
+        const prisma = getPrisma();
+        await prisma.organization.update({
+          where: { id: organization.id },
+          data: { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+        });
+      } catch (err) {
+        // A missing trial must never block org creation.
+        console.error("[auth] failed to set trialEndsAt for new org:", err);
+      }
+    },
+  },
   sendInvitationEmail: async (data: {
     id: string;
     email: string;
@@ -77,19 +93,35 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   const cfEnv = env as unknown as Record<string, unknown>;
-  const secret = (cfEnv.BETTER_AUTH_SECRET as string) || "showpilot-better-auth-secret";
+  // Fail closed: never run with a guessable session-signing secret.
+  const secret = cfEnv.BETTER_AUTH_SECRET as string | undefined;
+  if (!secret) throw new Error("BETTER_AUTH_SECRET is not configured");
   const baseURL = (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
 
   return betterAuth({
     baseURL,
     secret,
+    // Code-level minimum against credential stuffing / signup abuse.
+    // In-memory storage is per-isolate on Workers; Cloudflare WAF rules
+    // provide the durable layer in production.
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 10,
+    },
     trustedOrigins: [
       "http://localhost:3000",
       "http://localhost:5173",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5173",
       "http://192.168.2.73:5173",
       "http://192.168.2.108:3000",
+      "http://192.168.2.108:5173",
+      "http://192.168.2.73:3000",
       "https://showpilot.tech",
+      "https://www.showpilot.tech",
       "https://admin.showpilot.tech",
+      "https://*.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),

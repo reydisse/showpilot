@@ -19,16 +19,17 @@ function DeviceDetailPage() {
   const { device } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const context = Route.useRouteContext() as { orgId?: string };
-  const { module, status, feedbacks, definition, bridgeOnline, connect, disconnect } =
+  const { module, status, feedbacks, definition, connect, disconnect } =
     useDeviceModule(device, context.orgId);
 
   return (
-    <div className="min-h-[100dvh] bg-board-bg p-4 md:p-6">
+    <div className="h-full min-h-0 overflow-auto bg-board-bg p-4 md:p-6">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <Link
-            to={`/${slug}/dashboard/devices`}
+            to="/$slug/dashboard/devices"
+            params={{ slug }}
             className="rounded-lg border border-board-border bg-board-card p-2 text-board-muted hover:text-board-text transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />

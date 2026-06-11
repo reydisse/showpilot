@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, CheckCircle2, Circle, Plus, Trash2 } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
 import {
-  getChecklistTemplates,
   getChecklistEntries,
   addChecklistTemplate,
   addChecklistEntry,
@@ -12,8 +10,10 @@ import {
   deleteChecklistTemplate,
 } from "@/lib/data";
 import { hasPermission } from "@/lib/app-permissions";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -31,30 +31,58 @@ export const Route = createFileRoute("/$slug/production/checklist")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
-    const today = getTodayDateString();
-    const [templates, entries] = await Promise.all([
-      getChecklistTemplates({ data: { orgId: context.orgId } }),
-      getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } }),
-    ]);
-    return { templates, entries, orgId: context.orgId, role: context.role };
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
+    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } });
+    return {
+      entries,
+      orgId: context.orgId,
+      role: context.role,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: ChecklistPage,
 });
 
 function ChecklistPage() {
-  const { templates, entries: initialEntries, orgId, role } = Route.useLoaderData();
-  const router = useRouter();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
-  const [newLabel, setNewLabel] = useState("");
-  const [adding, setAdding] = useState(false);
-
-  const entries = initialEntries as Array<{
+  const { entries: initialEntries, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const [entries, setEntries] = useState(initialEntries as Array<{
     id: string;
     templateId: string;
     checked: boolean;
     checkedBy: string | null;
     template?: { label: string; category: string } | null;
-  }>;
+  }>);
+  const [loadingEntries, setLoadingEntries] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const loadEntries = useCallback(async (date: string) => {
+    setLoadingEntries(true);
+    try {
+      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date } });
+      setEntries(latest as typeof entries);
+    } finally {
+      setLoadingEntries(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    setEntries(initialEntries as typeof entries);
+  }, [initialEntries]);
+
+  useEffect(() => {
+    void loadEntries(serviceDate);
+  }, [loadEntries, serviceDate]);
+
+  useServiceDateRollover({
+    serviceDate,
+    timeZone: orgTimezone,
+    onTodayChanged: (nextToday) => {
+      setServiceDate(nextToday);
+    },
+  });
 
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
@@ -64,7 +92,7 @@ function ChecklistPage() {
   const handleToggle = async (entryId: string, checked: boolean) => {
     if (!canManageChecklist) return;
     await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
-    router.invalidate();
+    await loadEntries(serviceDate);
   };
 
   const handleAddTemplate = async (e: React.FormEvent) => {
@@ -78,7 +106,7 @@ function ChecklistPage() {
         await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate } });
       }
       setNewLabel("");
-      router.invalidate();
+      await loadEntries(serviceDate);
     } finally {
       setAdding(false);
     }
@@ -95,12 +123,11 @@ function ChecklistPage() {
     });
     if (!ok) return;
     await deleteChecklistTemplate({ data: { orgId, id } });
-    router.invalidate();
+    await loadEntries(serviceDate);
   };
 
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
-    router.invalidate();
   };
 
   return (
@@ -112,9 +139,12 @@ function ChecklistPage() {
             <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => { setServiceDate(getTodayDateString()); router.invalidate(); }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">
-              {formatDisplayDate(serviceDate)}
-            </button>
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
+                {formatDisplayDate(serviceDate)}
+              </button>
             <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -158,7 +188,9 @@ function ChecklistPage() {
             </div>
           ))}
 
-          {totalCount === 0 && (
+          {loadingEntries ? (
+            <p className="text-center text-sm text-board-muted py-8">Loading checklist...</p>
+          ) : totalCount === 0 && (
             <p className="text-center text-sm text-board-muted py-8">
               {canManageChecklist ? "No checklist items for this date. Add one below." : "No checklist items for this date."}
             </p>

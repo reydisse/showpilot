@@ -87,7 +87,6 @@ export function AutomationTimeline({
           {events.map((event) => {
             const Icon = ACTION_ICONS[event.action] ?? Monitor;
             const colorClass = ACTION_COLORS[event.action] ?? ACTION_COLORS["custom-webhook"];
-            const isPast = isRunning && event.triggerFrame <= currentFrame;
             const isNext =
               isRunning &&
               !event.fired &&

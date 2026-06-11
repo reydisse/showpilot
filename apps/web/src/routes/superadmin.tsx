@@ -7,11 +7,11 @@ import {
   Mail,
   Shield,
   Monitor,
-  Clock,
-  ChevronDown,
   ListChecks,
   Send,
   Trash2,
+  Rocket,
+  FlaskConical,
 } from "lucide-react";
 import { getSession } from "@/lib/session";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -26,6 +26,9 @@ import {
   getWaitlistSignups,
   sendWaitlistInvite,
   deleteWaitlistSignup,
+  getPublicLaunchSetting,
+  setOrgBetaTester,
+  setPublicLaunchDate,
 } from "@/lib/superadmin";
 
 export const Route = createFileRoute("/superadmin")({
@@ -42,7 +45,7 @@ export const Route = createFileRoute("/superadmin")({
     return { user: session.user };
   },
   loader: async () => {
-    const [stats, users, orgs, members, sessions, invitations, waitlist] =
+    const [stats, users, orgs, members, sessions, invitations, waitlist, launch] =
       await Promise.all([
         getPlatformStats(),
         getAllUsers(),
@@ -51,8 +54,18 @@ export const Route = createFileRoute("/superadmin")({
         getRecentSessions(),
         getAllInvitations(),
         getWaitlistSignups(),
+        getPublicLaunchSetting(),
       ]);
-    return { stats, users, orgs, members, sessions, invitations, waitlist };
+    return {
+      stats,
+      users,
+      orgs,
+      members,
+      sessions,
+      invitations,
+      waitlist,
+      publicLaunchDate: launch.publicLaunchDate,
+    };
   },
   component: SuperAdminDashboard,
 });
@@ -106,12 +119,23 @@ function formatDate(d: string | Date): string {
 
 type Tab = "waitlist" | "users" | "orgs" | "sessions" | "invitations";
 
+const PLAN_BADGE_STYLES: Record<string, string> = {
+  free: "bg-board-border/40 text-board-muted border-board-border",
+  starter: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  pro: "bg-fire-500/10 text-fire-500 border-fire-500/20",
+};
+
 function SuperAdminDashboard() {
-  const { stats, users, orgs, members, sessions, invitations, waitlist } =
+  const { stats, users, orgs, members, sessions, invitations, waitlist, publicLaunchDate } =
     Route.useLoaderData();
   const [tab, setTab] = useState<Tab>("waitlist");
   const [sendingInvite, setSendingInvite] = useState<string | null>(null);
   const [sentInvites, setSentInvites] = useState<Set<string>>(new Set());
+  const [launchDateInput, setLaunchDateInput] = useState(
+    publicLaunchDate ? publicLaunchDate.slice(0, 10) : "",
+  );
+  const [savingLaunchDate, setSavingLaunchDate] = useState(false);
+  const [togglingBeta, setTogglingBeta] = useState<string | null>(null);
   const router = useRouter();
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
@@ -140,6 +164,31 @@ function SuperAdminDashboard() {
       alert("Failed to send invite: " + (err instanceof Error ? err.message : "Unknown error"));
     } finally {
       setSendingInvite(null);
+    }
+  }
+
+  async function handleSaveLaunchDate(date: string | null) {
+    setSavingLaunchDate(true);
+    try {
+      await setPublicLaunchDate({ data: { date } });
+      if (date === null) setLaunchDateInput("");
+      router.invalidate();
+    } catch (err) {
+      alert("Failed to save launch date: " + (err instanceof Error ? err.message : "Unknown error"));
+    } finally {
+      setSavingLaunchDate(false);
+    }
+  }
+
+  async function handleToggleBeta(orgId: string, betaTester: boolean) {
+    setTogglingBeta(orgId);
+    try {
+      await setOrgBetaTester({ data: { orgId, betaTester } });
+      router.invalidate();
+    } catch (err) {
+      alert("Failed to update beta access: " + (err instanceof Error ? err.message : "Unknown error"));
+    } finally {
+      setTogglingBeta(null);
     }
   }
 
@@ -349,8 +398,53 @@ function SuperAdminDashboard() {
         )}
 
         {tab === "orgs" && (
-          <div className="space-y-2">
-            <p className="text-xs text-board-muted mb-3">
+          <div className="space-y-4">
+            {/* Public launch date — beta orgs evaluate as pro until this date */}
+            <div className="rounded-xl border border-board-border bg-board-card p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Rocket className="w-4 h-4 text-fire-500" />
+                <p className="text-sm font-medium text-board-text">Public launch date</p>
+                {publicLaunchDate ? (
+                  <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-fire-500/10 text-fire-500 border border-fire-500/20">
+                    {new Date(publicLaunchDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-board-border/40 text-board-muted border border-board-border">
+                    Not set — beta access open
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-board-muted mb-3">
+                Beta orgs get full Pro access until this date, then evaluate as free.
+                Takes effect instantly — no deploy needed.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={launchDateInput}
+                  onChange={(e) => setLaunchDateInput(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text text-sm focus:outline-none focus:border-fire-500 transition-colors"
+                />
+                <button
+                  onClick={() => launchDateInput && handleSaveLaunchDate(launchDateInput)}
+                  disabled={savingLaunchDate || !launchDateInput}
+                  className="text-xs font-medium px-3 py-2 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50"
+                >
+                  {savingLaunchDate ? "Saving..." : "Set date"}
+                </button>
+                {publicLaunchDate && (
+                  <button
+                    onClick={() => handleSaveLaunchDate(null)}
+                    disabled={savingLaunchDate}
+                    className="text-xs font-medium px-3 py-2 rounded-lg text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <p className="text-xs text-board-muted">
               {orgs.length} organization{orgs.length !== 1 ? "s" : ""}
             </p>
             <div className="grid gap-3">
@@ -375,7 +469,46 @@ function SuperAdminDashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-board-text">{org.name}</p>
                     <p className="text-xs text-board-muted">/{org.slug}</p>
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <span
+                        className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded border ${PLAN_BADGE_STYLES[org.effectivePlan] ?? PLAN_BADGE_STYLES.free}`}
+                        title={`Stored plan: ${org.plan}${org.subscriptionStatus ? ` · ${org.subscriptionStatus}` : ""}`}
+                      >
+                        {org.effectivePlan}
+                      </span>
+                      {org.betaTester && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                          <FlaskConical className="w-2.5 h-2.5" />
+                          Beta
+                        </span>
+                      )}
+                      {org.foundingMember && (
+                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
+                          Founding
+                        </span>
+                      )}
+                      {org.trialEndsAt && new Date(org.trialEndsAt) > new Date() && (
+                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                          Trial
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  <button
+                    onClick={() => handleToggleBeta(org.id, !org.betaTester)}
+                    disabled={togglingBeta === org.id}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 shrink-0 min-h-[32px] ${
+                      org.betaTester
+                        ? "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20"
+                        : "text-board-muted border-board-border hover:text-board-text hover:bg-board-border/50"
+                    }`}
+                  >
+                    {togglingBeta === org.id
+                      ? "Saving..."
+                      : org.betaTester
+                        ? "Revoke beta"
+                        : "Grant beta"}
+                  </button>
                   <div className="text-right shrink-0">
                     <p className="text-lg font-bold text-board-text tabular-nums">
                       {org.memberCount}

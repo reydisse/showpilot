@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { BaseDeviceModule } from "../base-module";
 import type {
   DeviceConnectionStatus,
@@ -34,7 +34,7 @@ class TestModule extends BaseDeviceModule {
     ];
   }
 
-  async executeAction(actionId: string, params: Record<string, unknown>): Promise<void> {
+  async executeAction(actionId: string, _params: Record<string, unknown>): Promise<void> {
     if (actionId === "fail") throw new Error("Action failed");
   }
 

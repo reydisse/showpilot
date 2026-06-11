@@ -81,7 +81,8 @@ function CrewChatPage() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <Link
-              to={`/${slug}/checkin`}
+              to="/$slug/checkin"
+              params={{ slug }}
               className="p-2 -ml-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />

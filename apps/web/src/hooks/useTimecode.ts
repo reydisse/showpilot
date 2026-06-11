@@ -5,7 +5,6 @@ import type {
   TimecodeValue,
   AutomationEvent,
   TimecodeWsMessage,
-  TimecodeSourceType,
 } from "@/types/timecode";
 import { timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
@@ -196,17 +195,16 @@ export function useTimecode({
     mtcSourceRef.current = null;
   }, []);
 
-  const startMtc = useCallback(
-    async (inputId: string) => {
-      internalSourceRef.current?.stop();
-      internalSourceRef.current = null;
+    const startMtc = useCallback(
+      async (inputId: string) => {
+        internalSourceRef.current?.stop();
+        internalSourceRef.current = null;
 
-      const format = state?.format ?? { frameRate: 30, dropFrame: "ndf" as const };
-      const source = new MtcSource((tc, frameRate) => {
-        const totalFrames = timecodeToFrames(tc, { frameRate, dropFrame: "ndf" });
-        const display = timecodeToString(tc, false);
-        latestTcRef.current = { tc, totalFrames, display };
-      });
+        const source = new MtcSource((tc, frameRate) => {
+          const totalFrames = timecodeToFrames(tc, { frameRate, dropFrame: "ndf" });
+          const display = timecodeToString(tc, false);
+          latestTcRef.current = { tc, totalFrames, display };
+        });
 
       await source.start(inputId);
       mtcSourceRef.current = source;

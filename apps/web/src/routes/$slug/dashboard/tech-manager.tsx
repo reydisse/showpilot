@@ -1,5 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { useState } from "react";
 import {
   Wrench,
   AlertTriangle,
@@ -14,7 +15,9 @@ import {
   getChecklistTemplates,
   getChecklistEntries,
 } from "@/lib/data";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 type EquipmentStatus = "operational" | "needs-repair" | "in-repair" | "out-of-service";
 
@@ -55,7 +58,8 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const [equipment, devices, incidents, templates, entries] = await Promise.all([
       getEquipment({ data: { orgId: context.orgId } }),
       getDevices({ data: { orgId: context.orgId } }),
@@ -63,13 +67,33 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
       getChecklistTemplates({ data: { orgId: context.orgId } }),
       getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } }),
     ]);
-    return { equipment, devices, incidents, templates, entries, slug: context.slug };
+    return {
+      equipment,
+      devices,
+      incidents,
+      templates,
+      entries,
+      slug: context.slug,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: TechManagerPage,
 });
 
 function TechManagerPage() {
-  const { equipment, devices, incidents, templates, entries, slug } = Route.useLoaderData();
+  const { equipment, devices, incidents, templates, entries, slug, orgTimezone } =
+    Route.useLoaderData();
+  const router = useRouter();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+
+  useServiceDateRollover({
+    serviceDate,
+    timeZone: orgTimezone,
+    onTodayChanged: async (nextToday) => {
+      setServiceDate(nextToday);
+      await router.invalidate();
+    },
+  });
 
   const operational = equipment.filter((e) => e.status === "operational");
   const needsAttention = equipment.filter(

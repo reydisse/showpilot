@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
 import { getCueSheets, addCueSheet, updateCueSheet, deleteCueSheet } from "@/lib/data";
+import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -31,25 +32,56 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"], context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const items = await getCueSheets({ data: { orgId: context.orgId, serviceDate: today } });
-    return { items: items as CueItem[], orgId: context.orgId };
+    return {
+      items: items as CueItem[],
+      orgId: context.orgId,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: CueSheetsPage,
 });
 
 function CueSheetsPage() {
-  const { items, orgId } = Route.useLoaderData();
-  const router = useRouter();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const { items: initialItems, orgId, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const [items, setItems] = useState(initialItems);
+  const [loadingItems, setLoadingItems] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingItem, setEditingItem] = useState<CueItem | null>(null);
   const [form, setForm] = useState({ rundownItem: "", cameraAssignments: "", notes: "" });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
+  const loadItems = useCallback(async (date: string) => {
+    setLoadingItems(true);
+    try {
+      const latest = await getCueSheets({ data: { orgId, serviceDate: date } });
+      setItems(latest as CueItem[]);
+    } finally {
+      setLoadingItems(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
+
+  useEffect(() => {
+    void loadItems(serviceDate);
+  }, [loadItems, serviceDate]);
+
+  useServiceDateRollover({
+    serviceDate,
+    timeZone: orgTimezone,
+    onTodayChanged: (nextToday) => {
+      setServiceDate(nextToday);
+    },
+  });
+
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
-    router.invalidate();
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -63,7 +95,7 @@ function CueSheetsPage() {
     });
     setForm({ rundownItem: "", cameraAssignments: "", notes: "" });
     setShowForm(false);
-    router.invalidate();
+    await loadItems(serviceDate);
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -72,7 +104,7 @@ function CueSheetsPage() {
     await updateCueSheet({ data: { id: editingItem.id, updates: { rundownItem: form.rundownItem, cameraAssignments: form.cameraAssignments, notes: form.notes } } });
     setEditingItem(null);
     setForm({ rundownItem: "", cameraAssignments: "", notes: "" });
-    router.invalidate();
+    await loadItems(serviceDate);
   };
 
   const handleDelete = async (id: string) => {
@@ -83,7 +115,7 @@ function CueSheetsPage() {
     });
     if (!ok) return;
     await deleteCueSheet({ data: { id } });
-    router.invalidate();
+    await loadItems(serviceDate);
   };
 
   const startEdit = (item: CueItem) => {
@@ -102,7 +134,10 @@ function CueSheetsPage() {
               <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button onClick={() => { setServiceDate(getTodayDateString()); router.invalidate(); }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
                 {formatDisplayDate(serviceDate)}
               </button>
               <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
@@ -123,7 +158,11 @@ function CueSheetsPage() {
 
       <div className="p-6 max-w-5xl mx-auto">
         {/* Table */}
-        {items.length > 0 ? (
+        {loadingItems ? (
+          <div className="text-center py-16">
+            <p className="text-board-muted text-sm">Loading cue sheets...</p>
+          </div>
+        ) : items.length > 0 ? (
           <div className="rounded-xl border border-board-border overflow-hidden">
             <table className="w-full">
               <thead>

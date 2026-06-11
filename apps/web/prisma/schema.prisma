@@ -20,6 +20,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   members       Member[]
+  orgMembers    OrgMember[]
   invitations   Invitation[]
 
   @@unique([email])
@@ -83,6 +84,17 @@ model Organization {
   cloud_enabled Boolean    @default(false)
   createdAt   DateTime
   metadata    String?
+
+  // Billing (Stripe) — effective plan is resolved by getEffectivePlan()
+  // in src/lib/plan-limits.ts (beta > trial > plan precedence).
+  plan                 String    @default("free") // "free" | "starter" | "pro"
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+  subscriptionStatus   String?   // mirrors Stripe subscription status
+  trialEndsAt          DateTime?
+  foundingMember       Boolean   @default(false)
+  betaTester           Boolean   @default(false)
+
   members     Member[]
   orgMembers  OrgMember[]
   invitations Invitation[]
@@ -98,6 +110,8 @@ model Organization {
   notifications      Notification[]
   devices            Device[]
   appSettings        AppSetting[]
+  rundowns           Rundown[]
+  rundownItems       RundownItem[]
   graphicTemplates   GraphicTemplate[]
   streamDestinations StreamDestination[]
   liveInputs         LiveInput[]
@@ -332,6 +346,50 @@ model AppSetting {
   @@map("app_setting")
 }
 
+model RundownItem {
+  id           String   @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  serviceDate  String
+  itemId       String
+  title        String
+  type         String
+  duration     Int
+  notes        String
+  assignee     String
+  cue          String
+  status       String
+  sortOrder    Int
+  hardStop       Boolean   @default(false)
+  lowerThirdId   String?
+  scheduledStart DateTime?
+  expectedEnd    DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([orgId, serviceDate, itemId])
+  @@index([orgId, serviceDate, sortOrder])
+  @@index([orgId, serviceDate])
+  @@map("rundown_item")
+}
+
+model Rundown {
+  id                 String       @id @default(cuid())
+  orgId              String
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  serviceDate        String
+  scheduledStartTime DateTime?
+  status             String       @default("stopped")
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@unique([orgId, serviceDate])
+  @@index([orgId, serviceDate])
+  @@map("rundown")
+}
+
 model GraphicTemplate {
   id           String       @id @default(cuid())
   orgId        String
@@ -405,10 +463,22 @@ model ChatMessage {
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   message      String
   senderName   String
+  senderRole   String?
   createdAt    DateTime     @default(now())
 
   @@index([orgId, createdAt(sort: Desc)])
   @@map("chat_message")
+}
+
+// Platform-level (cross-org) settings, e.g. publicLaunchDate.
+// AppSetting is org-scoped with a required FK, so platform flags
+// live in their own table.
+model PlatformSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  @@map("platform_setting")
 }
 
 model WaitlistSignup {

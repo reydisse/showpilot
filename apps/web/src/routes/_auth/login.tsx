@@ -1,7 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { getUserInvitations } from "@/lib/session";
 
 export const Route = createFileRoute("/_auth/login")({
   component: LoginPage,
@@ -46,7 +45,6 @@ function EyeOffIcon({ className }: { className?: string }) {
 }
 
 function LoginPage() {
-  const navigate = useNavigate();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -62,26 +60,17 @@ function LoginPage() {
 
     try {
       if (isSignUp) {
-        const { error } = await authClient.signUp.email({
-          email,
-          password,
-          name,
-        });
-        if (error) throw new Error(error.message);
-        // Full reload to pick up the new session cookie
+        const result = await authClient.signUp.email({ email, password, name });
+        if (result.error) throw new Error(`[${result.error.code ?? "ERR"}] ${result.error.message}`);
         window.location.href = "/";
       } else {
-        const { error } = await authClient.signIn.email({
-          email,
-          password,
-        });
-        if (error) throw new Error(error.message);
-        // Full reload to pick up the new session cookie
+        const result = await authClient.signIn.email({ email, password });
+        if (result.error) throw new Error(result.error.message ?? "Sign in failed");
         window.location.href = "/";
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Authentication failed"
+        err instanceof Error ? err.message : String(err)
       );
     } finally {
       setLoading(false);

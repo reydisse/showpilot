@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
+import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -28,6 +29,24 @@ type IncidentItem = {
   timestamp: string;
 };
 
+function normalizeIncident(incident: {
+  id: string;
+  category: string;
+  severity: string;
+  description: string;
+  reportedBy: string;
+  timestamp: Date | string;
+}): IncidentItem {
+  return {
+    id: incident.id,
+    category: incident.category,
+    severity: incident.severity,
+    description: incident.description,
+    reportedBy: incident.reportedBy,
+    timestamp: incident.timestamp instanceof Date ? incident.timestamp.toISOString() : incident.timestamp,
+  };
+}
+
 const SEVERITY_COLORS: Record<string, string> = {
   low: "bg-blue-500/15 text-blue-400 border-blue-500/25",
   medium: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
@@ -42,26 +61,58 @@ export const Route = createFileRoute("/$slug/production/incidents")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["incidents:report", "incidents:access"], context.slug, context.orgId);
-    const today = getTodayDateString();
+    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const today = getTodayDateString(settings["org-timezone"]);
     const incidents = await getIncidents({ data: { orgId: context.orgId, serviceDate: today } });
-    return { incidents: incidents as IncidentItem[], orgId: context.orgId, role: context.role };
+    return {
+      incidents: incidents.map(normalizeIncident),
+      orgId: context.orgId,
+      role: context.role,
+      orgTimezone: settings["org-timezone"],
+    };
   },
   component: IncidentsPage,
 });
 
 function IncidentsPage() {
-  const { incidents, orgId, role } = Route.useLoaderData();
-  const router = useRouter();
-  const [serviceDate, setServiceDate] = useState(getTodayDateString);
+  const { incidents: initialIncidents, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const [incidents, setIncidents] = useState(initialIncidents);
+  const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const canReportIncidents = hasAnyPermission(role, ["incidents:report", "incidents:access"]);
   const canManageIncidents = hasPermission(role, "incidents:access");
 
+  const loadIncidents = useCallback(async (date: string) => {
+    setLoadingIncidents(true);
+    try {
+      const latest = await getIncidents({ data: { orgId, serviceDate: date } });
+      setIncidents(latest.map(normalizeIncident));
+    } finally {
+      setLoadingIncidents(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    setIncidents(initialIncidents);
+  }, [initialIncidents]);
+
+  useEffect(() => {
+    void loadIncidents(serviceDate);
+  }, [loadIncidents, serviceDate]);
+
+  useServiceDateRollover({
+    serviceDate,
+    timeZone: orgTimezone,
+    onTodayChanged: (nextToday) => {
+      setServiceDate(nextToday);
+    },
+  });
+
   const handleDateChange = (days: number) => {
     setServiceDate((d) => shiftDate(d, days));
-    router.invalidate();
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -71,7 +122,7 @@ function IncidentsPage() {
     await addIncident({ data: { orgId, ...form, serviceDate } });
     setForm({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
     setShowForm(false);
-    router.invalidate();
+    await loadIncidents(serviceDate);
   };
 
   const handleDelete = async (id: string) => {
@@ -83,7 +134,7 @@ function IncidentsPage() {
     });
     if (!ok) return;
     await deleteIncident({ data: { orgId, id } });
-    router.invalidate();
+    await loadIncidents(serviceDate);
   };
 
   return (
@@ -94,7 +145,12 @@ function IncidentsPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronLeft className="w-4 h-4" /></button>
-              <button onClick={() => { setServiceDate(getTodayDateString()); router.invalidate(); }} className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center">{formatDisplayDate(serviceDate)}</button>
+              <button
+                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              >
+                {formatDisplayDate(serviceDate)}
+              </button>
               <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronRight className="w-4 h-4" /></button>
             </div>
             {canReportIncidents && (
@@ -112,6 +168,9 @@ function IncidentsPage() {
       </div>
 
       <div className="p-6 max-w-2xl mx-auto">
+        {loadingIncidents && (
+          <p className="mb-3 text-xs text-board-muted">Loading incidents for {formatDisplayDate(serviceDate)}...</p>
+        )}
         {incidents.length > 0 ? (
           <div className="space-y-3">
             {incidents.map((incident) => (

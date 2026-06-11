@@ -1,6 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { sendEmail, waitlistConfirmationEmail } from "@/lib/email";
+import { clientIp, isRateLimited } from "@/lib/rate-limit";
+import { emailSchema } from "@/lib/validation";
+
+const waitlistBodySchema = z.object({
+  email: emailSchema,
+  name: z.string().max(100).optional(),
+  role: z.string().max(50).optional(),
+  orgName: z.string().max(200).optional(),
+});
+
+// The landing page is the only browser client that posts here.
+const ALLOWED_ORIGINS = ["https://showpilot.tech", "https://www.showpilot.tech"];
+
+function corsOrigin(request: Request): string {
+  const origin = request.headers.get("Origin") ?? "";
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
 
 export const Route = createFileRoute("/api/waitlist/")({
   server: {
@@ -10,30 +28,38 @@ export const Route = createFileRoute("/api/waitlist/")({
         return new Response(null, {
           status: 204,
           headers: {
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": corsOrigin(request),
             "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
+            Vary: "Origin",
           },
         });
       },
       POST: async ({ request }: { request: Request }) => {
         const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Origin": corsOrigin(request),
           "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
+          Vary: "Origin",
         };
 
-        try {
-          const body = (await request.json()) as {
-            email?: string;
-            name?: string;
-            role?: string;
-            orgName?: string;
-          };
+        const ip = clientIp(request);
+        if (await isRateLimited(`waitlist:${ip}`, { max: 5, windowSeconds: 3600 })) {
+          return new Response(
+            JSON.stringify({ error: "Too many requests. Try again later." }),
+            {
+              status: 429,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            }
+          );
+        }
 
-          if (!body.email || typeof body.email !== "string") {
+        try {
+          const parsed = waitlistBodySchema.safeParse(await request.json().catch(() => null));
+          if (!parsed.success) {
+            const issue = parsed.error.issues[0];
             return new Response(
-              JSON.stringify({ error: "Email is required" }),
+              JSON.stringify({ error: issue ? issue.message : "Invalid request body" }),
               {
                 status: 400,
                 headers: {
@@ -43,6 +69,7 @@ export const Route = createFileRoute("/api/waitlist/")({
               }
             );
           }
+          const body = parsed.data;
 
           const prisma = getPrisma();
           const existing = await prisma.waitlistSignup.findUnique({

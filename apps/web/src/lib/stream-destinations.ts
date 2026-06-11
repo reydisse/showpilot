@@ -1,10 +1,49 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
+import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { z } from "zod";
+import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+
+// Destinations hold RTMP stream keys — every read/write must verify org
+// membership + stream permission. Matches the pattern in src/lib/stream.ts.
+async function assertOrgPermission(
+  orgId: string,
+  permission: "stream_health:view" | "stream_health:manage",
+) {
+  const { getAuth } = await import("@/lib/auth");
+  const auth = getAuth();
+  const headers = getRequestHeaders();
+  const session = await auth.api.getSession({ headers });
+  if (!session) throw new Error("Unauthorized");
+
+  const prisma = getPrisma();
+  const member = await prisma.member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { role: true },
+  });
+  const role = normalizeRole(member?.role ?? null);
+  if (!role || !hasPermission(role, permission)) throw new Error("Forbidden");
+}
+
+/** Resolve a destination's org, then assert manage permission on it. */
+async function assertDestinationAccess(id: string) {
+  const prisma = getPrisma();
+  const dest = await prisma.streamDestination.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!dest) throw new Error("Destination not found");
+  await assertOrgPermission(dest.orgId, "stream_health:manage");
+}
 
 function getCfHeaders() {
-  const token = (env as Record<string, string>).CLOUDFLARE_API_TOKEN;
-  if (!token) throw new Error("CLOUDFLARE_API_TOKEN not configured");
+  // Transitional: prefer CLOUDFLARE_STREAM_API_TOKEN, fall back to the legacy
+  // CLOUDFLARE_API_TOKEN until the old secret is deleted from prod.
+  const token: string | undefined =
+    env.CLOUDFLARE_STREAM_API_TOKEN || env.CLOUDFLARE_API_TOKEN;
+  if (!token) throw new Error("CLOUDFLARE_STREAM_API_TOKEN not configured");
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -12,7 +51,7 @@ function getCfHeaders() {
 }
 
 function getAccountId() {
-  const id = (env as Record<string, string>).CLOUDFLARE_ACCOUNT_ID;
+  const id: string | undefined = env.CLOUDFLARE_ACCOUNT_ID;
   if (!id) throw new Error("CLOUDFLARE_ACCOUNT_ID not configured");
   return id;
 }
@@ -20,8 +59,9 @@ function getAccountId() {
 // ─── Stream Destinations ────────────────────────────────────
 
 export const getStreamDestinations = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
     return await prisma.streamDestination.findMany({
       where: { orgId: data.orgId },
@@ -30,16 +70,20 @@ export const getStreamDestinations = createServerFn({ method: "GET" })
   });
 
 export const addStreamDestination = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      orgId: string;
-      name: string;
-      platform: string;
-      rtmpUrl?: string;
-      streamKey?: string;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        name: labelSchema,
+        platform: z.string().min(1).max(50),
+        rtmpUrl: z.string().max(500).optional(),
+        streamKey: z.string().max(500).optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();
     return await prisma.streamDestination.create({
       data: {
@@ -53,19 +97,25 @@ export const addStreamDestination = createServerFn({ method: "POST" })
   });
 
 export const updateStreamDestination = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      id: string;
-      updates: Partial<{
-        name: string;
-        platform: string;
-        rtmpUrl: string;
-        streamKey: string;
-        enabled: boolean;
-      }>;
-    }) => data
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        id: idSchema,
+        updates: z
+          .object({
+            name: labelSchema,
+            platform: z.string().min(1).max(50),
+            rtmpUrl: z.string().max(500),
+            streamKey: z.string().max(500),
+            enabled: z.boolean(),
+          })
+          .partial(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertDestinationAccess(data.id);
     const prisma = getPrisma();
     return await prisma.streamDestination.update({
       where: { id: data.id },
@@ -74,15 +124,19 @@ export const updateStreamDestination = createServerFn({ method: "POST" })
   });
 
 export const deleteStreamDestination = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
+    await assertDestinationAccess(data.id);
     const prisma = getPrisma();
     await prisma.streamDestination.delete({ where: { id: data.id } });
   });
 
 export const toggleStreamDestination = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; enabled: boolean }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ id: idSchema, enabled: z.boolean() }), data),
+  )
   .handler(async ({ data }) => {
+    await assertDestinationAccess(data.id);
     const prisma = getPrisma();
     const dest = await prisma.streamDestination.findUnique({ where: { id: data.id } });
     if (!dest) throw new Error("Destination not found");
@@ -243,8 +297,11 @@ export const getOutputStatuses = createServerFn({ method: "GET" })
 
 /** Connect all enabled destinations to a specific live input */
 export const connectDestinationsToInput = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string; liveInputId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, liveInputId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();
     const liveInput = await prisma.liveInput.findFirst({
       where: { id: data.liveInputId, orgId: data.orgId },
@@ -279,8 +336,9 @@ export const connectDestinationsToInput = createServerFn({ method: "POST" })
 
 /** Disconnect all outputs from a live input */
 export const disconnectAllDestinations = createServerFn({ method: "POST" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "stream_health:manage");
     const prisma = getPrisma();
     const destinations = await prisma.streamDestination.findMany({
       where: { orgId: data.orgId, cfOutputId: { not: "" } },

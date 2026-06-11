@@ -10,6 +10,7 @@ import { vmixModuleDefinition } from "./vmix/vmix-module";
 import { oscMixerDefinition } from "./osc-mixer/osc-mixer-module";
 import { atemModuleDefinition } from "./atem/atem-module";
 import { dmxSacnDefinition, dmxArtnetDefinition } from "./dmx/dmx-module";
+import { homeAssistantModuleDefinition } from "./homeassistant/homeassistant-module";
 
 moduleRegistry.register(obsModuleDefinition);
 moduleRegistry.register(vmixModuleDefinition);
@@ -17,6 +18,7 @@ moduleRegistry.register(oscMixerDefinition);
 moduleRegistry.register(atemModuleDefinition);
 moduleRegistry.register(dmxSacnDefinition);
 moduleRegistry.register(dmxArtnetDefinition);
+moduleRegistry.register(homeAssistantModuleDefinition);
 
 // ── Protocol drivers ──────────────────────────────────────
 import "./protocols/register-protocols";

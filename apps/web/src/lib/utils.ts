@@ -47,8 +47,21 @@ export function formatDate(date: Date): string {
   });
 }
 
-/** Returns today's date as YYYY-MM-DD string (local timezone) */
-export function getTodayDateString(): string {
+/** Returns today's date as YYYY-MM-DD string in the provided timezone when set. */
+export function getTodayDateString(timeZone?: string): string {
+  if (timeZone) {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        timeZone,
+      }).format(new Date());
+    } catch {
+      // Invalid timezone string: fall back to browser local timezone.
+    }
+  }
+
   const d = new Date();
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");

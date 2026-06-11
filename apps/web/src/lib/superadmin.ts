@@ -8,6 +8,13 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { sendEmail, waitlistInviteEmail } from "@/lib/email";
 import { getPrisma } from "@/lib/db";
+import { z } from "zod";
+import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
+import {
+  PUBLIC_LAUNCH_DATE_KEY,
+  getEffectivePlan,
+  getPublicLaunchDate,
+} from "@/lib/plan-limits";
 
 export const SUPER_ADMIN_EMAIL = "reydisse@gmail.com";
 
@@ -49,16 +56,24 @@ export const getAllOrgs = createServerFn({ method: "GET" }).handler(
   async () => {
     await requireSuperAdmin();
     const prisma = getPrisma();
-    const orgs = await prisma.organization.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        logo: true,
-        createdAt: true,
-      },
-    });
+    const [orgs, publicLaunchDate] = await Promise.all([
+      prisma.organization.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          logo: true,
+          createdAt: true,
+          plan: true,
+          trialEndsAt: true,
+          betaTester: true,
+          foundingMember: true,
+          subscriptionStatus: true,
+        },
+      }),
+      getPublicLaunchDate(),
+    ]);
 
     // Get member counts
     const members = await prisma.member.groupBy({
@@ -72,9 +87,65 @@ export const getAllOrgs = createServerFn({ method: "GET" }).handler(
     return orgs.map((org) => ({
       ...org,
       memberCount: countMap.get(org.id) ?? 0,
+      effectivePlan: getEffectivePlan(org, publicLaunchDate),
     }));
   },
 );
+
+// ─── Billing controls (beta access + launch date) ───────────
+
+export const getPublicLaunchSetting = createServerFn({ method: "GET" }).handler(
+  async () => {
+    await requireSuperAdmin();
+    const date = await getPublicLaunchDate();
+    return { publicLaunchDate: date?.toISOString() ?? null };
+  },
+);
+
+export const setOrgBetaTester = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, betaTester: z.boolean() }), data),
+  )
+  .handler(async ({ data }) => {
+    await requireSuperAdmin();
+    const prisma = getPrisma();
+    await prisma.organization.update({
+      where: { id: data.orgId },
+      data: { betaTester: data.betaTester },
+    });
+  });
+
+export const setPublicLaunchDate = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        // ISO date or datetime; null clears the launch date (beta stays open).
+        date: z.string().max(40).nullable(),
+      }),
+      data,
+    ),
+  )
+  .handler(async ({ data }) => {
+    await requireSuperAdmin();
+    const prisma = getPrisma();
+
+    if (data.date === null) {
+      await prisma.platformSetting.deleteMany({
+        where: { key: PUBLIC_LAUNCH_DATE_KEY },
+      });
+      return { publicLaunchDate: null };
+    }
+
+    const parsed = new Date(data.date);
+    if (Number.isNaN(parsed.getTime())) throw new Error("Invalid date");
+    const value = parsed.toISOString();
+    await prisma.platformSetting.upsert({
+      where: { key: PUBLIC_LAUNCH_DATE_KEY },
+      update: { value },
+      create: { key: PUBLIC_LAUNCH_DATE_KEY, value },
+    });
+    return { publicLaunchDate: value };
+  });
 
 // ─── All Members (user → org mapping) ───────────────────────
 
@@ -143,7 +214,12 @@ export const getWaitlistSignups = createServerFn({ method: "GET" }).handler(
 );
 
 export const sendWaitlistInvite = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string; email: string; name: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ id: idSchema, email: emailSchema, name: z.string().max(100) }),
+      data,
+    ),
+  )
   .handler(async ({ data }) => {
     await requireSuperAdmin();
     const signupUrl = "https://showpilot.tech/login";
@@ -153,7 +229,7 @@ export const sendWaitlistInvite = createServerFn({ method: "POST" })
   });
 
 export const deleteWaitlistSignup = createServerFn({ method: "POST" })
-  .inputValidator((data: { id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     await requireSuperAdmin();
     const prisma = getPrisma();

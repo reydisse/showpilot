@@ -1,0 +1,28 @@
+# Local development secrets — copy to .dev.vars and fill in real values.
+# Production values are set with `wrangler secret put <NAME>`.
+
+# Better Auth session signing secret. Generate: openssl rand -base64 32
+BETTER_AUTH_SECRET=
+
+# Base URL Better Auth uses for cookies/redirects (http://localhost:3000 locally)
+BETTER_AUTH_URL=http://localhost:3000
+
+# Kiosk display token signing secret. Generate: openssl rand -base64 32
+KIOSK_SECRET=
+
+# Resend API key for transactional email (invites, password reset)
+RESEND_API_KEY=
+
+# Cloudflare Stream (live inputs + Stream Connect simulcast).
+# Account ID from the dashboard; token needs Stream:Edit permission.
+# (The legacy name CLOUDFLARE_API_TOKEN is still read as a fallback during
+# the rename transition — use the new name.)
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_STREAM_API_TOKEN=
+
+# Stripe (test-mode values locally; live values in prod via wrangler secret put)
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PRICE_STARTER=
+STRIPE_PRICE_PRO=
+STRIPE_PRICE_FOUNDING=

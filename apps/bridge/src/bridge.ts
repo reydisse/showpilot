@@ -47,6 +47,7 @@ export class Bridge {
   private tcpConnections = new Map<string, TcpConnection>();
   private udpConnections = new Map<string, UdpConnection>();
   private ppConnections = new Map<string, ProPresenterBridge>();
+  private httpDeviceSettings = new Map<string, Record<string, unknown>>();
   private startTime = Date.now();
   private propresenter?: BridgeOptions["propresenter"];
 
@@ -156,6 +157,9 @@ export class Bridge {
         case "osc":
           await this.executeOscCommand(msg.target, msg.command);
           break;
+        case "http-command":
+          response = await this.executeHttpCommand(msg.target, msg.command);
+          break;
         case "udp":
         case "visca-ip":
           await this.executeUdpCommand(msg.target, msg.command);
@@ -194,6 +198,13 @@ export class Bridge {
     try {
       if (msg.protocol === "propresenter") {
         await this.connectProPresenter(key, msg.settings);
+        this.send({ type: "device-status", target: key, connected: true });
+        this.sendStatus();
+        return;
+      }
+
+      if (msg.protocol === "http-command") {
+        this.httpDeviceSettings.set(key, msg.settings ?? {});
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
@@ -240,6 +251,7 @@ export class Bridge {
       udp.disconnect();
       this.udpConnections.delete(msg.target);
     }
+    this.httpDeviceSettings.delete(msg.target);
     this.send({ type: "device-status", target: msg.target, connected: false });
     this.sendStatus();
   }
@@ -355,6 +367,38 @@ export class Bridge {
     // Command is hex string for VISCA, or raw bytes
     const buf = Buffer.from(command.replace(/\s+/g, ""), "hex");
     await conn.send(buf);
+  }
+
+  private async executeHttpCommand(target: string, command: string): Promise<string> {
+    const settings = this.httpDeviceSettings.get(target) ?? {};
+    const authToken = settings.authToken as string | undefined;
+
+    const trimmed = command.trim();
+    const methodMatch = trimmed.match(/^(GET|POST|PUT|DELETE|PATCH)\s+/i);
+    const method = methodMatch ? methodMatch[1].toUpperCase() : "GET";
+    const remainder = methodMatch ? trimmed.slice(methodMatch[0].length) : trimmed;
+    const spaceIdx = remainder.indexOf(" ");
+    const path = spaceIdx > 0 ? remainder.slice(0, spaceIdx) : remainder;
+    const body = spaceIdx > 0 ? remainder.slice(spaceIdx + 1) : undefined;
+
+    const baseUrl = /^https?:\/\//i.test(target) ? target.replace(/\/+$/, "") : `http://${target.replace(/\/+$/, "")}`;
+    const url = `${baseUrl}${path}`;
+
+    const res = await fetch(url, {
+      method,
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body } : {}),
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ""}`);
+    }
+
+    return text;
   }
 
   private async executeWol(command: string): Promise<void> {

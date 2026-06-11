@@ -8,6 +8,20 @@ declare namespace Cloudflare {
 		CHAT_RELAY: DurableObjectNamespace;
 		RUNDOWN_RELAY: DurableObjectNamespace;
 		LOWER_THIRDS_RELAY: DurableObjectNamespace;
+		// Secrets (set via `wrangler secret put`, .dev.vars locally)
+		KIOSK_SECRET: string;
+		BETTER_AUTH_SECRET: string;
+		BETTER_AUTH_URL: string;
+		RESEND_API_KEY: string;
+		CLOUDFLARE_STREAM_API_TOKEN: string;
+		/** @deprecated legacy name for CLOUDFLARE_STREAM_API_TOKEN — fallback only; delete the secret once the rename is deployed */
+		CLOUDFLARE_API_TOKEN?: string;
+		CLOUDFLARE_ACCOUNT_ID: string;
+		STRIPE_SECRET_KEY: string;
+		STRIPE_WEBHOOK_SECRET: string;
+		STRIPE_PRICE_STARTER: string;
+		STRIPE_PRICE_PRO: string;
+		STRIPE_PRICE_FOUNDING: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

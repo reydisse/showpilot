@@ -3,9 +3,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
 import { getPrisma } from "@/lib/db";
 import { getDisplaySettingsBySlug, type DisplaySettingsBySlug } from "@/lib/settings";
-import { formatClockFull, type ClockFormat } from "@/lib/utils";
+import { formatClockFull, getTodayDateString, type ClockFormat } from "@/lib/utils";
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 import type { PPSlidePayload } from "@/lib/rundown";
+import { getRundownStateForOrg } from "@/lib/rundown";
 
 // ─── Server Functions ────────────────────────────────────────
 
@@ -19,17 +20,8 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
     });
     if (!org) return null;
 
-    const [itemsSetting, timerSetting, messageSetting, ppSlideSetting] = await Promise.all([
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: { orgId: org.id, key: `rundown-items:${data.serviceDate}` },
-        },
-      }),
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: { orgId: org.id, key: `rundown-timer:${data.serviceDate}` },
-        },
-      }),
+    const [state, messageSetting, ppSlideSetting, ppStageDisplaySetting] = await Promise.all([
+      getRundownStateForOrg({ orgId: org.id, serviceDate: data.serviceDate }),
       prisma.appSetting.findUnique({
         where: {
           orgId_key: { orgId: org.id, key: `rundown-message:${data.serviceDate}` },
@@ -40,32 +32,21 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
           orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.serviceDate}` },
         },
       }),
+      prisma.appSetting.findUnique({
+        where: {
+          orgId_key: { orgId: org.id, key: "propresenter-stage-display" },
+        },
+      }),
     ]);
 
-    const items: RundownItem[] = itemsSetting
-      ? JSON.parse(itemsSetting.value)
-      : [];
-
-    const defaultTimer: NativeTimerState = {
-      playback: "stop",
-      currentItemId: null,
-      elapsed: 0,
-      startedAt: null,
-      pausedAt: null,
-      mode: "count-down",
-      serverTime: Date.now(),
-    };
-
-    const timer: NativeTimerState = timerSetting
-      ? JSON.parse(timerSetting.value)
-      : { ...defaultTimer, serverTime: Date.now() };
-
-    const ppSlide: PPSlidePayload | null = ppSlideSetting && ppSlideSetting.value !== "null"
-      ? JSON.parse(ppSlideSetting.value)
-      : null;
+    const ppSlideEnabled = ppStageDisplaySetting?.value === "true";
+    const ppSlide: PPSlidePayload | null =
+      ppSlideEnabled && ppSlideSetting && ppSlideSetting.value !== "null"
+        ? JSON.parse(ppSlideSetting.value)
+        : null;
 
     return {
-      state: { items, timer },
+      state,
       message: messageSetting?.value ?? "",
       ppSlide,
     };
@@ -85,14 +66,6 @@ type ViewMode = "timer" | "minimal" | "stage";
 type TimerPhase = "normal" | "alert" | "danger" | "overtime";
 
 // ─── Helpers ─────────────────────────────────────────────────
-
-function getTodayDateString(): string {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function formatDurationHHMMSS(ms: number): string {
   const negative = ms < 0;
@@ -285,6 +258,9 @@ function TimerKioskPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
+  const lastTodayRef = useRef(serviceDate.current);
+
+  const resolvedOrgTimezoneDate = useMemo(() => getTodayDateString(orgTimezone || undefined), [orgTimezone]);
 
   // Fetch display defaults once
   useEffect(() => {
@@ -316,21 +292,60 @@ function TimerKioskPage() {
   // Real-time sync via RundownRelay DO WebSocket
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnectedRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectAttempts = useRef(0);
+  const intentionalClose = useRef(false);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws`;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let pingInterval: ReturnType<typeof setInterval> | null = null;
+
+    const clearPing = () => {
+      if (pingRef.current) {
+        clearInterval(pingRef.current);
+        pingRef.current = null;
+      }
+    };
+
+    const clearReconnect = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (intentionalClose.current) return;
+      if (reconnectTimerRef.current) return;
+
+      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
+      reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 6);
+
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connectWS();
+      }, delay);
+    };
 
     function connectWS() {
+      if (
+        wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING
+      ) {
+        return;
+      }
+
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
+        intentionalClose.current = false;
+        reconnectAttempts.current = 0;
         wsConnectedRef.current = true;
         setConnected(true);
+        clearPing();
         // Keepalive ping every 20s to prevent DO hibernation
-        pingInterval = setInterval(() => {
+        pingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "ping" }));
           }
@@ -351,6 +366,17 @@ function TimerKioskPage() {
             if (s.ppSlide !== undefined) {
               setPpSlide(s.ppSlide);
             }
+            // Stage message is now in DO state — real-time delivery
+            if (Object.prototype.hasOwnProperty.call(s, "stageMessage")) {
+              const raw = typeof s.stageMessage === "string" ? s.stageMessage : "";
+              if (raw.startsWith("!!PRIORITY!!")) {
+                setStageMessage(raw.slice(12));
+                setMessagePriority(true);
+              } else {
+                setStageMessage(raw);
+                setMessagePriority(raw !== "");
+              }
+            }
           }
         } catch {}
       };
@@ -358,21 +384,24 @@ function TimerKioskPage() {
       ws.onclose = () => {
         wsConnectedRef.current = false;
         wsRef.current = null;
-        if (pingInterval) clearInterval(pingInterval);
-        pingInterval = null;
-        // Fast reconnect — kiosk can't afford gaps
-        reconnectTimer = setTimeout(connectWS, 1000);
+        clearPing();
+        scheduleReconnect();
       };
 
       ws.onerror = () => {};
+
       wsRef.current = ws;
+      clearReconnect();
     }
 
+    intentionalClose.current = false;
+    clearReconnect();
     connectWS();
 
     return () => {
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (pingInterval) clearInterval(pingInterval);
+      intentionalClose.current = true;
+      clearReconnect();
+      clearPing();
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -405,10 +434,44 @@ function TimerKioskPage() {
   }, [orgSlug]);
 
   useEffect(() => {
+    const next = resolvedOrgTimezoneDate;
+    if (serviceDate.current !== next) {
+      serviceDate.current = next;
+      lastTodayRef.current = next;
+      if (!wsConnectedRef.current) {
+        void poll();
+      }
+    }
+  }, [poll, resolvedOrgTimezoneDate]);
+
+  useEffect(() => {
     poll();
     const interval = setInterval(poll, 5000); // WS handles real-time; poll is fallback only
     return () => clearInterval(interval);
   }, [poll]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const nextToday = resolvedOrgTimezoneDate;
+      const lastToday = lastTodayRef.current;
+
+      if (nextToday === lastToday) {
+        return;
+      }
+
+      lastTodayRef.current = nextToday;
+      if (serviceDate.current !== lastToday) {
+        return;
+      }
+
+      serviceDate.current = nextToday;
+      if (!wsConnectedRef.current) {
+        void poll();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [poll, resolvedOrgTimezoneDate]);
 
   // RAF for smooth clock + timer rendering
   useEffect(() => {
@@ -1056,7 +1119,6 @@ function FullTimerView({
   phase,
   phaseColors,
   timer,
-  now,
   connected,
   totalElapsed,
   stageMessage,

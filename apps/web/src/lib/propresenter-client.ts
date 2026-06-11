@@ -69,13 +69,10 @@ export class ProPresenterClient {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollFn: ((host: string, port: number) => Promise<PPSlideData | null>) | null = null;
   private pollPort: number | null = null;
-  private lastPollText = "";
-  private pollingOnly = false;
 
   // Debug tracking
   private wsMessagesReceived = 0;
   private lastWsMessage: string | null = null;
-  private wsSlideReceived = false;
   private pollSuccessCount = 0;
   private lastPollResult: string | null = null;
   private noSlideSince = 0;
@@ -93,7 +90,6 @@ export class ProPresenterClient {
     if (this.destroyed) return;
     this.pollFn = pollFn || null;
     this.pollPort = apiPort || null;
-    this.pollingOnly = false;
     this.clearReconnectTimer();
     this.options.onStatusChange("connecting");
 
@@ -141,8 +137,10 @@ export class ProPresenterClient {
 
       this.ws.onclose = () => {
         if (!this.destroyed) {
-          if (this.pollingOnly && this.pollFn) {
-            // WebSocket failed, but polling is keeping the connection alive.
+          if (this.pollFn && this.pollTimer) {
+            // Keep the lyric feed alive on polling while WS reconnects in the background.
+            this.options.onStatusChange("connected");
+            this.scheduleReconnect();
             return;
           }
           this.options.onStatusChange("disconnected");
@@ -155,7 +153,6 @@ export class ProPresenterClient {
         // WS failed — try polling-only mode if we have a poll function
         if (this.pollFn && !this.destroyed) {
           console.log("[PP] WebSocket failed, trying REST polling only");
-          this.pollingOnly = true;
           this.options.onStatusChange("connected");
           this.startPolling();
         } else {
@@ -171,7 +168,6 @@ export class ProPresenterClient {
   /** Disconnect and stop reconnecting */
   disconnect(): void {
     this.destroyed = true;
-    this.pollingOnly = false;
     this.lastSlideKey = "";
     this.noSlideSince = 0;
     this.clearReconnectTimer();
@@ -183,7 +179,6 @@ export class ProPresenterClient {
       this.ws = null;
     }
     this.currentSlide = null;
-    this.wsSlideReceived = false;
     this.wsMessagesReceived = 0;
     this.lastWsMessage = null;
     this.pollSuccessCount = 0;
@@ -227,13 +222,12 @@ export class ProPresenterClient {
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
 
           // Only emit change if text actually changed
-          const slideKey = slide.slideId || slide.text;
-          if (slideKey !== this.lastSlideKey) {
-            this.lastSlideKey = slideKey;
-            this.lastPollText = slide.text;
-            this.currentSlide = slide;
-            this.options.onSlideChange(slide);
-          }
+            const slideKey = slide.slideId || slide.text;
+            if (slideKey !== this.lastSlideKey) {
+              this.lastSlideKey = slideKey;
+              this.currentSlide = slide;
+              this.options.onSlideChange(slide);
+            }
         } else {
           this.lastPollResult = "No slide data";
           if (this.currentSlide) {
@@ -243,7 +237,6 @@ export class ProPresenterClient {
             if (Date.now() - this.noSlideSince >= 1500) {
               this.currentSlide = null;
               this.lastSlideKey = "";
-              this.lastPollText = "";
               this.options.onSlideChange(null);
             }
           }
@@ -290,7 +283,6 @@ export class ProPresenterClient {
         const isScripture = this.detectScripture(presentationName, notes, text);
 
         if (text) {
-          this.wsSlideReceived = true;
           this.noSlideSince = 0;
           const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
           if (slideKey === this.lastSlideKey) return;
@@ -315,7 +307,6 @@ export class ProPresenterClient {
     if (acn === "sd") {
       const text = this.extractTextFromAny(data);
       if (text) {
-        this.wsSlideReceived = true;
         this.noSlideSince = 0;
         const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
         if (slideKey === this.lastSlideKey) return;
@@ -339,7 +330,6 @@ export class ProPresenterClient {
     if (!acn || (acn !== "ath" && acn !== "tmr" && acn !== "sys")) {
       const text = this.extractTextFromAny(data);
       if (text && text.length > 1) {
-        this.wsSlideReceived = true;
         this.noSlideSince = 0;
         const slideKey = (data.uuid as string) || (data.slideId as string) || (data.id as string) || text;
         if (slideKey === this.lastSlideKey) return;
@@ -445,7 +435,9 @@ export class ProPresenterClient {
     if (this.destroyed || this.reconnectAttempts >= this.maxReconnectAttempts) return;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     this.reconnectAttempts++;
-    this.reconnectTimer = setTimeout(() => this.connect(this.pollFn || undefined), delay);
+    this.reconnectTimer = setTimeout(() => {
+      this.connect(this.pollFn || undefined, this.pollPort ?? undefined);
+    }, delay);
   }
 
   private clearReconnectTimer(): void {
