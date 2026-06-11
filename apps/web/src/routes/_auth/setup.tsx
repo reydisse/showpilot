@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Building2,
   Check,
+  ChevronRight,
   ClipboardList,
   Headset,
   MailWarning,
@@ -19,12 +20,21 @@ import {
   getOnboardingProgress,
   markOnboardingStarted,
   saveOnboardingRole,
+  seedOrgTemplate,
 } from "@/lib/onboarding";
 import {
   ONBOARDING_ARCHETYPES,
   deriveResumeScene,
   type OnboardingArchetype,
 } from "@/lib/onboarding-flow";
+import {
+  ONBOARDING_TEMPLATES,
+  templateBadge,
+  type OnboardingTemplate,
+  type OnboardingTemplateId,
+} from "@/lib/templates";
+import { getTodayDateString } from "@/lib/utils";
+import type { RundownItem } from "@/types/rundown";
 
 // ─────────────────────────────────────────────────────────────
 // "First show in 5 minutes" — cinematic onboarding wizard.
@@ -150,6 +160,14 @@ interface WizardOrg {
   slug: string;
 }
 
+interface SeedState {
+  status: "idle" | "pending" | "done" | "error";
+  template: OnboardingTemplateId | null;
+  items: RundownItem[];
+}
+
+const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
 function SetupWizard() {
   const { progress, initialScene } = Route.useLoaderData();
   const { user } = Route.useRouteContext() as {
@@ -160,6 +178,27 @@ function SetupWizard() {
   const [cut, setCut] = useState(false);
   const [skip, setSkip] = useState(false);
   const [org, setOrg] = useState<WizardOrg | null>(progress.org);
+  const [seed, setSeed] = useState<SeedState>({
+    status: progress.seededTemplate ? "done" : "idle",
+    template: (progress.seededTemplate as OnboardingTemplateId | null) ?? null,
+    items: [],
+  });
+
+  // Selecting a card kicks off the server seed; Scene 4 animates the
+  // confirmed result (never fakes progressive writes).
+  const startSeed = (orgId: string, template: OnboardingTemplateId) => {
+    setSeed({ status: "pending", template, items: [] });
+    seedOrgTemplate({
+      data: { orgId, template, serviceDate: getTodayDateString() },
+    })
+      .then((result) => {
+        track("seed_completed", { template, itemCount: result.items.length });
+        setSeed({ status: "done", template, items: result.items });
+      })
+      .catch(() => {
+        setSeed({ status: "error", template, items: [] });
+      });
+  };
 
   useEffect(() => {
     identifyAnalytics(user?.id ?? user?.email);
@@ -220,7 +259,16 @@ function SetupWizard() {
             }}
           />
         )}
-        {scene !== 1 && scene !== 2 && org && <ScenePlaceholder org={org} />}
+        {scene === 3 && org && (
+          <SceneTemplates
+            onSelect={(template) => {
+              track("template_selected", { template: template.id });
+              startSeed(org.id, template.id);
+              go(4);
+            }}
+          />
+        )}
+        {scene > 3 && org && <ScenePlaceholder org={org} seeded={seed.status === "done"} />}
       </div>
     </div>
   );
@@ -275,11 +323,13 @@ function SceneRole({ onSelect }: { onSelect: (archetype: OnboardingArchetype) =>
   );
 }
 
-// Temporary stand-in while Scenes 2–5 land in subsequent commits.
-function ScenePlaceholder({ org }: { org: WizardOrg }) {
+// Temporary stand-in while Scenes 4–5 land in subsequent commits.
+function ScenePlaceholder({ org, seeded }: { org: WizardOrg; seeded?: boolean }) {
   return (
     <div className="rise">
-      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">{org.name} is ready.</h1>
+      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">
+        {seeded ? "Your show is built." : `${org.name} is ready.`}
+      </h1>
       <p className="mb-7" style={{ color: T.muted }}>
         The rest of the pre-show flow is on its way.
       </p>
@@ -290,6 +340,82 @@ function ScenePlaceholder({ org }: { org: WizardOrg }) {
       >
         Head to your org <ArrowRight size={17} />
       </a>
+    </div>
+  );
+}
+
+// ─── Scene 3 — Template selection (show posters) ─────────────
+// Previews render client-side from the same template definitions the
+// server seeds from — single source of truth.
+
+function SceneTemplates({ onSelect }: { onSelect: (template: OnboardingTemplate) => void }) {
+  const [hoverTpl, setHoverTpl] = useState<string | null>(null);
+
+  return (
+    <div className="rise">
+      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">Pick your first show.</h1>
+      <p className="mb-7" style={{ color: T.muted }}>
+        Hover a card to preview its rundown. You can change everything later.
+      </p>
+      <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))" }}>
+        {ONBOARDING_TEMPLATES.map((template, i) => {
+          const open = hoverTpl === template.id && template.items.length > 0;
+          return (
+            <button
+              key={template.id}
+              type="button"
+              className="card rise rounded-2xl border p-5 text-left"
+              onMouseEnter={() => setHoverTpl(template.id)}
+              onMouseLeave={() => setHoverTpl(null)}
+              onFocus={() => setHoverTpl(template.id)}
+              onBlur={() => setHoverTpl(null)}
+              onClick={() => onSelect(template)}
+              style={{
+                animationDelay: `${i * 90}ms`,
+                background: `linear-gradient(160deg, ${T.panelHover}, ${T.panel} 60%)`,
+                borderColor: T.border,
+                color: T.text,
+              }}
+            >
+              <div className="font-mono text-[10px] tracking-[0.2em]" style={{ color: T.amber }}>
+                {templateBadge(template)}
+              </div>
+              <div className="mb-1 mt-2 text-[21px] font-extrabold tracking-[-0.01em]">
+                {template.name}
+              </div>
+              {open && (
+                <div className="mt-3 border-t pt-2.5" style={{ borderColor: T.border }}>
+                  {template.items.slice(0, 5).map((item, j) => (
+                    <div
+                      key={item.title}
+                      className="rise flex justify-between py-[3px] font-mono text-xs"
+                      style={{ animationDelay: `${j * 40}ms`, color: T.muted }}
+                    >
+                      <span>{item.title}</span>
+                      <span>{fmt(item.durationSec)}</span>
+                    </div>
+                  ))}
+                  {template.items.length > 5 && (
+                    <div className="pt-1 font-mono text-[11px]" style={{ color: T.faint }}>
+                      +{template.items.length - 5} more…
+                    </div>
+                  )}
+                </div>
+              )}
+              {!open && template.items.length > 0 && (
+                <div className="mt-1.5 flex items-center gap-1 text-[13px]" style={{ color: T.faint }}>
+                  Preview rundown <ChevronRight size={13} />
+                </div>
+              )}
+              {template.items.length === 0 && (
+                <div className="mt-1.5 text-[13px]" style={{ color: T.faint }}>
+                  Empty stage. Build it your way.
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
