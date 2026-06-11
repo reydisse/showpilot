@@ -16,6 +16,7 @@ import {
   Check,
   Sparkles,
 } from "lucide-react";
+import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { hasPermission } from "@/lib/app-permissions";
 import {
   getGraphicTemplates,
@@ -226,13 +227,26 @@ function GraphicsPage() {
         {/* Graphics list */}
         <div className="space-y-2">
           {filtered.length === 0 ? (
-            <div className="text-center py-12">
-              <Type className="w-10 h-10 text-board-muted/30 mx-auto mb-3" />
-              <p className="text-sm text-board-muted">No graphics found</p>
-              <p className="text-xs text-board-muted/50 mt-1">
-                Create a graphic to get started
-              </p>
-            </div>
+            filterType !== "all" ? (
+              <div className="text-center py-12">
+                <Type className="w-10 h-10 text-board-muted/30 mx-auto mb-3" />
+                <p className="text-sm text-board-muted">No {TYPE_CONFIG[filterType].label.toLowerCase()} graphics</p>
+                <p className="text-xs text-board-muted/50 mt-1">Switch to All or create one</p>
+              </div>
+            ) : (
+              <EmptyState
+                icon={Type}
+                title="No graphics yet"
+                description="Lower thirds, bugs and full-screen graphics you create here can be triggered live during the show."
+                action={
+                  canConfigureGraphics ? (
+                    <EmptyStateButton onClick={() => { setEditTemplate(null); setShowForm(true); }}>
+                      Create first graphic
+                    </EmptyStateButton>
+                  ) : undefined
+                }
+              />
+            )
           ) : (
             filtered.map((template) => {
               const style = parseStyle(template.style);

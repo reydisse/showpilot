@@ -122,7 +122,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0007_billing.sql`). They deliberately do **not** use wrangler's
+`0008_crew_member_email.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -150,9 +150,10 @@ For local development use `--local` instead of `--remote`.
 
 ### Current state
 
-All migrations through `0007_billing.sql` were applied to production and
-verified (via read-only `sqlite_master` / `pragma_table_info` queries) on
-2026-06-10. The manifest is up to date.
+All migrations through `0008_crew_member_email.sql` were applied to
+production and verified (via read-only `sqlite_master` /
+`pragma_table_info` queries) — 0001–0007 on 2026-06-10, 0008 on
+2026-06-11. The manifest is up to date.
 
 ---
 

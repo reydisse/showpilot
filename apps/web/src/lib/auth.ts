@@ -8,11 +8,15 @@ import {
   sendEmail,
   passwordResetEmail,
   invitationEmail,
+  verificationEmail,
 } from "@/lib/email";
 import { env } from "cloudflare:workers";
 
 const orgConfig = {
-  allowUserToCreateOrganization: true,
+  // Login is allowed pre-verification (with a banner prompt), but creating
+  // an organization requires a verified email.
+  allowUserToCreateOrganization: (user: { emailVerified?: boolean }) =>
+    user.emailVerified === true,
   creatorRole: "owner" as const,
   membershipLimit: 100,
   ac: authAccessControl,
@@ -125,6 +129,17 @@ export function getAuth() {
       "https://showpilot.reydisse.workers.dev",
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
+        // Land on our confirmation page once the token is consumed.
+        const verifyUrl = new URL(url);
+        verifyUrl.searchParams.set("callbackURL", "/verify-email");
+        const { subject, html } = verificationEmail(verifyUrl.toString());
+        await sendEmail({ to: user.email, subject, html });
+      },
+    },
     plugins: [
       organization(orgConfig),
       tanstackStartCookies(), // must be last

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { MailWarning } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth/setup")({
@@ -7,10 +8,34 @@ export const Route = createFileRoute("/_auth/setup")({
 });
 
 function SetupPage() {
+  const { user } = Route.useRouteContext() as {
+    user: { email: string; emailVerified?: boolean } | null;
+  };
+  const needsVerification = Boolean(user && !user.emailVerified);
   const [orgName, setOrgName] = useState("");
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [sendingVerification, setSendingVerification] = useState(false);
+
+  async function handleResendVerification() {
+    if (!user?.email) return;
+    setSendingVerification(true);
+    setError(null);
+    try {
+      const { error: sendError } = await authClient.sendVerificationEmail({
+        email: user.email,
+        callbackURL: "/verify-email",
+      });
+      if (sendError) throw new Error(sendError.message);
+      setVerificationSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setSendingVerification(false);
+    }
+  }
 
   function handleNameChange(value: string) {
     setOrgName(value);
@@ -81,6 +106,32 @@ function SetupPage() {
           This is your production team workspace.
         </p>
 
+        {needsVerification && (
+          <div className="mb-5 rounded-xl border border-fire-500/25 bg-fire-500/10 px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <MailWarning className="mt-0.5 h-4 w-4 shrink-0 text-fire-500" />
+              <div>
+                <p className="text-sm text-board-text">
+                  Verify your email to create an organization. We sent a link to{" "}
+                  <strong>{user?.email}</strong>.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={sendingVerification || verificationSent}
+                  className="mt-1.5 text-sm font-medium text-fire-500 hover:text-fire-400 disabled:pointer-events-none disabled:opacity-60"
+                >
+                  {verificationSent
+                    ? "Email sent — check your inbox"
+                    : sendingVerification
+                      ? "Sending..."
+                      : "Resend verification email"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="group">
             <label
@@ -130,7 +181,7 @@ function SetupPage() {
 
           <button
             type="submit"
-            disabled={loading || !orgName || !slug}
+            disabled={loading || !orgName || !slug || needsVerification}
             className="relative mt-2 w-full overflow-hidden rounded-xl px-4 py-3 font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
             style={{
               background:

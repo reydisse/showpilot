@@ -14,8 +14,6 @@ declare namespace Cloudflare {
 		BETTER_AUTH_URL: string;
 		RESEND_API_KEY: string;
 		CLOUDFLARE_STREAM_API_TOKEN: string;
-		/** @deprecated legacy name for CLOUDFLARE_STREAM_API_TOKEN — fallback only; delete the secret once the rename is deployed */
-		CLOUDFLARE_API_TOKEN?: string;
 		CLOUDFLARE_ACCOUNT_ID: string;
 		STRIPE_SECRET_KEY: string;
 		STRIPE_WEBHOOK_SECRET: string;

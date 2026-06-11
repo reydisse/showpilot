@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, AlertTriangle, ShieldCheck, Trash2, X } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
@@ -196,10 +197,15 @@ function IncidentsPage() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-16">
-            <AlertTriangle className="w-8 h-8 text-board-muted/30 mx-auto mb-3" />
-            <p className="text-board-muted text-sm">No incidents for this date.</p>
-          </div>
+          <EmptyState
+            icon={ShieldCheck}
+            title="No incidents for this date"
+            description={
+              canReportIncidents
+                ? "All clear. Use Report above to log anything that goes wrong during the show — audio dropouts, camera faults, stream issues."
+                : "All clear. Issues reported during the show will appear here."
+            }
+          />
         )}
 
         {showForm && canReportIncidents && (

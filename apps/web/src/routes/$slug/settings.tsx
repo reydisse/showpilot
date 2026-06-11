@@ -31,6 +31,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { KioskSection } from "@/components/settings/KioskSection";
+import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getOrgSettings,
   updateOrgSetting,
@@ -101,6 +102,7 @@ export const Route = createFileRoute("/$slug/settings")({
 type SectionId =
   | "organization"
   | "team"
+  | "people"
   | "billing"
   | "integrations"
   | "production"
@@ -119,6 +121,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: "organization", label: "Organization", icon: Building2 },
   { id: "team", label: "Team & Roles", icon: Users },
+  { id: "people", label: "Import People", icon: UserPlus },
   { id: "billing", label: "Billing", icon: CreditCard },
   { id: "integrations", label: "Integrations", icon: Puzzle },
   { id: "production", label: "Production Defaults", icon: SlidersHorizontal },
@@ -153,6 +156,7 @@ function SettingsPage() {
   const visibleNavItems = NAV_ITEMS.filter((item) => {
     if (item.id === "organization") return canViewOrganization;
     if (item.id === "team") return canManageMembers;
+    if (item.id === "people") return canManageMembers;
     if (item.id === "billing") return canViewBilling;
     if (item.id === "integrations") return canViewIntegrations;
     if (item.id === "production") return canViewProduction;
@@ -235,6 +239,9 @@ function SettingsPage() {
             <OrganizationSection {...sectionProps} />
           )}
           {resolvedSection === "team" && <TeamSection {...sectionProps} />}
+          {resolvedSection === "people" && (
+            <CsvImportSection orgId={orgId} openBilling={openBilling} />
+          )}
           {resolvedSection === "billing" && (
             <BillingSection {...sectionProps} billing={billing} />
           )}

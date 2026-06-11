@@ -5,29 +5,6 @@
  * and notification permission management.
  */
 
-/** Remove any existing service worker and cached assets. */
-export async function clearServiceWorkerState(): Promise<void> {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    // Existing SW cache has been causing stale HTML to be served for JS assets.
-    // Unregister any prior workers and clear caches so the app can hydrate cleanly.
-    if ("serviceWorker" in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((reg) => reg.unregister()));
-    }
-
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((key) => caches.delete(key)));
-    }
-  } catch (err) {
-    console.warn("[ShowPilot] Service worker cleanup failed:", err);
-  }
-}
-
 /** Request notification permission and return the result */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (typeof window === "undefined" || !("Notification" in window)) {

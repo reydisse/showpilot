@@ -74,6 +74,24 @@ export function passwordResetEmail(resetUrl: string) {
   };
 }
 
+export function verificationEmail(verifyUrl: string) {
+  return {
+    subject: "Verify your ShowPilot email",
+    html: emailWrapper(`
+      <p style="color: #888; font-size: 14px; margin: 0 0 32px 0;">Email Verification</p>
+      <p style="color: #e5e5e5; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
+        Welcome to ShowPilot! Confirm your email address to finish setting up your account and create your organization.
+      </p>
+      <a href="${verifyUrl}" style="display: inline-block; margin: 24px 0; padding: 12px 32px; background: #FFC107; color: #000; font-weight: 600; text-decoration: none; border-radius: 8px; font-size: 15px;">
+        Verify Email
+      </a>
+      <p style="color: #888; font-size: 13px; line-height: 1.5; margin: 0;">
+        If you didn't create a ShowPilot account, you can safely ignore this email.
+      </p>
+    `),
+  };
+}
+
 export function waitlistConfirmationEmail(name?: string) {
   const greeting = name ? `Hi ${name},` : "Hi there,";
   return {
