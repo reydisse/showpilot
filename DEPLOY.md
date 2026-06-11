@@ -150,11 +150,10 @@ For local development use `--local` instead of `--remote`.
 
 ### Current state
 
-All migrations through `0007_billing.sql` were applied to production and
-verified (via read-only `sqlite_master` / `pragma_table_info` queries) on
-2026-06-10. **`0008_crew_member_email.sql` is applied locally only — apply it
-to production and append it to the manifest before merging
-`feature/phase-3` to `main`, or the deploy gate will block.**
+All migrations through `0008_crew_member_email.sql` were applied to
+production and verified (via read-only `sqlite_master` /
+`pragma_table_info` queries) — 0001–0007 on 2026-06-10, 0008 on
+2026-06-11. The manifest is up to date.
 
 ---
 
