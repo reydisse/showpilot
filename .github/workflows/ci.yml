@@ -44,13 +44,7 @@ jobs:
       - name: Typecheck web
         run: pnpm --filter @showpilot/web exec tsc --noEmit
 
-      # Non-blocking for now: apps/bridge has a pre-existing type error in
-      # src/mock-propresenter.ts (@types/ws WebSocket is not assignable to the
-      # DOM WebSocket type). Phase 4 is workflows/docs only, so the error is
-      # left in place. Once it is fixed, delete `continue-on-error` to make
-      # this step blocking like the web typecheck.
-      - name: Typecheck bridge (non-blocking, pre-existing error)
-        continue-on-error: true
+      - name: Typecheck bridge
         run: pnpm --filter @showpilot/bridge exec tsc --noEmit
 
       - name: Test web

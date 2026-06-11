@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import http from "node:http";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 
 type Slide = {
   text: string;
