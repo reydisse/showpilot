@@ -20,6 +20,7 @@ import {
   EyeOff,
   RefreshCw,
 } from "lucide-react";
+import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import {
   getLiveInputs,
   createLiveInput,
@@ -190,24 +191,18 @@ function StreamHealthPage() {
 
         {/* Live inputs list */}
         {inputs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-board-border p-12 text-center">
-            <Activity className="w-10 h-10 text-board-muted/20 mx-auto mb-3" />
-            <p className="text-sm font-medium text-board-muted mb-1">
-              No live inputs configured
-            </p>
-            <p className="text-xs text-board-muted/50 mb-4">
-              Create a Cloudflare Stream live input to start receiving video from your encoder
-            </p>
-            {canManageStreamHealth && (
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-white text-sm font-semibold hover:bg-fire-600 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Create Live Input
-              </button>
-            )}
-          </div>
+          <EmptyState
+            icon={Activity}
+            title="No live inputs configured"
+            description="Create a live input to start receiving video from your encoder, then monitor its health here."
+            action={
+              canManageStreamHealth ? (
+                <EmptyStateButton onClick={() => setShowAddForm(true)}>
+                  Create Live Input
+                </EmptyStateButton>
+              ) : undefined
+            }
+          />
         ) : (
           <div className="space-y-4">
             {inputs.map((input) => {

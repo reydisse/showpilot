@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import {
   getMicAssignments,
   addMicAssignment,
@@ -211,23 +212,21 @@ function AudioPage() {
             Loading channels...
           </div>
         ) : assignments.length === 0 ? (
-          <div className="text-center py-16">
-            <Mic className="w-12 h-12 text-board-muted/20 mx-auto mb-3" />
-            <p className="text-board-muted mb-1">No channels assigned</p>
-            <p className="text-board-muted/60 text-xs mb-4">
-              Add mic and input assignments for this service
-            </p>
-            <button
-              onClick={() => {
-                setEditAssignment(null);
-                setShowForm(true);
-              }}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 transition-colors text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Add First Channel
-            </button>
-          </div>
+          <EmptyState
+            icon={Mic}
+            title="No channels assigned"
+            description="Map mics, instruments and playback inputs to mixer channels for this service."
+            action={
+              <EmptyStateButton
+                onClick={() => {
+                  setEditAssignment(null);
+                  setShowForm(true);
+                }}
+              >
+                Add First Channel
+              </EmptyStateButton>
+            }
+          />
         ) : (
           <div className="space-y-6">
             {(Object.keys(GROUP_CONFIG) as ChannelGroup[]).map((group) => {

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useMemo } from "react";
 import { Package, Plus, Search, X, Pencil, Trash2, ChevronDown } from "lucide-react";
+import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { useRouter } from "@tanstack/react-router";
 import { getEquipment, addEquipment, updateEquipment, deleteEquipment } from "@/lib/data";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -247,21 +248,28 @@ function AssetsPage() {
             </div>
           ))}
         </div>
-      ) : (
+      ) : hasFilters ? (
         <div className="text-center py-16">
           <Package className="w-8 h-8 text-board-muted/30 mx-auto mb-3" />
-          <p className="text-board-muted text-sm mb-3">
-            {hasFilters ? "No assets match your filters." : "No equipment added yet."}
-          </p>
-          {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="px-4 py-2 rounded-xl text-sm text-board-muted border border-board-border hover:bg-board-border/50 transition-colors"
-            >
-              Clear Filters
-            </button>
-          )}
+          <p className="text-board-muted text-sm mb-3">No assets match your filters.</p>
+          <button
+            onClick={clearFilters}
+            className="px-4 py-2 rounded-xl text-sm text-board-muted border border-board-border hover:bg-board-border/50 transition-colors"
+          >
+            Clear Filters
+          </button>
         </div>
+      ) : (
+        <EmptyState
+          icon={Package}
+          title="No equipment yet"
+          description="Track cameras, mixers, cables and the rest of your gear — status, location and serial numbers in one place."
+          action={
+            <EmptyStateButton onClick={() => { setAddForm(BLANK_FORM); setShowAddModal(true); }}>
+              Add first item
+            </EmptyStateButton>
+          }
+        />
       )}
 
       {/* Add Asset Modal */}

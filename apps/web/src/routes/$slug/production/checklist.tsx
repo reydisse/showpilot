@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, CheckCircle2, Circle, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle2, Circle, ListChecks, Plus, Trash2 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   getChecklistEntries,
   addChecklistTemplate,
@@ -191,9 +192,15 @@ function ChecklistPage() {
           {loadingEntries ? (
             <p className="text-center text-sm text-board-muted py-8">Loading checklist...</p>
           ) : totalCount === 0 && (
-            <p className="text-center text-sm text-board-muted py-8">
-              {canManageChecklist ? "No checklist items for this date. Add one below." : "No checklist items for this date."}
-            </p>
+            <EmptyState
+              icon={ListChecks}
+              title="No checklist items for this date"
+              description={
+                canManageChecklist
+                  ? "Build your pre-show checklist — camera checks, audio line check, stream key verified. Add the first item below."
+                  : "Nothing to check off yet. A producer can add checklist items for this service."
+              }
+            />
           )}
         </div>
 

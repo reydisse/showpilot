@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListOrdered, Plus, Pencil, Trash2, X } from "lucide-react";
+import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { getCueSheets, addCueSheet, updateCueSheet, deleteCueSheet } from "@/lib/data";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
@@ -193,9 +194,20 @@ function CueSheetsPage() {
             </table>
           </div>
         ) : (
-          <div className="text-center py-16">
-            <p className="text-board-muted text-sm">No cues for this date yet.</p>
-          </div>
+          <EmptyState
+            icon={ListOrdered}
+            title="No cues for this date"
+            description="Build the camera cue sheet for this service — each cue pairs a rundown item with camera assignments and notes."
+            action={
+              !showForm && !editingItem ? (
+                <EmptyStateButton
+                  onClick={() => { setShowForm(true); setEditingItem(null); setForm({ rundownItem: "", cameraAssignments: "", notes: "" }); }}
+                >
+                  Add first cue
+                </EmptyStateButton>
+              ) : undefined
+            }
+          />
         )}
 
         {/* Inline form */}
