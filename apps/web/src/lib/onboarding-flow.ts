@@ -36,6 +36,15 @@ export function archetypeLanding(id: string | null | undefined): string {
   return ONBOARDING_ARCHETYPES.find((archetype) => archetype.id === id)?.landing ?? "/show";
 }
 
+/**
+ * The stored membership-metadata record for a Scene 2 selection.
+ * Carries the archetype + landing route and nothing else — by design
+ * there is no RBAC role in here.
+ */
+export function buildOnboardingRoleValue(archetype: OnboardingArchetype): string {
+  return JSON.stringify({ archetype, landing: archetypeLanding(archetype) });
+}
+
 // ─── Resume derivation ───────────────────────────────────────
 
 export interface OnboardingResumeInput {

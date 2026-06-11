@@ -1,14 +1,30 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, MailWarning } from "lucide-react";
+import {
+  ArrowRight,
+  Building2,
+  Check,
+  ClipboardList,
+  Headset,
+  MailWarning,
+  Palette,
+  SlidersHorizontal,
+  Timer,
+  type LucideIcon,
+} from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { identifyAnalytics, track } from "@/lib/analytics";
 import {
   checkOrgSlug,
   getOnboardingProgress,
   markOnboardingStarted,
+  saveOnboardingRole,
 } from "@/lib/onboarding";
-import { deriveResumeScene } from "@/lib/onboarding-flow";
+import {
+  ONBOARDING_ARCHETYPES,
+  deriveResumeScene,
+  type OnboardingArchetype,
+} from "@/lib/onboarding-flow";
 
 // ─────────────────────────────────────────────────────────────
 // "First show in 5 minutes" — cinematic onboarding wizard.
@@ -191,7 +207,69 @@ function SetupWizard() {
             }}
           />
         )}
-        {scene !== 1 && org && <ScenePlaceholder org={org} />}
+        {scene === 2 && org && (
+          <SceneRole
+            onSelect={(selected) => {
+              track("role_selected", { role: selected });
+              // Optimistic: advance on tap, persist in the background.
+              // A failed write just means a refresh re-asks the question.
+              void saveOnboardingRole({ data: { orgId: org.id, archetype: selected } }).catch(
+                () => {},
+              );
+              go(3);
+            }}
+          />
+        )}
+        {scene !== 1 && scene !== 2 && org && <ScenePlaceholder org={org} />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Scene 2 — Role (one question, big targets) ──────────────
+// Personalization + analytics only: the selection NEVER changes the
+// Better Auth RBAC role — the wizard runner stays `owner`.
+
+const ARCHETYPE_ICONS: Record<OnboardingArchetype, LucideIcon> = {
+  td: Headset,
+  pm: ClipboardList,
+  sm: Timer,
+  cd: Palette,
+  pastor: Building2,
+  op: SlidersHorizontal,
+};
+
+function SceneRole({ onSelect }: { onSelect: (archetype: OnboardingArchetype) => void }) {
+  return (
+    <div className="rise">
+      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">What's your role on the team?</h1>
+      <p className="mb-7" style={{ color: T.muted }}>
+        This just sets up your view — you're the owner either way.
+      </p>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+        {ONBOARDING_ARCHETYPES.map((archetype, i) => {
+          const Icon = ARCHETYPE_ICONS[archetype.id];
+          return (
+            <button
+              key={archetype.id}
+              type="button"
+              className="card rise rounded-[14px] border px-[18px] py-5 text-left"
+              onClick={() => onSelect(archetype.id)}
+              style={{
+                animationDelay: `${i * 90}ms`,
+                background: T.panel,
+                borderColor: T.border,
+                color: T.text,
+              }}
+            >
+              <Icon size={22} className="mb-3" style={{ color: T.amber }} />
+              <div className="text-[15px] font-semibold">{archetype.label}</div>
+              <div className="mt-[3px] text-[13px]" style={{ color: T.muted }}>
+                {archetype.desc}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

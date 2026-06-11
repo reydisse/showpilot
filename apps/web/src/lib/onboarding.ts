@@ -8,6 +8,11 @@ import {
   runTemplateSeed,
   type TemplateSeedStore,
 } from "@/lib/templates";
+import {
+  buildOnboardingRoleValue,
+  isOnboardingArchetype,
+  type OnboardingArchetype,
+} from "@/lib/onboarding-flow";
 import { z } from "zod";
 import { idSchema, orgSlugSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
@@ -175,6 +180,32 @@ export const markOnboardingStarted = createServerFn({ method: "POST" })
     const role = await getOrgMemberRole(data.orgId);
     if (role !== "owner") throw new Error("Forbidden");
     await upsertOrgSetting(data.orgId, ONBOARDING_STARTED_KEY, new Date().toISOString());
+    return { ok: true };
+  });
+
+/**
+ * Checkpoint #2: persist the Scene 2 archetype as membership metadata
+ * (display + analytics only). This intentionally never reads or writes
+ * the Better Auth `role` field — the wizard runner stays `owner`.
+ */
+export const saveOnboardingRole = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        archetype: z.string().max(20).refine(isOnboardingArchetype, "Unknown archetype"),
+      }),
+      data,
+    ),
+  )
+  .handler(async ({ data }) => {
+    const user = await getSessionUser();
+    await getOrgMemberRole(data.orgId); // membership check only — role untouched
+    await upsertOrgSetting(
+      data.orgId,
+      onboardingRoleKey(user.id),
+      buildOnboardingRoleValue(data.archetype as OnboardingArchetype),
+    );
     return { ok: true };
   });
 
