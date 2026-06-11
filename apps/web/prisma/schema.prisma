@@ -84,6 +84,17 @@ model Organization {
   cloud_enabled Boolean    @default(false)
   createdAt   DateTime
   metadata    String?
+
+  // Billing (Stripe) — effective plan is resolved by getEffectivePlan()
+  // in src/lib/plan-limits.ts (beta > trial > plan precedence).
+  plan                 String    @default("free") // "free" | "starter" | "pro"
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+  subscriptionStatus   String?   // mirrors Stripe subscription status
+  trialEndsAt          DateTime?
+  foundingMember       Boolean   @default(false)
+  betaTester           Boolean   @default(false)
+
   members     Member[]
   orgMembers  OrgMember[]
   invitations Invitation[]
@@ -457,6 +468,17 @@ model ChatMessage {
 
   @@index([orgId, createdAt(sort: Desc)])
   @@map("chat_message")
+}
+
+// Platform-level (cross-org) settings, e.g. publicLaunchDate.
+// AppSetting is org-scoped with a required FK, so platform flags
+// live in their own table.
+model PlatformSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  @@map("platform_setting")
 }
 
 model WaitlistSignup {
