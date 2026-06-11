@@ -219,6 +219,88 @@ export const completeOnboarding = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// ─── First Session Checklist (post-GO LIVE, show page) ───────
+// Stored per user in org appSettings — the same storage UI prefs use.
+
+function firstSessionKey(userId: string) {
+  return `onboarding-first-session:${userId}`;
+}
+
+interface FirstSessionState {
+  dismissed: boolean;
+  completed: string[];
+}
+
+function parseFirstSessionState(value: string | null | undefined): FirstSessionState {
+  if (value) {
+    try {
+      const parsed = JSON.parse(value) as Partial<FirstSessionState>;
+      return {
+        dismissed: parsed.dismissed === true,
+        completed: Array.isArray(parsed.completed)
+          ? parsed.completed.filter((item): item is string => typeof item === "string")
+          : [],
+      };
+    } catch {
+      // Unreadable state — start fresh rather than erroring.
+    }
+  }
+  return { dismissed: false, completed: [] };
+}
+
+export const getFirstSessionChecklist = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }): Promise<{ show: boolean; completed: string[] }> => {
+    const user = await getSessionUser().catch(() => null);
+    if (!user) return { show: false, completed: [] };
+
+    const prisma = getPrisma();
+    const member = await prisma.member.findFirst({
+      where: { organizationId: data.orgId, userId: user.id },
+      select: { role: true },
+    });
+    // The checklist belongs to the wizard runner — the org owner.
+    if (member?.role !== "owner") return { show: false, completed: [] };
+
+    const settings = await prisma.appSetting.findMany({
+      where: { orgId: data.orgId, key: { in: [ONBOARDING_STARTED_KEY, firstSessionKey(user.id)] } },
+    });
+    const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+    if (!byKey.get(ONBOARDING_STARTED_KEY)) return { show: false, completed: [] };
+
+    const state = parseFirstSessionState(byKey.get(firstSessionKey(user.id)));
+    if (state.dismissed) return { show: false, completed: state.completed };
+    return { show: true, completed: state.completed };
+  });
+
+export const updateFirstSessionChecklist = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        dismissed: z.boolean().optional(),
+        completed: z.array(z.string().max(50)).max(10).optional(),
+      }),
+      data,
+    ),
+  )
+  .handler(async ({ data }) => {
+    const user = await getSessionUser();
+    await getOrgMemberRole(data.orgId); // membership check
+    const prisma = getPrisma();
+    const key = firstSessionKey(user.id);
+    const existing = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key } },
+    });
+    const state = parseFirstSessionState(existing?.value);
+    const next: FirstSessionState = {
+      dismissed: data.dismissed ?? state.dismissed,
+      completed: data.completed ?? state.completed,
+    };
+    await upsertOrgSetting(data.orgId, key, JSON.stringify(next));
+    return { ok: true };
+  });
+
 // ─── Slug availability (Scene 1 live check) ──────────────────
 
 export const checkOrgSlug = createServerFn({ method: "GET" })
