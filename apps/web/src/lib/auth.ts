@@ -21,6 +21,22 @@ const orgConfig = {
     enabled: true,
     maximumRolesPerOrganization: 20,
   },
+  organizationHooks: {
+    // Every new org gets a 14-day pro trial, no card required. On expiry
+    // the org naturally evaluates as free via getEffectivePlan — no cron.
+    afterCreateOrganization: async ({ organization }: { organization: { id: string } }) => {
+      try {
+        const prisma = getPrisma();
+        await prisma.organization.update({
+          where: { id: organization.id },
+          data: { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+        });
+      } catch (err) {
+        // A missing trial must never block org creation.
+        console.error("[auth] failed to set trialEndsAt for new org:", err);
+      }
+    },
+  },
   sendInvitationEmail: async (data: {
     id: string;
     email: string;
