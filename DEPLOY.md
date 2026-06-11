@@ -68,7 +68,24 @@ simulcast, `src/lib/stream*.ts`) — these throw at first use if missing:
 | Secret | Where the value comes from |
 | --- | --- |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages overview (right sidebar). |
-| `CLOUDFLARE_API_TOKEN` | API token with **Stream: Edit** permission for the account. |
+| `CLOUDFLARE_STREAM_API_TOKEN` | API token with **Stream: Edit** permission for the account. |
+
+> **Rename in progress:** the Stream token used to be called
+> `CLOUDFLARE_API_TOKEN`, which collided with the GitHub Actions deploy
+> token of the same name. The code prefers `CLOUDFLARE_STREAM_API_TOKEN`
+> and falls back to the legacy name. To finish the rotation, **after** the
+> renamed code is deployed:
+>
+> ```sh
+> cd apps/web
+> pnpm exec wrangler secret put CLOUDFLARE_STREAM_API_TOKEN   # same token value
+> pnpm exec wrangler secret delete CLOUDFLARE_API_TOKEN
+> ```
+>
+> Do **not** delete the old secret before deploying — the currently
+> deployed code only reads the legacy name. Once the old secret is gone,
+> the fallback in `src/lib/stream.ts` / `stream-destinations.ts` can be
+> removed.
 
 Optional: `BETTER_AUTH_URL` — the app defaults to `https://showpilot.tech`
 when unset (`src/lib/auth.ts`, `src/lib/billing.ts`); only set it for a
@@ -145,7 +162,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 
 | Repo secret | How to create |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template, scoped to this account. (Deploy-only: the workflow never touches D1, so no D1 permission is needed.) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template, scoped to this account. (Deploy-only: the workflow never touches D1, so no D1 permission is needed. Distinct from the runtime Stream token `CLOUDFLARE_STREAM_API_TOKEN` — same dashboard, different permissions and different place.) |
 | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview → right sidebar → Account ID. |
 
 Workflow summary:

@@ -39,8 +39,11 @@ async function assertDestinationAccess(id: string) {
 }
 
 function getCfHeaders() {
-  const token: string | undefined = env.CLOUDFLARE_API_TOKEN;
-  if (!token) throw new Error("CLOUDFLARE_API_TOKEN not configured");
+  // Transitional: prefer CLOUDFLARE_STREAM_API_TOKEN, fall back to the legacy
+  // CLOUDFLARE_API_TOKEN until the old secret is deleted from prod.
+  const token: string | undefined =
+    env.CLOUDFLARE_STREAM_API_TOKEN || env.CLOUDFLARE_API_TOKEN;
+  if (!token) throw new Error("CLOUDFLARE_STREAM_API_TOKEN not configured");
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
