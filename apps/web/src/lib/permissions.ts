@@ -6,7 +6,7 @@ import {
   ownerAc,
 } from "better-auth/plugins/organization/access";
 
-export type Role = "owner" | "admin" | "pm" | "tm" | "sm" | "member";
+export type Role = "owner" | "admin" | "td" | "cd" | "pd" | "pm" | "tm" | "sm" | "member";
 export type LegacyRole = Role | "stageManager";
 
 export type Permission =
@@ -68,9 +68,19 @@ const ALL_PERMISSIONS = [
   "org:delete",
 ] as const satisfies readonly Permission[];
 
+// Admin tier: everything except org deletion. Shared by `admin` and the
+// director roles (td/cd/pd) so a permission added to ALL_PERMISSIONS flows
+// to all four automatically. Director sets can diverge later without a migration.
+const ADMIN_TIER_PERMISSIONS = ALL_PERMISSIONS.filter(
+  (permission) => permission !== "org:delete",
+);
+
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   owner: ALL_PERMISSIONS,
-  admin: ALL_PERMISSIONS.filter((permission) => permission !== "org:delete"),
+  admin: ADMIN_TIER_PERMISSIONS,
+  td: ADMIN_TIER_PERMISSIONS,
+  cd: ADMIN_TIER_PERMISSIONS,
+  pd: ADMIN_TIER_PERMISSIONS,
   pm: [
     "show:view", "show:edit",
     "showboard:view", "showboard:edit",
@@ -139,7 +149,11 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 export function normalizeRole(role: string | null | undefined): Role | null {
   if (!role) return null;
   if (role === "stageManager") return "sm";
-  if (role === "owner" || role === "admin" || role === "pm" || role === "tm" || role === "sm" || role === "member") {
+  if (
+    role === "owner" || role === "admin" ||
+    role === "td" || role === "cd" || role === "pd" ||
+    role === "pm" || role === "tm" || role === "sm" || role === "member"
+  ) {
     return role;
   }
   return null;
@@ -274,9 +288,19 @@ export const member = ac.newRole({
 
 export const stageManager = sm;
 
+// Director roles share the admin statement set (admin tier). Kept as
+// distinct role names so titles render correctly and the sets can
+// diverge later without a data migration.
+export const td = admin;
+export const cd = admin;
+export const pd = admin;
+
 export const roles = {
   owner,
   admin,
+  td,
+  cd,
+  pd,
   pm,
   tm,
   sm,
@@ -293,6 +317,21 @@ export const ROLE_META: Record<LegacyRole, { label: string; description: string;
   admin: {
     label: "Admin",
     description: "Full system access except organization deletion",
+    tier: "admin",
+  },
+  td: {
+    label: "Technical Director",
+    description: "Admin-level access — runs the booth and owns the technical show",
+    tier: "admin",
+  },
+  cd: {
+    label: "Creative Director",
+    description: "Admin-level access — owns content, graphics, and the creative show",
+    tier: "admin",
+  },
+  pd: {
+    label: "Production Director",
+    description: "Admin-level access — owns planning and the overall production",
     tier: "admin",
   },
   pm: {
@@ -322,4 +361,4 @@ export const ROLE_META: Record<LegacyRole, { label: string; description: string;
   },
 };
 
-export const ASSIGNABLE_ROLES = ["admin", "pm", "tm", "sm", "member"] as const;
+export const ASSIGNABLE_ROLES = ["td", "cd", "pd", "pm", "tm", "sm", "admin", "member"] as const;
