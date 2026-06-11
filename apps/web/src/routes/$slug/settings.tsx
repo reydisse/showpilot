@@ -51,6 +51,7 @@ import { UpgradePrompt, isPlanLimitError } from "@/components/ui/upgrade-prompt"
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
+import { testOntimeConnection } from "@/lib/ontime";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
@@ -1115,9 +1116,10 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
             connected={rundownAdapter === "ontime"}
             onConnect={() => saveSetting("rundown-adapter", "ontime")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
+            onTest={async () => {
+              const result = await testOntimeConnection({ data: { orgId } });
+              if (!result.ok) throw new Error(result.error || "Connection failed");
+            }}
           >
             <div className="space-y-3">
               <FieldGroup label="OnTime Server URL">
@@ -1234,39 +1236,18 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
             </div>
           </IntegrationCard>
 
-          {/* Planning Center */}
+          {/* Planning Center — no adapter implementation yet. Connect stays
+              disabled (comingSoon); Disconnect remains live so orgs that
+              previously selected it can revert to native. */}
           <IntegrationCard
             name="Planning Center"
             icon={<Clock className="w-4 h-4" />}
             description="Pull service plans from Planning Center Services (read-only)"
             connected={rundownAdapter === "planning-center"}
-            onConnect={() => saveSetting("rundown-adapter", "planning-center")}
+            comingSoon
+            onConnect={() => {}}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
-            onTest={() =>
-              new Promise((r) => setTimeout(r, 1000))
-            }
-          >
-            <div className="space-y-3">
-              <SettingToggle
-                settingKey="pco-auto-sync"
-                label="Auto-sync service plan"
-                getSetting={getSetting}
-                saveSetting={saveSetting}
-              />
-              <FieldGroup label="Auto-refresh interval">
-                <SettingSelect
-                  settingKey="pco-refresh-interval"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
-                  options={[
-                    { value: "15", label: "Every 15 minutes" },
-                    { value: "30", label: "Every 30 minutes" },
-                    { value: "60", label: "Every 60 minutes" },
-                  ]}
-                />
-              </FieldGroup>
-            </div>
-          </IntegrationCard>
+          />
         </div>
       </div>
 
