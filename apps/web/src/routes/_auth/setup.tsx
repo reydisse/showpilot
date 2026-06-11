@@ -167,6 +167,12 @@ interface SeedState {
 }
 
 const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+const fmtLong = (sec: number) => {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+};
 
 function SetupWizard() {
   const { progress, initialScene } = Route.useLoaderData();
@@ -268,7 +274,14 @@ function SetupWizard() {
             }}
           />
         )}
-        {scene > 3 && org && <ScenePlaceholder org={org} seeded={seed.status === "done"} />}
+        {scene === 4 && org && (
+          <SceneBuild
+            seed={seed}
+            onRetry={() => seed.template && startSeed(org.id, seed.template)}
+            onDone={() => go(5)}
+          />
+        )}
+        {scene === 5 && org && <ScenePlaceholder org={org} seeded={seed.status === "done"} />}
       </div>
     </div>
   );
@@ -416,6 +429,157 @@ function SceneTemplates({ onSelect }: { onSelect: (template: OnboardingTemplate)
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ─── Scene 4 — THE HERO MOMENT: the rundown builds itself ────
+// The cascade animates already-confirmed server data — items render
+// only after the seed responds; nothing fakes progressive writes.
+
+function SceneBuild({
+  seed,
+  onRetry,
+  onDone,
+}: {
+  seed: SeedState;
+  onRetry: () => void;
+  onDone: () => void;
+}) {
+  const [builtCount, setBuiltCount] = useState(0);
+  const [armed, setArmed] = useState(false);
+  const skipRef = useRef(false);
+
+  const items = seed.status === "done" ? seed.items : [];
+  const isBlank = seed.status === "done" && items.length === 0;
+
+  // Cascade: one item every 240ms once the server confirms; click or
+  // keypress anywhere jumps straight to the armed end state.
+  useEffect(() => {
+    if (seed.status !== "done") return;
+    setBuiltCount(0);
+    setArmed(false);
+    skipRef.current = false;
+    if (items.length === 0) {
+      setArmed(true);
+      return;
+    }
+    let i = 0;
+    const id = setInterval(() => {
+      if (skipRef.current) {
+        setBuiltCount(items.length);
+        setArmed(true);
+        clearInterval(id);
+        return;
+      }
+      i += 1;
+      setBuiltCount(i);
+      if (i >= items.length) {
+        clearInterval(id);
+        setTimeout(() => setArmed(true), 650);
+      }
+    }, 240);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed.status]);
+
+  useEffect(() => {
+    const jump = () => {
+      skipRef.current = true;
+    };
+    window.addEventListener("click", jump);
+    window.addEventListener("keydown", jump);
+    return () => {
+      window.removeEventListener("click", jump);
+      window.removeEventListener("keydown", jump);
+    };
+  }, []);
+
+  const builtTotalSec = Math.round(
+    items.slice(0, builtCount).reduce((total, item) => total + item.duration, 0) / 1000,
+  );
+
+  return (
+    <div className="rise">
+      <h1 className="mb-5 mt-9 text-[28px] font-extrabold">
+        {isBlank
+          ? "The stage is yours."
+          : armed
+            ? "Your show is built."
+            : "Building your show…"}
+      </h1>
+
+      {seed.status === "error" && (
+        <div
+          className="flex items-center justify-between rounded-xl border px-4 py-3 text-sm"
+          style={{ borderColor: `${T.red}40`, background: `${T.red}14` }}
+        >
+          <span style={{ color: "#FCA5A5" }}>
+            Couldn't build your show — your org is fine, the rundown just didn't seed.
+          </span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="ml-4 shrink-0 rounded-lg border px-3 py-1.5 font-semibold"
+            style={{ borderColor: T.border, background: T.panel, color: T.text }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div className="overflow-hidden rounded-[14px] border" style={{ background: T.panel, borderColor: T.border }}>
+          {items.slice(0, builtCount).map((item, i) => (
+            <div
+              key={item.id}
+              className="rise flex items-center justify-between border-b px-[18px] py-[11px]"
+              style={{ borderColor: T.border }}
+            >
+              <span className="flex items-baseline gap-3.5">
+                <span className="font-mono text-[11px]" style={{ color: T.faint }}>
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="text-[15px] font-medium">{item.title}</span>
+              </span>
+              <span className="font-mono text-[13px]" style={{ color: T.muted }}>
+                {fmt(Math.round(item.duration / 1000))}
+              </span>
+            </div>
+          ))}
+          <div className="flex justify-between px-[18px] py-[13px] font-mono text-[13px]">
+            <span className="tracking-[0.15em]" style={{ color: T.faint }}>
+              TOTAL RUNTIME
+            </span>
+            <span style={{ color: armed ? T.green : T.amber }}>{fmtLong(builtTotalSec)}</span>
+          </div>
+        </div>
+      )}
+
+      {armed && (
+        <div className="rise mt-[22px] flex items-center justify-between">
+          <div
+            className="flex items-center gap-2 font-mono text-xs tracking-[0.2em]"
+            style={{ color: T.green }}
+          >
+            <span className="h-[7px] w-[7px] rounded-full" style={{ background: T.green }} />
+            SHOW CLOCK ARMED
+          </div>
+          <button
+            type="button"
+            onClick={onDone}
+            className="inline-flex items-center gap-2.5 rounded-[10px] px-5 py-[13px] text-base font-semibold"
+            style={{ background: T.text, color: T.stage }}
+          >
+            Get your team in <ArrowRight size={17} />
+          </button>
+        </div>
+      )}
+      {!armed && seed.status !== "error" && (
+        <p className="mt-3.5 font-mono text-xs" style={{ color: T.faint }}>
+          click anywhere to skip
+        </p>
+      )}
     </div>
   );
 }
