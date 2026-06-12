@@ -109,10 +109,25 @@ async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
   return slugOrId;
 }
 
+// Build-time commit SHA, injected by deploy.yml (VITE_COMMIT_SHA=${{ github.sha }}).
+const COMMIT_SHA =
+  ((import.meta as unknown as { env?: Record<string, string | undefined> }).env
+    ?.VITE_COMMIT_SHA as string | undefined) ?? "dev";
+
 export default {
   async fetch(request: Request, env: unknown, _ctx: unknown) {
     const url = new URL(request.url);
     const e = env as Env;
+
+    // Unauthenticated health check for uptime monitors (UptimeRobot /
+    // Better Stack — see DEPLOY.md). Must stay dependency-free: no DB,
+    // no auth, so it reflects Worker liveness only.
+    if (url.pathname === "/api/health" && request.method === "GET") {
+      return new Response(
+        JSON.stringify({ status: "ok", commit: COMMIT_SHA }),
+        { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
+      );
+    }
 
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       const corsOrigin = request.headers.get("origin");

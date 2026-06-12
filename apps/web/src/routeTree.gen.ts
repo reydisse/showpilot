@@ -9,7 +9,9 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OrgDeletedRouteImport } from './routes/org-deleted'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
@@ -59,9 +61,19 @@ import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/asse
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
 
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SuperadminRoute = SuperadminRouteImport.update({
   id: '/superadmin',
   path: '/superadmin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrgDeletedRoute = OrgDeletedRouteImport.update({
@@ -312,7 +324,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/org-deleted': typeof OrgDeletedRoute
+  '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -361,7 +375,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/org-deleted': typeof OrgDeletedRoute
+  '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -413,7 +429,9 @@ export interface FileRoutesById {
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/org-deleted': typeof OrgDeletedRoute
+  '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
@@ -465,7 +483,9 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/org-deleted'
+    | '/privacy'
     | '/superadmin'
+    | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -514,7 +534,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/org-deleted'
+    | '/privacy'
     | '/superadmin'
+    | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -565,7 +587,9 @@ export interface FileRouteTypes {
     | '/$slug'
     | '/_auth'
     | '/org-deleted'
+    | '/privacy'
     | '/superadmin'
+    | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
     | '/$slug/chat'
@@ -617,7 +641,9 @@ export interface RootRouteChildren {
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
   OrgDeletedRoute: typeof OrgDeletedRoute
+  PrivacyRoute: typeof PrivacyRoute
   SuperadminRoute: typeof SuperadminRoute
+  TermsRoute: typeof TermsRoute
   CheckinSlugRoute: typeof CheckinSlugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
@@ -634,11 +660,25 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/superadmin': {
       id: '/superadmin'
       path: '/superadmin'
       fullPath: '/superadmin'
       preLoaderRoute: typeof SuperadminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/org-deleted': {
@@ -1085,7 +1125,9 @@ const rootRouteChildren: RootRouteChildren = {
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
   OrgDeletedRoute: OrgDeletedRoute,
+  PrivacyRoute: PrivacyRoute,
   SuperadminRoute: SuperadminRoute,
+  TermsRoute: TermsRoute,
   CheckinSlugRoute: CheckinSlugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,

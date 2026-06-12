@@ -48,6 +48,8 @@ import {
   type OrgBillingInfo,
 } from "@/lib/billing";
 import { UpgradePrompt, isPlanLimitError } from "@/components/ui/upgrade-prompt";
+import { EmbeddedCheckoutModal } from "@/components/settings/EmbeddedCheckoutModal";
+import { getStripePublishableKey, resolveCheckoutUiMode } from "@/lib/checkout";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
@@ -443,7 +445,11 @@ function OrganizationSection({ org, getSetting, saveSetting }: SectionProps) {
             {org.name}
           </div>
           <p className="text-[10px] text-board-muted/50">
-            Contact support to change your organization name.
+            Contact{" "}
+            <a href="mailto:support@showpilot.tech" className="text-fire-500/70 hover:text-fire-500">
+              support@showpilot.tech
+            </a>{" "}
+            to change your organization name.
           </p>
         </FieldGroup>
 
@@ -669,6 +675,10 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [embeddedCheckout, setEmbeddedCheckout] = useState<{
+    clientSecret: string;
+    planName: string;
+  } | null>(null);
 
   // Drop the ?billing= param so refreshes don't re-show the banner.
   useEffect(() => {
@@ -701,8 +711,21 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
     setCheckingOut(plan);
     setBillingError(null);
     try {
-      const { url } = await createCheckoutSession({ data: { orgId: org.id, plan } });
-      window.location.href = url;
+      // Embedded keeps payment on showpilot.tech; without the publishable
+      // key the flow degrades to the original hosted redirect.
+      const uiMode = resolveCheckoutUiMode(getStripePublishableKey());
+      const result = await createCheckoutSession({
+        data: { orgId: org.id, plan, uiMode },
+      });
+      if (result.mode === "embedded") {
+        setEmbeddedCheckout({
+          clientSecret: result.clientSecret,
+          planName: plan === "founding" ? "Founding" : plan === "pro" ? "Pro" : "Starter",
+        });
+        setCheckingOut(null);
+      } else {
+        window.location.href = result.url;
+      }
     } catch (err) {
       setBillingError(err instanceof Error ? err.message : "Failed to start checkout");
       setCheckingOut(null);
@@ -886,6 +909,14 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
         Subscriptions are handled securely by Stripe. Downgrades keep your data — limits
         apply to new items only.
       </p>
+
+      {embeddedCheckout && (
+        <EmbeddedCheckoutModal
+          clientSecret={embeddedCheckout.clientSecret}
+          planName={embeddedCheckout.planName}
+          onClose={() => setEmbeddedCheckout(null)}
+        />
+      )}
     </div>
   );
 }

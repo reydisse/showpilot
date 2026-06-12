@@ -38,6 +38,33 @@ To roll back a bad deploy: Cloudflare dashboard → Workers & Pages →
 
 ---
 
+## Landing page (apps/landing → www.showpilot.tech)
+
+The marketing page is a zero-dependency static site deployed as its own
+assets-only Worker (`showpilot-landing`) on the custom domain
+`www.showpilot.tech`. It is **not** part of the automatic pipeline — it
+changes rarely, so it deploys manually:
+
+```sh
+cd apps/landing
+pnpm deploy          # = node build.mjs && wrangler deploy
+```
+
+Notes:
+- `build.mjs` interpolates prices/links from `src/pricing.mjs` into
+  `src/index.template.html` and writes `dist/` (gitignored). **All prices
+  live in `src/pricing.mjs`** — keep them in sync with the Stripe prices
+  and the app's plan cards when they change.
+- First deploy: the `www.showpilot.tech` custom domain is created
+  automatically from `wrangler.jsonc` (the zone must be on the same
+  Cloudflare account).
+- The social card is `static/og.png`, regenerated from `og-source.svg`
+  with `npx @resvg/resvg-js-cli og-source.svg static/og.png`.
+- Landing CTAs deep-link to `https://showpilot.tech/login?signup=1` and
+  forward `utm_*` params for attribution.
+
+---
+
 ## Required production secrets
 
 All secrets live in the Workers environment — **no fallback values; missing
@@ -166,6 +193,16 @@ Repository secrets (Settings → Secrets and variables → Actions):
 | `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template, scoped to this account. (Deploy-only: the workflow never touches D1, so no D1 permission is needed. Distinct from the runtime Stream token `CLOUDFLARE_STREAM_API_TOKEN` — same dashboard, different permissions and different place.) |
 | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview → right sidebar → Account ID. |
 
+Repository **variables** (same page, "Variables" tab) — build-time publics
+baked into the client bundle by `deploy.yml`. All optional: unset means
+analytics no-op / checkout falls back to the hosted Stripe page.
+
+| Repo variable | Value |
+| --- | --- |
+| `VITE_POSTHOG_KEY` | PostHog project API key (when analytics is enabled). |
+| `VITE_POSTHOG_HOST` | PostHog host, e.g. `https://us.i.posthog.com`. |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe **publishable** key (`pk_…`) — enables embedded checkout. Locally: put it in `apps/web/.env.local` (not `.dev.vars`; Vite doesn't read that). |
+
 Workflow summary:
 
 - **`ci.yml`** — PRs and pushes to `main`. Order is load-bearing:
@@ -177,6 +214,29 @@ Workflow summary:
   before deploying if any numbered migration file is missing from
   `applied-remote.txt`, printing the exact `wrangler d1 execute` commands to
   run.
+
+---
+
+## Uptime monitoring / status page (manual setup)
+
+The Worker exposes an unauthenticated health endpoint:
+
+```
+GET https://showpilot.tech/api/health   → 200 {"status":"ok","commit":"<git sha>"}
+```
+
+It is dependency-free (no DB/auth), so it reflects Worker liveness; `commit`
+is the deployed git SHA (`VITE_COMMIT_SHA` from deploy.yml; `"dev"` locally).
+
+One-time setup with UptimeRobot (or Better Stack — equivalent steps):
+
+1. Create a monitor: type **HTTPS**, URL `https://showpilot.tech/api/health`,
+   interval 1–5 min, keyword check for `"status":"ok"` (keyword monitors
+   catch a Worker that returns 200 with an error page).
+2. Add an alert contact (support@showpilot.tech and/or SMS).
+3. Optional public status page: UptimeRobot → Status Pages → add the monitor,
+   then CNAME `status.showpilot.tech` to the page per UptimeRobot's
+   instructions.
 
 ---
 
@@ -200,3 +260,65 @@ Run after **every** production deploy, in this order:
 
 If the auth path fails, roll back immediately (see
 [How deploys happen](#how-deploys-happen)), then debug.
+
+---
+
+## Public launch — switch flips
+
+The launch sequence, in order. Everything before step 5 is reversible.
+
+**1. Turn on analytics + embedded checkout (build-time publics).**
+GitHub → repo → Settings → Secrets and variables → Actions → **Variables**
+tab → add:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_POSTHOG_KEY` | PostHog → Project Settings → Project API key (`phc_…`) |
+| `VITE_POSTHOG_HOST` | `https://us.i.posthog.com` (or your PostHog region host) |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys → **live** Publishable key (`pk_live_…`) |
+
+They are injected by `deploy.yml` at build time — they take effect on the
+**next** deploy (push to `main` or re-run the Deploy workflow at
+https://github.com/reydisse/showpilot/actions/workflows/deploy.yml).
+
+**2. Create live-mode Stripe objects and swap the five secrets.**
+Follow [Stripe live-mode setup](#stripe-live-mode-setup) in **live mode**
+(products/prices, webhook on `https://showpilot.tech/api/stripe/webhook`,
+customer portal), then from `apps/web`:
+
+```sh
+pnpm exec wrangler secret put STRIPE_SECRET_KEY      # sk_live_…
+pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET  # whsec_… (live endpoint)
+pnpm exec wrangler secret put STRIPE_PRICE_STARTER   # price_… (live Starter)
+pnpm exec wrangler secret put STRIPE_PRICE_PRO       # price_… (live Pro)
+pnpm exec wrangler secret put STRIPE_PRICE_FOUNDING  # price_… (live Founding)
+```
+
+Secrets apply to the running Worker immediately — do this together with
+step 1's redeploy so live publishable + live secret keys match.
+
+**3. One real checkout + refund.**
+With a real card: settings → Billing → subscribe (checkout must stay on
+showpilot.tech — embedded mode) → webhook flips the plan → Stripe dashboard →
+Payments → refund the charge → cancel the subscription in the customer
+portal → plan reverts. This proves keys, webhook, and portal in live mode.
+
+**4. Verify monitoring.**
+`curl https://showpilot.tech/api/health` returns `{"status":"ok","commit":…}`
+with the freshly deployed SHA, and the uptime monitor (see
+[Uptime monitoring](#uptime-monitoring--status-page-manual-setup)) is green.
+
+**5. Set the public launch date.**
+https://admin.showpilot.tech → superadmin → "Public launch date" → set the
+date and save. Beta orgs evaluate as **pro** until this date — setting it
+starts the clock on beta access ending, and gates founding-rate eligibility
+to orgs created before it.
+
+**6. Announce.**
+Landing page is live at https://www.showpilot.tech (deployed separately —
+see [Landing page](#landing-page-appslanding--wwwshowpilottech)); links for
+the announcement: landing → `https://showpilot.tech/login?signup=1` with
+`utm_source/utm_campaign` params for attribution.
+
+After launch, run the full [post-deploy smoke tests](#post-deploy-smoke-tests)
+once more — billing step now in live mode.

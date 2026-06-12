@@ -26,3 +26,11 @@ STRIPE_WEBHOOK_SECRET=
 STRIPE_PRICE_STARTER=
 STRIPE_PRICE_PRO=
 STRIPE_PRICE_FOUNDING=
+
+# NOTE — build-time public vars (VITE_*) do NOT go in .dev.vars: Vite only
+# reads them from the shell env or an .env.local file next to package.json.
+# For local embedded checkout, put in apps/web/.env.local:
+#   VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
+# (Unset = checkout falls back to the hosted Stripe page. In production these
+# are GitHub Actions *variables* injected in deploy.yml, same as the PostHog
+# vars VITE_POSTHOG_KEY / VITE_POSTHOG_HOST.)
