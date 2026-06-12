@@ -193,6 +193,16 @@ Repository secrets (Settings → Secrets and variables → Actions):
 | `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template, scoped to this account. (Deploy-only: the workflow never touches D1, so no D1 permission is needed. Distinct from the runtime Stream token `CLOUDFLARE_STREAM_API_TOKEN` — same dashboard, different permissions and different place.) |
 | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview → right sidebar → Account ID. |
 
+Repository **variables** (same page, "Variables" tab) — build-time publics
+baked into the client bundle by `deploy.yml`. All optional: unset means
+analytics no-op / checkout falls back to the hosted Stripe page.
+
+| Repo variable | Value |
+| --- | --- |
+| `VITE_POSTHOG_KEY` | PostHog project API key (when analytics is enabled). |
+| `VITE_POSTHOG_HOST` | PostHog host, e.g. `https://us.i.posthog.com`. |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe **publishable** key (`pk_…`) — enables embedded checkout. Locally: put it in `apps/web/.env.local` (not `.dev.vars`; Vite doesn't read that). |
+
 Workflow summary:
 
 - **`ci.yml`** — PRs and pushes to `main`. Order is load-bearing:

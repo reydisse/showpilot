@@ -7,6 +7,7 @@ import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { getEffectivePlan, getPublicLaunchDate, type Plan } from "@/lib/plan-limits";
+import { buildCheckoutSessionParams } from "@/lib/checkout";
 
 export { getPublicLaunchDate };
 
@@ -116,11 +117,18 @@ export const getOrgBilling = createServerFn({ method: "GET" })
 const checkoutSchema = z.object({
   orgId: idSchema,
   plan: z.enum(["starter", "pro", "founding"]),
+  // Default "hosted" keeps the original flow when the client doesn't (or
+  // can't) request embedded — e.g. VITE_STRIPE_PUBLISHABLE_KEY is unset.
+  uiMode: z.enum(["embedded", "hosted"]).default("hosted"),
 });
+
+export type CheckoutSessionResult =
+  | { mode: "embedded"; clientSecret: string }
+  | { mode: "hosted"; url: string };
 
 export const createCheckoutSession = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(checkoutSchema, data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<CheckoutSessionResult> => {
     const user = await assertBillingPermission(data.orgId);
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
@@ -153,19 +161,23 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
     }
 
     const prices = getStripePriceIds();
-    const baseUrl = getBaseUrl();
-    const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      customer: customerId,
-      client_reference_id: org.id,
-      line_items: [{ price: prices[data.plan], quantity: 1 }],
-      subscription_data: { metadata: { orgId: org.id } },
-      success_url: `${baseUrl}/${org.slug}/settings?billing=success`,
-      cancel_url: `${baseUrl}/${org.slug}/settings?billing=cancelled`,
-    });
+    const session = await stripe.checkout.sessions.create(
+      buildCheckoutSessionParams({
+        uiMode: data.uiMode,
+        customerId,
+        orgId: org.id,
+        orgSlug: org.slug,
+        priceId: prices[data.plan],
+        baseUrl: getBaseUrl(),
+      }),
+    );
 
+    if (data.uiMode === "embedded") {
+      if (!session.client_secret) throw new Error("Stripe did not return a client secret");
+      return { mode: "embedded", clientSecret: session.client_secret };
+    }
     if (!session.url) throw new Error("Stripe did not return a checkout URL");
-    return { url: session.url };
+    return { mode: "hosted", url: session.url };
   });
 
 // ─── Billing portal ──────────────────────────────────────────
