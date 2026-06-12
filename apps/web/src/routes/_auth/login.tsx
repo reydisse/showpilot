@@ -3,6 +3,10 @@ import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth/login")({
+  // ?signup=1 opens the page in sign-up mode — the landing page's CTAs land
+  // here. Unknown params (utm_*) pass through untouched for analytics.
+  validateSearch: (search: Record<string, unknown>): { signup?: 1 } =>
+    search.signup === "1" || search.signup === 1 ? { signup: 1 } : {},
   component: LoginPage,
 });
 
@@ -45,7 +49,8 @@ function EyeOffIcon({ className }: { className?: string }) {
 }
 
 function LoginPage() {
-  const [isSignUp, setIsSignUp] = useState(false);
+  const { signup } = Route.useSearch();
+  const [isSignUp, setIsSignUp] = useState(Boolean(signup));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

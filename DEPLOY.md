@@ -38,6 +38,33 @@ To roll back a bad deploy: Cloudflare dashboard → Workers & Pages →
 
 ---
 
+## Landing page (apps/landing → www.showpilot.tech)
+
+The marketing page is a zero-dependency static site deployed as its own
+assets-only Worker (`showpilot-landing`) on the custom domain
+`www.showpilot.tech`. It is **not** part of the automatic pipeline — it
+changes rarely, so it deploys manually:
+
+```sh
+cd apps/landing
+pnpm deploy          # = node build.mjs && wrangler deploy
+```
+
+Notes:
+- `build.mjs` interpolates prices/links from `src/pricing.mjs` into
+  `src/index.template.html` and writes `dist/` (gitignored). **All prices
+  live in `src/pricing.mjs`** — keep them in sync with the Stripe prices
+  and the app's plan cards when they change.
+- First deploy: the `www.showpilot.tech` custom domain is created
+  automatically from `wrangler.jsonc` (the zone must be on the same
+  Cloudflare account).
+- The social card is `static/og.png`, regenerated from `og-source.svg`
+  with `npx @resvg/resvg-js-cli og-source.svg static/og.png`.
+- Landing CTAs deep-link to `https://showpilot.tech/login?signup=1` and
+  forward `utm_*` params for attribution.
+
+---
+
 ## Required production secrets
 
 All secrets live in the Workers environment — **no fallback values; missing
