@@ -1,0 +1,17 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "showpilot-landing",
+	"compatibility_date": "2026-01-01",
+	// Static-assets-only Worker: no script, just the built dist/ directory.
+	"assets": {
+		"directory": "./dist",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "single-page-application"
+	},
+	"routes": [
+		{
+			"pattern": "www.showpilot.tech",
+			"custom_domain": true
+		}
+	]
+}

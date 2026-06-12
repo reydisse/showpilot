@@ -1,0 +1,28 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+  <rect x="0" y="0" width="1200" height="630" fill="url(#glow)"/>
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.1" r="1">
+      <stop offset="0%" stop-color="#ffc107" stop-opacity="0.10"/>
+      <stop offset="60%" stop-color="#0a0a0a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffca28"/>
+      <stop offset="100%" stop-color="#ff8f00"/>
+    </linearGradient>
+  </defs>
+  <!-- live tally -->
+  <circle cx="120" cy="120" r="10" fill="#ef4444"/>
+  <text x="145" y="129" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" letter-spacing="4" fill="#ef4444">ON AIR</text>
+  <!-- timecode -->
+  <text x="1080" y="129" text-anchor="end" font-family="Courier New, monospace" font-size="30" font-weight="700" letter-spacing="3" fill="#ffc107">00:24:13</text>
+  <!-- wordmark -->
+  <text x="120" y="305" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="800" fill="#f5f5f5"><tspan fill="#ffc107">Show</tspan>Pilot</text>
+  <!-- tagline -->
+  <text x="120" y="392" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="700" fill="#f5f5f5">Run your show, not your software.</text>
+  <text x="120" y="450" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#9a9a9a">The production OS for church and live-event teams</text>
+  <!-- bottom strip -->
+  <rect x="120" y="505" width="960" height="2" fill="url(#fire)" opacity="0.6"/>
+  <text x="120" y="555" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#9a9a9a">Rundowns · Show clock · Crew · Comms · Device control</text>
+  <text x="1080" y="555" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#ffc107">showpilot.tech</text>
+</svg>
