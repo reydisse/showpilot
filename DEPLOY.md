@@ -260,3 +260,65 @@ Run after **every** production deploy, in this order:
 
 If the auth path fails, roll back immediately (see
 [How deploys happen](#how-deploys-happen)), then debug.
+
+---
+
+## Public launch — switch flips
+
+The launch sequence, in order. Everything before step 5 is reversible.
+
+**1. Turn on analytics + embedded checkout (build-time publics).**
+GitHub → repo → Settings → Secrets and variables → Actions → **Variables**
+tab → add:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_POSTHOG_KEY` | PostHog → Project Settings → Project API key (`phc_…`) |
+| `VITE_POSTHOG_HOST` | `https://us.i.posthog.com` (or your PostHog region host) |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe → Developers → API keys → **live** Publishable key (`pk_live_…`) |
+
+They are injected by `deploy.yml` at build time — they take effect on the
+**next** deploy (push to `main` or re-run the Deploy workflow at
+https://github.com/reydisse/showpilot/actions/workflows/deploy.yml).
+
+**2. Create live-mode Stripe objects and swap the five secrets.**
+Follow [Stripe live-mode setup](#stripe-live-mode-setup) in **live mode**
+(products/prices, webhook on `https://showpilot.tech/api/stripe/webhook`,
+customer portal), then from `apps/web`:
+
+```sh
+pnpm exec wrangler secret put STRIPE_SECRET_KEY      # sk_live_…
+pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET  # whsec_… (live endpoint)
+pnpm exec wrangler secret put STRIPE_PRICE_STARTER   # price_… (live Starter)
+pnpm exec wrangler secret put STRIPE_PRICE_PRO       # price_… (live Pro)
+pnpm exec wrangler secret put STRIPE_PRICE_FOUNDING  # price_… (live Founding)
+```
+
+Secrets apply to the running Worker immediately — do this together with
+step 1's redeploy so live publishable + live secret keys match.
+
+**3. One real checkout + refund.**
+With a real card: settings → Billing → subscribe (checkout must stay on
+showpilot.tech — embedded mode) → webhook flips the plan → Stripe dashboard →
+Payments → refund the charge → cancel the subscription in the customer
+portal → plan reverts. This proves keys, webhook, and portal in live mode.
+
+**4. Verify monitoring.**
+`curl https://showpilot.tech/api/health` returns `{"status":"ok","commit":…}`
+with the freshly deployed SHA, and the uptime monitor (see
+[Uptime monitoring](#uptime-monitoring--status-page-manual-setup)) is green.
+
+**5. Set the public launch date.**
+https://admin.showpilot.tech → superadmin → "Public launch date" → set the
+date and save. Beta orgs evaluate as **pro** until this date — setting it
+starts the clock on beta access ending, and gates founding-rate eligibility
+to orgs created before it.
+
+**6. Announce.**
+Landing page is live at https://www.showpilot.tech (deployed separately —
+see [Landing page](#landing-page-appslanding--wwwshowpilottech)); links for
+the announcement: landing → `https://showpilot.tech/login?signup=1` with
+`utm_source/utm_campaign` params for attribution.
+
+After launch, run the full [post-deploy smoke tests](#post-deploy-smoke-tests)
+once more — billing step now in live mode.
