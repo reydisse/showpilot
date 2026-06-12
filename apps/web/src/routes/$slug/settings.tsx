@@ -445,7 +445,11 @@ function OrganizationSection({ org, getSetting, saveSetting }: SectionProps) {
             {org.name}
           </div>
           <p className="text-[10px] text-board-muted/50">
-            Contact support to change your organization name.
+            Contact{" "}
+            <a href="mailto:support@showpilot.tech" className="text-fire-500/70 hover:text-fire-500">
+              support@showpilot.tech
+            </a>{" "}
+            to change your organization name.
           </p>
         </FieldGroup>
 

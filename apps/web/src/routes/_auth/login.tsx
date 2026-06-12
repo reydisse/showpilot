@@ -212,6 +212,20 @@ function LoginPage() {
                 ? "Create Account"
                 : "Sign In"}
           </button>
+
+          {isSignUp && (
+            <p className="text-center text-[11px] leading-5 text-board-muted/70">
+              By creating an account you agree to the{" "}
+              <Link to="/terms" className="text-fire-500/80 hover:text-fire-500 underline-offset-2 hover:underline">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" className="text-fire-500/80 hover:text-fire-500 underline-offset-2 hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+          )}
         </form>
 
         <div className="my-6 flex items-center gap-3">

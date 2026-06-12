@@ -217,6 +217,29 @@ Workflow summary:
 
 ---
 
+## Uptime monitoring / status page (manual setup)
+
+The Worker exposes an unauthenticated health endpoint:
+
+```
+GET https://showpilot.tech/api/health   → 200 {"status":"ok","commit":"<git sha>"}
+```
+
+It is dependency-free (no DB/auth), so it reflects Worker liveness; `commit`
+is the deployed git SHA (`VITE_COMMIT_SHA` from deploy.yml; `"dev"` locally).
+
+One-time setup with UptimeRobot (or Better Stack — equivalent steps):
+
+1. Create a monitor: type **HTTPS**, URL `https://showpilot.tech/api/health`,
+   interval 1–5 min, keyword check for `"status":"ok"` (keyword monitors
+   catch a Worker that returns 200 with an error page).
+2. Add an alert contact (support@showpilot.tech and/or SMS).
+3. Optional public status page: UptimeRobot → Status Pages → add the monitor,
+   then CNAME `status.showpilot.tech` to the page per UptimeRobot's
+   instructions.
+
+---
+
 ## Post-deploy smoke tests
 
 Run after **every** production deploy, in this order:

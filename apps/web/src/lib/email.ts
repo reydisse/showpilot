@@ -37,9 +37,11 @@ export async function sendEmail({ to, subject, html }: SendEmailOptions) {
 
 // ─── Shared wrapper ─────────────────────────────────────────
 // Dark background baked into every email so it renders correctly
-// in all clients (Gmail, Outlook, Apple Mail).
+// in all clients (Gmail, Outlook, Apple Mail). Every email carries the
+// same footer: company line + support address; `unsubscribeNote` is added
+// on non-transactional sends (e.g. waitlist) where opt-out applies.
 
-function emailWrapper(content: string) {
+function emailWrapper(content: string, opts: { unsubscribeNote?: string } = {}) {
   return `
     <div style="background-color: #0a0a0a; padding: 0; margin: 0;">
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background-color: #0a0a0a; color: #e5e5e5;">
@@ -48,7 +50,15 @@ function emailWrapper(content: string) {
         </h2>
         ${content}
         <hr style="border: none; border-top: 1px solid #2a2a2a; margin: 32px 0;" />
-        <p style="color: #666; font-size: 12px; margin: 0;">ShowPilot — The operating system for live production</p>
+        <p style="color: #666; font-size: 12px; margin: 0 0 4px 0;">ShowPilot — run your show, not your software.</p>
+        <p style="color: #666; font-size: 12px; margin: 0;">
+          Questions? <a href="mailto:support@showpilot.tech" style="color: #888;">support@showpilot.tech</a>
+        </p>
+        ${
+          opts.unsubscribeNote
+            ? `<p style="color: #555; font-size: 11px; margin: 12px 0 0 0;">${opts.unsubscribeNote}</p>`
+            : ""
+        }
       </div>
     </div>
   `;
@@ -116,7 +126,10 @@ export function waitlistConfirmationEmail(name?: string) {
         </ul>
       </div>
       <p style="color: #888; font-size: 13px; line-height: 1.5; margin: 0;">Sit tight — we'll be in touch soon.</p>
-    `),
+    `, {
+      unsubscribeNote:
+        "You're receiving this because you joined the ShowPilot waitlist. Reply to this email or write to support@showpilot.tech to be removed.",
+    }),
   };
 }
 
@@ -136,7 +149,10 @@ export function waitlistInviteEmail(name: string | undefined, signupUrl: string)
       <p style="color: #888; font-size: 13px; line-height: 1.5; margin: 0;">
         Once you're in, you can invite your team, connect your devices, and build your first runsheet.
       </p>
-    `),
+    `, {
+      unsubscribeNote:
+        "You're receiving this because you joined the ShowPilot waitlist. Reply to this email or write to support@showpilot.tech to be removed.",
+    }),
   };
 }
 

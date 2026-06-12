@@ -98,3 +98,4 @@ jobs:
           VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
