@@ -3,6 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { resolveMemberRoleForOrg } from "@/lib/org-role";
 import { z } from "zod";
 import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
 
@@ -92,15 +93,11 @@ export const getOrgBySlug = createServerFn({ method: "GET" })
 
     if (!org) return null;
 
-    const member = await prisma.member.findFirst({
-      where: {
-        organizationId: org.id,
-        userId: session.user.id,
-      },
-      select: { id: true },
-    });
+    // Role is resolved for THIS org (the one in the URL) — never from
+    // session.activeOrganizationId. Lookup errors propagate.
+    const memberRole = await resolveMemberRoleForOrg(prisma, org.id, session.user.id);
 
-    return member ? org : null;
+    return memberRole ? { ...org, memberRole } : null;
   });
 
 export const setActiveOrg = createServerFn({ method: "POST" })
@@ -148,33 +145,10 @@ export const listUserOrgs = createServerFn({ method: "GET" }).handler(
 
 // ─── Member Role ─────────────────────────────────────────
 
-export const getActiveMemberRole = createServerFn({ method: "GET" }).handler(
-  async () => {
-    try {
-      const session = await getSessionOrThrow();
-      const prisma = getPrisma();
-
-      const activeOrgId = session.session.activeOrganizationId;
-      if (activeOrgId) {
-        const activeMember = await prisma.member.findFirst({
-          where: { organizationId: activeOrgId, userId: session.user.id },
-          select: { role: true },
-        });
-        const normalized = normalizeRole(activeMember?.role ?? null);
-        if (normalized) return normalized;
-      }
-
-      const firstMember = await prisma.member.findFirst({
-        where: { userId: session.user.id },
-        orderBy: { createdAt: "asc" },
-        select: { role: true },
-      });
-      return normalizeRole(firstMember?.role ?? null) ?? "member";
-    } catch {
-      return "member";
-    }
-  }
-);
+// getActiveMemberRole was removed: it resolved the role from
+// session.activeOrganizationId (with a silent "member" fallback), which gave
+// multi-org users the wrong permissions on any org that wasn't session-
+// active. Role resolution is per-URL-org via getOrgBySlug/resolveMemberRoleForOrg.
 
 export const checkPermission = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>

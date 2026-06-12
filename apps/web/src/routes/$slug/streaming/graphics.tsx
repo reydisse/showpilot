@@ -159,14 +159,16 @@ function GraphicsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              to="/$slug/streaming/lt-preview"
-              params={{ slug }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
-            >
-              <Sparkles className="w-3 h-3" />
-              Template Designer
-            </Link>
+            {canConfigureGraphics && (
+              <Link
+                to="/$slug/streaming/lt-preview"
+                params={{ slug }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
+              >
+                <Sparkles className="w-3 h-3" />
+                Template Studio
+              </Link>
+            )}
             {canConfigureGraphics && (
               <button
                 onClick={() => {

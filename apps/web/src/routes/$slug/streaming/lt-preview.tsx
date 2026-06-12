@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useRef, useState } from "react";
 import {
@@ -39,7 +39,12 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
     const active = await getActiveGraphics({ data: { orgId: context.orgId } });
-    return { orgId: context.orgId, activeIds: active.map((g) => g.id), role: context.role };
+    return {
+      orgId: context.orgId,
+      activeIds: active.map((g) => g.id),
+      role: context.role,
+      slug: context.slug,
+    };
   },
   component: TemplatePreviewPage,
 });
@@ -278,7 +283,7 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
-  const { orgId, activeIds: initialActiveIds, role } = Route.useLoaderData();
+  const { orgId, activeIds: initialActiveIds, role, slug } = Route.useLoaderData();
   const router = useRouter();
   const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
   const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
@@ -462,6 +467,14 @@ function TemplatePreviewPage() {
       <div className="sticky top-0 z-20 bg-board-bg/90 backdrop-blur-xl border-b border-board-border px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
+            <Link
+              to="/$slug/streaming/graphics"
+              params={{ slug }}
+              className="inline-flex items-center gap-1 text-xs text-board-muted hover:text-board-text transition-colors mb-1"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              Back to Lower Thirds
+            </Link>
             <h1 className="text-lg font-semibold text-board-text font-display">
               Lower Third Templates
             </h1>
