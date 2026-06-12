@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { z } from "zod";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 import type { OntimeTimer, OntimeEvent, OntimeRuntimeState } from "@/types/ontime";
 
 async function assertOrgAccess(orgId: string) {
@@ -122,6 +124,43 @@ export const getOntimeState = createServerFn({ method: "GET" })
         clock: 0,
         events: [],
         connected: false,
+      };
+    }
+  });
+
+/**
+ * Test connectivity to the configured OnTime server.
+ * Hits /api/poll (OnTime v3) so a generic web server doesn't pass as OnTime.
+ */
+export const testOntimeConnection = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    await assertOrgAccess(data.orgId);
+    const prisma = getPrisma();
+    const urlSetting = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "ontime-url" } },
+    });
+    if (!urlSetting?.value) {
+      return { ok: false, error: "Set the OnTime server URL first" };
+    }
+    const baseUrl = urlSetting.value.replace(/\/+$/, "");
+    try {
+      const res = await fetch(`${baseUrl}/api/poll`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) {
+        return { ok: false, error: `OnTime responded with HTTP ${res.status}` };
+      }
+      const body = (await res.json().catch(() => null)) as { payload?: unknown } | null;
+      if (!body?.payload) {
+        return { ok: false, error: "Unexpected response — is this an OnTime v3 server?" };
+      }
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Could not reach the OnTime server. It must be reachable from the internet (public URL or tunnel) — ShowPilot runs in the cloud.",
       };
     }
   });

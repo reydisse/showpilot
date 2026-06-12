@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
+import { Route as OrgDeletedRouteImport } from './routes/org-deleted'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
@@ -61,6 +62,11 @@ import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug
 const SuperadminRoute = SuperadminRouteImport.update({
   id: '/superadmin',
   path: '/superadmin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgDeletedRoute = OrgDeletedRouteImport.update({
+  id: '/org-deleted',
+  path: '/org-deleted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -305,6 +311,7 @@ const SlugDashboardDevicesDeviceIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
+  '/org-deleted': typeof OrgDeletedRoute
   '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -353,6 +360,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/org-deleted': typeof OrgDeletedRoute
   '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -404,6 +412,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/org-deleted': typeof OrgDeletedRoute
   '/superadmin': typeof SuperadminRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -455,6 +464,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$slug'
+    | '/org-deleted'
     | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
@@ -503,6 +513,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/org-deleted'
     | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
@@ -553,6 +564,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/_auth'
+    | '/org-deleted'
     | '/superadmin'
     | '/$slug/admin'
     | '/$slug/board'
@@ -604,6 +616,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  OrgDeletedRoute: typeof OrgDeletedRoute
   SuperadminRoute: typeof SuperadminRoute
   CheckinSlugRoute: typeof CheckinSlugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
@@ -626,6 +639,13 @@ declare module '@tanstack/react-router' {
       path: '/superadmin'
       fullPath: '/superadmin'
       preLoaderRoute: typeof SuperadminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/org-deleted': {
+      id: '/org-deleted'
+      path: '/org-deleted'
+      fullPath: '/org-deleted'
+      preLoaderRoute: typeof OrgDeletedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -1064,6 +1084,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  OrgDeletedRoute: OrgDeletedRoute,
   SuperadminRoute: SuperadminRoute,
   CheckinSlugRoute: CheckinSlugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
