@@ -52,6 +52,7 @@ import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
 import { testOntimeConnection } from "@/lib/ontime";
+import { deleteOrganization } from "@/lib/org-deletion";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
@@ -1749,10 +1750,11 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
 
 function DangerSection({
   org,
-  router: _router,
 }: SectionProps & { router: ReturnType<typeof useRouter> }) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
@@ -1761,6 +1763,24 @@ function DangerSection({
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
   const [selectedSections, setSelectedSections] = useState<string[]>(["summary", "rundown", "incidents", "checklist", "cueSheets"]);
+
+  const handleDeleteOrganization = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteOrganization({
+        data: { orgId: org.id, confirmName: deleteConfirm },
+      });
+      // The acting session was revoked server-side — full reload to the
+      // confirmation page clears all client state.
+      window.location.href = "/org-deleted";
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete organization",
+      );
+      setDeleting(false);
+    }
+  };
 
   const handleResetLowerThirds = async () => {
     setBusy("lowerthirds");
@@ -2150,23 +2170,28 @@ function DangerSection({
                 placeholder={org.name}
                 className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-red-500/30 text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-red-500 transition-colors text-sm"
               />
+              {deleteError && (
+                <p className="text-xs text-red-400">{deleteError}</p>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => {
                     setShowDeleteConfirm(false);
                     setDeleteConfirm("");
+                    setDeleteError(null);
                   }}
-                  className="px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:bg-board-border/50 transition-colors"
+                  disabled={deleting}
+                  className="px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:bg-board-border/50 transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
-                  disabled={deleteConfirm !== org.name}
-                  title="Delete organization is not wired yet"
+                  onClick={handleDeleteOrganization}
+                  disabled={deleteConfirm !== org.name || deleting}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Trash2 className="w-3 h-3" />
-                  Permanently Delete
+                  {deleting ? "Deleting..." : "Permanently Delete"}
                 </button>
               </div>
             </div>
