@@ -4,7 +4,7 @@
 // static files in static/. Deployed as a Cloudflare Worker with static
 // assets (see wrangler.jsonc) — no framework, no bundler, nothing to break.
 
-import { mkdir, readFile, writeFile, readdir, copyFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, cp } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRICING, APP_URL, SIGNUP_URL, LOGIN_URL, SUPPORT_EMAIL } from "./src/pricing.mjs";
@@ -49,9 +49,6 @@ if (unknown.length) {
 await mkdir(path.join(root, "dist"), { recursive: true });
 await writeFile(path.join(root, "dist/index.html"), html);
 
-const staticDir = path.join(root, "static");
-for (const file of await readdir(staticDir)) {
-  await copyFile(path.join(staticDir, file), path.join(root, "dist", file));
-}
+await cp(path.join(root, "static"), path.join(root, "dist"), { recursive: true });
 
 console.log("Built dist/index.html and copied static assets.");

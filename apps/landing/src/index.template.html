@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShowPilot — Run your show, not your software</title>
+  <meta name="description" content="The production OS for church and live-event teams. Rundowns, show clock, crew check-in, comms, and device control in one place. Unlimited operators, flat per-organization pricing." />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="canonical" href="https://www.showpilot.tech/" />
+  <meta property="og:title" content="ShowPilot — Run your show, not your software" />
+  <meta property="og:description" content="The production OS for church and live-event teams. Rundowns, crew, comms, device control — one place. Unlimited operators, no per-seat pricing." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.showpilot.tech/" />
+  <meta property="og:image" content="https://www.showpilot.tech/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ShowPilot — Run your show, not your software" />
+  <meta name="twitter:description" content="The production OS for church and live-event teams. Unlimited operators, flat per-organization pricing." />
+  <meta name="twitter:image" content="https://www.showpilot.tech/og.png" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cpath d='M24 4A20 20 0 1 1 4 24' stroke='url(%23r)' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M24 8L30 26H18L24 8Z' fill='url(%23n)'/%3E%3Cpath d='M24 40L18 26H30L24 40Z' fill='url(%23s)'/%3E%3Cdefs%3E%3ClinearGradient id='r' x1='4' y1='24' x2='44' y2='24' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3ClinearGradient id='n' x1='24' y1='8' x2='24' y2='26' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23FF8F00'/%3E%3C/linearGradient%3E%3ClinearGradient id='s' x1='24' y1='26' x2='24' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23E65100'/%3E%3Cstop offset='1' stop-color='%23BF360C'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E" />
+  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/montserrat-var.woff2" as="font" type="font/woff2" crossorigin />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ShowPilot",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "description": "The production OS for church and live-event teams: rundowns, show clock, crew check-in, comms, and device control in one place.",
+    "url": "https://www.showpilot.tech/",
+    "offers": [
+      { "@type": "Offer", "name": "{{starter.name}}", "price": "{{starter.monthly}}", "priceCurrency": "USD" },
+      { "@type": "Offer", "name": "{{pro.name}}", "price": "{{pro.monthly}}", "priceCurrency": "USD" }
+    ]
+  }
+  </script>
+  <style>
+    /* Self-hosted variable fonts (latin subset) — same-origin, swap, no
+       render-blocking stylesheet. Source: Google Fonts woff2. */
+    @font-face {
+      font-family: 'Inter';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url('/fonts/inter-var.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Montserrat';
+      font-style: normal;
+      font-weight: 700 800;
+      font-display: swap;
+      src: url('/fonts/montserrat-var.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --card: #161616;
+      --border: rgba(255,255,255,0.07);
+      --text: #f5f5f5;
+      --muted: #9a9a9a;
+      --fire-400: #ffca28;
+      --fire-500: #ffc107;
+      --fire-800: #ff8f00;
+      --live: #ef4444;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --mono: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+    section { padding: 4rem 0; }
+    a { color: inherit; }
+
+    /* ── Nav ── */
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 0; gap: 1rem; }
+    .logo { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; }
+    .logo-fire { color: var(--fire-500); }
+    .nav-links { display: none; gap: 1.75rem; font-size: 0.875rem; }
+    @media (min-width: 768px) { .nav-links { display: flex; } }
+    .nav-links a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
+    .nav-signin {
+      padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem;
+      font-weight: 500; color: var(--text); text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s;
+    }
+    .nav-signin:hover { border-color: rgba(255,193,7,0.3); background: rgba(255,255,255,0.05); }
+    .nav-cta {
+      padding: 0.5rem 1.125rem; border-radius: 0.5rem; font-size: 0.875rem;
+      font-weight: 600; color: #000; text-decoration: none;
+      background: linear-gradient(135deg, #FFC107, #FF8F00); transition: all 0.2s;
+    }
+    .nav-cta:hover { box-shadow: 0 4px 20px rgba(255,193,7,0.25); }
+
+    /* ── Hero ── */
+    .hero { text-align: center; padding: 4.5rem 0 3rem; }
+    @media (min-width: 768px) { .hero { padding: 6rem 0 3.5rem; } }
+    .badge {
+      display: inline-block; border-radius: 9999px; padding: 0.375rem 1rem;
+      border: 1px solid rgba(255,193,7,0.2); background: rgba(255,193,7,0.08);
+      font-size: 0.8125rem; font-weight: 600; color: var(--fire-500);
+      margin-bottom: 1.5rem; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    h1 {
+      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
+      font-size: clamp(2.5rem, 5.5vw, 4rem); line-height: 1.08;
+      letter-spacing: -0.03em; max-width: 820px; margin: 0 auto;
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, var(--fire-400), var(--fire-800));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      margin-top: 1.5rem; font-size: clamp(1.0625rem, 2vw, 1.25rem);
+      color: var(--muted); max-width: 640px; margin-left: auto; margin-right: auto;
+      line-height: 1.7;
+    }
+    .cta-row { display: flex; justify-content: center; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; }
+    .cta-primary {
+      display: inline-block; padding: 0.875rem 2rem; border-radius: 0.75rem;
+      font-size: 1rem; font-weight: 600; color: #000; text-decoration: none;
+      background: linear-gradient(135deg, #FFC107, #FF8F00);
+      transition: all 0.2s; border: none;
+    }
+    .cta-primary:hover { box-shadow: 0 8px 30px rgba(255,193,7,0.25); transform: translateY(-1px); }
+    .cta-secondary {
+      display: inline-block; padding: 0.875rem 2rem; border-radius: 0.75rem;
+      font-size: 1rem; font-weight: 500; color: var(--text); text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s;
+    }
+    .cta-secondary:hover { border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.05); }
+    .cta-note { margin-top: 1rem; font-size: 0.8125rem; color: var(--muted); }
+
+    /* ── Product visual: live rundown mock ── */
+    .product-visual {
+      max-width: 760px; margin: 3.5rem auto 0; border-radius: 1rem;
+      border: 1px solid var(--border); background: var(--surface);
+      box-shadow: 0 40px 80px -30px rgba(0,0,0,0.8); overflow: hidden;
+      text-align: left; font-size: 0.8125rem;
+    }
+    .pv-titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.625rem 1rem; border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .pv-dots { display: flex; gap: 0.375rem; }
+    .pv-dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: rgba(255,255,255,0.12); }
+    .pv-clock {
+      font-family: var(--mono); font-weight: 600; letter-spacing: 0.08em;
+      color: var(--fire-500); font-size: 0.875rem;
+    }
+    .pv-live {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em;
+      color: var(--live); text-transform: uppercase;
+    }
+    .pv-live::before {
+      content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+      background: var(--live); animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .pv-rows { padding: 0.5rem; }
+    .pv-row {
+      display: grid; grid-template-columns: 3.5rem 1fr 4.5rem 5rem;
+      align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem;
+      border-radius: 0.5rem; color: var(--muted);
+    }
+    .pv-row .t { font-family: var(--mono); font-size: 0.75rem; }
+    .pv-row .s { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-align: right; }
+    .pv-row.done { opacity: 0.45; }
+    .pv-row.done .s { color: var(--muted); }
+    .pv-row.onair {
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+      color: var(--text);
+    }
+    .pv-row.onair .s { color: var(--live); }
+    .pv-row.next {
+      background: rgba(255,193,7,0.06); border: 1px solid rgba(255,193,7,0.18);
+      color: var(--text);
+    }
+    .pv-row.next .s { color: var(--fire-500); }
+    .pv-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.625rem 1rem; border-top: 1px solid var(--border);
+      font-size: 0.6875rem; color: var(--muted);
+    }
+    .pv-crew { display: flex; align-items: center; gap: 0.375rem; }
+    .pv-avatars { display: flex; }
+    .pv-avatar {
+      width: 1.125rem; height: 1.125rem; border-radius: 50%;
+      border: 2px solid var(--surface); margin-left: -0.375rem;
+    }
+    .pv-avatar:first-child { margin-left: 0; }
+    @media (max-width: 560px) { .pv-row { grid-template-columns: 3rem 1fr 4rem; } .pv-row .d { display: none; } }
+
+    /* ── Section headings ── */
+    .section-header { text-align: center; margin-bottom: 3rem; }
+    .section-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--fire-500); margin-bottom: 0.75rem;
+    }
+    .section-title {
+      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 700;
+      font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -0.02em;
+    }
+    .section-sub { margin-top: 0.75rem; color: var(--muted); max-width: 600px; margin-left: auto; margin-right: auto; }
+
+    /* ── Replaced-stack comparison ── */
+    .stack-grid { display: grid; gap: 1.25rem; align-items: stretch; }
+    @media (min-width: 820px) { .stack-grid { grid-template-columns: 1fr auto 1fr; } }
+    .stack-card {
+      border-radius: 1rem; border: 1px solid var(--border);
+      background: var(--surface); padding: 1.75rem;
+    }
+    .stack-card.sp { border-color: rgba(255,193,7,0.25); background: linear-gradient(180deg, rgba(255,193,7,0.05), rgba(255,193,7,0.015)); }
+    .stack-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem; }
+    .stack-card.sp h3 { color: var(--fire-500); }
+    .stack-list { list-style: none; display: grid; gap: 0.875rem; font-size: 0.9rem; }
+    .stack-list li { display: flex; gap: 0.625rem; align-items: baseline; color: var(--muted); }
+    .stack-list .x { color: var(--live); font-weight: 700; flex-shrink: 0; }
+    .stack-list .ok { color: var(--green); font-weight: 700; flex-shrink: 0; }
+    .stack-list .item-note { display: block; font-size: 0.75rem; color: rgba(154,154,154,0.7); }
+    .stack-vs {
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
+      color: var(--muted); font-size: 0.875rem; letter-spacing: 0.1em;
+    }
+    .stack-anchor {
+      margin-top: 2rem; text-align: center; font-size: 1.0625rem; color: var(--text);
+    }
+    .stack-anchor strong { color: var(--fire-500); }
+
+    /* ── Flat pricing strip ── */
+    .flat-strip {
+      border-radius: 1rem; border: 1px solid rgba(255,193,7,0.2);
+      background: rgba(255,193,7,0.05); padding: 2.25rem 1.75rem; text-align: center;
+    }
+    .flat-strip h2 {
+      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
+      font-size: clamp(1.375rem, 2.8vw, 2rem); letter-spacing: -0.02em;
+    }
+    .flat-strip p { margin-top: 0.75rem; color: var(--muted); max-width: 560px; margin-left: auto; margin-right: auto; }
+
+    /* ── Feature trio ── */
+    .features-grid { display: grid; gap: 1.25rem; }
+    @media (min-width: 768px) { .features-grid { grid-template-columns: repeat(3, 1fr); } }
+    .feature-card {
+      border-radius: 1rem; border: 1px solid var(--border);
+      background: var(--surface); padding: 1.75rem; transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: rgba(255,193,7,0.18); }
+    .feature-icon {
+      width: 2.5rem; height: 2.5rem; border-radius: 0.5rem;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1rem; font-size: 1.25rem;
+    }
+    .feature-icon.amber { background: rgba(255,193,7,0.12); }
+    .feature-icon.blue { background: rgba(96,165,250,0.12); }
+    .feature-icon.green { background: rgba(74,222,128,0.12); }
+    .feature-card h3 { font-size: 1.0625rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .feature-card p { font-size: 0.875rem; color: var(--muted); line-height: 1.65; }
+    .feature-card ul { margin-top: 0.875rem; list-style: none; display: grid; gap: 0.375rem; font-size: 0.8125rem; color: var(--muted); }
+    .feature-card ul li::before { content: "·"; color: var(--fire-500); font-weight: 700; margin-right: 0.5rem; }
+
+    /* ── Pricing ── */
+    .founding-banner {
+      border-radius: 1rem; border: 1px solid rgba(255,193,7,0.35);
+      background: linear-gradient(135deg, rgba(255,193,7,0.12), rgba(255,143,0,0.06));
+      padding: 1.5rem 1.75rem; margin-bottom: 2.5rem;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+    .founding-banner .fb-text h3 { font-size: 1.125rem; font-weight: 700; }
+    .founding-banner .fb-text h3 span { color: var(--fire-500); }
+    .founding-banner .fb-text p { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
+    .pricing-grid { display: grid; gap: 1.25rem; align-items: stretch; }
+    @media (min-width: 768px) { .pricing-grid { grid-template-columns: 1fr 1fr; max-width: 760px; margin: 0 auto; } }
+    .price-card {
+      border-radius: 1rem; border: 1px solid var(--border);
+      background: var(--surface); padding: 2rem; display: flex; flex-direction: column;
+    }
+    .price-card.highlight { border-color: rgba(255,193,7,0.4); background: linear-gradient(180deg, rgba(255,193,7,0.06), rgba(255,193,7,0.015)); position: relative; }
+    .price-pill {
+      position: absolute; top: -0.75rem; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(135deg, #FFC107, #FF8F00); color: #000;
+      font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; border-radius: 9999px; padding: 0.25rem 0.875rem;
+    }
+    .price-card h3 { font-size: 1.0625rem; font-weight: 700; }
+    .price-amount { margin-top: 0.75rem; font-size: 2.5rem; font-weight: 800; font-family: 'Montserrat', 'Inter', sans-serif; }
+    .price-amount span { font-size: 0.875rem; font-weight: 500; color: var(--muted); font-family: 'Inter', sans-serif; }
+    .price-tagline { font-size: 0.875rem; color: var(--muted); margin-top: 0.375rem; }
+    .price-card ul { margin: 1.25rem 0 1.5rem; list-style: none; display: grid; gap: 0.5rem; font-size: 0.875rem; color: var(--muted); flex: 1; }
+    .price-card ul li::before { content: "✓"; color: var(--fire-500); font-weight: 700; margin-right: 0.625rem; }
+    .price-cta {
+      display: block; text-align: center; padding: 0.8125rem 1rem; border-radius: 0.75rem;
+      font-size: 0.9375rem; font-weight: 600; text-decoration: none; transition: all 0.2s;
+    }
+    .price-cta.solid { color: #000; background: linear-gradient(135deg, #FFC107, #FF8F00); }
+    .price-cta.solid:hover { box-shadow: 0 8px 24px rgba(255,193,7,0.2); }
+    .price-cta.outline { color: var(--fire-500); border: 1px solid rgba(255,193,7,0.3); }
+    .price-cta.outline:hover { background: rgba(255,193,7,0.08); }
+    .pricing-notes { margin-top: 1.75rem; text-align: center; font-size: 0.8125rem; color: var(--muted); display: grid; gap: 0.25rem; }
+
+    /* ── Final CTA ── */
+    .final-cta { text-align: center; }
+    .final-cta .cta-row { margin-top: 2rem; }
+
+    /* ── FAQ ── */
+    .faq-list { max-width: 720px; margin: 0 auto; display: grid; gap: 0.75rem; }
+    details {
+      border-radius: 0.75rem; border: 1px solid var(--border);
+      background: var(--surface); padding: 1.125rem 1.375rem;
+    }
+    details[open] { border-color: rgba(255,193,7,0.2); }
+    summary { cursor: pointer; font-weight: 600; font-size: 0.9375rem; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; color: var(--fire-500); font-size: 1.25rem; font-weight: 400; flex-shrink: 0; }
+    details[open] summary::after { content: "–"; }
+    details p { margin-top: 0.75rem; font-size: 0.875rem; color: var(--muted); line-height: 1.7; }
+
+    /* ── Footer ── */
+    footer { border-top: 1px solid var(--border); padding: 2.5rem 0; font-size: 0.875rem; color: var(--muted); }
+    .footer-grid { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1.5rem; align-items: center; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+    .footer-links a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-line { margin-top: 1.5rem; font-size: 0.8125rem; color: rgba(154,154,154,0.6); }
+
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Nav -->
+    <nav aria-label="Main">
+      <a class="logo" href="/"><span class="logo-fire">Show</span>Pilot</a>
+      <div class="nav-links">
+        <a href="#switch">Why switch</a>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="nav-actions">
+        <a href="{{loginUrl}}" class="nav-signin">Sign in</a>
+        <a href="{{signupUrl}}" class="nav-cta" data-cta>Start free</a>
+      </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero">
+      <div class="badge">The production OS for live teams</div>
+      <h1>Run your show,<br /><span class="gradient-text">not your software.</span></h1>
+      <p class="hero-sub">
+        ShowPilot puts your rundown, show clock, crew, comms, and device control
+        in one place — built for church and live-event teams who go live every
+        week and can't afford a miss.
+      </p>
+      <div class="cta-row">
+        <a href="{{signupUrl}}" class="cta-primary" data-cta>Start your free trial</a>
+        <a href="#switch" class="cta-secondary">See what it replaces</a>
+      </div>
+      <p class="cta-note">Free trial · No credit card to start · Unlimited operators on every plan</p>
+
+      <!-- Product visual: live rundown with tally + show clock -->
+      <div class="product-visual" role="img" aria-label="ShowPilot rundown showing a live item, the next item, and the show clock">
+        <div class="pv-titlebar">
+          <div class="pv-dots"><span class="pv-dot"></span><span class="pv-dot"></span><span class="pv-dot"></span></div>
+          <span class="pv-live">On air</span>
+          <span class="pv-clock">00:24:13</span>
+        </div>
+        <div class="pv-rows">
+          <div class="pv-row done">
+            <span class="t">09:00</span><span>Doors + walk-in loop</span><span class="t d">10:00</span><span class="s">Done</span>
+          </div>
+          <div class="pv-row done">
+            <span class="t">09:10</span><span>Opening — full band</span><span class="t d">14:00</span><span class="s">Done</span>
+          </div>
+          <div class="pv-row onair">
+            <span class="t">09:24</span><span>Welcome + announcements</span><span class="t d">05:00</span><span class="s">Live</span>
+          </div>
+          <div class="pv-row next">
+            <span class="t">09:29</span><span>Worship set — 3 songs</span><span class="t d">16:00</span><span class="s">Next</span>
+          </div>
+          <div class="pv-row">
+            <span class="t">09:45</span><span>Message — guest speaker</span><span class="t d">35:00</span><span class="s">Cued</span>
+          </div>
+        </div>
+        <div class="pv-footer">
+          <span class="pv-crew">
+            <span class="pv-avatars">
+              <span class="pv-avatar" style="background:#7c5cff"></span>
+              <span class="pv-avatar" style="background:#2fa6a0"></span>
+              <span class="pv-avatar" style="background:#d4622a"></span>
+              <span class="pv-avatar" style="background:#3f6fd8"></span>
+            </span>
+            12 crew checked in
+          </span>
+          <span>All devices online · Sync &lt; 300 ms</span>
+        </div>
+      </div>
+    </header>
+
+    <hr class="divider" />
+
+    <!-- Replaced-stack comparison -->
+    <section id="switch">
+      <div class="section-header">
+        <div class="section-label">Why switch</div>
+        <h2 class="section-title">Replace the pile, not just one tool</h2>
+        <p class="section-sub">Most teams don't have a production platform — they have a stack of workarounds held together by one heroic volunteer.</p>
+      </div>
+      <div class="stack-grid">
+        <div class="stack-card">
+          <h3>What your team juggles today</h3>
+          <ul class="stack-list">
+            <li><span class="x">✕</span><span>Run-of-show docs and spreadsheets<span class="item-note">Printed Sunday morning, out of date by 9:05</span></span></li>
+            <li><span class="x">✕</span><span>A separate timer app on a spare laptop<span class="item-note">That nobody can see from the booth</span></span></li>
+            <li><span class="x">✕</span><span>Intercom rentals or radio handsets<span class="item-note">Hundreds per weekend, never enough packs</span></span></li>
+            <li><span class="x">✕</span><span>Device control scripts and stream decks<span class="item-note">Maintained by the one person who built them</span></span></li>
+            <li><span class="x">✕</span><span>Paper checklists and group-chat threads<span class="item-note">"Did anyone check the stream key?"</span></span></li>
+          </ul>
+        </div>
+        <div class="stack-vs" aria-hidden="true">VS</div>
+        <div class="stack-card sp">
+          <h3>One ShowPilot subscription</h3>
+          <ul class="stack-list">
+            <li><span class="ok">✓</span><span>One live rundown — every operator sees changes in real time</span></li>
+            <li><span class="ok">✓</span><span>Show clock and stage timers on any screen — including kiosk displays</span></li>
+            <li><span class="ok">✓</span><span>Production comms with cue and alert message types, in the browser</span></li>
+            <li><span class="ok">✓</span><span>Device control for switchers, consoles, lights, and streaming software</span></li>
+            <li><span class="ok">✓</span><span>Crew check-in, pre-flight checklists, and show reports in the same place</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="stack-anchor">All of it costs <strong>less than renting one intercom beltpack for a weekend</strong>.</p>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Flat pricing strip -->
+    <section>
+      <div class="flat-strip">
+        <h2>Unlimited operators. No per-seat pricing, ever.</h2>
+        <p>
+          Volunteers rotate. Crews grow on Easter and shrink in July. Your bill
+          shouldn't notice — every ShowPilot plan is one flat price per
+          organization, with as many operators as you need.
+        </p>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Feature trio -->
+    <section id="features">
+      <div class="section-header">
+        <div class="section-label">What's inside</div>
+        <h2 class="section-title">Everything between "doors open" and "we're clear"</h2>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon amber">⏱</div>
+          <h3>Rundowns &amp; show clock</h3>
+          <p>Build the run of show once and run it live. Per-item timers, overtime alerts, hard stops, and a show clock every operator and stage display can see.</p>
+          <ul>
+            <li>Drag-and-drop rundown editor</li>
+            <li>Live / next / cued state at a glance</li>
+            <li>Stage timer &amp; confidence displays</li>
+          </ul>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon green">👥</div>
+          <h3>Crew &amp; check-in</h3>
+          <p>Know who's in the building before doors. Crew check in by QR code — no accounts needed — and leads see their teams fill in live.</p>
+          <ul>
+            <li>QR check-in for volunteers</li>
+            <li>Teams, roles &amp; lead views</li>
+            <li>Pre-flight checklists &amp; show reports</li>
+          </ul>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon blue">🎛</div>
+          <h3>Device control &amp; integrations</h3>
+          <p>Bring your own stack — ShowPilot connects to it. ProPresenter, OBS, vMix, ATEM, X32, OnTime, Slack, and more. No stack? The native tools are built in.</p>
+          <ul>
+            <li>20+ device &amp; software integrations</li>
+            <li>Lower thirds to OBS / vMix overlays</li>
+            <li>Works on 5 Mbps venue Wi-Fi</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Pricing -->
+    <section id="pricing">
+      <div class="section-header">
+        <div class="section-label">Pricing</div>
+        <h2 class="section-title">One flat price per organization</h2>
+        <p class="section-sub">Every plan includes unlimited operators. Start with a free trial — pick a plan when your team is ready.</p>
+      </div>
+
+      <!-- Founding member banner -->
+      <div class="founding-banner">
+        <div class="fb-text">
+          <h3>Founding member rate: <span>${{founding.monthly}}/mo for life</span></h3>
+          <p>{{founding.tagline}} — limited to teams who join during the launch window.</p>
+        </div>
+        <a href="{{signupUrl}}&plan=founding" class="cta-primary" data-cta>Claim the founding rate</a>
+      </div>
+
+      <div class="pricing-grid">
+        <div class="price-card">
+          <h3>{{starter.name}}</h3>
+          <div class="price-amount">${{starter.monthly}}<span> / month</span></div>
+          <p class="price-tagline">{{starter.tagline}}</p>
+          <ul>
+              {{starter.features}}
+          </ul>
+          <a href="{{signupUrl}}&plan=starter" class="price-cta outline" data-cta>Start with {{starter.name}}</a>
+        </div>
+        <div class="price-card highlight">
+          <div class="price-pill">Most popular</div>
+          <h3>{{pro.name}}</h3>
+          <div class="price-amount">${{pro.monthly}}<span> / month</span></div>
+          <p class="price-tagline">{{pro.tagline}}</p>
+          <ul>
+              {{pro.features}}
+          </ul>
+          <a href="{{signupUrl}}&plan=pro" class="price-cta solid" data-cta>Start with {{pro.name}}</a>
+        </div>
+      </div>
+
+      <div class="pricing-notes">
+        <span>{{annualNote}}.</span>
+        <span>Unlimited operators on every plan. Cancel anytime — your data stays exportable.</span>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Final CTA -->
+    <section class="final-cta">
+      <div class="section-header" style="margin-bottom:0">
+        <div class="section-label">Get started</div>
+        <h2 class="section-title">Your next show can run on ShowPilot</h2>
+        <p class="section-sub">Sign up, pick a show template, and walk through a five-minute setup. Most teams are show-ready the same day.</p>
+      </div>
+      <div class="cta-row">
+        <a href="{{signupUrl}}" class="cta-primary" data-cta>Start your free trial</a>
+        <a href="{{signupUrl}}&plan=founding" class="cta-secondary" data-cta>Lock in ${{founding.monthly}}/mo for life</a>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- FAQ -->
+    <section id="faq">
+      <div class="section-header">
+        <div class="section-label">FAQ</div>
+        <h2 class="section-title">Questions teams ask before switching</h2>
+      </div>
+      <div class="faq-list">
+        <details>
+          <summary>Do our volunteers need accounts?</summary>
+          <p>No. Crew check in by scanning a QR code — no account, no app install, no password. Accounts are only needed for operators who run the show (and every plan includes unlimited operators).</p>
+        </details>
+        <details>
+          <summary>Can we keep ProPresenter, OBS, and the rest of our gear?</summary>
+          <p>Yes — that's the point. ShowPilot is an integration layer first: it connects to ProPresenter, OBS, vMix, Blackmagic ATEM, Behringer X32/Wing, OnTime, Slack, Mattermost, Teams, Discord, and more. Where you don't have a tool, ShowPilot's native features fill in.</p>
+        </details>
+        <details>
+          <summary>What do we need to install?</summary>
+          <p>Nothing for most teams — ShowPilot runs in the browser on any laptop or tablet. Controlling local hardware (like ProPresenter on your venue network) uses a small bridge app on one machine; everything else is fully cloud-based.</p>
+        </details>
+        <details>
+          <summary>Our venue internet is bad. Will it work?</summary>
+          <p>ShowPilot is built for 5 Mbps venue Wi-Fi. Operator actions sync to every screen in under 300 ms on a normal connection, and the interface is designed to degrade gracefully — you never lose your rundown mid-show.</p>
+        </details>
+        <details>
+          <summary>What does per-organization pricing mean?</summary>
+          <p>One subscription covers your whole organization: every operator, every volunteer, every device. There is no per-seat math and adding crew never raises your bill.</p>
+        </details>
+        <details>
+          <summary>Is the founding member rate really locked for life?</summary>
+          <p>Yes. Teams that subscribe at the founding rate of ${{founding.monthly}}/mo during the launch window keep that price for as long as the subscription stays active — it includes everything in {{pro.name}}.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <div class="footer-grid">
+        <a class="logo" href="/"><span class="logo-fire">Show</span>Pilot</a>
+        <div class="footer-links">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="{{appUrl}}/terms">Terms of Service</a>
+          <a href="{{appUrl}}/privacy">Privacy Policy</a>
+          <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>
+          <a href="{{loginUrl}}">Sign in</a>
+        </div>
+      </div>
+      <p class="footer-line">ShowPilot — run your show, not your software. Built for church and live-event production teams.</p>
+    </footer>
+  </div>
+
+  <script>
+    // UTM passthrough: carry attribution params from this page's URL onto
+    // every CTA into the app, so PostHog (when enabled) can attribute signups.
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var carried = new URLSearchParams();
+      params.forEach(function (value, key) {
+        if (key.indexOf("utm_") === 0 || key === "ref") carried.set(key, value);
+      });
+      if (![...carried.keys()].length) return;
+      document.querySelectorAll("a[data-cta], a.nav-signin").forEach(function (a) {
+        try {
+          var url = new URL(a.href);
+          carried.forEach(function (value, key) { url.searchParams.set(key, value); });
+          a.href = url.toString();
+        } catch (e) { /* leave non-URL hrefs alone */ }
+      });
+    })();
+  </script>
+</body>
+</html>
