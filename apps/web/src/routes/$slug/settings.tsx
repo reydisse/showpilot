@@ -27,10 +27,12 @@ import {
   CreditCard,
   FlaskConical,
   ExternalLink,
+  Gamepad2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { KioskSection } from "@/components/settings/KioskSection";
+import { CompanionSection } from "@/components/settings/CompanionSection";
 import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getOrgSettings,
@@ -113,6 +115,7 @@ type SectionId =
   | "production"
   | "lowerthirds"
   | "kiosk"
+  | "companion"
   | "notifications"
   | "api"
   | "danger";
@@ -132,6 +135,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "production", label: "Production Defaults", icon: SlidersHorizontal },
   { id: "lowerthirds", label: "Lower Thirds", icon: Type },
   { id: "kiosk", label: "Kiosk Displays", icon: Tv },
+  { id: "companion", label: "Companion / Stream Deck", icon: Gamepad2 },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "api", label: "API & Webhooks", icon: Webhook },
   { id: "danger", label: "Danger Zone", icon: AlertTriangle },
@@ -167,6 +171,7 @@ function SettingsPage() {
     if (item.id === "production") return canViewProduction;
     if (item.id === "lowerthirds") return canViewLowerThirds;
     if (item.id === "kiosk") return canManageMembers;
+    if (item.id === "companion") return hasPermission(role, "settings:api_keys");
     if (item.id === "notifications") return canViewNotifications;
     if (item.id === "api") return canViewApi;
     if (item.id === "danger") return canViewDanger;
@@ -261,6 +266,9 @@ function SettingsPage() {
           )}
           {resolvedSection === "kiosk" && (
             <KioskSection orgId={orgId} slug={slug} members={members} />
+          )}
+          {resolvedSection === "companion" && (
+            <CompanionSection orgId={orgId} slug={slug} />
           )}
           {resolvedSection === "notifications" && (
             <NotificationsSection {...sectionProps} />

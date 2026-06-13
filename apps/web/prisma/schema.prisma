@@ -117,6 +117,7 @@ model Organization {
   liveInputs         LiveInput[]
   chatMessages       ChatMessage[]
   kioskTokens        KioskToken[]
+  companionTokens    CompanionToken[]
 
   organizationroles OrganizationRole[]
 
@@ -457,6 +458,22 @@ model KioskToken {
   @@index([orgId])
   @@index([token])
   @@map("kiosk_token")
+}
+
+model CompanionToken {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  label        String // e.g. "Booth Stream Deck", "FOH iPad"
+  token        String       @unique // signed JWT string, prefixed `cmp_`
+  expiresAt    DateTime? // null = permanent
+  createdBy    String // userId who created it
+  revokedAt    DateTime? // null = active
+  createdAt    DateTime     @default(now())
+
+  @@index([orgId])
+  @@index([token])
+  @@map("companion_token")
 }
 
 model ChatMessage {

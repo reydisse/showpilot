@@ -58,9 +58,23 @@ import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboa
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
 import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
 import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
+import { Route as ApiV1KioskDisplayRouteImport } from './routes/api/v1/kiosk/display'
 import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
+import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
+import { Route as ApiV1CompanionTimerSubtractRouteImport } from './routes/api/v1/companion/timer/subtract'
+import { Route as ApiV1CompanionTimerStopRouteImport } from './routes/api/v1/companion/timer/stop'
+import { Route as ApiV1CompanionTimerStartRouteImport } from './routes/api/v1/companion/timer/start'
+import { Route as ApiV1CompanionTimerAddRouteImport } from './routes/api/v1/companion/timer/add'
+import { Route as ApiV1CompanionStreamStopRouteImport } from './routes/api/v1/companion/stream/stop'
+import { Route as ApiV1CompanionStreamGoLiveRouteImport } from './routes/api/v1/companion/stream/go-live'
+import { Route as ApiV1CompanionRundownPreviousRouteImport } from './routes/api/v1/companion/rundown/previous'
+import { Route as ApiV1CompanionRundownNextRouteImport } from './routes/api/v1/companion/rundown/next'
+import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/api/v1/companion/propresenter/lyrics'
+import { Route as ApiV1CompanionLowerThirdTriggerRouteImport } from './routes/api/v1/companion/lower-third/trigger'
+import { Route as ApiV1CompanionLowerThirdClearRouteImport } from './routes/api/v1/companion/lower-third/clear'
+import { Route as ApiV1CompanionKioskBlankRouteImport } from './routes/api/v1/companion/kiosk/blank'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -309,9 +323,19 @@ const ApiV1KioskOrgRoute = ApiV1KioskOrgRouteImport.update({
   path: '/api/v1/kiosk/org',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1KioskDisplayRoute = ApiV1KioskDisplayRouteImport.update({
+  id: '/api/v1/kiosk/display',
+  path: '/api/v1/kiosk/display',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1KioskAssetsRoute = ApiV1KioskAssetsRouteImport.update({
   id: '/api/v1/kiosk/assets',
   path: '/api/v1/kiosk/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CompanionStateRoute = ApiV1CompanionStateRouteImport.update({
+  id: '/api/v1/companion/state',
+  path: '/api/v1/companion/state',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SlugStreamingGraphicsOverlayRoute =
@@ -325,6 +349,76 @@ const SlugDashboardDevicesDeviceIdRoute =
     id: '/$deviceId',
     path: '/$deviceId',
     getParentRoute: () => SlugDashboardDevicesRoute,
+  } as any)
+const ApiV1CompanionTimerSubtractRoute =
+  ApiV1CompanionTimerSubtractRouteImport.update({
+    id: '/api/v1/companion/timer/subtract',
+    path: '/api/v1/companion/timer/subtract',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionTimerStopRoute = ApiV1CompanionTimerStopRouteImport.update({
+  id: '/api/v1/companion/timer/stop',
+  path: '/api/v1/companion/timer/stop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CompanionTimerStartRoute =
+  ApiV1CompanionTimerStartRouteImport.update({
+    id: '/api/v1/companion/timer/start',
+    path: '/api/v1/companion/timer/start',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionTimerAddRoute = ApiV1CompanionTimerAddRouteImport.update({
+  id: '/api/v1/companion/timer/add',
+  path: '/api/v1/companion/timer/add',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CompanionStreamStopRoute =
+  ApiV1CompanionStreamStopRouteImport.update({
+    id: '/api/v1/companion/stream/stop',
+    path: '/api/v1/companion/stream/stop',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionStreamGoLiveRoute =
+  ApiV1CompanionStreamGoLiveRouteImport.update({
+    id: '/api/v1/companion/stream/go-live',
+    path: '/api/v1/companion/stream/go-live',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionRundownPreviousRoute =
+  ApiV1CompanionRundownPreviousRouteImport.update({
+    id: '/api/v1/companion/rundown/previous',
+    path: '/api/v1/companion/rundown/previous',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionRundownNextRoute =
+  ApiV1CompanionRundownNextRouteImport.update({
+    id: '/api/v1/companion/rundown/next',
+    path: '/api/v1/companion/rundown/next',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionPropresenterLyricsRoute =
+  ApiV1CompanionPropresenterLyricsRouteImport.update({
+    id: '/api/v1/companion/propresenter/lyrics',
+    path: '/api/v1/companion/propresenter/lyrics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionLowerThirdTriggerRoute =
+  ApiV1CompanionLowerThirdTriggerRouteImport.update({
+    id: '/api/v1/companion/lower-third/trigger',
+    path: '/api/v1/companion/lower-third/trigger',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionLowerThirdClearRoute =
+  ApiV1CompanionLowerThirdClearRouteImport.update({
+    id: '/api/v1/companion/lower-third/clear',
+    path: '/api/v1/companion/lower-third/clear',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionKioskBlankRoute =
+  ApiV1CompanionKioskBlankRouteImport.update({
+    id: '/api/v1/companion/kiosk/blank',
+    path: '/api/v1/companion/kiosk/blank',
+    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -376,9 +470,23 @@ export interface FileRoutesByFullPath {
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
+  '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
+  '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
+  '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
+  '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
+  '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
+  '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
+  '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
+  '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
+  '/api/v1/companion/timer/subtract': typeof ApiV1CompanionTimerSubtractRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -428,9 +536,23 @@ export interface FileRoutesByTo {
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
+  '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
+  '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
+  '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
+  '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
+  '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
+  '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
+  '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
+  '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
+  '/api/v1/companion/timer/subtract': typeof ApiV1CompanionTimerSubtractRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -483,9 +605,23 @@ export interface FileRoutesById {
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
+  '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
+  '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
+  '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
+  '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
+  '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
+  '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
+  '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
+  '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
+  '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
+  '/api/v1/companion/timer/subtract': typeof ApiV1CompanionTimerSubtractRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -538,9 +674,23 @@ export interface FileRouteTypes {
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
+    | '/api/v1/companion/lower-third/clear'
+    | '/api/v1/companion/lower-third/trigger'
+    | '/api/v1/companion/propresenter/lyrics'
+    | '/api/v1/companion/rundown/next'
+    | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
+    | '/api/v1/companion/timer/add'
+    | '/api/v1/companion/timer/start'
+    | '/api/v1/companion/timer/stop'
+    | '/api/v1/companion/timer/subtract'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -590,9 +740,23 @@ export interface FileRouteTypes {
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
+    | '/api/v1/companion/lower-third/clear'
+    | '/api/v1/companion/lower-third/trigger'
+    | '/api/v1/companion/propresenter/lyrics'
+    | '/api/v1/companion/rundown/next'
+    | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
+    | '/api/v1/companion/timer/add'
+    | '/api/v1/companion/timer/start'
+    | '/api/v1/companion/timer/stop'
+    | '/api/v1/companion/timer/subtract'
   id:
     | '__root__'
     | '/'
@@ -644,9 +808,23 @@ export interface FileRouteTypes {
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
+    | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
+    | '/api/v1/companion/lower-third/clear'
+    | '/api/v1/companion/lower-third/trigger'
+    | '/api/v1/companion/propresenter/lyrics'
+    | '/api/v1/companion/rundown/next'
+    | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
+    | '/api/v1/companion/timer/add'
+    | '/api/v1/companion/timer/start'
+    | '/api/v1/companion/timer/stop'
+    | '/api/v1/companion/timer/subtract'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -666,9 +844,23 @@ export interface RootRouteChildren {
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
+  ApiV1CompanionStateRoute: typeof ApiV1CompanionStateRoute
   ApiV1KioskAssetsRoute: typeof ApiV1KioskAssetsRoute
+  ApiV1KioskDisplayRoute: typeof ApiV1KioskDisplayRoute
   ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
   ApiV1KioskRosterRoute: typeof ApiV1KioskRosterRoute
+  ApiV1CompanionKioskBlankRoute: typeof ApiV1CompanionKioskBlankRoute
+  ApiV1CompanionLowerThirdClearRoute: typeof ApiV1CompanionLowerThirdClearRoute
+  ApiV1CompanionLowerThirdTriggerRoute: typeof ApiV1CompanionLowerThirdTriggerRoute
+  ApiV1CompanionPropresenterLyricsRoute: typeof ApiV1CompanionPropresenterLyricsRoute
+  ApiV1CompanionRundownNextRoute: typeof ApiV1CompanionRundownNextRoute
+  ApiV1CompanionRundownPreviousRoute: typeof ApiV1CompanionRundownPreviousRoute
+  ApiV1CompanionStreamGoLiveRoute: typeof ApiV1CompanionStreamGoLiveRoute
+  ApiV1CompanionStreamStopRoute: typeof ApiV1CompanionStreamStopRoute
+  ApiV1CompanionTimerAddRoute: typeof ApiV1CompanionTimerAddRoute
+  ApiV1CompanionTimerStartRoute: typeof ApiV1CompanionTimerStartRoute
+  ApiV1CompanionTimerStopRoute: typeof ApiV1CompanionTimerStopRoute
+  ApiV1CompanionTimerSubtractRoute: typeof ApiV1CompanionTimerSubtractRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1016,11 +1208,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1KioskOrgRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/kiosk/display': {
+      id: '/api/v1/kiosk/display'
+      path: '/api/v1/kiosk/display'
+      fullPath: '/api/v1/kiosk/display'
+      preLoaderRoute: typeof ApiV1KioskDisplayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/kiosk/assets': {
       id: '/api/v1/kiosk/assets'
       path: '/api/v1/kiosk/assets'
       fullPath: '/api/v1/kiosk/assets'
       preLoaderRoute: typeof ApiV1KioskAssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/state': {
+      id: '/api/v1/companion/state'
+      path: '/api/v1/companion/state'
+      fullPath: '/api/v1/companion/state'
+      preLoaderRoute: typeof ApiV1CompanionStateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$slug/streaming/graphics/overlay': {
@@ -1036,6 +1242,90 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/dashboard/devices/$deviceId'
       preLoaderRoute: typeof SlugDashboardDevicesDeviceIdRouteImport
       parentRoute: typeof SlugDashboardDevicesRoute
+    }
+    '/api/v1/companion/timer/subtract': {
+      id: '/api/v1/companion/timer/subtract'
+      path: '/api/v1/companion/timer/subtract'
+      fullPath: '/api/v1/companion/timer/subtract'
+      preLoaderRoute: typeof ApiV1CompanionTimerSubtractRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/stop': {
+      id: '/api/v1/companion/timer/stop'
+      path: '/api/v1/companion/timer/stop'
+      fullPath: '/api/v1/companion/timer/stop'
+      preLoaderRoute: typeof ApiV1CompanionTimerStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/start': {
+      id: '/api/v1/companion/timer/start'
+      path: '/api/v1/companion/timer/start'
+      fullPath: '/api/v1/companion/timer/start'
+      preLoaderRoute: typeof ApiV1CompanionTimerStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/add': {
+      id: '/api/v1/companion/timer/add'
+      path: '/api/v1/companion/timer/add'
+      fullPath: '/api/v1/companion/timer/add'
+      preLoaderRoute: typeof ApiV1CompanionTimerAddRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/stream/stop': {
+      id: '/api/v1/companion/stream/stop'
+      path: '/api/v1/companion/stream/stop'
+      fullPath: '/api/v1/companion/stream/stop'
+      preLoaderRoute: typeof ApiV1CompanionStreamStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/stream/go-live': {
+      id: '/api/v1/companion/stream/go-live'
+      path: '/api/v1/companion/stream/go-live'
+      fullPath: '/api/v1/companion/stream/go-live'
+      preLoaderRoute: typeof ApiV1CompanionStreamGoLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/rundown/previous': {
+      id: '/api/v1/companion/rundown/previous'
+      path: '/api/v1/companion/rundown/previous'
+      fullPath: '/api/v1/companion/rundown/previous'
+      preLoaderRoute: typeof ApiV1CompanionRundownPreviousRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/rundown/next': {
+      id: '/api/v1/companion/rundown/next'
+      path: '/api/v1/companion/rundown/next'
+      fullPath: '/api/v1/companion/rundown/next'
+      preLoaderRoute: typeof ApiV1CompanionRundownNextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/propresenter/lyrics': {
+      id: '/api/v1/companion/propresenter/lyrics'
+      path: '/api/v1/companion/propresenter/lyrics'
+      fullPath: '/api/v1/companion/propresenter/lyrics'
+      preLoaderRoute: typeof ApiV1CompanionPropresenterLyricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/lower-third/trigger': {
+      id: '/api/v1/companion/lower-third/trigger'
+      path: '/api/v1/companion/lower-third/trigger'
+      fullPath: '/api/v1/companion/lower-third/trigger'
+      preLoaderRoute: typeof ApiV1CompanionLowerThirdTriggerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/lower-third/clear': {
+      id: '/api/v1/companion/lower-third/clear'
+      path: '/api/v1/companion/lower-third/clear'
+      fullPath: '/api/v1/companion/lower-third/clear'
+      preLoaderRoute: typeof ApiV1CompanionLowerThirdClearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/kiosk/blank': {
+      id: '/api/v1/companion/kiosk/blank'
+      path: '/api/v1/companion/kiosk/blank'
+      fullPath: '/api/v1/companion/kiosk/blank'
+      preLoaderRoute: typeof ApiV1CompanionKioskBlankRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -1159,9 +1449,23 @@ const rootRouteChildren: RootRouteChildren = {
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
+  ApiV1CompanionStateRoute: ApiV1CompanionStateRoute,
   ApiV1KioskAssetsRoute: ApiV1KioskAssetsRoute,
+  ApiV1KioskDisplayRoute: ApiV1KioskDisplayRoute,
   ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,
   ApiV1KioskRosterRoute: ApiV1KioskRosterRoute,
+  ApiV1CompanionKioskBlankRoute: ApiV1CompanionKioskBlankRoute,
+  ApiV1CompanionLowerThirdClearRoute: ApiV1CompanionLowerThirdClearRoute,
+  ApiV1CompanionLowerThirdTriggerRoute: ApiV1CompanionLowerThirdTriggerRoute,
+  ApiV1CompanionPropresenterLyricsRoute: ApiV1CompanionPropresenterLyricsRoute,
+  ApiV1CompanionRundownNextRoute: ApiV1CompanionRundownNextRoute,
+  ApiV1CompanionRundownPreviousRoute: ApiV1CompanionRundownPreviousRoute,
+  ApiV1CompanionStreamGoLiveRoute: ApiV1CompanionStreamGoLiveRoute,
+  ApiV1CompanionStreamStopRoute: ApiV1CompanionStreamStopRoute,
+  ApiV1CompanionTimerAddRoute: ApiV1CompanionTimerAddRoute,
+  ApiV1CompanionTimerStartRoute: ApiV1CompanionTimerStartRoute,
+  ApiV1CompanionTimerStopRoute: ApiV1CompanionTimerStopRoute,
+  ApiV1CompanionTimerSubtractRoute: ApiV1CompanionTimerSubtractRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

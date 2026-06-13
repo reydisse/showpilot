@@ -14,3 +14,4 @@
 0007_billing.sql
 0008_crew_member_email.sql
 0009_cloud_enabled_default_on.sql
+0010_companion_tokens.sql
