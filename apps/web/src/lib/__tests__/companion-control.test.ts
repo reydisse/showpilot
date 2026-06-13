@@ -82,7 +82,8 @@ function makeDeps(opts: {
     async getKioskBlank() {
       return opts.kioskBlanked ?? false;
     },
-    async streamGoLive() {
+    async streamGoLive(orgId) {
+      record("streamGoLive", orgId);
       return opts.goLive ?? { status: 200, results: [] };
     },
     async streamStop(orgId) {
@@ -251,6 +252,14 @@ describe("kiosk blank + stream + state", () => {
     const { deps, calls } = makeDeps({});
     await streamStop(deps, "org-1");
     expect(calls.streamStop?.[0]).toEqual(["org-1"]);
+  });
+
+  it("go-live and stop thread the caller's orgId (cross-org isolation)", async () => {
+    const { deps, calls } = makeDeps({ goLive: { status: 200, results: [{ id: "yt", success: true }] } });
+    await streamGoLive(deps, "org-x");
+    await streamStop(deps, "org-x");
+    expect(calls.streamGoLive?.[0]).toEqual(["org-x"]);
+    expect(calls.streamStop?.[0]).toEqual(["org-x"]);
   });
 
   it("getState aggregates timer, items, lyrics, LT, kiosk + stream", async () => {

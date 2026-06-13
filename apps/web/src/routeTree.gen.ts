@@ -66,6 +66,8 @@ import { Route as ApiV1CompanionTimerSubtractRouteImport } from './routes/api/v1
 import { Route as ApiV1CompanionTimerStopRouteImport } from './routes/api/v1/companion/timer/stop'
 import { Route as ApiV1CompanionTimerStartRouteImport } from './routes/api/v1/companion/timer/start'
 import { Route as ApiV1CompanionTimerAddRouteImport } from './routes/api/v1/companion/timer/add'
+import { Route as ApiV1CompanionStreamStopRouteImport } from './routes/api/v1/companion/stream/stop'
+import { Route as ApiV1CompanionStreamGoLiveRouteImport } from './routes/api/v1/companion/stream/go-live'
 import { Route as ApiV1CompanionRundownPreviousRouteImport } from './routes/api/v1/companion/rundown/previous'
 import { Route as ApiV1CompanionRundownNextRouteImport } from './routes/api/v1/companion/rundown/next'
 import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/api/v1/companion/propresenter/lyrics'
@@ -363,6 +365,18 @@ const ApiV1CompanionTimerAddRoute = ApiV1CompanionTimerAddRouteImport.update({
   path: '/api/v1/companion/timer/add',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1CompanionStreamStopRoute =
+  ApiV1CompanionStreamStopRouteImport.update({
+    id: '/api/v1/companion/stream/stop',
+    path: '/api/v1/companion/stream/stop',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionStreamGoLiveRoute =
+  ApiV1CompanionStreamGoLiveRouteImport.update({
+    id: '/api/v1/companion/stream/go-live',
+    path: '/api/v1/companion/stream/go-live',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1CompanionRundownPreviousRoute =
   ApiV1CompanionRundownPreviousRouteImport.update({
     id: '/api/v1/companion/rundown/previous',
@@ -459,6 +473,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
   '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
   '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
   '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
   '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
   '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
@@ -522,6 +538,8 @@ export interface FileRoutesByTo {
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
   '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
   '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
   '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
   '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
   '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
@@ -588,6 +606,8 @@ export interface FileRoutesById {
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
   '/api/v1/companion/rundown/next': typeof ApiV1CompanionRundownNextRoute
   '/api/v1/companion/rundown/previous': typeof ApiV1CompanionRundownPreviousRoute
+  '/api/v1/companion/stream/go-live': typeof ApiV1CompanionStreamGoLiveRoute
+  '/api/v1/companion/stream/stop': typeof ApiV1CompanionStreamStopRoute
   '/api/v1/companion/timer/add': typeof ApiV1CompanionTimerAddRoute
   '/api/v1/companion/timer/start': typeof ApiV1CompanionTimerStartRoute
   '/api/v1/companion/timer/stop': typeof ApiV1CompanionTimerStopRoute
@@ -654,6 +674,8 @@ export interface FileRouteTypes {
     | '/api/v1/companion/propresenter/lyrics'
     | '/api/v1/companion/rundown/next'
     | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
     | '/api/v1/companion/timer/add'
     | '/api/v1/companion/timer/start'
     | '/api/v1/companion/timer/stop'
@@ -717,6 +739,8 @@ export interface FileRouteTypes {
     | '/api/v1/companion/propresenter/lyrics'
     | '/api/v1/companion/rundown/next'
     | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
     | '/api/v1/companion/timer/add'
     | '/api/v1/companion/timer/start'
     | '/api/v1/companion/timer/stop'
@@ -782,6 +806,8 @@ export interface FileRouteTypes {
     | '/api/v1/companion/propresenter/lyrics'
     | '/api/v1/companion/rundown/next'
     | '/api/v1/companion/rundown/previous'
+    | '/api/v1/companion/stream/go-live'
+    | '/api/v1/companion/stream/stop'
     | '/api/v1/companion/timer/add'
     | '/api/v1/companion/timer/start'
     | '/api/v1/companion/timer/stop'
@@ -816,6 +842,8 @@ export interface RootRouteChildren {
   ApiV1CompanionPropresenterLyricsRoute: typeof ApiV1CompanionPropresenterLyricsRoute
   ApiV1CompanionRundownNextRoute: typeof ApiV1CompanionRundownNextRoute
   ApiV1CompanionRundownPreviousRoute: typeof ApiV1CompanionRundownPreviousRoute
+  ApiV1CompanionStreamGoLiveRoute: typeof ApiV1CompanionStreamGoLiveRoute
+  ApiV1CompanionStreamStopRoute: typeof ApiV1CompanionStreamStopRoute
   ApiV1CompanionTimerAddRoute: typeof ApiV1CompanionTimerAddRoute
   ApiV1CompanionTimerStartRoute: typeof ApiV1CompanionTimerStartRoute
   ApiV1CompanionTimerStopRoute: typeof ApiV1CompanionTimerStopRoute
@@ -1223,6 +1251,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1CompanionTimerAddRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/companion/stream/stop': {
+      id: '/api/v1/companion/stream/stop'
+      path: '/api/v1/companion/stream/stop'
+      fullPath: '/api/v1/companion/stream/stop'
+      preLoaderRoute: typeof ApiV1CompanionStreamStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/stream/go-live': {
+      id: '/api/v1/companion/stream/go-live'
+      path: '/api/v1/companion/stream/go-live'
+      fullPath: '/api/v1/companion/stream/go-live'
+      preLoaderRoute: typeof ApiV1CompanionStreamGoLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/companion/rundown/previous': {
       id: '/api/v1/companion/rundown/previous'
       path: '/api/v1/companion/rundown/previous'
@@ -1396,6 +1438,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1CompanionPropresenterLyricsRoute: ApiV1CompanionPropresenterLyricsRoute,
   ApiV1CompanionRundownNextRoute: ApiV1CompanionRundownNextRoute,
   ApiV1CompanionRundownPreviousRoute: ApiV1CompanionRundownPreviousRoute,
+  ApiV1CompanionStreamGoLiveRoute: ApiV1CompanionStreamGoLiveRoute,
+  ApiV1CompanionStreamStopRoute: ApiV1CompanionStreamStopRoute,
   ApiV1CompanionTimerAddRoute: ApiV1CompanionTimerAddRoute,
   ApiV1CompanionTimerStartRoute: ApiV1CompanionTimerStartRoute,
   ApiV1CompanionTimerStopRoute: ApiV1CompanionTimerStopRoute,
