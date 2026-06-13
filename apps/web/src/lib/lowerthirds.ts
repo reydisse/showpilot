@@ -6,7 +6,7 @@ import { idSchema, parseOrThrow } from "@/lib/validation";
 
 const lowerThirdTextSchema = z.string().max(500);
 
-const lowerThirdPayloadSchema = z.object({
+export const lowerThirdPayloadSchema = z.object({
   id: idSchema,
   type: z.enum(["person", "scripture", "freetext", "style"]),
   name: lowerThirdTextSchema.optional(),
@@ -103,6 +103,53 @@ export const getLowerThirdStateByOrgId = createServerFn({ method: "GET" })
 
 // ─── Trigger a Lower Third ───────────────────────────────────
 
+/**
+ * Persist the active lower third for an org and return the stored payload.
+ * Caller is responsible for access control and (where relevant) the
+ * cloud_enabled gate — see the server fn below and the Companion endpoint.
+ */
+export async function triggerLowerThirdForOrg(
+  orgId: string,
+  payload: z.infer<typeof lowerThirdPayloadSchema>,
+  triggeredBy?: string,
+): Promise<LowerThirdPayload> {
+  const prisma = getPrisma();
+  const fullPayload: LowerThirdPayload = {
+    ...payload,
+    state: "live",
+    triggeredBy: triggeredBy ?? "unknown",
+    triggeredAt: new Date().toISOString(),
+  };
+
+  await prisma.appSetting.upsert({
+    where: { orgId_key: { orgId, key: "active-lower-third" } },
+    create: { orgId, key: "active-lower-third", value: JSON.stringify(fullPayload) },
+    update: { value: JSON.stringify(fullPayload) },
+  });
+
+  return fullPayload;
+}
+
+/** Clear the active lower third for an org. */
+export async function clearLowerThirdForOrg(orgId: string): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.appSetting.deleteMany({ where: { orgId, key: "active-lower-third" } });
+}
+
+/** Read the active lower third for an org (null when none). */
+export async function readLowerThirdForOrg(orgId: string): Promise<LowerThirdPayload | null> {
+  const prisma = getPrisma();
+  const setting = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: "active-lower-third" } },
+  });
+  if (!setting) return null;
+  try {
+    return JSON.parse(setting.value) as LowerThirdPayload;
+  } catch {
+    return null;
+  }
+}
+
 export const triggerLowerThird = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
@@ -116,30 +163,7 @@ export const triggerLowerThird = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-
-    const fullPayload: LowerThirdPayload = {
-      ...data.payload,
-      state: "live",
-      triggeredBy: data.triggeredBy ?? "unknown",
-      triggeredAt: new Date().toISOString(),
-    };
-
-    await prisma.appSetting.upsert({
-      where: {
-        orgId_key: { orgId: data.orgId, key: "active-lower-third" },
-      },
-      create: {
-        orgId: data.orgId,
-        key: "active-lower-third",
-        value: JSON.stringify(fullPayload),
-      },
-      update: {
-        value: JSON.stringify(fullPayload),
-      },
-    });
-
-    return fullPayload;
+    return triggerLowerThirdForOrg(data.orgId, data.payload, data.triggeredBy);
   });
 
 // ─── Clear Active Lower Third ─────────────────────────────────
@@ -148,11 +172,7 @@ export const clearLowerThird = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-
-    await prisma.appSetting.deleteMany({
-      where: { orgId: data.orgId, key: "active-lower-third" },
-    });
+    await clearLowerThirdForOrg(data.orgId);
   });
 
 // ─── Get Lower Third Library (from GraphicTemplate) ───────────

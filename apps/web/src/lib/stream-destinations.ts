@@ -292,6 +292,107 @@ export const getOutputStatuses = createServerFn({ method: "GET" })
     return statuses;
   });
 
+// ─── Reusable cores (no session auth — caller gates access) ──
+//
+// Shared by the session-gated server fns above and the Companion stream
+// endpoints (COMP-5). The Multi-Platform page selects `inputs[0]` as the
+// active live input; resolveOrgLiveInput mirrors that.
+
+/** The org's active live input (oldest), or null when none is configured. */
+export async function resolveOrgLiveInput(
+  orgId: string,
+): Promise<{ id: string; cfInputId: string } | null> {
+  const prisma = getPrisma();
+  const li = await prisma.liveInput.findFirst({
+    where: { orgId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, cfInputId: true },
+  });
+  if (!li || !li.cfInputId) return null;
+  return { id: li.id, cfInputId: li.cfInputId };
+}
+
+/** Connect all enabled destinations to a live input; returns per-dest result. */
+export async function connectDestinationsForOrg(
+  orgId: string,
+  liveInputId: string,
+): Promise<{ id: string; success: boolean; error?: string }[]> {
+  const prisma = getPrisma();
+  const liveInput = await prisma.liveInput.findFirst({
+    where: { id: liveInputId, orgId },
+  });
+  if (!liveInput?.cfInputId) throw new Error("Live input not found");
+
+  const destinations = await prisma.streamDestination.findMany({
+    where: { orgId, enabled: true },
+  });
+
+  const results: { id: string; success: boolean; error?: string }[] = [];
+
+  for (const dest of destinations) {
+    if (dest.cfOutputId) {
+      results.push({ id: dest.id, success: true }); // Already connected
+      continue;
+    }
+    try {
+      const outputId = await createCfOutput(liveInput.cfInputId, dest.rtmpUrl, dest.streamKey);
+      await prisma.streamDestination.update({
+        where: { id: dest.id },
+        data: { cfOutputId: outputId, liveInputId: liveInput.id },
+      });
+      results.push({ id: dest.id, success: true });
+    } catch (err) {
+      results.push({ id: dest.id, success: false, error: String(err) });
+    }
+  }
+
+  return results;
+}
+
+/** Disconnect every connected output for an org. */
+export async function disconnectAllForOrg(orgId: string): Promise<void> {
+  const prisma = getPrisma();
+  const destinations = await prisma.streamDestination.findMany({
+    where: { orgId, cfOutputId: { not: "" } },
+  });
+
+  for (const dest of destinations) {
+    const liveInput = await prisma.liveInput.findFirst({
+      where: { id: dest.liveInputId, orgId },
+    });
+    if (liveInput?.cfInputId && dest.cfOutputId) {
+      try {
+        await deleteCfOutput(liveInput.cfInputId, dest.cfOutputId);
+      } catch {
+        // Continue
+      }
+    }
+    await prisma.streamDestination.update({
+      where: { id: dest.id },
+      data: { cfOutputId: "", liveInputId: "" },
+    });
+  }
+}
+
+/**
+ * Lightweight simulcast status for button feedback: how many enabled
+ * destinations currently have a Stream Connect output wired (`connected`),
+ * out of the enabled total. Avoids a per-output CF API round-trip.
+ */
+export async function getStreamStatusForOrg(
+  orgId: string,
+): Promise<{ connected: number; total: number }> {
+  const prisma = getPrisma();
+  const destinations = await prisma.streamDestination.findMany({
+    where: { orgId, enabled: true },
+    select: { cfOutputId: true },
+  });
+  return {
+    total: destinations.length,
+    connected: destinations.filter((d) => d.cfOutputId && d.cfOutputId.length > 0).length,
+  };
+}
+
 /** Connect all enabled destinations to a specific live input */
 export const connectDestinationsToInput = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -299,36 +400,7 @@ export const connectDestinationsToInput = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
-    const prisma = getPrisma();
-    const liveInput = await prisma.liveInput.findFirst({
-      where: { id: data.liveInputId, orgId: data.orgId },
-    });
-    if (!liveInput?.cfInputId) throw new Error("Live input not found");
-
-    const destinations = await prisma.streamDestination.findMany({
-      where: { orgId: data.orgId, enabled: true },
-    });
-
-    const results: { id: string; success: boolean; error?: string }[] = [];
-
-    for (const dest of destinations) {
-      if (dest.cfOutputId) {
-        results.push({ id: dest.id, success: true }); // Already connected
-        continue;
-      }
-      try {
-        const outputId = await createCfOutput(liveInput.cfInputId, dest.rtmpUrl, dest.streamKey);
-        await prisma.streamDestination.update({
-          where: { id: dest.id },
-          data: { cfOutputId: outputId, liveInputId: liveInput.id },
-        });
-        results.push({ id: dest.id, success: true });
-      } catch (err) {
-        results.push({ id: dest.id, success: false, error: String(err) });
-      }
-    }
-
-    return results;
+    return connectDestinationsForOrg(data.orgId, data.liveInputId);
   });
 
 /** Disconnect all outputs from a live input */
@@ -336,25 +408,5 @@ export const disconnectAllDestinations = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:manage");
-    const prisma = getPrisma();
-    const destinations = await prisma.streamDestination.findMany({
-      where: { orgId: data.orgId, cfOutputId: { not: "" } },
-    });
-
-    for (const dest of destinations) {
-      const liveInput = await prisma.liveInput.findFirst({
-        where: { id: dest.liveInputId, orgId: data.orgId },
-      });
-      if (liveInput?.cfInputId && dest.cfOutputId) {
-        try {
-          await deleteCfOutput(liveInput.cfInputId, dest.cfOutputId);
-        } catch {
-          // Continue
-        }
-      }
-      await prisma.streamDestination.update({
-        where: { id: dest.id },
-        data: { cfOutputId: "", liveInputId: "" },
-      });
-    }
+    await disconnectAllForOrg(data.orgId);
   });

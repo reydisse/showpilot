@@ -955,24 +955,35 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/**
+ * Persist the ProPresenter-lyrics-on-timer flag for an org. Caller is
+ * responsible for access control (server fn below; Companion endpoint).
+ */
+export async function setProPresenterStageDisplayForOrg(orgId: string, enabled: boolean): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.appSetting.upsert({
+    where: { orgId_key: { orgId, key: ppStageDisplayKey() } },
+    update: { value: enabled ? "true" : "false" },
+    create: { orgId, key: ppStageDisplayKey(), value: enabled ? "true" : "false" },
+  });
+}
+
+/** Read the ProPresenter-lyrics-on-timer flag for an org. */
+export async function getProPresenterStageDisplayForOrg(orgId: string): Promise<boolean> {
+  const prisma = getPrisma();
+  const row = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: ppStageDisplayKey() } },
+  });
+  return row?.value === "true";
+}
+
 export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema, enabled: z.boolean() }), data),
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    const prisma = getPrisma();
-    await prisma.appSetting.upsert({
-      where: {
-        orgId_key: { orgId: data.orgId, key: ppStageDisplayKey() },
-      },
-      update: { value: data.enabled ? "true" : "false" },
-      create: {
-        orgId: data.orgId,
-        key: ppStageDisplayKey(),
-        value: data.enabled ? "true" : "false",
-      },
-    });
+    await setProPresenterStageDisplayForOrg(data.orgId, data.enabled);
     return { ok: true };
   });
 
