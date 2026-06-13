@@ -45,6 +45,16 @@ export async function withPermission(
     });
   }
 
+  // Feature flag off (cloud lower thirds), not a permission denial — send the
+  // operator to an explainer with an enable path instead of a silent /board
+  // bounce that's indistinguishable from "you're not allowed".
+  if (result.reason === "feature_disabled") {
+    throw redirect({
+      to: "/$slug/streaming/lower-thirds-disabled",
+      params: { slug },
+    });
+  }
+
   throw redirect({
     to: "/$slug/board",
     params: { slug },

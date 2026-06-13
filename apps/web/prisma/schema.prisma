@@ -81,7 +81,7 @@ model Organization {
   name        String
   slug        String
   logo        String?
-  cloud_enabled Boolean    @default(false)
+  cloud_enabled Boolean    @default(true)
   createdAt   DateTime
   metadata    String?
 
