@@ -4,6 +4,7 @@ import {
   Pause,
   Square,
   SkipForward,
+  SkipBack,
   Plus,
   Trash2,
   ChevronUp,
@@ -421,6 +422,8 @@ export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelP
     pause,
     stop,
     next,
+    previous,
+    adjustTime,
     setTimerMode,
   } = useRundown({ orgId, serviceDate, initialState });
 
@@ -431,6 +434,7 @@ export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelP
   const isPaused = timer.playback === "pause";
   const isStopped = timer.playback === "stop";
   const isLive = isPlaying || isPaused;
+  const currentIndex = items.findIndex((i) => i.id === timer.currentItemId);
 
   // ─── Keyboard shortcuts ─────────────────────────────────────
 
@@ -620,6 +624,14 @@ export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelP
             Stop
           </button>
           <button
+            onClick={previous}
+            disabled={currentIndex <= 0}
+            title="Previous item"
+            className="flex items-center justify-center px-2.5 py-2 rounded-lg bg-board-bg text-board-muted hover:text-board-text disabled:opacity-40 disabled:pointer-events-none border border-board-border transition-colors"
+          >
+            <SkipBack className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={next}
             disabled={!nextItem}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-board-bg text-board-muted text-xs font-medium hover:text-board-text disabled:opacity-40 disabled:pointer-events-none border border-board-border transition-colors"
@@ -627,6 +639,26 @@ export function RundownPanel({ orgId, serviceDate, initialState }: RundownPanelP
             <SkipForward className="w-3.5 h-3.5" />
             Next
           </button>
+
+          {/* Time adjust — nudge the running timer without changing play state */}
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => adjustTime(-60)}
+              disabled={isStopped}
+              title="Subtract 1 minute"
+              className="px-2.5 py-2 rounded-lg bg-board-bg text-board-muted text-xs font-medium tabular-nums hover:text-board-text disabled:opacity-40 disabled:pointer-events-none border border-board-border transition-colors"
+            >
+              &minus;1m
+            </button>
+            <button
+              onClick={() => adjustTime(60)}
+              disabled={isStopped}
+              title="Add 1 minute"
+              className="px-2.5 py-2 rounded-lg bg-board-bg text-board-muted text-xs font-medium tabular-nums hover:text-board-text disabled:opacity-40 disabled:pointer-events-none border border-board-border transition-colors"
+            >
+              +1m
+            </button>
+          </div>
         </div>
 
         {/* Keyboard shortcuts hint */}

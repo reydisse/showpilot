@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { RundownItem, RundownState, NativeTimerState, ItemStatus } from "@/types/rundown";
 import { saveRundownItems, saveRundownTimer } from "@/lib/rundown";
+import * as transport from "@/lib/rundown-transport";
 
 interface UseRundownOptions {
   orgId: string;
@@ -23,6 +24,8 @@ interface UseRundownReturn {
   pause: () => void;
   stop: () => void;
   next: () => void;
+  previous: () => void;
+  adjustTime: (deltaSeconds: number) => void;
   setTimerMode: (mode: "count-up" | "count-down" | "clock") => void;
 }
 
@@ -240,29 +243,15 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
 
   const start = useCallback(
     (itemId: string) => {
-      // Mark previous item as complete, target item as live
-      setItems((prev) => {
-        const next = prev.map((item) => {
-          if (item.id === timerRef.current.currentItemId) return { ...item, status: "complete" as ItemStatus };
-          if (item.id === itemId) return { ...item, status: "live" as ItemStatus };
-          return item;
-        });
-        persistItems(next);
-        return next;
-      });
-
-      const now = Date.now();
-      const newTimer: NativeTimerState = {
-        playback: "play",
-        currentItemId: itemId,
-        elapsed: 0,
-        startedAt: now,
-        pausedAt: null,
-        mode: timerRef.current.mode,
-        serverTime: now,
-      };
-      setTimer(newTimer);
-      persistTimer(newTimer);
+      const { items: nextItems, timer: nextTimer } = transport.start(
+        itemsRef.current,
+        timerRef.current,
+        itemId,
+      );
+      setItems(nextItems);
+      persistItems(nextItems);
+      setTimer(nextTimer);
+      persistTimer(nextTimer);
     },
     [persistItems, persistTimer],
   );
@@ -271,40 +260,24 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
     const t = timerRef.current;
     if (t.playback !== "play" || t.startedAt === null) return;
 
-    const now = Date.now();
-    const elapsed = now - t.startedAt;
-    const newTimer: NativeTimerState = {
-      ...t,
-      playback: "pause",
-      elapsed,
-      pausedAt: now,
-      serverTime: now,
-    };
-    setTimer(newTimer);
-    persistTimer(newTimer);
+    const { timer: nextTimer } = transport.pause(itemsRef.current, t);
+    setTimer(nextTimer);
+    persistTimer(nextTimer);
   }, [persistTimer]);
 
   const stop = useCallback(() => {
-    // Mark current item back to upcoming
+    const { items: nextItems, timer: nextTimer } = transport.stop(
+      itemsRef.current,
+      timerRef.current,
+    );
+    // Mark current item back to upcoming (no item change when nothing is live)
     if (timerRef.current.currentItemId) {
-      setItems((prev) => {
-        const next = prev.map((item) =>
-          item.id === timerRef.current.currentItemId
-            ? { ...item, status: "upcoming" as ItemStatus }
-            : item,
-        );
-        persistItems(next);
-        return next;
-      });
+      setItems(nextItems);
+      persistItems(nextItems);
     }
-
-    const newTimer: NativeTimerState = {
-      ...defaultTimer,
-      mode: timerRef.current.mode,
-    };
-    setTimer(newTimer);
+    setTimer(nextTimer);
     setDisplayTime(0);
-    persistTimer(newTimer);
+    persistTimer(nextTimer);
   }, [persistItems, persistTimer]);
 
   const next = useCallback(() => {
@@ -319,6 +292,26 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
       stop();
     }
   }, [start, stop]);
+
+  const previous = useCallback(() => {
+    const currentIndex = itemsRef.current.findIndex(
+      (i) => i.id === timerRef.current.currentItemId,
+    );
+    // At the first item (or with nothing live) stepping back is a no-op.
+    if (currentIndex <= 0) return;
+    start(itemsRef.current[currentIndex - 1].id);
+  }, [start]);
+
+  const adjustTime = useCallback(
+    (deltaSeconds: number) => {
+      const t = timerRef.current;
+      if (t.playback === "stop") return;
+      const { timer: nextTimer } = transport.adjustTime(itemsRef.current, t, deltaSeconds);
+      setTimer(nextTimer);
+      persistTimer(nextTimer);
+    },
+    [persistTimer],
+  );
 
   const setTimerMode = useCallback(
     (mode: "count-up" | "count-down" | "clock") => {
@@ -346,6 +339,8 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
     pause,
     stop,
     next,
+    previous,
+    adjustTime,
     setTimerMode,
   };
 }
