@@ -13,3 +13,4 @@
 0006_rate_limit.sql
 0007_billing.sql
 0008_crew_member_email.sql
+0010_companion_tokens.sql
