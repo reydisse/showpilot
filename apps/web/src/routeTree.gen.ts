@@ -57,6 +57,7 @@ import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboa
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
 import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
 import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
+import { Route as ApiV1KioskDisplayRouteImport } from './routes/api/v1/kiosk/display'
 import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
 import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
@@ -70,6 +71,7 @@ import { Route as ApiV1CompanionRundownNextRouteImport } from './routes/api/v1/c
 import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/api/v1/companion/propresenter/lyrics'
 import { Route as ApiV1CompanionLowerThirdTriggerRouteImport } from './routes/api/v1/companion/lower-third/trigger'
 import { Route as ApiV1CompanionLowerThirdClearRouteImport } from './routes/api/v1/companion/lower-third/clear'
+import { Route as ApiV1CompanionKioskBlankRouteImport } from './routes/api/v1/companion/kiosk/blank'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -312,6 +314,11 @@ const ApiV1KioskOrgRoute = ApiV1KioskOrgRouteImport.update({
   path: '/api/v1/kiosk/org',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1KioskDisplayRoute = ApiV1KioskDisplayRouteImport.update({
+  id: '/api/v1/kiosk/display',
+  path: '/api/v1/kiosk/display',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1KioskAssetsRoute = ApiV1KioskAssetsRouteImport.update({
   id: '/api/v1/kiosk/assets',
   path: '/api/v1/kiosk/assets',
@@ -386,6 +393,12 @@ const ApiV1CompanionLowerThirdClearRoute =
     path: '/api/v1/companion/lower-third/clear',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1CompanionKioskBlankRoute =
+  ApiV1CompanionKioskBlankRouteImport.update({
+    id: '/api/v1/companion/kiosk/blank',
+    path: '/api/v1/companion/kiosk/blank',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -437,8 +450,10 @@ export interface FileRoutesByFullPath {
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
@@ -498,8 +513,10 @@ export interface FileRoutesByTo {
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
@@ -562,8 +579,10 @@ export interface FileRoutesById {
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
+  '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
   '/api/v1/companion/propresenter/lyrics': typeof ApiV1CompanionPropresenterLyricsRoute
@@ -626,8 +645,10 @@ export interface FileRouteTypes {
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
     | '/api/v1/companion/propresenter/lyrics'
@@ -687,8 +708,10 @@ export interface FileRouteTypes {
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
     | '/api/v1/companion/propresenter/lyrics'
@@ -750,8 +773,10 @@ export interface FileRouteTypes {
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
+    | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
     | '/api/v1/companion/propresenter/lyrics'
@@ -782,8 +807,10 @@ export interface RootRouteChildren {
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
   ApiV1CompanionStateRoute: typeof ApiV1CompanionStateRoute
   ApiV1KioskAssetsRoute: typeof ApiV1KioskAssetsRoute
+  ApiV1KioskDisplayRoute: typeof ApiV1KioskDisplayRoute
   ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
   ApiV1KioskRosterRoute: typeof ApiV1KioskRosterRoute
+  ApiV1CompanionKioskBlankRoute: typeof ApiV1CompanionKioskBlankRoute
   ApiV1CompanionLowerThirdClearRoute: typeof ApiV1CompanionLowerThirdClearRoute
   ApiV1CompanionLowerThirdTriggerRoute: typeof ApiV1CompanionLowerThirdTriggerRoute
   ApiV1CompanionPropresenterLyricsRoute: typeof ApiV1CompanionPropresenterLyricsRoute
@@ -1133,6 +1160,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1KioskOrgRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/kiosk/display': {
+      id: '/api/v1/kiosk/display'
+      path: '/api/v1/kiosk/display'
+      fullPath: '/api/v1/kiosk/display'
+      preLoaderRoute: typeof ApiV1KioskDisplayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/kiosk/assets': {
       id: '/api/v1/kiosk/assets'
       path: '/api/v1/kiosk/assets'
@@ -1222,6 +1256,13 @@ declare module '@tanstack/react-router' {
       path: '/api/v1/companion/lower-third/clear'
       fullPath: '/api/v1/companion/lower-third/clear'
       preLoaderRoute: typeof ApiV1CompanionLowerThirdClearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/kiosk/blank': {
+      id: '/api/v1/companion/kiosk/blank'
+      path: '/api/v1/companion/kiosk/blank'
+      fullPath: '/api/v1/companion/kiosk/blank'
+      preLoaderRoute: typeof ApiV1CompanionKioskBlankRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -1346,8 +1387,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
   ApiV1CompanionStateRoute: ApiV1CompanionStateRoute,
   ApiV1KioskAssetsRoute: ApiV1KioskAssetsRoute,
+  ApiV1KioskDisplayRoute: ApiV1KioskDisplayRoute,
   ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,
   ApiV1KioskRosterRoute: ApiV1KioskRosterRoute,
+  ApiV1CompanionKioskBlankRoute: ApiV1CompanionKioskBlankRoute,
   ApiV1CompanionLowerThirdClearRoute: ApiV1CompanionLowerThirdClearRoute,
   ApiV1CompanionLowerThirdTriggerRoute: ApiV1CompanionLowerThirdTriggerRoute,
   ApiV1CompanionPropresenterLyricsRoute: ApiV1CompanionPropresenterLyricsRoute,

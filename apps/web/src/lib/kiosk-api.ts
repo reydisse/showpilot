@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { verifyToken, getKioskSecret } from "@/lib/kiosk";
+import { interpretBlankedValue } from "@/lib/kiosk-display";
 
 // ─────────────────────────────────────────────────────────────
 // Kiosk API — read-only endpoints behind a kiosk Bearer token.
@@ -287,6 +288,20 @@ export async function getRoster(orgId: string, month?: string | null) {
     weeks,
     updatedAt: new Date().toISOString(),
   };
+}
+
+// ─── Endpoint 4: Display command (blank flag) ────────────────
+//
+// Lightweight poll target the kiosk client checks to know whether it should
+// show a black/branded slate. Set via the Companion `kiosk/blank` button or
+// the kiosk settings toggle (kiosk_blanked AppSetting).
+
+export async function getKioskDisplay(orgId: string) {
+  const row = await db()
+    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'kiosk_blanked' LIMIT 1")
+    .bind(orgId)
+    .first<{ value: string }>();
+  return { blanked: interpretBlankedValue(row?.value), updatedAt: new Date().toISOString() };
 }
 
 // ─── Endpoint 3: Asset status ────────────────────────────────
