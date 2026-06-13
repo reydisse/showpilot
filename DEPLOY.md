@@ -82,6 +82,7 @@ equivalents go in `apps/web/.dev.vars` (gitignored — never commit values).
 | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Session/cookie signing (`src/lib/auth.ts`) | Generate: `openssl rand -base64 32`. Rotating it invalidates **all active sessions**. |
 | `KIOSK_SECRET` | HMAC signing of kiosk tokens (`src/lib/kiosk.ts`) | Generate: `openssl rand -base64 32`. Rotating it invalidates all outstanding kiosk tokens. |
+| `COMPANION_SECRET` | HMAC signing of `cmp_` Companion/Stream Deck control tokens (`src/lib/companion.ts`) | Generate: `openssl rand -base64 32`. Distinct from `KIOSK_SECRET` — these authorize live control writes. Rotating it invalidates all outstanding companion tokens. |
 | `RESEND_API_KEY` | Transactional email (`src/lib/email.ts`) | Resend dashboard → API Keys; use a production key for the showpilot.tech sending domain. |
 | `STRIPE_SECRET_KEY` | Stripe API client (`src/lib/billing.ts`) | Stripe dashboard (live mode) → Developers → API keys → secret key (`sk_live_…`). |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification (`src/routes/api/stripe/webhook.ts`) | Signing secret (`whsec_…`) of the live webhook endpoint — see [Stripe setup](#stripe-live-mode-setup). |
@@ -181,6 +182,15 @@ All migrations through `0008_crew_member_email.sql` were applied to
 production and verified (via read-only `sqlite_master` /
 `pragma_table_info` queries) — 0001–0007 on 2026-06-10, 0008 on
 2026-06-11. The manifest is up to date.
+
+`0010_companion_tokens.sql` (Companion/Stream Deck control tokens —
+`companion_token` table) is **not yet applied**. Apply it before deploying
+the Companion feature, then append it to `applied-remote.txt`:
+
+```
+pnpm exec wrangler d1 execute showpilot-db --remote \
+  --file=prisma/migrations/0010_companion_tokens.sql
+```
 
 ---
 
