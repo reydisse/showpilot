@@ -4,6 +4,7 @@ import { getPrisma } from "@/lib/db";
 import {
   hasAnyPermission,
   hasPermission,
+  isAdminTier,
   normalizeRole,
   type Permission,
 } from "@/lib/app-permissions";
@@ -481,4 +482,24 @@ export const deleteOrgSettings = createServerFn({ method: "POST" })
     await prisma.appSetting.deleteMany({
       where: { orgId: data.orgId, key: { in: data.keys } },
     });
+  });
+
+// Cloud lower thirds feature flag (organization.cloud_enabled). Owner/admin
+// only — this is an org-wide feature/cost switch, not a per-operator setting.
+// See SHOWPILOT-FIXES-SPEC Task A2. The middleware (withPermission) reads this
+// column to decide whether lowerthird:* routes are reachable.
+export const setCloudEnabled = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, enabled: z.boolean() }), data),
+  )
+  .handler(async ({ data }) => {
+    const role = await getOrgMemberRole(data.orgId);
+    if (!isAdminTier(role)) throw new Error("Forbidden");
+
+    const prisma = getPrisma();
+    await prisma.organization.update({
+      where: { id: data.orgId },
+      data: { cloud_enabled: data.enabled },
+    });
+    return { ok: true as const, cloudEnabled: data.enabled };
   });

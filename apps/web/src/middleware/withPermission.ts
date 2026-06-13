@@ -83,6 +83,21 @@ function forbidden(required: Permission | readonly Permission[]): Response {
   );
 }
 
+// The caller's role HAS the lower-thirds permission, but the org has cloud
+// lower thirds turned off (organization.cloud_enabled = 0). This is a feature
+// flag, not a permission denial, so it gets its own status (423 Locked) and
+// the UI routes it to an explainer + enable path instead of a silent bounce.
+function featureDisabled(required: Permission | readonly Permission[]): Response {
+  return Response.json(
+    {
+      error: "feature_disabled",
+      feature: "cloud_lower_thirds",
+      required,
+    },
+    { status: 423 },
+  );
+}
+
 function pinChallenge(): Response {
   return Response.json(
     {
@@ -168,9 +183,15 @@ async function assertPermission(
     return forbidden(required);
   }
 
-  if (permissions.some((permission) => isLowerThirdPermission(permission))) {
+  const lowerThirdPerms = permissions.filter(isLowerThirdPermission);
+  if (lowerThirdPerms.length > 0) {
     const cloudEnabled = await isCloudEnabled(context.env.DB, context.session.orgId);
     if (!cloudEnabled) {
+      // Only a feature-flag block when the role genuinely holds a lower-thirds
+      // permission; otherwise it's a real permission denial (forbidden).
+      if (hasAnyPermission(role, lowerThirdPerms)) {
+        return featureDisabled(required);
+      }
       return forbidden(required);
     }
   }

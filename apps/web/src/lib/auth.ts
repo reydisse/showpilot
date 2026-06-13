@@ -28,16 +28,24 @@ const orgConfig = {
   organizationHooks: {
     // Every new org gets a 14-day pro trial, no card required. On expiry
     // the org naturally evaluates as free via getEffectivePlan — no cron.
+    //
+    // Cloud lower thirds default ON for new orgs (beta wow factor > cost —
+    // see SHOWPILOT-FIXES-SPEC Task A). Set explicitly here so the flag is
+    // ON regardless of which insert path Better Auth uses; the schema
+    // @default(true) is the secondary belt. Existing orgs are untouched.
     afterCreateOrganization: async ({ organization }: { organization: { id: string } }) => {
       try {
         const prisma = getPrisma();
         await prisma.organization.update({
           where: { id: organization.id },
-          data: { trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+          data: {
+            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            cloud_enabled: true,
+          },
         });
       } catch (err) {
-        // A missing trial must never block org creation.
-        console.error("[auth] failed to set trialEndsAt for new org:", err);
+        // A missing trial / flag must never block org creation.
+        console.error("[auth] failed to set trial/cloud defaults for new org:", err);
       }
     },
   },

@@ -45,6 +45,7 @@ import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
 import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
+import { Route as SlugStreamingLowerThirdsDisabledRouteImport } from './routes/$slug/streaming/lower-thirds-disabled'
 import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
 import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
 import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
@@ -240,6 +241,12 @@ const SlugStreamingLtPreviewRoute = SlugStreamingLtPreviewRouteImport.update({
   path: '/streaming/lt-preview',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugStreamingLowerThirdsDisabledRoute =
+  SlugStreamingLowerThirdsDisabledRouteImport.update({
+    id: '/streaming/lower-thirds-disabled',
+    path: '/streaming/lower-thirds-disabled',
+    getParentRoute: () => SlugRoute,
+  } as any)
 const SlugStreamingHealthRoute = SlugStreamingHealthRouteImport.update({
   id: '/streaming/health',
   path: '/streaming/health',
@@ -359,6 +366,7 @@ export interface FileRoutesByFullPath {
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -410,6 +418,7 @@ export interface FileRoutesByTo {
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -464,6 +473,7 @@ export interface FileRoutesById {
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
+  '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
   '/$slug/streaming/lt-preview': typeof SlugStreamingLtPreviewRoute
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -518,6 +528,7 @@ export interface FileRouteTypes {
     | '/$slug/production/incidents'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lower-thirds-disabled'
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
@@ -569,6 +580,7 @@ export interface FileRouteTypes {
     | '/$slug/production/incidents'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lower-thirds-disabled'
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
@@ -622,6 +634,7 @@ export interface FileRouteTypes {
     | '/$slug/production/incidents'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
+    | '/$slug/streaming/lower-thirds-disabled'
     | '/$slug/streaming/lt-preview'
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
@@ -912,6 +925,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugStreamingLtPreviewRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/streaming/lower-thirds-disabled': {
+      id: '/$slug/streaming/lower-thirds-disabled'
+      path: '/streaming/lower-thirds-disabled'
+      fullPath: '/$slug/streaming/lower-thirds-disabled'
+      preLoaderRoute: typeof SlugStreamingLowerThirdsDisabledRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/streaming/health': {
       id: '/$slug/streaming/health'
       path: '/streaming/health'
@@ -1067,6 +1087,7 @@ interface SlugRouteChildren {
   SlugProductionIncidentsRoute: typeof SlugProductionIncidentsRoute
   SlugStreamingGraphicsRoute: typeof SlugStreamingGraphicsRouteWithChildren
   SlugStreamingHealthRoute: typeof SlugStreamingHealthRoute
+  SlugStreamingLowerThirdsDisabledRoute: typeof SlugStreamingLowerThirdsDisabledRoute
   SlugStreamingLtPreviewRoute: typeof SlugStreamingLtPreviewRoute
   SlugStreamingPlatformsRoute: typeof SlugStreamingPlatformsRoute
 }
@@ -1094,6 +1115,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugProductionIncidentsRoute: SlugProductionIncidentsRoute,
   SlugStreamingGraphicsRoute: SlugStreamingGraphicsRouteWithChildren,
   SlugStreamingHealthRoute: SlugStreamingHealthRoute,
+  SlugStreamingLowerThirdsDisabledRoute: SlugStreamingLowerThirdsDisabledRoute,
   SlugStreamingLtPreviewRoute: SlugStreamingLtPreviewRoute,
   SlugStreamingPlatformsRoute: SlugStreamingPlatformsRoute,
 }

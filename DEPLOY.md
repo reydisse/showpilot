@@ -201,7 +201,7 @@ analytics no-op / checkout falls back to the hosted Stripe page.
 | --- | --- |
 | `VITE_POSTHOG_KEY` | PostHog project API key (when analytics is enabled). |
 | `VITE_POSTHOG_HOST` | PostHog host, e.g. `https://us.i.posthog.com`. |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe **publishable** key (`pk_…`) — enables embedded checkout. Locally: put it in `apps/web/.env.local` (not `.dev.vars`; Vite doesn't read that). |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe **publishable** key (`pk_…`) — enables the in-app embedded checkout modal (unset → falls back to the hosted Stripe page). Set the **test** key (`pk_test_…`) now to exercise embedded checkout pre-launch; swap to the **live** key (`pk_live_…`) at launch ([switch flips](#public-launch--switch-flips) step 1). Locally: put it in `apps/web/.env.local` (not `.dev.vars`; Vite doesn't read that). |
 
 Workflow summary:
 
@@ -280,6 +280,10 @@ tab → add:
 They are injected by `deploy.yml` at build time — they take effect on the
 **next** deploy (push to `main` or re-run the Deploy workflow at
 https://github.com/reydisse/showpilot/actions/workflows/deploy.yml).
+
+> If `VITE_STRIPE_PUBLISHABLE_KEY` was set to a `pk_test_…` key pre-launch to
+> verify embedded checkout in Stripe test mode, this step swaps it to the
+> `pk_live_…` key so it matches the live secret keys from step 2.
 
 **2. Create live-mode Stripe objects and swap the five secrets.**
 Follow [Stripe live-mode setup](#stripe-live-mode-setup) in **live mode**

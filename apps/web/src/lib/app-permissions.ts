@@ -7,6 +7,7 @@ export {
   getPermissions,
   hasAnyPermission,
   hasPermission,
+  isAdminTier,
   isLowerThirdPermission,
   normalizeRole,
   roleRequiresRundownPin,
