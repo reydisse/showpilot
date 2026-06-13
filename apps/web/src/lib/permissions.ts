@@ -183,6 +183,16 @@ export function isLowerThirdPermission(permission: Permission): boolean {
   return permission.startsWith("lowerthird:");
 }
 
+// Owner + admin tier (owner, admin, and the director roles td/cd/pd which
+// share the admin statement set). Used to gate org-level feature flags like
+// cloud lower thirds to owner/admin only — crew roles are excluded.
+export function isAdminTier(role: string | null | undefined): boolean {
+  const normalized = normalizeRole(role);
+  if (!normalized) return false;
+  const tier = ROLE_META[normalized].tier;
+  return tier === "owner" || tier === "admin";
+}
+
 // Better Auth compatibility exports.
 // These keep the existing organization plugin wiring intact while the app-level
 // RBAC system resolves the production permissions at request time.

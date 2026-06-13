@@ -86,5 +86,11 @@ export const checkRoutePermission = createServerFn({ method: "POST" })
       return { ok: false as const, reason: "pin_required" as const };
     }
 
+    // 423 Locked = role has the permission but the org feature flag is off
+    // (cloud lower thirds). Surfaced distinctly so the route can explain it.
+    if (result.status === 423) {
+      return { ok: false as const, reason: "feature_disabled" as const };
+    }
+
     return { ok: false as const, reason: "forbidden" as const };
   });

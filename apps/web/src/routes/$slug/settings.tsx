@@ -40,6 +40,7 @@ import {
   getOrgMembers,
   regenerateApiKey,
   getRecentWebhookEvents,
+  setCloudEnabled,
   type WebhookEventLogItem,
 } from "@/lib/settings";
 import { inviteMember } from "@/lib/session";
@@ -59,7 +60,7 @@ import { testOntimeConnection } from "@/lib/ontime";
 import { deleteOrganization } from "@/lib/org-deletion";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
-import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
+import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
 import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
 
 // ─── Route ──────────────────────────────────────────────────
@@ -202,7 +203,7 @@ function SettingsPage() {
 
   const openBilling = useCallback(() => setActiveSection("billing"), []);
 
-  const sectionProps = { orgId, slug, org, getSetting, saveSetting, members, openBilling };
+  const sectionProps = { orgId, slug, role, org, getSetting, saveSetting, members, openBilling };
 
   return (
     <div className="h-full min-h-0 flex flex-col lg:flex-row overflow-hidden">
@@ -294,7 +295,8 @@ function SettingsPage() {
 interface SectionProps {
   orgId: string;
   slug: string;
-  org: { id: string; name: string; slug: string; logo: string | null; createdAt: Date; metadata: string | null };
+  role: string;
+  org: { id: string; name: string; slug: string; logo: string | null; createdAt: Date; metadata: string | null; cloud_enabled: boolean };
   getSetting: (key: string, fallback?: string) => string;
   saveSetting: (key: string, value: string) => Promise<void>;
   members: Array<{
@@ -1398,7 +1400,80 @@ function ProductionSection({ getSetting, saveSetting }: SectionProps) {
 
 // ─── LOWER THIRDS ───────────────────────────────────────────
 
-function LowerThirdsSection({ slug, getSetting, saveSetting }: SectionProps) {
+// Org-wide feature flag (organization.cloud_enabled). Owner/admin only.
+// Optimistic switch; reverts on failure. When off, lowerthird:* routes show
+// the explainer page instead of bouncing to /board (see SHOWPILOT-FIXES-SPEC
+// Task A). Crew roles see a read-only state.
+function CloudLowerThirdsToggle({
+  orgId,
+  role,
+  initialEnabled,
+}: {
+  orgId: string;
+  role: string;
+  initialEnabled: boolean;
+}) {
+  const router = useRouter();
+  const canManage = isAdminTier(role);
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = async () => {
+    if (!canManage || saving) return;
+    const next = !enabled;
+    setEnabled(next); // optimistic
+    setSaving(true);
+    setError(null);
+    try {
+      await setCloudEnabled({ data: { orgId, enabled: next } });
+      // Refresh route context so guards everywhere see the new flag.
+      router.invalidate();
+    } catch {
+      setEnabled(!next); // revert
+      setError("Couldn't update — try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          disabled={!canManage || saving}
+          onClick={toggle}
+          aria-pressed={enabled}
+          aria-label="Cloud lower thirds"
+          className={`relative mt-0.5 shrink-0 w-9 h-5 rounded-full transition-colors ${
+            enabled ? "bg-fire-500" : "bg-board-border"
+          } ${canManage ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+              enabled ? "translate-x-4" : ""
+            }`}
+          />
+        </button>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-board-text">Cloud lower thirds</p>
+          <p className="mt-0.5 text-xs text-board-muted">
+            Enables browser-triggered lower thirds and the Template Studio.
+          </p>
+          {!canManage && (
+            <p className="mt-1 text-[10px] text-board-muted/60">
+              Only an owner or admin can change this.
+            </p>
+          )}
+          {error && <p className="mt-1 text-[10px] text-red-400">{error}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const overlayUrl =
     typeof window !== "undefined"
@@ -1412,6 +1487,12 @@ function LowerThirdsSection({ slug, getSetting, saveSetting }: SectionProps) {
         description="Default styles, animation, and overlay configuration"
       />
       <div className="space-y-5">
+        <CloudLowerThirdsToggle
+          orgId={orgId}
+          role={role}
+          initialEnabled={org.cloud_enabled}
+        />
+
         <FieldGroup label="Default Style">
           <SettingSelect
             settingKey="l3-default-style"
