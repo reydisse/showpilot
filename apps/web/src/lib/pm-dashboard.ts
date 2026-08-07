@@ -155,17 +155,48 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const allDates = [...new Set([...itemSummaries.keys(), ...startTimes.keys()])].sort();
     const serviceDate = data.serviceDate ?? resolveServiceDate(allDates, today);
 
+    // Every read below selects only the columns the dashboard uses. That
+    // keeps the payload small and stops the page inheriting a failure from
+    // a column it never reads.
     const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
-        prisma.checklistTemplate.findMany({ where: { orgId }, orderBy: { sortOrder: "asc" } }),
-        prisma.checklistEntry.findMany({ where: { orgId, serviceDate } }),
-        prisma.incident.findMany({ where: { orgId, serviceDate }, orderBy: { timestamp: "desc" } }),
-        prisma.cueSheet.findMany({ where: { orgId, serviceDate }, orderBy: { cueNumber: "asc" } }),
-        prisma.equipment.findMany({ where: { orgId } }),
-        prisma.crewMember.findMany({ where: { orgId }, orderBy: { name: "asc" } }),
-        prisma.streamDestination.findMany({ where: { orgId } }),
-        prisma.liveInput.findMany({ where: { orgId } }),
+        prisma.checklistTemplate.findMany({
+          where: { orgId },
+          orderBy: { sortOrder: "asc" },
+          select: { id: true, label: true, category: true },
+        }),
+        prisma.checklistEntry.findMany({
+          where: { orgId, serviceDate },
+          select: { templateId: true, checked: true },
+        }),
+        prisma.incident.findMany({
+          where: { orgId, serviceDate },
+          orderBy: { timestamp: "desc" },
+          select: { id: true, category: true, severity: true, description: true, reportedBy: true },
+        }),
+        prisma.cueSheet.findMany({
+          where: { orgId, serviceDate },
+          orderBy: { cueNumber: "asc" },
+          select: { id: true, cueNumber: true, rundownItem: true, cameraAssignments: true },
+        }),
+        prisma.equipment.findMany({
+          where: { orgId },
+          select: { id: true, name: true, category: true, status: true, nextService: true },
+        }),
+        prisma.crewMember.findMany({
+          where: { orgId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, role: true, isOnline: true, lastCheckIn: true },
+        }),
+        prisma.streamDestination.findMany({
+          where: { orgId },
+          select: { id: true, name: true, platform: true, enabled: true },
+        }),
+        prisma.liveInput.findMany({
+          where: { orgId },
+          select: { id: true, name: true, status: true },
+        }),
         prisma.notification.findMany({
           where: {
             orgId,
@@ -174,6 +205,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
           },
           orderBy: { createdAt: "desc" },
           take: NOTIFICATION_LIMIT,
+          select: { id: true, title: true, message: true, severity: true },
         }),
       ]);
 
