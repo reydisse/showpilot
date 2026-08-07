@@ -224,6 +224,9 @@ const departmentsWidget: PmWidget = {
   span: "full",
   render: ({ model }) => (
     <div className="rounded-xl border bg-board-card border-board-border px-4 py-3">
+      <div className="mb-2.5">
+        <WidgetLabel>Departments</WidgetLabel>
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {model.departments.map((dept) => (
           <div

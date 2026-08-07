@@ -160,22 +160,37 @@ describe("deriveAttentionQueue", () => {
     expect(entry?.severity).toBe("critical");
   });
 
-  it("escalates outstanding checklists once call time arrives", () => {
+  it("raises checklists only once crew is on site", () => {
     const snap = snapshot({
       checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
     });
-    const prep = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    for (const quiet of ["planning", "prep"] as const) {
+      expect(
+        deriveAttentionQueue(snap, deriveRundownHealth(snap), quiet).some(
+          (q) => q.source === "checklist",
+        ),
+      ).toBe(false);
+    }
     const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
-    expect(prep.find((q) => q.id === "checklist:audio")?.severity).toBe("warning");
-    expect(call.find((q) => q.id === "checklist:audio")?.severity).toBe("critical");
+    expect(call.find((q) => q.id === "checklist:outstanding")?.severity).toBe("critical");
   });
 
-  it("stays quiet about checklists during planning", () => {
+  it("consolidates outstanding checks into one row, not one per department", () => {
     const snap = snapshot({
-      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
+      checklist: [
+        { id: "c1", label: "Line check", category: "audio", checked: false },
+        { id: "c2", label: "Cameras", category: "video", checked: false },
+        { id: "c3", label: "Slides", category: "visuals", checked: false },
+        { id: "c4", label: "Comms", category: "comms", checked: true },
+      ],
     });
-    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "planning");
-    expect(queue.some((q) => q.source === "checklist")).toBe(false);
+    const rows = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").filter(
+      (q) => q.source === "checklist",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].title).toBe("Checklist 1 of 4 done");
+    // 'visuals' folds into video, so two departments, not three.
+    expect(rows[0].detail).toBe("3 items outstanding across audio, video");
   });
 
   it("flags an empty rundown as the top problem", () => {
@@ -221,6 +236,7 @@ describe("deriveDepartments", () => {
           { id: "i1", category: "audio", severity: "high", description: "FOH down", reportedBy: "Sam" },
         ],
       }),
+      "call",
     );
     expect(departments.find((d) => d.key === "audio")?.status).toBe("fail");
     expect(departments.find((d) => d.key === "video")?.status).toBe("ok");
@@ -257,7 +273,7 @@ describe("deriveReadiness", () => {
     const readiness = deriveReadiness(
       snap,
       health,
-      deriveDepartments(snap),
+      deriveDepartments(snap, "call"),
       deriveArrivals(snap, getServiceTiming({})),
       "prep",
     );
@@ -271,7 +287,7 @@ describe("deriveReadiness", () => {
     const readiness = deriveReadiness(
       snap,
       health,
-      deriveDepartments(snap),
+      deriveDepartments(snap, "call"),
       deriveArrivals(snap, getServiceTiming({})),
       "prep",
     );
@@ -286,8 +302,8 @@ describe("deriveReadiness", () => {
     });
     const health = deriveRundownHealth(snap);
     const timing = getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
-    const planning = deriveReadiness(snap, health, deriveDepartments(snap), deriveArrivals(snap, timing), "planning");
-    const call = deriveReadiness(snap, health, deriveDepartments(snap), deriveArrivals(snap, timing), "call");
+    const planning = deriveReadiness(snap, health, deriveDepartments(snap, "call"), deriveArrivals(snap, timing), "planning");
+    const call = deriveReadiness(snap, health, deriveDepartments(snap, "call"), deriveArrivals(snap, timing), "call");
     expect(planning.factors.find((f) => f.id === "crew")?.status).toBe("ok");
     expect(call.factors.find((f) => f.id === "crew")?.status).toBe("warn");
   });

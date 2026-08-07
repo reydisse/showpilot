@@ -230,6 +230,15 @@ const DEPARTMENT_LABELS: Record<DepartmentKey, string> = {
 const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream", "general"];
 
 /**
+ * Pre-service checks are only meaningful once crew is expected on site.
+ * Before that they are a to-do list, not a deficit, and treating them as
+ * one turns every department chip yellow a day early.
+ */
+export function checklistIsDue(phase: ServicePhase): boolean {
+  return phase === "call" || phase === "live";
+}
+
+/**
  * Checklist, incident and equipment tables each use their own category
  * vocabulary. Fold them into one so a department chip can roll up all
  * three.
@@ -457,26 +466,25 @@ export function deriveAttentionQueue(
     }
   }
 
-  // Checklists only matter once the service is close enough to act on.
-  if (phase === "prep" || phase === "call" || phase === "live") {
+  // Pre-service checks are not a problem until crew is on site — flagging
+  // an unticked line check the day before is noise, not information. One
+  // consolidated row, never one per department; the department strip
+  // already carries the per-department breakdown.
+  if (checklistIsDue(phase)) {
     const unchecked = checklist.filter((c) => !c.checked);
     if (unchecked.length > 0) {
-      const byCategory = new Map<DepartmentKey, number>();
-      for (const entry of unchecked) {
-        const key = normalizeCategory(entry.category);
-        byCategory.set(key, (byCategory.get(key) ?? 0) + 1);
-      }
-      for (const [key, count] of byCategory) {
-        out.push({
-          id: `checklist:${key}`,
-          severity: phase === "call" || phase === "live" ? "critical" : "warning",
-          title: `${DEPARTMENT_LABELS[key]} checklist ${checklist.length - unchecked.length} of ${checklist.length} done`,
-          detail: `${plural(count, "item")} outstanding`,
-          source: "checklist",
-          actionLabel: "Open",
-          actionPath: "production/checklist",
-        });
-      }
+      const departments = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))]
+        .map((key) => DEPARTMENT_LABELS[key].toLowerCase())
+        .join(", ");
+      out.push({
+        id: "checklist:outstanding",
+        severity: "critical",
+        title: `Checklist ${checklist.length - unchecked.length} of ${checklist.length} done`,
+        detail: `${plural(unchecked.length, "item")} outstanding across ${departments}`,
+        source: "checklist",
+        actionLabel: "Open",
+        actionPath: "production/checklist",
+      });
     }
   }
 
@@ -590,13 +598,16 @@ export function deriveCueExceptions(snapshot: PmSnapshot): AttentionItem[] {
 
 // ─── Departments ─────────────────────────────────────────────
 
-export function deriveDepartments(snapshot: PmSnapshot): DepartmentStatus[] {
+export function deriveDepartments(
+  snapshot: PmSnapshot,
+  phase: ServicePhase,
+): DepartmentStatus[] {
   return DEPARTMENT_ORDER.map((key) => {
     const incidents = snapshot.incidents.filter((i) => normalizeCategory(i.category) === key);
     const equipment = snapshot.equipment.filter((e) => normalizeCategory(e.category) === key);
-    const unchecked = snapshot.checklist.filter(
-      (c) => normalizeCategory(c.category) === key && !c.checked,
-    );
+    const unchecked = checklistIsDue(phase)
+      ? snapshot.checklist.filter((c) => normalizeCategory(c.category) === key && !c.checked)
+      : [];
 
     const highIncident = incidents.find((i) => i.severity === "high");
     const dead = equipment.find((e) => e.status === "out-of-service");
@@ -709,7 +720,10 @@ export function deriveReadiness(
     });
   }
 
-  // Checklist
+  // Checklist. Outside call and live the completion ratio says nothing
+  // about readiness, so the factor is omitted rather than shown green —
+  // the remaining weights renormalise on their own. A missing checklist
+  // is always worth flagging though.
   const total = snapshot.checklist.length;
   const done = snapshot.checklist.filter((c) => c.checked).length;
   if (total === 0) {
@@ -720,7 +734,7 @@ export function deriveReadiness(
       status: "warn",
       weight: 20,
     });
-  } else {
+  } else if (checklistIsDue(phase)) {
     const ratio = done / total;
     factors.push({
       id: "checklist",
@@ -875,7 +889,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
   const timing = getServiceTiming(phaseInput);
   const countdown = getPhaseCountdown(phase, timing, snapshot.now);
 
-  const departments = deriveDepartments(snapshot);
+  const departments = deriveDepartments(snapshot, phase);
   const arrivals = deriveArrivals(snapshot, timing);
 
   return {
