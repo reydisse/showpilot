@@ -96,7 +96,24 @@ CREATE TABLE IF NOT EXISTS "waitlist_signup" (
 CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_signup_email_key" ON "waitlist_signup"("email");
 
 -- ─── Missing columns (NOT idempotent — see header) ───────────
+--
+-- Some databases already have org_member / rundown_item / waitlist_signup
+-- from an earlier `prisma db push`, in which case the CREATE TABLE blocks
+-- above are skipped and these tables can still be missing columns. Check
+-- each one first:
+--
+--   SELECT name FROM pragma_table_info('rundown_item');
+--   SELECT name FROM pragma_table_info('stream_destination');
+--   SELECT name FROM pragma_table_info('chat_message');
+--
+-- and delete any line below whose column already exists.
+
+ALTER TABLE "rundown_item" ADD COLUMN "scheduledStart" DATETIME;
+ALTER TABLE "rundown_item" ADD COLUMN "expectedEnd" DATETIME;
+ALTER TABLE "rundown_item" ADD COLUMN "actualStart" DATETIME;
+ALTER TABLE "rundown_item" ADD COLUMN "actualEnd" DATETIME;
 
 ALTER TABLE "stream_destination" ADD COLUMN "cfOutputId" TEXT NOT NULL DEFAULT '';
 ALTER TABLE "stream_destination" ADD COLUMN "liveInputId" TEXT NOT NULL DEFAULT '';
+
 ALTER TABLE "chat_message" ADD COLUMN "senderRole" TEXT;

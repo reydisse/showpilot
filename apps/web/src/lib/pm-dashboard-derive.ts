@@ -237,7 +237,9 @@ const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream
 export function normalizeCategory(raw: string): DepartmentKey {
   const value = raw.toLowerCase().trim();
   if (value === "audio") return "audio";
-  if (value === "video") return "video";
+  // The onboarding templates seed "visuals" for ProPresenter work, which
+  // belongs with video rather than in the general bucket.
+  if (value === "video" || value === "visuals") return "video";
   if (value === "lighting") return "lighting";
   if (value === "stream" || value === "streaming") return "stream";
   return "general";
