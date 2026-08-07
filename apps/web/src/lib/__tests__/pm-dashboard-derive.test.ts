@@ -1,0 +1,351 @@
+import { describe, expect, it } from "vitest";
+import {
+  deriveArrivals,
+  deriveAttentionQueue,
+  deriveCueExceptions,
+  deriveDepartments,
+  deriveReadiness,
+  deriveRundownHealth,
+  deriveUpcoming,
+  derivePmDashboard,
+  formatMinutes,
+  normalizeCategory,
+  type PmSnapshot,
+} from "@/lib/pm-dashboard-derive";
+import { getServiceTiming } from "@/lib/service-phase";
+import type { RundownItem } from "@/types/rundown";
+
+const MINUTE = 60_000;
+const START = new Date("2026-08-09T10:00:00.000Z").getTime();
+
+function item(overrides: Partial<RundownItem> = {}): RundownItem {
+  return {
+    id: overrides.id ?? "item-1",
+    title: "Welcome",
+    type: "segment",
+    duration: 10 * MINUTE,
+    notes: "",
+    assignee: "Sam",
+    cue: "",
+    status: "upcoming",
+    sortOrder: 0,
+    hardStop: false,
+    scheduledStart: null,
+    expectedEnd: null,
+    actualStart: null,
+    actualEnd: null,
+    ...overrides,
+  };
+}
+
+function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
+  return {
+    serviceDate: "2026-08-09",
+    now: START - 3 * 60 * MINUTE,
+    callLeadMinutes: 90,
+    serviceWindowMinutes: 70,
+    rundown: { scheduledStartTime: new Date(START).toISOString(), status: "stopped" },
+    items: [item({ id: "a" }), item({ id: "b", duration: 60 * MINUTE, title: "Message" })],
+    checklist: [],
+    incidents: [],
+    cues: [],
+    equipment: [],
+    crew: [],
+    streamDestinations: [],
+    liveInputs: [],
+    notifications: [],
+    upcoming: [],
+    ...overrides,
+  };
+}
+
+describe("deriveRundownHealth", () => {
+  it("computes planned runtime against the window", () => {
+    const health = deriveRundownHealth(snapshot());
+    expect(health.plannedMs).toBe(70 * MINUTE);
+    expect(health.windowMs).toBe(70 * MINUTE);
+    expect(health.deltaMs).toBe(0);
+  });
+
+  it("flags an overrunning rundown", () => {
+    const health = deriveRundownHealth(
+      snapshot({ items: [item({ id: "a", duration: 90 * MINUTE })] }),
+    );
+    expect(health.deltaMs).toBe(20 * MINUTE);
+  });
+
+  it("counts items missing a duration or an owner", () => {
+    const health = deriveRundownHealth(
+      snapshot({
+        items: [item({ id: "a", duration: 0 }), item({ id: "b", assignee: "  " })],
+      }),
+    );
+    expect(health.missingDuration).toBe(1);
+    expect(health.missingOwner).toBe(1);
+  });
+
+  it("detects a hard stop the cascade cannot make", () => {
+    // 'a' runs 60 min from 10:00, so 'b' arrives 11:00 — but 'b' is
+    // pinned to start at 10:30 and marked hard stop.
+    const health = deriveRundownHealth(
+      snapshot({
+        items: [
+          item({ id: "a", duration: 60 * MINUTE }),
+          item({
+            id: "b",
+            hardStop: true,
+            scheduledStart: new Date(START + 30 * MINUTE).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(health.hardStopConflicts).toBe(1);
+  });
+
+  it("does not flag a hard stop the cascade arrives in time for", () => {
+    const health = deriveRundownHealth(
+      snapshot({
+        items: [
+          item({ id: "a", duration: 10 * MINUTE }),
+          item({
+            id: "b",
+            hardStop: true,
+            scheduledStart: new Date(START + 30 * MINUTE).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(health.hardStopConflicts).toBe(0);
+  });
+
+  it("reports no drift before anything has run", () => {
+    expect(deriveRundownHealth(snapshot()).driftMs).toBeNull();
+  });
+
+  it("accumulates drift across items that have run", () => {
+    const health = deriveRundownHealth(
+      snapshot({
+        now: START + 30 * MINUTE,
+        items: [
+          item({
+            id: "a",
+            duration: 10 * MINUTE,
+            actualStart: new Date(START).toISOString(),
+            actualEnd: new Date(START + 15 * MINUTE).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(health.driftMs).toBe(5 * MINUTE);
+  });
+});
+
+describe("deriveAttentionQueue", () => {
+  it("sorts critical before warning before info", () => {
+    const snap = snapshot({
+      incidents: [
+        { id: "i1", category: "audio", severity: "low", description: "Hum", reportedBy: "Sam" },
+        { id: "i2", category: "video", severity: "high", description: "Cam 2 dead", reportedBy: "Ada" },
+      ],
+    });
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    expect(queue[0].severity).toBe("critical");
+    expect(queue[queue.length - 1].severity).toBe("info");
+  });
+
+  it("treats a missing duration as critical, not cosmetic", () => {
+    const snap = snapshot({ items: [item({ id: "a", duration: 0 })] });
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    const entry = queue.find((q) => q.id === "rundown:missing-duration");
+    expect(entry?.severity).toBe("critical");
+  });
+
+  it("escalates outstanding checklists once call time arrives", () => {
+    const snap = snapshot({
+      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
+    });
+    const prep = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
+    expect(prep.find((q) => q.id === "checklist:audio")?.severity).toBe("warning");
+    expect(call.find((q) => q.id === "checklist:audio")?.severity).toBe("critical");
+  });
+
+  it("stays quiet about checklists during planning", () => {
+    const snap = snapshot({
+      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
+    });
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "planning");
+    expect(queue.some((q) => q.source === "checklist")).toBe(false);
+  });
+
+  it("flags an empty rundown as the top problem", () => {
+    const snap = snapshot({ items: [] });
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    expect(queue[0].id).toBe("rundown:empty");
+  });
+
+  it("only complains about encoders once crew is on site", () => {
+    const snap = snapshot({ liveInputs: [{ id: "l1", name: "Booth", status: "idle" }] });
+    const planning = deriveAttentionQueue(snap, deriveRundownHealth(snap), "planning");
+    const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
+    expect(planning.some((q) => q.id === "stream:no-signal")).toBe(false);
+    expect(call.some((q) => q.id === "stream:no-signal")).toBe(true);
+  });
+});
+
+describe("deriveCueExceptions", () => {
+  it("reports cues with no camera and cues with no matching item", () => {
+    const exceptions = deriveCueExceptions(
+      snapshot({
+        cues: [
+          { id: "c1", cueNumber: 1, rundownItem: "Welcome", cameraAssignments: "" },
+          { id: "c2", cueNumber: 2, rundownItem: "Baptism", cameraAssignments: "Cam 1" },
+        ],
+      }),
+    );
+    expect(exceptions.map((e) => e.id)).toEqual(["cue:no-camera", "cue:orphaned"]);
+  });
+});
+
+describe("deriveDepartments", () => {
+  it("folds stream and streaming into one department", () => {
+    expect(normalizeCategory("streaming")).toBe("stream");
+    expect(normalizeCategory("stream")).toBe("stream");
+    expect(normalizeCategory("comms")).toBe("general");
+  });
+
+  it("fails a department with a high-severity incident", () => {
+    const departments = deriveDepartments(
+      snapshot({
+        incidents: [
+          { id: "i1", category: "audio", severity: "high", description: "FOH down", reportedBy: "Sam" },
+        ],
+      }),
+    );
+    expect(departments.find((d) => d.key === "audio")?.status).toBe("fail");
+    expect(departments.find((d) => d.key === "video")?.status).toBe("ok");
+  });
+});
+
+describe("deriveArrivals", () => {
+  it("does not raise a no-show alarm before call time", () => {
+    const snap = snapshot({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+    });
+    const arrivals = deriveArrivals(snap, getServiceTiming({ scheduledStartTime: new Date(START).toISOString() }));
+    expect(arrivals.departments.every((d) => !d.alarm)).toBe(true);
+  });
+
+  it("raises a no-show alarm well past call time", () => {
+    const snap = snapshot({
+      now: START - 30 * MINUTE,
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+    });
+    const arrivals = deriveArrivals(snap, getServiceTiming({ scheduledStartTime: new Date(START).toISOString() }));
+    expect(arrivals.departments.some((d) => d.alarm)).toBe(true);
+  });
+});
+
+describe("deriveReadiness", () => {
+  it("scores a clean service highly", () => {
+    const snap = snapshot({
+      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: true }],
+      streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: true }],
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null }],
+    });
+    const health = deriveRundownHealth(snap);
+    const readiness = deriveReadiness(
+      snap,
+      health,
+      deriveDepartments(snap),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+    expect(readiness.score).toBe(100);
+    expect(readiness.status).toBe("ok");
+  });
+
+  it("drops the score and fails when the rundown has no durations", () => {
+    const snap = snapshot({ items: [item({ id: "a", duration: 0 })] });
+    const health = deriveRundownHealth(snap);
+    const readiness = deriveReadiness(
+      snap,
+      health,
+      deriveDepartments(snap),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+    expect(readiness.status).toBe("fail");
+    expect(readiness.score).toBeLessThan(100);
+    expect(readiness.factors.find((f) => f.id === "rundown")?.status).toBe("fail");
+  });
+
+  it("only judges crew arrival once crew is expected", () => {
+    const snap = snapshot({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+    });
+    const health = deriveRundownHealth(snap);
+    const timing = getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
+    const planning = deriveReadiness(snap, health, deriveDepartments(snap), deriveArrivals(snap, timing), "planning");
+    const call = deriveReadiness(snap, health, deriveDepartments(snap), deriveArrivals(snap, timing), "call");
+    expect(planning.factors.find((f) => f.id === "crew")?.status).toBe("ok");
+    expect(call.factors.find((f) => f.id === "crew")?.status).toBe("warn");
+  });
+});
+
+describe("deriveUpcoming", () => {
+  it("scores an empty service as zero", () => {
+    const upcoming = deriveUpcoming(
+      snapshot({
+        upcoming: [
+          { serviceDate: "2026-08-16", scheduledStartTime: null, itemCount: 0, missingDuration: 0, missingOwner: 0 },
+        ],
+      }),
+    );
+    expect(upcoming[0].readiness).toBe(0);
+    expect(upcoming[0].status).toBe("fail");
+  });
+
+  it("caps a service with no start time below complete", () => {
+    const upcoming = deriveUpcoming(
+      snapshot({
+        upcoming: [
+          { serviceDate: "2026-08-16", scheduledStartTime: null, itemCount: 4, missingDuration: 0, missingOwner: 0 },
+        ],
+      }),
+    );
+    expect(upcoming[0].readiness).toBe(70);
+  });
+});
+
+describe("derivePmDashboard", () => {
+  it("produces a debrief only after the service has run", () => {
+    const before = derivePmDashboard(snapshot());
+    expect(before.phase).toBe("prep");
+    expect(before.debrief).toBeNull();
+
+    const after = derivePmDashboard(
+      snapshot({
+        now: START + 80 * MINUTE,
+        items: [
+          item({
+            id: "a",
+            duration: 10 * MINUTE,
+            actualStart: new Date(START).toISOString(),
+            actualEnd: new Date(START + 14 * MINUTE).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(after.phase).toBe("debrief");
+    expect(after.debrief?.worstOverruns[0].overrunMs).toBe(4 * MINUTE);
+  });
+});
+
+describe("formatMinutes", () => {
+  it("renders minutes and hours", () => {
+    expect(formatMinutes(9 * MINUTE)).toBe("9 min");
+    expect(formatMinutes(90 * MINUTE)).toBe("1h 30m");
+    expect(formatMinutes(120 * MINUTE)).toBe("2h");
+  });
+});
