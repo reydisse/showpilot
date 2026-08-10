@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   deriveArrivals,
   deriveAttentionQueue,
+  deriveCrewBoard,
   deriveCueExceptions,
   deriveDepartments,
+  deriveOpenItems,
+  deriveRecent,
   deriveReadiness,
   deriveRundownHealth,
   deriveUpcoming,
@@ -57,6 +60,9 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     liveInputs: [],
     notifications: [],
     upcoming: [],
+    assignments: [],
+    openItems: [],
+    recent: [],
     ...overrides,
   };
 }
@@ -471,5 +477,99 @@ describe("plan-next state", () => {
 
   it("is not set once a rundown exists", () => {
     expect(derivePmDashboard(snapshot()).planNext).toBe(false);
+  });
+});
+
+describe("crew board", () => {
+  const roster = [
+    { id: "a1", role: "Camera 1", crewMemberName: "Sam", status: "confirmed" },
+    { id: "a2", role: "Camera 2", crewMemberName: "Ada", status: "assigned" },
+    { id: "a3", role: "Audio", crewMemberName: null, status: "assigned" },
+    { id: "a4", role: "Lighting", crewMemberName: "Rey", status: "declined" },
+  ];
+
+  it("treats an assignment with nobody on it as an open position", () => {
+    const crew = deriveCrewBoard(snapshot({ assignments: roster }));
+    expect(crew.open).toBe(1);
+    expect(crew.confirmed).toBe(1);
+    expect(crew.unconfirmed).toBe(1);
+    expect(crew.declined).toBe(1);
+    expect(crew.scheduled).toBe(true);
+  });
+
+  it("is unscheduled, not empty, when nothing has been assigned", () => {
+    expect(deriveCrewBoard(snapshot()).scheduled).toBe(false);
+  });
+
+  it("escalates open positions as the service approaches", () => {
+    const snap = snapshot({ assignments: roster });
+    const crew = deriveCrewBoard(snap);
+    const health = deriveRundownHealth(snap);
+    expect(
+      deriveAttentionQueue(snap, health, "prep", crew).find((q) => q.id === "crew:open")?.severity,
+    ).toBe("warning");
+    expect(
+      deriveAttentionQueue(snap, health, "call", crew).find((q) => q.id === "crew:open")?.severity,
+    ).toBe("critical");
+  });
+
+  it("stays quiet about unconfirmed crew during planning", () => {
+    const snap = snapshot({ assignments: roster });
+    const crew = deriveCrewBoard(snap);
+    const health = deriveRundownHealth(snap);
+    expect(
+      deriveAttentionQueue(snap, health, "planning", crew).some((q) => q.id === "crew:unconfirmed"),
+    ).toBe(false);
+    expect(
+      deriveAttentionQueue(snap, health, "prep", crew).some((q) => q.id === "crew:unconfirmed"),
+    ).toBe(true);
+  });
+
+  it("prefers the schedule over check-ins for the readiness factor", () => {
+    const snap = snapshot({ assignments: roster });
+    const crew = deriveCrewBoard(snap);
+    const readiness = deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, "prep"),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+      crew,
+    );
+    const factor = readiness.factors.find((f) => f.id === "crew");
+    expect(factor?.status).toBe("fail");
+    expect(factor?.detail).toBe("1 position unfilled");
+  });
+});
+
+describe("carried-forward open items", () => {
+  it("ages each item against the service on screen and ranks by severity", () => {
+    const items = deriveOpenItems(
+      snapshot({
+        serviceDate: "2026-08-09",
+        openItems: [
+          { id: "o1", serviceDate: "2026-08-02", category: "audio", severity: "low", description: "Hum on 3" },
+          { id: "o2", serviceDate: "2026-07-26", category: "video", severity: "high", description: "Cam 2 dead" },
+        ],
+      }),
+    );
+    expect(items.map((i) => i.id)).toEqual(["o2", "o1"]);
+    expect(items[0].ageDays).toBe(14);
+    expect(items[1].ageDays).toBe(7);
+  });
+});
+
+describe("recent services", () => {
+  it("reports delta only where a service was actually timed", () => {
+    const recent = deriveRecent(
+      snapshot({
+        recent: [
+          { serviceDate: "2026-08-02", plannedMs: 60 * MINUTE, actualMs: 68 * MINUTE, incidentCount: 1 },
+          { serviceDate: "2026-07-26", plannedMs: 60 * MINUTE, actualMs: null, incidentCount: 0 },
+        ],
+      }),
+    );
+    expect(recent[0].deltaMs).toBe(8 * MINUTE);
+    expect(recent[1].deltaMs).toBeNull();
   });
 });

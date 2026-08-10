@@ -22,6 +22,9 @@ import {
   derivePmDashboard,
   type PmDashboardModel,
   type PmSnapshot,
+  type SnapshotAssignment,
+  type SnapshotOpenItem,
+  type SnapshotRecentService,
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
 import type { RundownItem } from "@/types/rundown";
@@ -29,6 +32,8 @@ import type { RundownItem } from "@/types/rundown";
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
 const UPCOMING_LIMIT = 3;
 const NOTIFICATION_LIMIT = 8;
+const RECENT_LIMIT = 4;
+const OPEN_ITEM_LIMIT = 6;
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -83,18 +88,103 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
   }
 }
 
+interface AssignmentRow {
+  id: string;
+  role: string;
+  status: string;
+  crewMember: { name: string } | null;
+}
+
+/**
+ * service_assignment and the incident lifecycle columns arrive in
+ * migration 0012. The generated Prisma client is gitignored, so a
+ * checkout that has not run `pnpm db:generate` will not have the
+ * delegate — same defensive access `rundown.ts` uses for `rundown`.
+ */
+async function loadAssignments(orgId: string, serviceDate: string): Promise<AssignmentRow[]> {
+  const prisma = getPrisma() as unknown as {
+    serviceAssignment?: {
+      findMany(args: unknown): Promise<AssignmentRow[]>;
+    };
+  };
+  if (!prisma.serviceAssignment) return [];
+  try {
+    return await prisma.serviceAssignment.findMany({
+      where: { orgId, serviceDate },
+      orderBy: { role: "asc" },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        crewMember: { select: { name: true } },
+      },
+    });
+  } catch {
+    return [];
+  }
+}
+
+interface OpenIncidentRow {
+  id: string;
+  serviceDate: string;
+  category: string;
+  severity: string;
+  description: string;
+}
+
+/** Incidents left open on any service before the one on screen. */
+async function loadOpenItems(orgId: string, serviceDate: string): Promise<OpenIncidentRow[]> {
+  const prisma = getPrisma();
+  try {
+    return (await prisma.incident.findMany({
+      where: {
+        orgId,
+        serviceDate: { lt: serviceDate },
+        status: "open",
+      } as never,
+      orderBy: { timestamp: "desc" },
+      take: OPEN_ITEM_LIMIT,
+      select: {
+        id: true,
+        serviceDate: true,
+        category: true,
+        severity: true,
+        description: true,
+      },
+    })) as OpenIncidentRow[];
+  } catch {
+    // Pre-0012 database: the status column does not exist yet.
+    return [];
+  }
+}
+
 /** Item counts per service date, read straight from the stored JSON. */
-function summarizeItems(raw: string): { itemCount: number; missingDuration: number; missingOwner: number } {
+interface ItemSummary {
+  itemCount: number;
+  missingDuration: number;
+  missingOwner: number;
+  plannedMs: number;
+}
+
+const EMPTY_SUMMARY: ItemSummary = {
+  itemCount: 0,
+  missingDuration: 0,
+  missingOwner: 0,
+  plannedMs: 0,
+};
+
+function summarizeItems(raw: string): ItemSummary {
   try {
     const items = JSON.parse(raw) as RundownItem[];
-    if (!Array.isArray(items)) return { itemCount: 0, missingDuration: 0, missingOwner: 0 };
+    if (!Array.isArray(items)) return EMPTY_SUMMARY;
     return {
       itemCount: items.length,
       missingDuration: items.filter((i) => !i.duration || i.duration <= 0).length,
       missingOwner: items.filter((i) => !i.assignee || !String(i.assignee).trim()).length,
+      plannedMs: items.reduce((sum, i) => sum + Math.max(0, Number(i.duration) || 0), 0),
     };
   } catch {
-    return { itemCount: 0, missingDuration: 0, missingOwner: 0 };
+    return EMPTY_SUMMARY;
   }
 }
 
@@ -121,6 +211,7 @@ export function resolveLastServiceDate(dates: string[], today: string): string |
 
 export interface PmDashboardResult {
   model: PmDashboardModel;
+  orgId: string;
   /** Every service date the org has, newest first — powers the picker. */
   serviceDates: string[];
   orgTimezone: string;
@@ -145,7 +236,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     ]);
 
     const settings: Record<string, string> = {};
-    const itemSummaries = new Map<string, ReturnType<typeof summarizeItems>>();
+    const itemSummaries = new Map<string, ItemSummary>();
     for (const row of settingRows) {
       if (row.key.startsWith(RUNDOWN_ITEMS_PREFIX)) {
         itemSummaries.set(row.key.slice(RUNDOWN_ITEMS_PREFIX.length), summarizeItems(row.value));
@@ -169,7 +260,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // Every read below selects only the columns the dashboard uses. That
     // keeps the payload small and stops the page inheriting a failure from
     // a column it never reads.
-    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications] =
+    // The four most recent services before this one, for the history card.
+    const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
+
+    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, openItems, recentItems, recentIncidents] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
         prisma.checklistTemplate.findMany({
@@ -218,7 +312,49 @@ export const getPmDashboard = createServerFn({ method: "GET" })
           take: NOTIFICATION_LIMIT,
           select: { id: true, title: true, message: true, severity: true },
         }),
+        loadAssignments(orgId, serviceDate),
+        loadOpenItems(orgId, serviceDate),
+        recentDates.length === 0
+          ? Promise.resolve([])
+          : prisma.rundownItem.findMany({
+              where: { orgId, serviceDate: { in: recentDates } },
+              select: { serviceDate: true, actualStart: true, actualEnd: true },
+            }),
+        recentDates.length === 0
+          ? Promise.resolve([])
+          : prisma.incident.findMany({
+              where: { orgId, serviceDate: { in: recentDates } },
+              select: { serviceDate: true },
+            }),
       ]);
+
+    // Actual runtime is the span from the first item that started to the
+    // last that finished. Null until a service has actually been run with
+    // the timer, which only became possible once 0011 added the columns.
+    const actualByDate = new Map<string, { first: number; last: number }>();
+    for (const row of recentItems) {
+      const start = row.actualStart ? row.actualStart.getTime() : null;
+      const end = row.actualEnd ? row.actualEnd.getTime() : null;
+      if (start === null && end === null) continue;
+      const current = actualByDate.get(row.serviceDate);
+      const first = Math.min(current?.first ?? Number.POSITIVE_INFINITY, start ?? end ?? 0);
+      const last = Math.max(current?.last ?? Number.NEGATIVE_INFINITY, end ?? start ?? 0);
+      actualByDate.set(row.serviceDate, { first, last });
+    }
+    const incidentsByDate = new Map<string, number>();
+    for (const row of recentIncidents) {
+      incidentsByDate.set(row.serviceDate, (incidentsByDate.get(row.serviceDate) ?? 0) + 1);
+    }
+
+    const recent: SnapshotRecentService[] = recentDates.map((date) => {
+      const span = actualByDate.get(date);
+      return {
+        serviceDate: date,
+        plannedMs: itemSummaries.get(date)?.plannedMs ?? 0,
+        actualMs: span && Number.isFinite(span.first) ? span.last - span.first : null,
+        incidentCount: incidentsByDate.get(date) ?? 0,
+      };
+    });
 
     const checkedByTemplate = new Map(entries.map((e) => [e.templateId, e.checked]));
 
@@ -226,12 +362,14 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       .filter((d) => d > serviceDate)
       .slice(0, UPCOMING_LIMIT)
       .map((date) => {
-        const summary = itemSummaries.get(date) ?? { itemCount: 0, missingDuration: 0, missingOwner: 0 };
+        const summary = itemSummaries.get(date) ?? EMPTY_SUMMARY;
         const row = startTimes.get(date);
         return {
           serviceDate: date,
           scheduledStartTime: row?.scheduledStartTime ? row.scheduledStartTime.toISOString() : null,
-          ...summary,
+          itemCount: summary.itemCount,
+          missingDuration: summary.missingDuration,
+          missingOwner: summary.missingOwner,
         };
       });
 
@@ -296,10 +434,25 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         severity: n.severity,
       })),
       upcoming,
+      assignments: assignments.map<SnapshotAssignment>((a) => ({
+        id: a.id,
+        role: a.role,
+        crewMemberName: a.crewMember?.name ?? null,
+        status: a.status,
+      })),
+      openItems: openItems.map<SnapshotOpenItem>((i) => ({
+        id: i.id,
+        serviceDate: i.serviceDate,
+        category: i.category,
+        severity: i.severity,
+        description: i.description,
+      })),
+      recent,
     };
 
     return {
       model: derivePmDashboard(snapshot),
+      orgId,
       serviceDates: [...allDates].reverse(),
       orgTimezone,
     };

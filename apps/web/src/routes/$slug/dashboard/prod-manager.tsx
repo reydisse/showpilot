@@ -46,7 +46,7 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
 });
 
 function ProdManagerPage() {
-  const { model, serviceDates } = Route.useLoaderData();
+  const { model, serviceDates, orgId } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -62,7 +62,7 @@ function ProdManagerPage() {
     return () => clearInterval(id);
   }, [model.phase, router]);
 
-  const widgetModel: PmWidgetModel = { model, slug };
+  const widgetModel: PmWidgetModel = { model, slug, orgId };
   const widgets = selectWidgets(PM_WIDGETS, model.phase, widgetModel);
   const banners = widgetsInRegion(widgets, "banner");
   const main = widgetsInRegion(widgets, "main");

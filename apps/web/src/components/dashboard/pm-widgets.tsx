@@ -9,8 +9,9 @@
  * you read and act on, the rail carries the things you glance at.
  */
 
-import { Link } from "@tanstack/react-router";
-import { Clapperboard, Radio } from "lucide-react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
+import { Clapperboard, Copy, Radio } from "lucide-react";
 import {
   HealthChip,
   SeverityDot,
@@ -24,11 +25,17 @@ import {
   type WidgetDefinition,
 } from "./widget";
 import { formatDuration } from "@/lib/rundown-timing";
-import type { AttentionItem, PmDashboardModel } from "@/lib/pm-dashboard-derive";
+import type {
+  AttentionItem,
+  CrewPosition,
+  Health,
+  PmDashboardModel,
+} from "@/lib/pm-dashboard-derive";
 
 export interface PmWidgetModel {
   model: PmDashboardModel;
   slug: string;
+  orgId: string;
 }
 
 type PmWidget = WidgetDefinition<PmWidgetModel>;
@@ -463,7 +470,44 @@ const planNextWidget: PmWidget = {
   phases: ["planning", "prep"],
   region: "main",
   isRelevant: ({ model }) => model.planNext,
-  render: ({ model, slug }) => (
+  render: (widgetModel) => <PlanNextCard {...widgetModel} />,
+};
+
+/**
+ * The planning-day job is "make Sunday exist". A link to an empty
+ * rundown editor is not that — cloning last service is, because church
+ * rotas repeat and nobody wants to retype the same nine items weekly.
+ */
+function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canClone = model.lastServiceDate !== null;
+
+  async function clone() {
+    if (!model.lastServiceDate) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Imported lazily so the widget module does not pull the server
+      // graph (and cloudflare:workers) into the client bundle.
+      const { createNextService } = await import("@/lib/pm-actions");
+      await createNextService({
+        data: {
+          orgId,
+          serviceDate: model.serviceDate,
+          copyFrom: model.lastServiceDate,
+        },
+      });
+      await router.invalidate();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not create the service");
+      setBusy(false);
+    }
+  }
+
+  return (
     <WidgetCard title="Plan the next service">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
@@ -471,19 +515,218 @@ const planNextWidget: PmWidget = {
             Nothing scheduled for {longDate(model.serviceDate)}
           </p>
           <p className="text-xs text-board-muted mt-1">
-            {model.lastServiceDate
-              ? `Last service was ${longDate(model.lastServiceDate)} — open it from the date picker to copy its rundown.`
+            {canClone
+              ? `Last service was ${longDate(model.lastServiceDate as string)}. Copy its rundown to start from where you left off.`
               : "Build a rundown to get the dashboard working for you."}
           </p>
+          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
         </div>
-        <Link
-          to={orgLink(slug, "rundown")}
-          className="inline-flex items-center gap-2 shrink-0 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 transition-colors"
-        >
-          <Clapperboard className="w-3.5 h-3.5" />
-          Build the rundown
-        </Link>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {canClone && (
+            <button
+              type="button"
+              onClick={() => void clone()}
+              disabled={busy}
+              className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              {busy ? "Copying…" : "Copy last service"}
+            </button>
+          )}
+          <Link
+            to={orgLink(slug, "rundown")}
+            className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg border border-board-border/80 text-board-muted hover:text-board-text transition-colors"
+          >
+            <Clapperboard className="w-3.5 h-3.5" />
+            Start blank
+          </Link>
+        </div>
       </div>
+    </WidgetCard>
+  );
+}
+
+// ─── Crew board ──────────────────────────────────────────────
+
+const CREW_STATUS: Record<
+  CrewPosition["status"],
+  { label: string; dot: Health; className: string }
+> = {
+  confirmed: { label: "Confirmed", dot: "ok", className: "text-green-400" },
+  assigned: { label: "Not confirmed", dot: "warn", className: "text-yellow-300" },
+  declined: { label: "Declined", dot: "fail", className: "text-red-400" },
+  open: { label: "Open", dot: "fail", className: "text-red-400" },
+};
+
+const crewWidget: PmWidget = {
+  id: "crew",
+  title: "Crew",
+  phases: ["planning", "prep", "call", "live"],
+  region: "main",
+  isRelevant: ({ model }) => model.crew.scheduled,
+  render: ({ model, slug }) => {
+    const crew = model.crew;
+    return (
+      <WidgetCard
+        title="Crew"
+        action={
+          <Link to={orgLink(slug, "team")}>
+            <WidgetAction>Manage</WidgetAction>
+          </Link>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 mb-4">
+          <WidgetMetric
+            value={`${crew.confirmed}/${crew.total}`}
+            unit="confirmed"
+            tone={crew.open > 0 || crew.declined > 0 ? "fail" : crew.unconfirmed > 0 ? "warn" : "ok"}
+          />
+          {crew.open > 0 && (
+            <CrewCount label="Open" value={crew.open} className="text-red-400" />
+          )}
+          {crew.unconfirmed > 0 && (
+            <CrewCount label="Awaiting" value={crew.unconfirmed} className="text-yellow-300" />
+          )}
+          {crew.declined > 0 && (
+            <CrewCount label="Declined" value={crew.declined} className="text-red-400" />
+          )}
+        </div>
+
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5">
+          {crew.positions.map((position) => {
+            const config = CREW_STATUS[position.status];
+            return (
+              <li key={position.id} className="flex items-center gap-2 text-xs min-w-0">
+                <StatusDot status={config.dot} />
+                <span className="text-board-muted w-[92px] shrink-0 truncate">
+                  {position.role}
+                </span>
+                <span className="text-board-text truncate flex-1">
+                  {position.name ?? <span className={config.className}>Unfilled</span>}
+                </span>
+                {position.status !== "confirmed" && position.name && (
+                  <span className={`text-[10px] shrink-0 ${config.className}`}>
+                    {config.label}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </WidgetCard>
+    );
+  },
+};
+
+function CrewCount({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: number;
+  className: string;
+}) {
+  return (
+    <div>
+      <p className={`text-lg leading-none font-semibold tabular-nums ${className}`}>{value}</p>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">{label}</p>
+    </div>
+  );
+}
+
+// ─── Open items carried forward ──────────────────────────────
+
+const openItemsWidget: PmWidget = {
+  id: "open-items",
+  title: "Still open",
+  phases: ["planning", "prep", "debrief"],
+  region: "main",
+  isRelevant: ({ model }) => model.openItems.length > 0,
+  render: ({ model, slug }) => (
+    <WidgetCard
+      title="Still open from earlier services"
+      action={
+        <Link to={orgLink(slug, "production/incidents")}>
+          <WidgetAction>All incidents</WidgetAction>
+        </Link>
+      }
+    >
+      <ul>
+        {model.openItems.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex items-center gap-3 py-2 border-t border-board-border/60 first:border-t-0"
+          >
+            <StatusDot
+              status={entry.severity === "high" ? "fail" : entry.severity === "medium" ? "warn" : "ok"}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] leading-snug text-board-text truncate">
+                {entry.description}
+              </p>
+              <p className="text-[11px] leading-snug text-board-muted">
+                {entry.category} · {entry.ageDays === 0 ? "today" : `${entry.ageDays}d ago`}
+              </p>
+            </div>
+            <Link to={orgLink(slug, "production/incidents")} className="shrink-0">
+              <WidgetAction>Resolve</WidgetAction>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </WidgetCard>
+  ),
+};
+
+// ─── Recent services ─────────────────────────────────────────
+
+const recentWidget: PmWidget = {
+  id: "recent",
+  title: "Recent services",
+  phases: ["planning", "prep", "debrief"],
+  region: "rail",
+  isRelevant: ({ model }) => model.recent.length > 0,
+  render: ({ model }) => (
+    <WidgetCard title="Recent services">
+      <ul className="space-y-2">
+        {model.recent.map((service) => {
+          const over = (service.deltaMs ?? 0) > 0;
+          return (
+            <li key={service.serviceDate} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-board-text">
+                  {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </p>
+                <p className="text-[10px] text-board-muted truncate">
+                  {formatDuration(service.plannedMs, true)} planned
+                  {service.incidentCount > 0
+                    ? ` · ${service.incidentCount} incident${service.incidentCount === 1 ? "" : "s"}`
+                    : ""}
+                </p>
+              </div>
+              <span
+                className={`text-[11px] tabular-nums shrink-0 ${
+                  service.deltaMs === null
+                    ? "text-board-muted"
+                    : over
+                      ? "text-red-400"
+                      : "text-green-400"
+                }`}
+              >
+                {service.deltaMs === null
+                  ? "not timed"
+                  : `${over ? "+" : ""}${formatDuration(service.deltaMs)}`}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </WidgetCard>
   ),
 };
@@ -496,9 +739,12 @@ export const PM_WIDGETS: PmWidget[] = [
   planNextWidget,
   attentionWidget,
   rundownHealthWidget,
+  crewWidget,
+  openItemsWidget,
   debriefWidget,
   cueExceptionsWidget,
   readinessWidget,
+  recentWidget,
   arrivalsWidget,
   weekAheadWidget,
 ];

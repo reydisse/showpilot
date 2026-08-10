@@ -94,6 +94,29 @@ export interface SnapshotNotification {
   severity: string;
 }
 
+export interface SnapshotAssignment {
+  id: string;
+  role: string;
+  crewMemberName: string | null;
+  status: string;
+}
+
+/** An incident still open from a service before this one. */
+export interface SnapshotOpenItem {
+  id: string;
+  serviceDate: string;
+  category: string;
+  severity: string;
+  description: string;
+}
+
+export interface SnapshotRecentService {
+  serviceDate: string;
+  plannedMs: number;
+  actualMs: number | null;
+  incidentCount: number;
+}
+
 export interface SnapshotUpcomingService {
   serviceDate: string;
   scheduledStartTime: string | null;
@@ -122,6 +145,9 @@ export interface PmSnapshot {
   liveInputs: SnapshotLiveInput[];
   notifications: SnapshotNotification[];
   upcoming: SnapshotUpcomingService[];
+  assignments: SnapshotAssignment[];
+  openItems: SnapshotOpenItem[];
+  recent: SnapshotRecentService[];
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -134,7 +160,15 @@ export interface AttentionItem {
   severity: Severity;
   title: string;
   detail: string;
-  source: "incident" | "equipment" | "rundown" | "checklist" | "stream" | "cue" | "notification";
+  source:
+    | "incident"
+    | "equipment"
+    | "rundown"
+    | "checklist"
+    | "stream"
+    | "cue"
+    | "notification"
+    | "crew";
   actionLabel: string;
   /** Route relative to the org root, e.g. "rundown". */
   actionPath: string;
@@ -199,6 +233,33 @@ export interface DebriefSummary {
   incidentCount: number;
 }
 
+export interface CrewPosition {
+  id: string;
+  role: string;
+  name: string | null;
+  status: "confirmed" | "assigned" | "declined" | "open";
+}
+
+export interface CrewBoard {
+  positions: CrewPosition[];
+  total: number;
+  confirmed: number;
+  unconfirmed: number;
+  declined: number;
+  open: number;
+  /** False when the org has never scheduled anyone for this service. */
+  scheduled: boolean;
+}
+
+export interface OpenItem extends SnapshotOpenItem {
+  /** Whole days between that service and the one on screen. */
+  ageDays: number;
+}
+
+export interface RecentService extends SnapshotRecentService {
+  deltaMs: number | null;
+}
+
 export interface UpcomingService extends SnapshotUpcomingService {
   readiness: number;
   status: Health;
@@ -221,6 +282,9 @@ export interface PmDashboardModel {
   /** True when nothing is scheduled ahead — the dashboard plans instead. */
   planNext: boolean;
   lastServiceDate: string | null;
+  crew: CrewBoard;
+  openItems: OpenItem[];
+  recent: RecentService[];
 }
 
 // ─── Departments ─────────────────────────────────────────────
@@ -349,6 +413,7 @@ export function deriveAttentionQueue(
   snapshot: PmSnapshot,
   health: RundownHealth,
   phase: ServicePhase,
+  crew: CrewBoard = emptyCrewBoard(),
 ): AttentionItem[] {
   const out: AttentionItem[] = [];
   const { incidents, equipment, checklist, streamDestinations, liveInputs, notifications } =
@@ -569,6 +634,58 @@ export function deriveAttentionQueue(
     });
   }
 
+  // Crew. Open positions escalate as the service approaches: a gap on
+  // Tuesday is a task, the same gap at call time is a failure.
+  if (crew.scheduled) {
+    if (crew.open > 0) {
+      out.push({
+        id: "crew:open",
+        severity: phase === "call" || phase === "live" ? "critical" : "warning",
+        title: `${plural(crew.open, "position")} unfilled`,
+        detail: crew.positions
+          .filter((p) => p.status === "open")
+          .slice(0, 4)
+          .map((p) => p.role)
+          .join(", "),
+        source: "crew",
+        actionLabel: "Fill",
+        actionPath: "team",
+      });
+    }
+    if (crew.declined > 0) {
+      out.push({
+        id: "crew:declined",
+        severity: "critical",
+        title: `${plural(crew.declined, "person")} declined`,
+        detail: crew.positions
+          .filter((p) => p.status === "declined")
+          .slice(0, 4)
+          .map((p) => `${p.name ?? "Someone"} — ${p.role}`)
+          .join(", "),
+        source: "crew",
+        actionLabel: "Replace",
+        actionPath: "team",
+      });
+    }
+    // Unconfirmed only matters once the service is close enough that
+    // silence is meaningful.
+    if (crew.unconfirmed > 0 && phase !== "planning") {
+      out.push({
+        id: "crew:unconfirmed",
+        severity: phase === "call" || phase === "live" ? "critical" : "warning",
+        title: `${plural(crew.unconfirmed, "person")} not confirmed`,
+        detail: crew.positions
+          .filter((p) => p.status === "assigned")
+          .slice(0, 4)
+          .map((p) => p.name ?? p.role)
+          .join(", "),
+        source: "crew",
+        actionLabel: "Chase",
+        actionPath: "team",
+      });
+    }
+  }
+
   // Setup nudges. Features the org has never configured are excluded from
   // the readiness score — a church that does not livestream should be able
   // to reach 100%. They surface here instead, at info level, so the
@@ -584,6 +701,17 @@ export function deriveAttentionQueue(
         source: "checklist",
         actionLabel: "Set up",
         actionPath: "production/checklist",
+      });
+    }
+    if (!crew.scheduled && snapshot.crew.length > 0) {
+      out.push({
+        id: "setup:crew",
+        severity: "info",
+        title: "Nobody scheduled for this service",
+        detail: `${plural(snapshot.crew.length, "person")} on the roster and no positions assigned yet`,
+        source: "crew",
+        actionLabel: "Schedule",
+        actionPath: "team",
       });
     }
     if (streamDestinations.length === 0) {
@@ -731,9 +859,87 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
   };
 }
 
+// ─── Crew board ──────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/**
+ * Who is on for this service. An assignment with no crew member is an
+ * open position — the thing a PM chases all week — and "assigned but not
+ * confirmed" is deliberately distinct from confirmed, because the gap
+ * between the two is where Sunday mornings go wrong.
+ */
+export function deriveCrewBoard(snapshot: PmSnapshot): CrewBoard {
+  const positions: CrewPosition[] = snapshot.assignments.map((a) => {
+    let status: CrewPosition["status"];
+    if (!a.crewMemberName) status = "open";
+    else if (a.status === "confirmed") status = "confirmed";
+    else if (a.status === "declined") status = "declined";
+    else status = "assigned";
+    return { id: a.id, role: a.role, name: a.crewMemberName, status };
+  });
+
+  const count = (status: CrewPosition["status"]) =>
+    positions.filter((p) => p.status === status).length;
+
+  return {
+    positions,
+    total: positions.length,
+    confirmed: count("confirmed"),
+    unconfirmed: count("assigned"),
+    declined: count("declined"),
+    open: count("open"),
+    scheduled: positions.length > 0,
+  };
+}
+
+// ─── Carried-forward items ───────────────────────────────────
+
+/**
+ * Incidents still open from earlier services. Nothing else in the
+ * product remembers that last Sunday's radio mic was never fixed.
+ */
+export function deriveOpenItems(snapshot: PmSnapshot): OpenItem[] {
+  const today = new Date(`${snapshot.serviceDate}T12:00:00Z`).getTime();
+  return snapshot.openItems
+    .map((item) => {
+      const then = new Date(`${item.serviceDate}T12:00:00Z`).getTime();
+      const ageDays =
+        Number.isNaN(then) || Number.isNaN(today)
+          ? 0
+          : Math.max(0, Math.round((today - then) / DAY_MS));
+      return { ...item, ageDays };
+    })
+    .sort((a, b) => {
+      const rank = (s: string) => (s === "high" ? 0 : s === "medium" ? 1 : 2);
+      return rank(a.severity) - rank(b.severity) || b.ageDays - a.ageDays;
+    });
+}
+
+// ─── Recent services ─────────────────────────────────────────
+
+export function deriveRecent(snapshot: PmSnapshot): RecentService[] {
+  return snapshot.recent.map((service) => ({
+    ...service,
+    deltaMs: service.actualMs === null ? null : service.actualMs - service.plannedMs,
+  }));
+}
+
 // ─── Readiness ───────────────────────────────────────────────
 
 const HEALTH_VALUE: Record<Health, number> = { ok: 1, warn: 0.5, fail: 0 };
+
+export function emptyCrewBoard(): CrewBoard {
+  return {
+    positions: [],
+    total: 0,
+    confirmed: 0,
+    unconfirmed: 0,
+    declined: 0,
+    open: 0,
+    scheduled: false,
+  };
+}
 
 export function deriveReadiness(
   snapshot: PmSnapshot,
@@ -741,6 +947,7 @@ export function deriveReadiness(
   departments: DepartmentStatus[],
   arrivals: Arrivals,
   phase: ServicePhase,
+  crew: CrewBoard = emptyCrewBoard(),
 ): Readiness {
   const factors: ReadinessFactor[] = [];
 
@@ -835,8 +1042,30 @@ export function deriveReadiness(
     });
   }
 
-  // Crew — only a readiness signal once people are expected on site.
-  if (phase === "call" || phase === "live") {
+  // Crew. A real schedule is the best signal there is, so prefer it.
+  // Falling back to check-ins only matters once people are due on site.
+  if (crew.scheduled) {
+    const detail =
+      crew.open > 0
+        ? `${plural(crew.open, "position")} unfilled`
+        : crew.declined > 0
+          ? `${plural(crew.declined, "decline")} to replace`
+          : crew.unconfirmed > 0
+            ? `${crew.confirmed} of ${crew.total} confirmed`
+            : `${crew.total} confirmed`;
+    factors.push({
+      id: "crew",
+      label: "Crew",
+      detail,
+      status:
+        crew.open > 0 || crew.declined > 0
+          ? "fail"
+          : crew.unconfirmed > 0
+            ? "warn"
+            : "ok",
+      weight: 15,
+    });
+  } else if (phase === "call" || phase === "live") {
     const alarmed = arrivals.departments.filter((d) => d.alarm).length;
     factors.push({
       id: "crew",
@@ -937,15 +1166,16 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
 
   const departments = deriveDepartments(snapshot, phase);
   const arrivals = deriveArrivals(snapshot, timing);
+  const crew = deriveCrewBoard(snapshot);
 
   return {
     serviceDate: snapshot.serviceDate,
     phase,
     timing,
     countdown,
-    readiness: deriveReadiness(snapshot, rundownHealth, departments, arrivals, phase),
+    readiness: deriveReadiness(snapshot, rundownHealth, departments, arrivals, phase, crew),
     rundownHealth,
-    attention: deriveAttentionQueue(snapshot, rundownHealth, phase),
+    attention: deriveAttentionQueue(snapshot, rundownHealth, phase, crew),
     departments,
     arrivals,
     cueExceptions: deriveCueExceptions(snapshot),
@@ -954,6 +1184,9 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     hasRundown: snapshot.rundown !== null || snapshot.items.length > 0,
     planNext: rundownHealth.itemCount === 0 && (phase === "planning" || phase === "prep"),
     lastServiceDate: snapshot.lastServiceDate,
+    crew,
+    openItems: deriveOpenItems(snapshot),
+    recent: deriveRecent(snapshot),
   };
 }
 

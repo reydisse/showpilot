@@ -101,6 +101,7 @@ model Organization {
 
   // App relations
   crewMembers        CrewMember[]
+  serviceAssignments ServiceAssignment[]
   checklistTemplates ChecklistTemplate[]
   checklistEntries   ChecklistEntry[]
   cueSheets          CueSheet[]
@@ -194,6 +195,7 @@ model CrewMember {
   lastCheckIn  DateTime?
   lastCheckOut DateTime?
   createdAt    DateTime     @default(now())
+  assignments  ServiceAssignment[]
 
   @@unique([orgId, memberId])
   @@index([orgId, name])
@@ -257,9 +259,36 @@ model Incident {
   reportedBy   String
   serviceDate  String
   timestamp    DateTime     @default(now())
+  // Lifecycle. Without it nothing carries forward between services.
+  status       String       @default("open") // open | resolved
+  resolvedAt   DateTime?
+  resolvedBy   String?
 
   @@index([orgId, serviceDate])
+  @@index([orgId, status])
   @@map("incident")
+}
+
+/// One position on one service. A null crewMemberId is an open slot —
+/// the thing a production manager most needs to see before Sunday.
+model ServiceAssignment {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  serviceDate  String
+  crewMemberId String?
+  crewMember   CrewMember?  @relation(fields: [crewMemberId], references: [id], onDelete: SetNull)
+  role         String
+  status       String       @default("assigned") // assigned | confirmed | declined
+  notes        String       @default("")
+  invitedAt    DateTime?
+  respondedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([orgId, serviceDate])
+  @@index([crewMemberId])
+  @@map("service_assignment")
 }
 
 model MicAssignment {
