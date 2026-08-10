@@ -100,14 +100,23 @@ function summarizeItems(raw: string): { itemCount: number; missingDuration: numb
 
 /**
  * The service the dashboard should open on: the nearest date at or after
- * today. If every service is in the past, show the most recent one so the
- * debrief is still reachable.
+ * today.
+ *
+ * When nothing is scheduled ahead we deliberately do NOT fall back to the
+ * most recent past service. Opening on a service from three months ago,
+ * rendered identically to an upcoming one, is a mystery state — the PM
+ * cannot tell they are looking at history. Default to today instead, which
+ * produces the plan-next view. Past services stay reachable in the picker.
  */
 export function resolveServiceDate(dates: string[], today: string): string {
   if (dates.length === 0) return today;
-  const sorted = [...new Set(dates)].sort();
-  const next = sorted.find((d) => d >= today);
-  return next ?? sorted[sorted.length - 1];
+  return [...new Set(dates)].sort().find((d) => d >= today) ?? today;
+}
+
+/** Most recent service strictly before today, for the plan-next prompt. */
+export function resolveLastServiceDate(dates: string[], today: string): string | null {
+  const past = [...new Set(dates)].sort().filter((d) => d < today);
+  return past.length > 0 ? past[past.length - 1] : null;
 }
 
 export interface PmDashboardResult {
@@ -147,13 +156,15 @@ export const getPmDashboard = createServerFn({ method: "GET" })
 
     const orgTimezone = settings["org-timezone"] ?? "";
     const today = getTodayDateString(orgTimezone);
-    const { callLeadMinutes, serviceWindowMinutes } = readPhaseSettings(settings);
+    const { callLeadMinutes, serviceWindowMinutes, serviceWindowConfigured } =
+      readPhaseSettings(settings);
 
     const startTimes = new Map<string, RundownDateRow>();
     for (const row of rundownRows) startTimes.set(row.serviceDate, row);
 
     const allDates = [...new Set([...itemSummaries.keys(), ...startTimes.keys()])].sort();
     const serviceDate = data.serviceDate ?? resolveServiceDate(allDates, today);
+    const lastServiceDate = resolveLastServiceDate(allDates, today);
 
     // Every read below selects only the columns the dashboard uses. That
     // keeps the payload small and stops the page inheriting a failure from
@@ -229,6 +240,8 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       now: Date.now(),
       callLeadMinutes,
       serviceWindowMinutes,
+      serviceWindowConfigured,
+      lastServiceDate,
       rundown: rundownState.meta
         ? {
             scheduledStartTime: rundownState.meta.scheduledStartTime ?? null,

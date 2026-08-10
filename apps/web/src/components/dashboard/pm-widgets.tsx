@@ -96,11 +96,19 @@ const rundownHealthWidget: PmWidget = {
   title: "Rundown health",
   phases: "all",
   span: "half",
+  // With no rundown there is no health to report, and the plan-next
+  // widget already makes the ask. One message, one place.
+  isRelevant: ({ model }) => model.rundownHealth.itemCount > 0,
   render: ({ model, slug }) => {
     const health = model.rundownHealth;
-    const over = health.deltaMs > 0;
-    const ratio =
-      health.windowMs > 0 ? Math.min(1, health.plannedMs / health.windowMs) : 0;
+    // No configured window means no verdict. Show the runtime and let the
+    // PM judge it; inventing a target and grading against it is worse
+    // than saying nothing.
+    const judged = health.windowMs !== null && health.deltaMs !== null;
+    const over = judged && (health.deltaMs as number) > 0;
+    const ratio = judged
+      ? Math.min(1, health.plannedMs / (health.windowMs as number))
+      : 0;
 
     return (
       <WidgetCard
@@ -118,30 +126,46 @@ const rundownHealthWidget: PmWidget = {
           <WidgetEmpty>No rundown built for this service yet.</WidgetEmpty>
         ) : (
           <>
-            <div className="flex items-baseline gap-2">
-              <span
-                className={`text-2xl font-semibold tabular-nums ${
-                  over ? "text-red-400" : "text-green-400"
-                }`}
-              >
-                {over ? "+" : ""}
-                {formatDuration(health.deltaMs)}
-              </span>
-              <span className="text-xs text-board-muted">
-                {over ? "over window" : "under window"}
-              </span>
-            </div>
-            <p className="text-[11px] text-board-muted mt-1">
-              Planned {formatDuration(health.plannedMs, true)} · window{" "}
-              {formatDuration(health.windowMs, true)}
-            </p>
-            <div className="w-full h-1.5 rounded-full bg-board-bg mt-3 overflow-hidden flex">
-              <span
-                className={over ? "bg-yellow-400" : "bg-green-500"}
-                style={{ width: `${Math.round(ratio * 100)}%` }}
-              />
-              {over && <span className="bg-red-500 flex-1" />}
-            </div>
+            {judged ? (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`text-2xl font-semibold tabular-nums ${
+                      over ? "text-red-400" : "text-green-400"
+                    }`}
+                  >
+                    {over ? "+" : ""}
+                    {formatDuration(health.deltaMs as number)}
+                  </span>
+                  <span className="text-xs text-board-muted">
+                    {over ? "over window" : "under window"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-board-muted mt-1">
+                  Planned {formatDuration(health.plannedMs, true)} · window{" "}
+                  {formatDuration(health.windowMs as number, true)}
+                </p>
+                <div className="w-full h-1.5 rounded-full bg-board-bg mt-3 overflow-hidden flex">
+                  <span
+                    className={over ? "bg-yellow-400" : "bg-green-500"}
+                    style={{ width: `${Math.round(ratio * 100)}%` }}
+                  />
+                  {over && <span className="bg-red-500 flex-1" />}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-semibold tabular-nums text-board-text">
+                    {formatDuration(health.plannedMs, true)}
+                  </span>
+                  <span className="text-xs text-board-muted">planned runtime</span>
+                </div>
+                <p className="text-[11px] text-board-muted mt-1">
+                  No service length set, so nothing to compare against
+                </p>
+              </>
+            )}
 
             <dl className="mt-4 pt-3 border-t border-board-border space-y-1.5">
               <HealthRow
@@ -468,17 +492,30 @@ const debriefWidget: PmWidget = {
  * Planning days used to render an empty page. If the next service has
  * no rundown yet, that is itself the most useful thing to say.
  */
-const planningWidget: PmWidget = {
-  id: "planning-start",
-  title: "Get started",
+const planNextWidget: PmWidget = {
+  id: "plan-next",
+  title: "Plan the next service",
   phases: ["planning", "prep"],
-  span: "half",
-  isRelevant: ({ model }) => model.rundownHealth.itemCount === 0,
-  render: ({ slug }) => (
-    <WidgetCard title="Next service">
-      <p className="text-sm text-board-text">This service has no rundown yet.</p>
+  span: "two-thirds",
+  isRelevant: ({ model }) => model.planNext,
+  render: ({ model, slug }) => (
+    <WidgetCard title="Plan the next service">
+      <p className="text-sm text-board-text">
+        Nothing is scheduled for{" "}
+        {new Date(`${model.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        })}
+        .
+      </p>
       <p className="text-xs text-board-muted mt-1">
-        Build one, or load a saved template from a previous service.
+        {model.lastServiceDate
+          ? `Your last service was ${new Date(`${model.lastServiceDate}T12:00:00`).toLocaleDateString(
+              "en-US",
+              { weekday: "long", month: "long", day: "numeric" },
+            )} — open it from the date picker to copy its rundown.`
+          : "Build a rundown to get the dashboard working for you."}
       </p>
       <Link
         to={orgLink(slug, "rundown")}
@@ -495,13 +532,13 @@ const planningWidget: PmWidget = {
 
 export const PM_WIDGETS: PmWidget[] = [
   liveStripWidget,
+  planNextWidget,
   departmentsWidget,
   attentionWidget,
   rundownHealthWidget,
   readinessWidget,
   debriefWidget,
   arrivalsWidget,
-  planningWidget,
   cueExceptionsWidget,
   weekAheadWidget,
 ];

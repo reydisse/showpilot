@@ -107,6 +107,10 @@ export interface PmSnapshot {
   now: number;
   callLeadMinutes: number;
   serviceWindowMinutes: number;
+  /** False means the org never chose a window — do not judge runtime. */
+  serviceWindowConfigured: boolean;
+  /** Most recent service before today, for the plan-next state. */
+  lastServiceDate: string | null;
   rundown: { scheduledStartTime: string | null; status: "stopped" | "live" | "complete" } | null;
   items: RundownItem[];
   checklist: SnapshotChecklistItem[];
@@ -139,9 +143,10 @@ export interface AttentionItem {
 export interface RundownHealth {
   itemCount: number;
   plannedMs: number;
-  windowMs: number;
-  /** Planned minus window. Positive means the service overruns. */
-  deltaMs: number;
+  /** Null when the org has not configured a service length. */
+  windowMs: number | null;
+  /** Planned minus window, or null when there is no window to judge against. */
+  deltaMs: number | null;
   missingDuration: number;
   missingOwner: number;
   hardStopConflicts: number;
@@ -213,6 +218,9 @@ export interface PmDashboardModel {
   upcoming: UpcomingService[];
   debrief: DebriefSummary | null;
   hasRundown: boolean;
+  /** True when nothing is scheduled ahead — the dashboard plans instead. */
+  planNext: boolean;
+  lastServiceDate: string | null;
 }
 
 // ─── Departments ─────────────────────────────────────────────
@@ -254,13 +262,18 @@ export function normalizeCategory(raw: string): DepartmentKey {
   return "general";
 }
 
+/** True only when a real, org-chosen window is being overrun. */
+export function overrunsWindow(health: RundownHealth): boolean {
+  return health.deltaMs !== null && health.deltaMs > RUNTIME_TOLERANCE_MS;
+}
+
 // ─── Rundown health ──────────────────────────────────────────
 
 export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
   const { items, rundown, serviceWindowMinutes, now } = snapshot;
 
   const plannedMs = items.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
-  const windowMs = serviceWindowMinutes * MINUTE_MS;
+  const windowMs = snapshot.serviceWindowConfigured ? serviceWindowMinutes * MINUTE_MS : null;
 
   const missingDuration = items.filter((item) => !item.duration || item.duration <= 0).length;
   const missingOwner = items.filter((item) => !item.assignee || !item.assignee.trim()).length;
@@ -315,7 +328,7 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
     itemCount: items.length,
     plannedMs,
     windowMs,
-    deltaMs: plannedMs - windowMs,
+    deltaMs: windowMs === null ? null : plannedMs - windowMs,
     missingDuration,
     missingOwner,
     hardStopConflicts,
@@ -409,16 +422,21 @@ export function deriveAttentionQueue(
     });
   }
 
+  // An empty rundown during planning is not an incident, it is the normal
+  // starting point — the plan-next widget carries that ask, so the queue
+  // stays quiet rather than saying the same thing twice on one screen.
   if (health.itemCount === 0) {
-    out.push({
-      id: "rundown:empty",
-      severity: "critical",
-      title: "No rundown for this service",
-      detail: "Nothing to run, time, or cue from",
-      source: "rundown",
-      actionLabel: "Build",
-      actionPath: "rundown",
-    });
+    if (phase !== "planning" && phase !== "prep") {
+      out.push({
+        id: "rundown:empty",
+        severity: "critical",
+        title: "No rundown for this service",
+        detail: "Nothing to run, time, or cue from",
+        source: "rundown",
+        actionLabel: "Build",
+        actionPath: "rundown",
+      });
+    }
   } else {
     if (health.missingDuration > 0) {
       out.push({
@@ -453,7 +471,7 @@ export function deriveAttentionQueue(
         actionPath: "rundown",
       });
     }
-    if (health.deltaMs > RUNTIME_TOLERANCE_MS) {
+    if (health.deltaMs !== null && health.windowMs !== null && health.deltaMs > RUNTIME_TOLERANCE_MS) {
       out.push({
         id: "rundown:overrun",
         severity: "warning",
@@ -549,6 +567,47 @@ export function deriveAttentionQueue(
       actionLabel: "Dismiss",
       actionPath: "",
     });
+  }
+
+  // Setup nudges. Features the org has never configured are excluded from
+  // the readiness score — a church that does not livestream should be able
+  // to reach 100%. They surface here instead, at info level, so the
+  // capability is still discoverable. Suppressed once crew is on site;
+  // nobody configures a checklist thirty minutes before a service.
+  if (phase === "planning" || phase === "prep") {
+    if (checklist.length === 0) {
+      out.push({
+        id: "setup:checklist",
+        severity: "info",
+        title: "No pre-service checklist",
+        detail: "Checks the crew ticks off before the service starts",
+        source: "checklist",
+        actionLabel: "Set up",
+        actionPath: "production/checklist",
+      });
+    }
+    if (streamDestinations.length === 0) {
+      out.push({
+        id: "setup:stream",
+        severity: "info",
+        title: "No stream destination",
+        detail: "Add one if this service goes out to YouTube, Facebook or an RTMP endpoint",
+        source: "stream",
+        actionLabel: "Set up",
+        actionPath: "streaming/platforms",
+      });
+    }
+    if (health.itemCount > 0 && health.windowMs === null) {
+      out.push({
+        id: "setup:service-window",
+        severity: "info",
+        title: "No service length set",
+        detail: `Planned runtime is ${formatMinutes(health.plannedMs)}. Set a target and the dashboard will flag overruns.`,
+        source: "rundown",
+        actionLabel: "Settings",
+        actionPath: "settings",
+      });
+    }
   }
 
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
@@ -699,14 +758,13 @@ export function deriveReadiness(
       status: "fail",
       weight: 25,
     });
-  } else if (health.missingOwner > 0 || health.deltaMs > RUNTIME_TOLERANCE_MS) {
+  } else if (health.missingOwner > 0 || overrunsWindow(health)) {
     factors.push({
       id: "rundown",
       label: "Rundown",
-      detail:
-        health.deltaMs > RUNTIME_TOLERANCE_MS
-          ? `${formatMinutes(health.deltaMs)} over the window`
-          : `${plural(health.missingOwner, "item")} without an owner`,
+      detail: overrunsWindow(health)
+        ? `${formatMinutes(health.deltaMs as number)} over the window`
+        : `${plural(health.missingOwner, "item")} without an owner`,
       status: "warn",
       weight: 25,
     });
@@ -726,15 +784,7 @@ export function deriveReadiness(
   // is always worth flagging though.
   const total = snapshot.checklist.length;
   const done = snapshot.checklist.filter((c) => c.checked).length;
-  if (total === 0) {
-    factors.push({
-      id: "checklist",
-      label: "Checklist",
-      detail: "No checklist configured",
-      status: "warn",
-      weight: 20,
-    });
-  } else if (checklistIsDue(phase)) {
+  if (total > 0 && checklistIsDue(phase)) {
     const ratio = done / total;
     factors.push({
       id: "checklist",
@@ -745,12 +795,13 @@ export function deriveReadiness(
     });
   }
 
-  // Equipment
+  // Equipment. An org with no inventory is not "unready" — it just does
+  // not track gear here.
   const dead = snapshot.equipment.filter((e) => e.status === "out-of-service").length;
   const repair = snapshot.equipment.filter(
     (e) => e.status === "needs-repair" || e.status === "in-repair",
   ).length;
-  factors.push({
+  if (snapshot.equipment.length > 0) factors.push({
     id: "equipment",
     label: "Equipment",
     detail: dead > 0 ? `${plural(dead, "item")} out of service` : repair > 0 ? `${plural(repair, "item")} needs repair` : "All operational",
@@ -770,16 +821,11 @@ export function deriveReadiness(
   });
 
   // Stream
+  // Stream. Never configuring a destination means the org does not
+  // livestream; that is a choice, not a deficit. Configuring one and then
+  // turning it all off is a deficit.
   const enabled = snapshot.streamDestinations.filter((d) => d.enabled).length;
-  if (snapshot.streamDestinations.length === 0) {
-    factors.push({
-      id: "stream",
-      label: "Stream",
-      detail: "No destinations configured",
-      status: "warn",
-      weight: 10,
-    });
-  } else {
+  if (snapshot.streamDestinations.length > 0) {
     factors.push({
       id: "stream",
       label: "Stream",
@@ -906,6 +952,8 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     upcoming: deriveUpcoming(snapshot),
     debrief: phase === "debrief" ? deriveDebrief(snapshot, rundownHealth) : null,
     hasRundown: snapshot.rundown !== null || snapshot.items.length > 0,
+    planNext: rundownHealth.itemCount === 0 && (phase === "planning" || phase === "prep"),
+    lastServiceDate: snapshot.lastServiceDate,
   };
 }
 

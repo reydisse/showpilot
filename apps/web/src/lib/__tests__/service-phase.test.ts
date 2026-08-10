@@ -110,8 +110,12 @@ describe("getPhaseCountdown", () => {
 });
 
 describe("readPhaseSettings", () => {
-  it("uses defaults when unset", () => {
-    expect(readPhaseSettings({})).toEqual({ callLeadMinutes: 90, serviceWindowMinutes: 90 });
+  it("uses defaults when unset, and reports the window as unconfigured", () => {
+    expect(readPhaseSettings({})).toEqual({
+      callLeadMinutes: 90,
+      serviceWindowMinutes: 90,
+      serviceWindowConfigured: false,
+    });
   });
 
   it("reads configured values", () => {
@@ -120,12 +124,16 @@ describe("readPhaseSettings", () => {
         "default-call-lead-minutes": "45",
         "default-service-window-minutes": "75",
       }),
-    ).toEqual({ callLeadMinutes: 45, serviceWindowMinutes: 75 });
+    ).toEqual({ callLeadMinutes: 45, serviceWindowMinutes: 75, serviceWindowConfigured: true });
   });
 
-  it("ignores junk and non-positive values", () => {
+  it("treats junk and non-positive values as unconfigured", () => {
     expect(
       readPhaseSettings({ "default-call-lead-minutes": "0", "default-service-window-minutes": "x" }),
-    ).toEqual({ callLeadMinutes: 90, serviceWindowMinutes: 90 });
+    ).toEqual({
+      callLeadMinutes: 90,
+      serviceWindowMinutes: 90,
+      serviceWindowConfigured: false,
+    });
   });
 });

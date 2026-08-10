@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
@@ -124,12 +124,23 @@ function ProdManagerPage() {
           </div>
 
           <div className="flex items-center gap-6">
-            <div className="text-right">
-              <p className="text-xl font-semibold tabular-nums text-board-text">
-                {displayMs === null ? "--:--" : formatCountdown(displayMs)}
-              </p>
-              <p className="text-[10px] text-board-muted">{model.countdown.label}</p>
-            </div>
+            {/* A countdown with nothing to count toward is dead space in the
+                most prominent slot on the page. Offer the fix instead. */}
+            {displayMs === null ? (
+              <Link
+                to={`/${slug}/rundown` as unknown as Parameters<typeof Link>[0]["to"]}
+                className="text-xs px-3 py-1.5 rounded-lg border border-board-border text-board-text hover:bg-board-bg transition-colors"
+              >
+                Set a start time
+              </Link>
+            ) : (
+              <div className="text-right">
+                <p className="text-xl font-semibold tabular-nums text-board-text">
+                  {formatCountdown(displayMs)}
+                </p>
+                <p className="text-[10px] text-board-muted">{model.countdown.label}</p>
+              </div>
+            )}
             <div className="text-center pl-6 border-l border-board-border">
               <p
                 className={`text-xl font-semibold tabular-nums ${healthTextClass(model.readiness.status)}`}

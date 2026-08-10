@@ -44,6 +44,8 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     now: START - 3 * 60 * MINUTE,
     callLeadMinutes: 90,
     serviceWindowMinutes: 70,
+    serviceWindowConfigured: true,
+    lastServiceDate: null,
     rundown: { scheduledStartTime: new Date(START).toISOString(), status: "stopped" },
     items: [item({ id: "a" }), item({ id: "b", duration: 60 * MINUTE, title: "Message" })],
     checklist: [],
@@ -193,10 +195,18 @@ describe("deriveAttentionQueue", () => {
     expect(rows[0].detail).toBe("3 items outstanding across audio, video");
   });
 
-  it("flags an empty rundown as the top problem", () => {
+  it("flags an empty rundown once the service is imminent", () => {
     const snap = snapshot({ items: [] });
-    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
     expect(queue[0].id).toBe("rundown:empty");
+  });
+
+  it("leaves the empty-rundown ask to the plan-next widget while planning", () => {
+    const snap = snapshot({ items: [] });
+    for (const phase of ["planning", "prep"] as const) {
+      const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), phase);
+      expect(queue.some((q) => q.id === "rundown:empty")).toBe(false);
+    }
   });
 
   it("only complains about encoders once crew is on site", () => {
@@ -266,6 +276,7 @@ describe("deriveReadiness", () => {
   it("scores a clean service highly", () => {
     const snap = snapshot({
       checklist: [{ id: "c1", label: "Line check", category: "audio", checked: true }],
+      equipment: [{ id: "e1", name: "X32", category: "audio", status: "operational", nextService: null }],
       streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: true }],
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null }],
     });
@@ -363,5 +374,102 @@ describe("formatMinutes", () => {
     expect(formatMinutes(9 * MINUTE)).toBe("9 min");
     expect(formatMinutes(90 * MINUTE)).toBe("1h 30m");
     expect(formatMinutes(120 * MINUTE)).toBe("2h");
+  });
+});
+
+describe("service window is only judged when the org configured one", () => {
+  it("reports no delta and no overrun row when unset", () => {
+    const snap = snapshot({
+      serviceWindowConfigured: false,
+      items: [item({ id: "a", duration: 120 * MINUTE })],
+    });
+    const health = deriveRundownHealth(snap);
+    expect(health.windowMs).toBeNull();
+    expect(health.deltaMs).toBeNull();
+    expect(health.plannedMs).toBe(120 * MINUTE);
+
+    const queue = deriveAttentionQueue(snap, health, "prep");
+    expect(queue.some((q) => q.id === "rundown:overrun")).toBe(false);
+    // ...and prompts for the missing setting instead of inventing a verdict.
+    expect(queue.some((q) => q.id === "setup:service-window")).toBe(true);
+  });
+
+  it("judges runtime once a window exists", () => {
+    const snap = snapshot({
+      serviceWindowConfigured: true,
+      serviceWindowMinutes: 90,
+      items: [item({ id: "a", duration: 120 * MINUTE })],
+    });
+    const health = deriveRundownHealth(snap);
+    expect(health.deltaMs).toBe(30 * MINUTE);
+    expect(deriveAttentionQueue(snap, health, "prep").some((q) => q.id === "rundown:overrun")).toBe(
+      true,
+    );
+  });
+});
+
+describe("readiness excludes features the org never configured", () => {
+  function score(overrides: Partial<PmSnapshot>) {
+    const snap = snapshot(overrides);
+    const health = deriveRundownHealth(snap);
+    return deriveReadiness(
+      snap,
+      health,
+      deriveDepartments(snap, "prep"),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+  }
+
+  it("can reach 100 for an org that does not stream and tracks no gear", () => {
+    const readiness = score({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+    });
+    expect(readiness.factors.map((f) => f.id)).not.toContain("stream");
+    expect(readiness.factors.map((f) => f.id)).not.toContain("equipment");
+    expect(readiness.score).toBe(100);
+  });
+
+  it("still fails an org that configured a destination and turned it off", () => {
+    const readiness = score({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: false }],
+    });
+    expect(readiness.factors.find((f) => f.id === "stream")?.status).toBe("fail");
+    expect(readiness.score).toBeLessThan(100);
+  });
+
+  it("surfaces unconfigured features as info nudges rather than deductions", () => {
+    const snap = snapshot({});
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    const nudges = queue.filter((q) => q.id.startsWith("setup:"));
+    expect(nudges.map((n) => n.id).sort()).toEqual([
+      "setup:checklist",
+      "setup:stream",
+    ]);
+    expect(nudges.every((n) => n.severity === "info")).toBe(true);
+  });
+
+  it("suppresses setup nudges once crew is on site", () => {
+    const snap = snapshot({});
+    for (const phase of ["call", "live"] as const) {
+      const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), phase);
+      expect(queue.some((q) => q.id.startsWith("setup:"))).toBe(false);
+    }
+  });
+});
+
+describe("plan-next state", () => {
+  it("is set when the resolved service has no rundown", () => {
+    const model = derivePmDashboard(
+      snapshot({ items: [], rundown: null, lastServiceDate: "2026-05-19" }),
+    );
+    expect(model.phase).toBe("planning");
+    expect(model.planNext).toBe(true);
+    expect(model.lastServiceDate).toBe("2026-05-19");
+  });
+
+  it("is not set once a rundown exists", () => {
+    expect(derivePmDashboard(snapshot()).planNext).toBe(false);
   });
 });

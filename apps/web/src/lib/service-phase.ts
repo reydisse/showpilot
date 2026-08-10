@@ -188,20 +188,30 @@ export function phaseLabel(phase: ServicePhase): string {
   return PHASE_LABELS[phase];
 }
 
-/** Read the two phase settings out of an org's AppSetting map. */
+/**
+ * Read the two phase settings out of an org's AppSetting map.
+ *
+ * `serviceWindowConfigured` matters: the default window is fine for
+ * deciding when a service is roughly over, but it must never be used to
+ * tell an org their rundown overruns. Judging a 2 hour service against a
+ * 90 minute number nobody chose is the dashboard being confidently wrong.
+ */
 export function readPhaseSettings(settings: Record<string, string>): {
   callLeadMinutes: number;
   serviceWindowMinutes: number;
+  serviceWindowConfigured: boolean;
 } {
   const parse = (raw: string | undefined, fallback: number) => {
     const n = Number.parseInt(raw ?? "", 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
   };
+  const rawWindow = Number.parseInt(settings[SERVICE_WINDOW_SETTING_KEY] ?? "", 10);
   return {
     callLeadMinutes: parse(settings[CALL_LEAD_SETTING_KEY], DEFAULT_CALL_LEAD_MINUTES),
     serviceWindowMinutes: parse(
       settings[SERVICE_WINDOW_SETTING_KEY],
       DEFAULT_SERVICE_WINDOW_MINUTES,
     ),
+    serviceWindowConfigured: Number.isFinite(rawWindow) && rawWindow > 0,
   };
 }
