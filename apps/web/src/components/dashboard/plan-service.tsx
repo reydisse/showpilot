@@ -21,18 +21,45 @@ export function nextSunday(from: Date = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The trigger and the panel are separate so the header row can be a
+ * single non-wrapping scroller: the button rides inside it, the panel
+ * renders full width beneath. Open state therefore lives with the
+ * caller.
+ */
 export function PlanServiceButton({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="inline-flex shrink-0 items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
+    >
+      <CalendarPlus className="w-3.5 h-3.5" />
+      Plan a service
+    </button>
+  );
+}
+
+export function PlanServicePanel({
   orgId,
   serviceDates,
   onPlanned,
+  onClose,
 }: {
   orgId: string;
   /** Existing services, newest first — the clone-from options. */
   serviceDates: string[];
   onPlanned: (serviceDate: string) => void;
+  onClose: () => void;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [date, setDate] = useState(() => nextSunday());
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -56,9 +83,9 @@ export function PlanServiceButton({
         },
       });
       await router.invalidate();
-      setOpen(false);
       setName("");
       setStartTime("");
+      onClose();
       onPlanned(date);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not plan that service");
@@ -67,22 +94,10 @@ export function PlanServiceButton({
     }
   }
 
+  // Normal flow rather than an overlay, so it cannot cover the countdown
+  // or readiness during a live service.
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
-      >
-        <CalendarPlus className="w-3.5 h-3.5" />
-        Plan a service
-      </button>
-
-      {/* Rendered in normal flow rather than as an overlay, so it cannot
-          cover the countdown or readiness during a live service. */}
-      {open && (
-        <div className="w-full order-last mt-1 rounded-lg border border-board-border/70 bg-board-card px-4 py-3">
+    <div className="rounded-lg border border-board-border/70 bg-board-card px-4 py-3">
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Date" htmlFor="plan-date">
               <input
@@ -147,17 +162,15 @@ export function PlanServiceButton({
             </button>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={onClose}
               className="text-xs px-2.5 py-1.5 rounded-lg text-board-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
           </div>
 
-          {error && <p className="text-[11px] text-red-400 mt-2">{error}</p>}
-        </div>
-      )}
-    </>
+      {error && <p className="text-[11px] text-red-400 mt-2">{error}</p>}
+    </div>
   );
 }
 
