@@ -131,6 +131,7 @@ export interface SnapshotOpenItem {
 
 export interface SnapshotRecentService {
   serviceDate: string;
+  name: string;
   plannedMs: number;
   actualMs: number | null;
   incidentCount: number;
@@ -138,6 +139,7 @@ export interface SnapshotRecentService {
 
 export interface SnapshotUpcomingService {
   serviceDate: string;
+  name: string;
   scheduledStartTime: string | null;
   itemCount: number;
   missingDuration: number;
@@ -146,6 +148,8 @@ export interface SnapshotUpcomingService {
 
 export interface PmSnapshot {
   serviceDate: string;
+  /** Optional label, e.g. "Christmas Eve 7pm". */
+  serviceName: string;
   now: number;
   callLeadMinutes: number;
   serviceWindowMinutes: number;
@@ -339,6 +343,7 @@ export interface UpcomingService extends SnapshotUpcomingService {
 
 export interface PmDashboardModel {
   serviceDate: string;
+  serviceName: string;
   phase: ServicePhase;
   timing: ServiceTiming;
   countdown: PhaseCountdown;
@@ -1449,6 +1454,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
 
   return {
     serviceDate: snapshot.serviceDate,
+    serviceName: snapshot.serviceName,
     phase,
     timing,
     countdown,

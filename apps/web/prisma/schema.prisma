@@ -412,6 +412,8 @@ model Rundown {
   orgId              String
   organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   serviceDate        String
+  /// Optional label, e.g. "Christmas Eve 7pm". Empty for a regular service.
+  name               String       @default("")
   scheduledStartTime DateTime?
   status             String       @default("stopped")
   createdAt          DateTime     @default(now())

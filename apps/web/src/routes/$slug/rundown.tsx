@@ -265,14 +265,31 @@ function RundownPage() {
   );
   const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
+  const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleServiceNameChange = useCallback(
+    (value: string) => {
+      setServiceName(value);
+      if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
+      saveNameTimeoutRef.current = setTimeout(() => {
+        saveRundownMeta({ data: { orgId, serviceDate, name: value } }).catch(() => {});
+      }, 800);
+    },
+    [orgId, serviceDate],
+  );
+
   const handleScheduledStartChange = useCallback((timeStr: string) => {
     setScheduledStartTime(timeStr);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     saveMetaTimeoutRef.current = setTimeout(() => {
       let isoTime: string | null = null;
       if (timeStr) {
+        // Anchor to the service being edited, not to today. Setting
+        // 10:00 for next Sunday was saving 10:00 *today*, which left
+        // every future service with a start time in the past.
         const [h, m] = timeStr.split(":").map(Number);
-        const d = new Date();
+        const d = new Date(`${serviceDate}T00:00:00`);
         d.setHours(h, m, 0, 0);
         isoTime = d.toISOString();
       }
@@ -1088,8 +1105,25 @@ function RundownPage() {
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
-            {/* Date switcher */}
+            {/* Date switcher. The stepper is fine for nudging a day
+                either way; the picker is what makes planning a service
+                six weeks out possible without 42 clicks. */}
             <div className="flex items-center gap-1 ml-4 shrink-0">
+              <label className="sr-only" htmlFor="rundown-service-date">
+                Service date
+              </label>
+              <input
+                id="rundown-service-date"
+                type="date"
+                value={serviceDate}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (!next) return;
+                  setServiceDate(next);
+                  void loadDate(next);
+                }}
+                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
+              />
               <button
                 onClick={() => handleDateChange(-1)}
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
@@ -1116,6 +1150,22 @@ function RundownPage() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {/* Show start time */}
+            {canEditRundown && (
+              <label
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer"
+                title="Optional label for a special event, e.g. Christmas Eve 7pm"
+              >
+                <span className="whitespace-nowrap">Name</span>
+                <input
+                  type="text"
+                  value={serviceName}
+                  onChange={(e) => handleServiceNameChange(e.target.value)}
+                  placeholder="Regular service"
+                  maxLength={120}
+                  className="bg-transparent text-board-text outline-none w-[150px] placeholder:text-board-muted/50"
+                />
+              </label>
+            )}
             {canEditRundown && (
               <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer" title="Scheduled show start time — used for cascade timing">
                 <Clock className="w-3 h-3 shrink-0" />

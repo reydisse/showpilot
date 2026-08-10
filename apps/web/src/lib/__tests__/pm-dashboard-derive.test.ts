@@ -49,6 +49,7 @@ function item(overrides: Partial<RundownItem> = {}): RundownItem {
 function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
   return {
     serviceDate: "2026-08-09",
+    serviceName: "",
     now: START - 3 * 60 * MINUTE,
     callLeadMinutes: 90,
     serviceWindowMinutes: 70,
@@ -345,7 +346,7 @@ describe("deriveUpcoming", () => {
     const upcoming = deriveUpcoming(
       snapshot({
         upcoming: [
-          { serviceDate: "2026-08-16", scheduledStartTime: null, itemCount: 0, missingDuration: 0, missingOwner: 0 },
+          { serviceDate: "2026-08-16", name: "", scheduledStartTime: null, itemCount: 0, missingDuration: 0, missingOwner: 0 },
         ],
       }),
     );
@@ -357,7 +358,7 @@ describe("deriveUpcoming", () => {
     const upcoming = deriveUpcoming(
       snapshot({
         upcoming: [
-          { serviceDate: "2026-08-16", scheduledStartTime: null, itemCount: 4, missingDuration: 0, missingOwner: 0 },
+          { serviceDate: "2026-08-16", name: "", scheduledStartTime: null, itemCount: 4, missingDuration: 0, missingOwner: 0 },
         ],
       }),
     );
@@ -581,8 +582,8 @@ describe("recent services", () => {
     const recent = deriveRecent(
       snapshot({
         recent: [
-          { serviceDate: "2026-08-02", plannedMs: 60 * MINUTE, actualMs: 68 * MINUTE, incidentCount: 1 },
-          { serviceDate: "2026-07-26", plannedMs: 60 * MINUTE, actualMs: null, incidentCount: 0 },
+          { serviceDate: "2026-08-02", name: "", plannedMs: 60 * MINUTE, actualMs: 68 * MINUTE, incidentCount: 1 },
+          { serviceDate: "2026-07-26", name: "", plannedMs: 60 * MINUTE, actualMs: null, incidentCount: 0 },
         ],
       }),
     );

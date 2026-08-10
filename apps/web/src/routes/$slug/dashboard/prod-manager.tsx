@@ -95,6 +95,10 @@ function ProdManagerPage() {
 
           <span className="w-px h-5 bg-board-border" aria-hidden="true" />
 
+          {model.serviceName && (
+            <span className="text-xs text-board-text">{model.serviceName}</span>
+          )}
+
           <label htmlFor="pm-service-date" className="sr-only">
             Service date
           </label>

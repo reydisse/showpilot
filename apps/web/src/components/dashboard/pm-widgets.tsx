@@ -330,6 +330,7 @@ const weekAheadWidget: PmWidget = {
                 })}
               </p>
               <p className="text-[10px] text-board-muted truncate">
+                {service.name ? `${service.name} · ` : ""}
                 {service.itemCount} {service.itemCount === 1 ? "item" : "items"}
                 {service.scheduledStartTime ? "" : " · no start time"}
               </p>

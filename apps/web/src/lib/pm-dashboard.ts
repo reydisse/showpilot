@@ -71,6 +71,7 @@ interface RundownDateRow {
   serviceDate: string;
   scheduledStartTime: Date | null;
   status: string;
+  name: string;
 }
 
 /**
@@ -83,7 +84,12 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
     rundown?: {
       findMany(args: {
         where: { orgId: string };
-        select: { serviceDate: true; scheduledStartTime: true; status: true };
+        select: {
+          serviceDate: true;
+          scheduledStartTime: true;
+          status: true;
+          name: true;
+        };
       }): Promise<RundownDateRow[]>;
     };
   };
@@ -91,7 +97,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
   try {
     return await prisma.rundown.findMany({
       where: { orgId },
-      select: { serviceDate: true, scheduledStartTime: true, status: true },
+      select: { serviceDate: true, scheduledStartTime: true, status: true, name: true },
     });
   } catch {
     return [];
@@ -426,6 +432,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       const span = actualByDate.get(date);
       return {
         serviceDate: date,
+        name: startTimes.get(date)?.name ?? "",
         plannedMs: itemSummaries.get(date)?.plannedMs ?? 0,
         actualMs: span && Number.isFinite(span.first) ? span.last - span.first : null,
         incidentCount: incidentsByDate.get(date) ?? 0,
@@ -443,6 +450,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         return {
           serviceDate: date,
           scheduledStartTime: row?.scheduledStartTime ? row.scheduledStartTime.toISOString() : null,
+          name: row?.name ?? "",
           itemCount: summary.itemCount,
           missingDuration: summary.missingDuration,
           missingOwner: summary.missingOwner,
@@ -451,6 +459,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
 
     const snapshot: PmSnapshot = {
       serviceDate,
+      serviceName: startTimes.get(serviceDate)?.name ?? "",
       now: Date.now(),
       callLeadMinutes,
       serviceWindowMinutes,
