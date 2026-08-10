@@ -24,6 +24,7 @@ import {
   type PmSnapshot,
   type SnapshotAssignment,
   type SnapshotOpenItem,
+  type SnapshotOnFloorMember,
   type SnapshotRecentService,
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
@@ -33,6 +34,12 @@ const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
 const UPCOMING_LIMIT = 3;
 const NOTIFICATION_LIMIT = 8;
 const RECENT_LIMIT = 4;
+/**
+ * Crew photos are stored as data URLs (the schema allows ~2MB each), so
+ * they are only fetched for people actually checked in, and capped.
+ * Selecting photoUrl across a whole roster would be tens of megabytes.
+ */
+const ON_FLOOR_PHOTO_LIMIT = 18;
 const OPEN_ITEM_LIMIT = 6;
 
 async function getOrgMemberRole(orgId: string) {
@@ -263,7 +270,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // The four most recent services before this one, for the history card.
     const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
 
-    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, openItems, recentItems, recentIncidents] =
+    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
         prisma.checklistTemplate.findMany({
@@ -313,6 +320,13 @@ export const getPmDashboard = createServerFn({ method: "GET" })
           select: { id: true, title: true, message: true, severity: true },
         }),
         loadAssignments(orgId, serviceDate),
+        prisma.crewMember.findMany({
+          where: { orgId, isOnline: true },
+          orderBy: { lastCheckIn: "desc" },
+          take: ON_FLOOR_PHOTO_LIMIT,
+          select: { id: true, name: true, role: true, photoUrl: true, lastCheckIn: true },
+        }),
+        prisma.crewMember.count({ where: { orgId, isOnline: true } }),
         loadOpenItems(orgId, serviceDate),
         recentDates.length === 0
           ? Promise.resolve([])
@@ -448,6 +462,14 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         description: i.description,
       })),
       recent,
+      onFloor: onFloorRows.map<SnapshotOnFloorMember>((m) => ({
+        id: m.id,
+        name: m.name,
+        role: m.role,
+        photoUrl: m.photoUrl,
+        lastCheckIn: m.lastCheckIn ? m.lastCheckIn.toISOString() : null,
+      })),
+      onFloorTotal,
     };
 
     return {

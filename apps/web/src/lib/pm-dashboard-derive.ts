@@ -94,6 +94,15 @@ export interface SnapshotNotification {
   severity: string;
 }
 
+/** Someone currently checked in. Photos are only loaded for these. */
+export interface SnapshotOnFloorMember {
+  id: string;
+  name: string;
+  role: string;
+  photoUrl: string;
+  lastCheckIn: string | null;
+}
+
 export interface SnapshotAssignment {
   id: string;
   role: string;
@@ -148,6 +157,9 @@ export interface PmSnapshot {
   assignments: SnapshotAssignment[];
   openItems: SnapshotOpenItem[];
   recent: SnapshotRecentService[];
+  onFloor: SnapshotOnFloorMember[];
+  /** Checked-in count before the photo query's cap was applied. */
+  onFloorTotal: number;
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -233,6 +245,23 @@ export interface DebriefSummary {
   incidentCount: number;
 }
 
+export interface OnFloorMember {
+  id: string;
+  name: string;
+  role: string;
+  photoUrl: string;
+  initials: string;
+  /** Minutes since check-in. Null when the timestamp is missing. */
+  sinceMinutes: number | null;
+}
+
+export interface OnFloor {
+  members: OnFloorMember[];
+  total: number;
+  /** People checked in beyond the ones we have avatars for. */
+  overflow: number;
+}
+
 export interface CrewPosition {
   id: string;
   role: string;
@@ -285,6 +314,7 @@ export interface PmDashboardModel {
   crew: CrewBoard;
   openItems: OpenItem[];
   recent: RecentService[];
+  onFloor: OnFloor;
 }
 
 // ─── Departments ─────────────────────────────────────────────
@@ -906,6 +936,45 @@ export function deriveCrewBoard(snapshot: PmSnapshot): CrewBoard {
   };
 }
 
+// ─── On the floor ────────────────────────────────────────────
+
+/** "JS" from "Jordan Smith", "J" from "Jordan". */
+export function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+/**
+ * Who is physically here. Most recent arrival first, so the strip
+ * changes at the front as people trickle in and the PM sees movement
+ * without reading names.
+ */
+export function deriveOnFloor(snapshot: PmSnapshot): OnFloor {
+  const members: OnFloorMember[] = snapshot.onFloor
+    .map((member) => {
+      const checkedIn = member.lastCheckIn ? new Date(member.lastCheckIn).getTime() : NaN;
+      return {
+        id: member.id,
+        name: member.name,
+        role: member.role,
+        photoUrl: member.photoUrl,
+        initials: initialsFor(member.name),
+        sinceMinutes: Number.isNaN(checkedIn)
+          ? null
+          : Math.max(0, Math.round((snapshot.now - checkedIn) / MINUTE_MS)),
+      };
+    })
+    .sort((a, b) => (a.sinceMinutes ?? Infinity) - (b.sinceMinutes ?? Infinity));
+
+  return {
+    members,
+    total: snapshot.onFloorTotal,
+    overflow: Math.max(0, snapshot.onFloorTotal - members.length),
+  };
+}
+
 // ─── Carried-forward items ───────────────────────────────────
 
 /**
@@ -1227,6 +1296,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     crew,
     openItems: deriveOpenItems(snapshot),
     recent: deriveRecent(snapshot),
+    onFloor: deriveOnFloor(snapshot),
   };
 }
 

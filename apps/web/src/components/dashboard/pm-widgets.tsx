@@ -547,6 +547,69 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
   );
 }
 
+// ─── On the floor ────────────────────────────────────────────
+
+/**
+ * Who is physically in the building. A PM glancing up mid-prep wants
+ * faces, not a number — recognising that audio has arrived is faster
+ * than reading "7 of 12". Most recent arrival sits at the front, so the
+ * strip visibly changes as people trickle in.
+ */
+const onFloorWidget: PmWidget = {
+  id: "on-floor",
+  title: "On the floor",
+  phases: "all",
+  region: "banner",
+  isRelevant: ({ model }) => model.onFloor.total > 0,
+  render: ({ model, slug }) => {
+    const { members, total, overflow } = model.onFloor;
+    return (
+      <div className="rounded-lg border border-board-border/70 bg-board-card px-4 py-2.5 flex items-center gap-4">
+        <WidgetLabel>On the floor</WidgetLabel>
+
+        <div className="flex items-center -space-x-2">
+          {members.map((member) => (
+            <span
+              key={member.id}
+              title={`${member.name} — ${member.role}${
+                member.sinceMinutes === null ? "" : ` · in ${member.sinceMinutes}m`
+              }`}
+              className="relative w-7 h-7 rounded-full overflow-hidden bg-board-bg ring-2 ring-board-card shrink-0"
+            >
+              {member.photoUrl ? (
+                <img
+                  src={member.photoUrl}
+                  alt={member.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="w-full h-full flex items-center justify-center text-[9px] font-medium text-board-muted">
+                  {member.initials}
+                </span>
+              )}
+            </span>
+          ))}
+          {overflow > 0 && (
+            <span className="relative w-7 h-7 rounded-full bg-board-bg ring-2 ring-board-card shrink-0 flex items-center justify-center text-[9px] font-medium text-board-muted tabular-nums">
+              +{overflow}
+            </span>
+          )}
+        </div>
+
+        <span className="text-xs text-board-muted tabular-nums">
+          {total} checked in
+        </span>
+
+        <Link to={orgLink(slug, "checkin")} className="ml-auto shrink-0">
+          <WidgetAction>Check-in</WidgetAction>
+        </Link>
+      </div>
+    );
+  },
+};
+
 // ─── Crew board ──────────────────────────────────────────────
 
 const CREW_STATUS: Record<
@@ -746,6 +809,7 @@ const recentWidget: PmWidget = {
 
 export const PM_WIDGETS: PmWidget[] = [
   liveStripWidget,
+  onFloorWidget,
   departmentsWidget,
   planNextWidget,
   attentionWidget,

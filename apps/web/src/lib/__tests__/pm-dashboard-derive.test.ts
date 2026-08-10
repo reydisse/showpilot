@@ -5,6 +5,7 @@ import {
   deriveCrewBoard,
   deriveCueExceptions,
   deriveDepartments,
+  deriveOnFloor,
   deriveOpenItems,
   deriveRecent,
   deriveReadiness,
@@ -12,6 +13,7 @@ import {
   deriveUpcoming,
   derivePmDashboard,
   formatMinutes,
+  initialsFor,
   normalizeCategory,
   type PmSnapshot,
 } from "@/lib/pm-dashboard-derive";
@@ -63,6 +65,8 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     assignments: [],
     openItems: [],
     recent: [],
+    onFloor: [],
+    onFloorTotal: 0,
     ...overrides,
   };
 }
@@ -635,5 +639,41 @@ describe("the dashboard must not contradict itself", () => {
       "prep",
     );
     expect(readiness.factors.find((f) => f.id === "incidents")?.detail).toBe("None open");
+  });
+});
+
+describe("on the floor", () => {
+  it("builds initials from one or two names", () => {
+    expect(initialsFor("Jordan Smith")).toBe("JS");
+    expect(initialsFor("Jordan")).toBe("J");
+    expect(initialsFor("  ada  b  lovelace ")).toBe("AL");
+    expect(initialsFor("")).toBe("?");
+  });
+
+  it("puts the most recent arrival first", () => {
+    const floor = deriveOnFloor(
+      snapshot({
+        now: START,
+        onFloorTotal: 2,
+        onFloor: [
+          { id: "1", name: "Early Bird", role: "Audio", photoUrl: "", lastCheckIn: new Date(START - 60 * MINUTE).toISOString() },
+          { id: "2", name: "Just Arrived", role: "Camera", photoUrl: "", lastCheckIn: new Date(START - 2 * MINUTE).toISOString() },
+        ],
+      }),
+    );
+    expect(floor.members.map((m) => m.name)).toEqual(["Just Arrived", "Early Bird"]);
+    expect(floor.members[0].sinceMinutes).toBe(2);
+    expect(floor.overflow).toBe(0);
+  });
+
+  it("reports the overflow when more are in than we fetched photos for", () => {
+    const floor = deriveOnFloor(
+      snapshot({
+        onFloorTotal: 25,
+        onFloor: [{ id: "1", name: "Sam", role: "Audio", photoUrl: "", lastCheckIn: null }],
+      }),
+    );
+    expect(floor.total).toBe(25);
+    expect(floor.overflow).toBe(24);
   });
 });
