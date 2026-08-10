@@ -1081,8 +1081,10 @@ function RundownPage() {
     ? {
         serviceDate,
         scheduledStartTime: (() => {
+          // Anchor the cascade preview to the service being edited. Using
+          // today put every future service's timings on the wrong day.
           const [h, m] = scheduledStartTime.split(":").map(Number);
-          const d = new Date();
+          const d = new Date(`${serviceDate}T00:00:00`);
           d.setHours(h, m, 0, 0);
           return d.toISOString();
         })(),
@@ -1095,8 +1097,8 @@ function RundownPage() {
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header — outside minWidth so it always fills the viewport */}
       <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0">
             <div>
               <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
                 Rundown
@@ -1146,26 +1148,22 @@ function RundownPage() {
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Show start time */}
-            {canEditRundown && (
-              <label
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer"
-                title="Optional label for a special event, e.g. Christmas Eve 7pm"
-              >
-                <span className="whitespace-nowrap">Name</span>
+              {canEditRundown && (
                 <input
                   type="text"
                   value={serviceName}
                   onChange={(e) => handleServiceNameChange(e.target.value)}
-                  placeholder="Regular service"
+                  placeholder="Name this service"
                   maxLength={120}
-                  className="bg-transparent text-board-text outline-none w-[150px] placeholder:text-board-muted/50"
+                  aria-label="Service name"
+                  title="Optional label for a special event, e.g. Christmas Eve 7pm"
+                  className="ml-1 min-w-0 w-[130px] bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border focus:w-[180px] transition-all"
                 />
-              </label>
-            )}
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
+            {/* Show start time */}
             {canEditRundown && (
               <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer" title="Scheduled show start time — used for cascade timing">
                 <Clock className="w-3 h-3 shrink-0" />
