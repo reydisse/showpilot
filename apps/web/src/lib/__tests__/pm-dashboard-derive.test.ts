@@ -17,6 +17,7 @@ import {
   formatMinutes,
   initialsFor,
   normalizeCategory,
+  weekStartFor,
   type PmSnapshot,
 } from "@/lib/pm-dashboard-derive";
 import { getServiceTiming } from "@/lib/service-phase";
@@ -70,6 +71,8 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     onFloor: [],
     onFloorTotal: 0,
     schedulingInUse: true,
+    rosterDuty: { weekStart: "2026-08-09", pm: null, tm: null },
+    orgMembers: [],
     ...overrides,
   };
 }
@@ -706,8 +709,8 @@ describe("duty officers", () => {
       }),
     );
     expect(duty.map((d) => d.key)).toEqual(["pm", "tm"]);
-    expect(duty[0]).toMatchObject({ name: "Rey", status: "confirmed", role: "Producer" });
-    expect(duty[1]).toMatchObject({ name: null, status: "open" });
+    expect(duty[0]).toMatchObject({ name: "Rey", status: "confirmed", source: "service" });
+    expect(duty[1]).toMatchObject({ name: null, status: "open", source: null });
   });
 
   it("keeps duty roles out of the crew board so nobody is listed twice", () => {
@@ -719,6 +722,51 @@ describe("duty officers", () => {
     });
     expect(deriveCrewBoard(snap).positions.map((p) => p.role)).toEqual(["Camera 1"]);
     expect(deriveDuty(snap)[0].name).toBe("Rey");
+  });
+
+  it("prefers the org's weekly roster over a per-service assignment", () => {
+    // The kiosk on-duty board already reads the weekly roster. Two
+    // screens naming different people would be worse than either.
+    const duty = deriveDuty(
+      snapshot({
+        rosterDuty: {
+          weekStart: "2026-08-09",
+          pm: { id: "u1", name: "Miriam Tetteh" },
+          tm: null,
+        },
+        assignments: [
+          { id: "a1", role: "Producer", crewMemberName: "Someone Else", status: "confirmed" },
+        ],
+      }),
+    );
+    expect(duty[0]).toMatchObject({
+      name: "Miriam Tetteh",
+      source: "roster",
+      userId: "u1",
+      status: "confirmed",
+    });
+  });
+
+  it("falls back to the per-service assignment when the week is unset", () => {
+    const duty = deriveDuty(
+      snapshot({
+        rosterDuty: { weekStart: "2026-08-09", pm: null, tm: { id: "u2", name: "Ada" } },
+        assignments: [
+          { id: "a1", role: "Producer", crewMemberName: "Rey", status: "assigned" },
+        ],
+      }),
+    );
+    expect(duty[0]).toMatchObject({ name: "Rey", source: "service", status: "assigned" });
+    expect(duty[1]).toMatchObject({ name: "Ada", source: "roster" });
+  });
+});
+
+describe("weekStartFor", () => {
+  it("snaps to the Sunday of that week, matching the roster admin", () => {
+    expect(weekStartFor("2026-08-12")).toBe("2026-08-09");
+    expect(weekStartFor("2026-08-09")).toBe("2026-08-09");
+    expect(weekStartFor("2026-08-15")).toBe("2026-08-09");
+    expect(weekStartFor("2026-08-16")).toBe("2026-08-16");
   });
 });
 
@@ -764,6 +812,8 @@ describe("scheduling is not scored until the org uses it", () => {
     const factor = crewFactor(
       {
         schedulingInUse: true,
+    rosterDuty: { weekStart: "2026-08-09", pm: null, tm: null },
+    orgMembers: [],
         assignments: [{ id: "a1", role: "Camera 1", crewMemberName: null, status: "assigned" }],
       },
       "prep",

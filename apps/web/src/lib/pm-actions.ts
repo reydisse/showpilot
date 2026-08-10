@@ -214,25 +214,27 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
 // ─── Set a duty officer ──────────────────────────────────────
 
 /**
- * Minimal inline scheduling: name the production or technical manager
- * for one service.
+ * Name the production or technical manager for a week.
  *
- * ShowPilot has no scheduling product yet, and the intended destination
- * is a Planning Center Services adapter writing into ServiceAssignment
- * as the native fallback (see the OnTime and ProPresenter pattern).
- * This is deliberately not a rota editor — it exists so the two roles
- * the dashboard reports on can actually be set today, and it writes the
- * same rows the adapter eventually will.
+ * Writes to `roster_assignment` — the org's existing weekly on-duty
+ * roster (migration 0005), which the kiosk on-duty board and the
+ * settings roster tab already read. There is deliberately no second
+ * store: two screens disagreeing about who is running the service
+ * would be worse than either.
+ *
+ * Unlike `saveRosterWeek`, which replaces a whole week, this touches
+ * only the one slot so it cannot clobber the tech assignments made in
+ * settings.
  */
 export const setDutyOfficer = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
       z.object({
         orgId: idSchema,
-        serviceDate: serviceDateSchema,
+        weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
         duty: z.enum(["pm", "tm"]),
         /** Null clears the slot. */
-        crewMemberId: idSchema.nullable(),
+        userId: idSchema.nullable(),
       }),
       data,
     ),
@@ -240,57 +242,56 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
 
-    const prisma = getPrisma() as unknown as {
-      serviceAssignment?: {
-        findMany(args: unknown): Promise<{ id: string; role: string }[]>;
-        update(args: unknown): Promise<unknown>;
-        create(args: unknown): Promise<unknown>;
-        delete(args: unknown): Promise<unknown>;
-      };
-    };
-    if (!prisma.serviceAssignment) {
-      throw new Error("Crew scheduling is not available — run pnpm db:generate");
-    }
+    const { getD1 } = await import("@/lib/d1");
+    const db = getD1();
 
-    // The crew member must belong to this org; never trust the id alone.
-    if (data.crewMemberId) {
-      const member = await getPrisma().crewMember.findFirst({
-        where: { id: data.crewMemberId, orgId: data.orgId },
+    // The user must actually be a member of this org.
+    if (data.userId) {
+      const member = await getPrisma().member.findFirst({
+        where: { organizationId: data.orgId, userId: data.userId },
         select: { id: true },
       });
       if (!member) throw new Error("Not found");
     }
 
-    const { dutyKeyFor } = await import("@/lib/pm-dashboard-derive");
-    const existing = await prisma.serviceAssignment.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
-      select: { id: true, role: true },
-    });
-    const current = existing.find((row) => dutyKeyFor(row.role) === data.duty);
-
-    if (!data.crewMemberId) {
-      if (current) await prisma.serviceAssignment.delete({ where: { id: current.id } });
+    if (data.duty === "pm") {
+      await db
+        .prepare("DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND kind = 'pm'")
+        .bind(data.orgId, data.weekStart)
+        .run();
+      if (data.userId) {
+        await db
+          .prepare(
+            "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'pm', NULL, ?)",
+          )
+          .bind(crypto.randomUUID(), data.orgId, data.weekStart, data.userId)
+          .run();
+      }
       return { ok: true };
     }
 
-    const role = data.duty === "pm" ? "Production Manager" : "Technical Manager";
-    if (current) {
-      await prisma.serviceAssignment.update({
-        where: { id: current.id },
-        // A newly named person has not confirmed yet, whoever they are.
-        data: { crewMemberId: data.crewMemberId, status: "assigned", respondedAt: null },
-      });
-    } else {
-      await prisma.serviceAssignment.create({
-        data: {
-          orgId: data.orgId,
-          serviceDate: data.serviceDate,
-          role,
-          crewMemberId: data.crewMemberId,
-          status: "assigned",
-        },
-      });
+    // The technical manager is a tech row pointing at the "tm" roster role.
+    const role = await db
+      .prepare("SELECT id FROM roster_role WHERE orgId = ? AND lower(code) = 'tm' LIMIT 1")
+      .bind(data.orgId)
+      .first<{ id: string }>();
+    if (!role) {
+      throw new Error(
+        'No "tm" roster role. Add the default roster roles in Settings first.',
+      );
     }
 
+    await db
+      .prepare("DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND roleId = ?")
+      .bind(data.orgId, data.weekStart, role.id)
+      .run();
+    if (data.userId) {
+      await db
+        .prepare(
+          "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'tech', ?, ?)",
+        )
+        .bind(crypto.randomUUID(), data.orgId, data.weekStart, role.id, data.userId)
+        .run();
+    }
     return { ok: true };
   });

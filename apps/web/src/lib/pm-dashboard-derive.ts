@@ -103,6 +103,16 @@ export interface SnapshotOnFloorMember {
   lastCheckIn: string | null;
 }
 
+/**
+ * The org's weekly on-duty roster (roster_assignment, migration 0005),
+ * which predates ServiceAssignment and is the authoritative source.
+ */
+export interface SnapshotRosterDuty {
+  weekStart: string;
+  pm: { id: string; name: string } | null;
+  tm: { id: string; name: string } | null;
+}
+
 export interface SnapshotAssignment {
   id: string;
   role: string;
@@ -166,6 +176,9 @@ export interface PmSnapshot {
    * not exist for them yet) — so it must not be scored.
    */
   schedulingInUse: boolean;
+  rosterDuty: SnapshotRosterDuty;
+  /** Org members eligible to be named on duty. */
+  orgMembers: { id: string; name: string }[];
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -277,6 +290,13 @@ export interface DutyOfficer {
   /** The role string as the org actually wrote it, e.g. "Tech Director". */
   role: string;
   status: CrewPosition["status"];
+  /**
+   * Where the name came from. "roster" is the org's weekly rota and wins;
+   * "service" is a per-service override set from this dashboard.
+   */
+  source: "roster" | "service" | null;
+  /** User id when it came from the roster — drives the picker's value. */
+  userId: string | null;
 }
 
 export interface CrewPosition {
@@ -336,6 +356,10 @@ export interface PmDashboardModel {
   lastServiceDate: string | null;
   crew: CrewBoard;
   duty: DutyOfficer[];
+  /** Sunday of the week the on-screen service falls in. */
+  dutyWeekStart: string;
+  /** Org members eligible to be named on duty. */
+  orgMembers: { id: string; name: string }[];
   /** The whole crew roster, for inline assignment controls. */
   roster: RosterMember[];
   schedulingInUse: boolean;
@@ -973,25 +997,68 @@ const DUTY_LABELS: Record<DutyKey, string> = {
   tm: "Technical manager",
 };
 
+/** Sunday of the week a date falls in, matching the roster admin's snapSunday. */
+export function weekStartFor(serviceDate: string): string {
+  const d = new Date(`${serviceDate}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return serviceDate;
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Who is running the service. Always returns both slots, because an
  * unnamed one is the useful information — a Sunday with no technical
  * manager is a problem you want to see, not an absent row.
+ *
+ * The org's weekly roster wins. It predates this dashboard, it is what
+ * the kiosk on-duty board already shows, and two screens disagreeing
+ * about who is running the service would be worse than either. A
+ * per-service assignment is only consulted when the week is unset.
  */
 export function deriveDuty(snapshot: PmSnapshot): DutyOfficer[] {
   return (["pm", "tm"] as DutyKey[]).map((key) => {
-    const match = snapshot.assignments.find((a) => dutyKeyFor(a.role) === key);
-    if (!match) {
-      return { key, label: DUTY_LABELS[key], name: null, role: DUTY_LABELS[key], status: "open" as const };
+    const fromRoster = snapshot.rosterDuty[key];
+    if (fromRoster) {
+      return {
+        key,
+        label: DUTY_LABELS[key],
+        name: fromRoster.name,
+        role: DUTY_LABELS[key],
+        // The weekly roster carries no confirmation state; being on the
+        // rota is the commitment.
+        status: "confirmed" as const,
+        source: "roster" as const,
+        userId: fromRoster.id,
+      };
     }
-    const status: CrewPosition["status"] = !match.crewMemberName
-      ? "open"
-      : match.status === "confirmed"
+
+    const match = snapshot.assignments.find((a) => dutyKeyFor(a.role) === key);
+    if (!match || !match.crewMemberName) {
+      return {
+        key,
+        label: DUTY_LABELS[key],
+        name: null,
+        role: DUTY_LABELS[key],
+        status: "open" as const,
+        source: null,
+        userId: null,
+      };
+    }
+    const status: CrewPosition["status"] =
+      match.status === "confirmed"
         ? "confirmed"
         : match.status === "declined"
           ? "declined"
           : "assigned";
-    return { key, label: DUTY_LABELS[key], name: match.crewMemberName, role: match.role, status };
+    return {
+      key,
+      label: DUTY_LABELS[key],
+      name: match.crewMemberName,
+      role: match.role,
+      status,
+      source: "service" as const,
+      userId: null,
+    };
   });
 }
 
@@ -1398,6 +1465,8 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     lastServiceDate: snapshot.lastServiceDate,
     crew,
     duty: deriveDuty(snapshot),
+    dutyWeekStart: snapshot.rosterDuty.weekStart,
+    orgMembers: snapshot.orgMembers,
     roster: snapshot.crew.map((m) => ({ id: m.id, name: m.name, role: m.role })),
     schedulingInUse: snapshot.schedulingInUse,
     openItems: deriveOpenItems(snapshot),

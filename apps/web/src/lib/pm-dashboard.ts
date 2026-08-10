@@ -13,6 +13,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
+import { getD1 } from "@/lib/d1";
 import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
@@ -25,6 +26,8 @@ import {
   type SnapshotAssignment,
   type SnapshotOpenItem,
   type SnapshotOnFloorMember,
+  type SnapshotRosterDuty,
+  weekStartFor,
   type SnapshotRecentService,
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
@@ -108,6 +111,46 @@ interface AssignmentRow {
  * checkout that has not run `pnpm db:generate` will not have the
  * delegate — same defensive access `rundown.ts` uses for `rundown`.
  */
+/**
+ * The org's weekly on-duty roster. These tables (roster_role,
+ * roster_assignment, migration 0005) are raw D1 and not in the Prisma
+ * client, so they are queried directly — the same way kiosk-admin.ts
+ * and kiosk-api.ts do.
+ *
+ * The TM slot is whichever roster_role carries the code "tm"; the PM is
+ * the row with kind = 'pm'.
+ */
+async function loadRosterDuty(orgId: string, serviceDate: string): Promise<SnapshotRosterDuty> {
+  const weekStart = weekStartFor(serviceDate);
+  const empty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
+  try {
+    const rows =
+      (
+        await getD1()
+          .prepare(
+            `SELECT a.kind AS kind, r.code AS code, u.id AS userId, u.name AS name
+               FROM roster_assignment a
+               JOIN user u ON u.id = a.userId
+               LEFT JOIN roster_role r ON r.id = a.roleId
+              WHERE a.orgId = ? AND a.weekStart = ?`,
+          )
+          .bind(orgId, weekStart)
+          .all<{ kind: string; code: string | null; userId: string; name: string }>()
+      ).results ?? [];
+
+    const duty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
+    for (const row of rows) {
+      const person = { id: row.userId, name: row.name };
+      if (row.kind === "pm") duty.pm = person;
+      else if ((row.code ?? "").toLowerCase() === "tm") duty.tm = person;
+    }
+    return duty;
+  } catch {
+    // Org predates migration 0005, or the roster tables are absent.
+    return empty;
+  }
+}
+
 /** Has this org ever assigned anyone to anything? */
 async function countAllAssignments(orgId: string): Promise<number> {
   const prisma = getPrisma() as unknown as {
@@ -283,7 +326,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // The four most recent services before this one, for the history card.
     const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
 
-    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
+    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, rosterDuty, orgMemberRows, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
         prisma.checklistTemplate.findMany({
@@ -334,6 +377,11 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         }),
         loadAssignments(orgId, serviceDate),
         countAllAssignments(orgId),
+        loadRosterDuty(orgId, serviceDate),
+        prisma.member.findMany({
+          where: { organizationId: orgId },
+          select: { user: { select: { id: true, name: true } } },
+        }),
         prisma.crewMember.findMany({
           where: { orgId, isOnline: true },
           orderBy: { lastCheckIn: "desc" },
@@ -485,6 +533,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       })),
       onFloorTotal,
       schedulingInUse: assignmentsEver > 0,
+      rosterDuty,
+      orgMembers: orgMemberRows
+        .map((row) => ({ id: row.user.id, name: row.user.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     };
 
     return {

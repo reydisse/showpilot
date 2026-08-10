@@ -825,19 +825,24 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function assign(duty: "pm" | "tm", crewMemberId: string) {
+  const [error, setError] = useState<string | null>(null);
+
+  async function assign(duty: "pm" | "tm", userId: string) {
     setBusy(duty);
+    setError(null);
     try {
       const { setDutyOfficer } = await import("@/lib/pm-actions");
       await setDutyOfficer({
         data: {
           orgId,
-          serviceDate: model.serviceDate,
+          weekStart: model.dutyWeekStart,
           duty,
-          crewMemberId: crewMemberId || null,
+          userId: userId || null,
         },
       });
       await router.invalidate();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save");
     } finally {
       setBusy(null);
     }
@@ -848,8 +853,7 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
       <ul className="space-y-3">
         {model.duty.map((officer) => {
           const config = CREW_STATUS[officer.status];
-          const selected =
-            model.roster.find((m) => m.name === officer.name)?.id ?? "";
+          const selected = officer.userId ?? "";
           return (
             <li key={officer.key}>
               <div className="flex items-center gap-2.5">
@@ -878,7 +882,7 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
                     className="mt-0.5 w-full text-xs bg-transparent border border-board-border/60 rounded px-1.5 py-1 text-board-text hover:border-board-border disabled:opacity-50 transition-colors"
                   >
                     <option value="">Not assigned</option>
-                    {model.roster.map((member) => (
+                    {model.orgMembers.map((member) => (
                       <option key={member.id} value={member.id}>
                         {member.name}
                       </option>
@@ -895,11 +899,15 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
           );
         })}
       </ul>
-      {!model.schedulingInUse && (
-        <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
-          Full crew scheduling is coming. Until then these two roles can be set here.
-        </p>
-      )}
+      {error && <p className="text-[10px] text-red-400 mt-2">{error}</p>}
+      <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
+        Week of{" "}
+        {new Date(`${model.dutyWeekStart}T12:00:00`).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        })}
+        , from the org roster.
+      </p>
     </WidgetCard>
   );
 }
