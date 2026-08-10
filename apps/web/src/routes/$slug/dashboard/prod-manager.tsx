@@ -5,6 +5,7 @@ import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
 import { PM_WIDGETS, type PmWidgetModel } from "@/components/dashboard/pm-widgets";
+import { PlanServiceButton } from "@/components/dashboard/plan-service";
 import {
   healthTextClass,
   selectWidgets,
@@ -130,6 +131,14 @@ function ProdManagerPage() {
               {formatClock(model.timing.scheduledStartMs)}
             </span>
           )}
+
+          <PlanServiceButton
+            orgId={orgId}
+            serviceDates={serviceDates}
+            onPlanned={(planned) => {
+              void navigate({ search: { date: planned } });
+            }}
+          />
 
           <div className="ml-auto flex items-center gap-5">
             {/* A countdown with nothing to count toward is dead space in

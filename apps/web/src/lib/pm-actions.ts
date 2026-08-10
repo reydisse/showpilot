@@ -52,6 +52,8 @@ export const createNextService = createServerFn({ method: "POST" })
         serviceDate: serviceDateSchema,
         /** Service to clone the rundown from. Omit for an empty one. */
         copyFrom: serviceDateSchema.optional(),
+        /** Optional label, e.g. "Christmas Eve 7pm". */
+        name: z.string().max(120).optional(),
         /** Local wall-clock start, "HH:MM". */
         startTime: z
           .string()
@@ -93,8 +95,13 @@ export const createNextService = createServerFn({ method: "POST" })
       }
     }
 
-    if (data.startTime) {
-      const scheduled = new Date(`${data.serviceDate}T${data.startTime}:00`);
+    if (data.startTime || data.name !== undefined) {
+      // Anchored to the service date, not to today — the same mistake
+      // the rundown editor was making with its start-time field.
+      const scheduled = data.startTime
+        ? new Date(`${data.serviceDate}T${data.startTime}:00`)
+        : undefined;
+      const name = data.name?.trim();
       const prisma = getPrisma() as unknown as {
         rundown?: {
           upsert(args: unknown): Promise<unknown>;
@@ -103,12 +110,16 @@ export const createNextService = createServerFn({ method: "POST" })
       if (prisma.rundown) {
         await prisma.rundown.upsert({
           where: { orgId_serviceDate: { orgId: data.orgId, serviceDate: data.serviceDate } },
-          update: { scheduledStartTime: scheduled },
+          update: {
+            ...(scheduled ? { scheduledStartTime: scheduled } : {}),
+            ...(name !== undefined ? { name } : {}),
+          },
           create: {
             orgId: data.orgId,
             serviceDate: data.serviceDate,
-            scheduledStartTime: scheduled,
+            scheduledStartTime: scheduled ?? null,
             status: "stopped",
+            ...(name !== undefined ? { name } : {}),
           },
         });
       }
