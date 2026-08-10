@@ -39,6 +39,7 @@ import {
   Wifi,
   WifiOff,
   Download,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   getRundownState,
@@ -62,6 +63,16 @@ import { hasPermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { getTodayDateString } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
@@ -299,18 +310,9 @@ function RundownPage() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  useEffect(() => {
-    if (!showExportMenu) return;
-    const handler = () => setShowExportMenu(false);
-    document.addEventListener("click", handler, { capture: true, once: true });
-    return () => document.removeEventListener("click", handler, { capture: true });
-  }, [showExportMenu]);
-
   const handleExport = useCallback(async (format: "csv" | "pdf") => {
     setExporting(true);
     setExportError(null);
-    setShowExportMenu(false);
     try {
       const report = await exportShowReport({ data: { orgId, serviceDate } });
       const exportReport: ExportReport = {
@@ -1205,71 +1207,66 @@ function RundownPage() {
             </button>
             {canEditRundown ? (
               <>
-                <button
-                  onClick={() => setShowLoadModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-                  title="Load from previous date or saved template"
-                >
-                  <FolderOpen className="w-3 h-3" />
-                  Load
-                </button>
-                <button
-                  onClick={() => setShowSaveModal(true)}
-                  disabled={items.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
-                  title="Save as reusable template"
-                >
-                  <Save className="w-3 h-3" />
-                  Save
-                </button>
-                {/* Export dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowExportMenu((v) => !v)}
-                    disabled={exporting || items.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
-                    title="Export post-show report"
-                  >
-                    <Download className="w-3 h-3" />
-                    {exporting ? "…" : "Export"}
-                  </button>
-                  {showExportMenu && (
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-board-card border border-board-border rounded-lg shadow-xl overflow-hidden min-w-[120px]">
-                      <button
-                        onClick={() => handleExport("csv")}
-                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
-                      >
-                        CSV
-                      </button>
-                      <button
-                        onClick={() => handleExport("pdf")}
-                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
-                      >
-                        PDF
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={handleReset}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Reset
-                </button>
-                <button
-                  onClick={handleClearAll}
-                  disabled={items.length === 0}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[44px] disabled:opacity-40 ${
-                    clearPhase === "confirm"
-                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                      : "text-board-muted hover:text-red-400 hover:bg-red-500/10"
-                  }`}
-                  title="Clear all items from the rundown"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  {clearPhase === "confirm" ? `Confirm (${clearCountdown})` : "Clear All"}
-                </button>
+                {/* Load, Save, Export, Reset and Clear All are occasional
+                    file operations, not live controls. They belong behind
+                    one menu so the toolbar stays short and Add Item — the
+                    only thing used constantly — keeps its prominence. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
+                      title="Load, save, export and reset"
+                      aria-label="Rundown actions"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[190px]">
+                    <DropdownMenuItem onSelect={() => setShowLoadModal(true)}>
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      Load from date or template
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={items.length === 0}
+                      onSelect={() => setShowSaveModal(true)}
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save as template
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger disabled={exporting || items.length === 0}>
+                        <Download className="w-3.5 h-3.5" />
+                        {exporting ? "Exporting…" : "Export report"}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onSelect={() => handleExport("csv")}>CSV</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleExport("pdf")}>PDF</DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onSelect={handleReset}>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset timer
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={items.length === 0}
+                      // Clear All is two-phase. Keep the menu open so the
+                      // confirm step is visible rather than firing blind.
+                      onSelect={(event) => {
+                        if (clearPhase !== "confirm") event.preventDefault();
+                        handleClearAll();
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {clearPhase === "confirm" ? `Confirm clear (${clearCountdown})` : "Clear all items"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <button
                   onClick={() => setShowAddForm(true)}
                   className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
