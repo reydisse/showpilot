@@ -4,6 +4,9 @@
  * Every widget here answers "what would the PM do in the next ten
  * minutes?" A widget that can only report a healthy count is not in
  * this file.
+ *
+ * Region assignment is deliberate: the wide column carries the things
+ * you read and act on, the rail carries the things you glance at.
  */
 
 import { Link } from "@tanstack/react-router";
@@ -12,9 +15,11 @@ import {
   HealthChip,
   SeverityDot,
   StatusDot,
+  WidgetAction,
   WidgetCard,
   WidgetEmpty,
   WidgetLabel,
+  WidgetMetric,
   healthTextClass,
   type WidgetDefinition,
 } from "./widget";
@@ -38,24 +43,31 @@ function timeOfDay(ms: number | null): string {
   return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+function longDate(date: string): string {
+  return new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 // ─── Attention queue ─────────────────────────────────────────
 
 function AttentionRow({ item, slug }: { item: AttentionItem; slug: string }) {
   return (
-    <li className="flex items-start gap-3 py-2.5 border-t border-board-border first:border-t-0">
-      <span className="pt-1.5">
-        <SeverityDot severity={item.severity} />
-      </span>
+    <li
+      className={`flex items-center gap-3 py-2 border-t border-board-border/60 first:border-t-0 ${
+        item.severity === "critical" ? "-ml-4 pl-[13px] border-l-2 border-l-red-500/70" : ""
+      }`}
+    >
+      <SeverityDot severity={item.severity} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-board-text">{item.title}</p>
-        <p className="text-[11px] text-board-muted mt-0.5">{item.detail}</p>
+        <p className="text-[13px] leading-snug text-board-text truncate">{item.title}</p>
+        <p className="text-[11px] leading-snug text-board-muted truncate">{item.detail}</p>
       </div>
       {item.actionPath && (
-        <Link
-          to={orgLink(slug, item.actionPath)}
-          className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-board-border text-board-text hover:bg-board-bg transition-colors"
-        >
-          {item.actionLabel}
+        <Link to={orgLink(slug, item.actionPath)} className="shrink-0">
+          <WidgetAction>{item.actionLabel}</WidgetAction>
         </Link>
       )}
     </li>
@@ -66,13 +78,13 @@ const attentionWidget: PmWidget = {
   id: "attention",
   title: "Needs attention",
   phases: "all",
-  span: "two-thirds",
+  region: "main",
   render: ({ model, slug }) => (
     <WidgetCard
       title="Needs attention"
       action={
-        <span className="text-xs tabular-nums text-board-muted">
-          {model.attention.length} {model.attention.length === 1 ? "item" : "items"}
+        <span className="text-[11px] tabular-nums text-board-muted">
+          {model.attention.length}
         </span>
       }
     >
@@ -93,145 +105,111 @@ const attentionWidget: PmWidget = {
 
 const rundownHealthWidget: PmWidget = {
   id: "rundown-health",
-  title: "Rundown health",
+  title: "Rundown",
   phases: "all",
-  span: "half",
+  region: "main",
   // With no rundown there is no health to report, and the plan-next
   // widget already makes the ask. One message, one place.
   isRelevant: ({ model }) => model.rundownHealth.itemCount > 0,
   render: ({ model, slug }) => {
     const health = model.rundownHealth;
-    // No configured window means no verdict. Show the runtime and let the
-    // PM judge it; inventing a target and grading against it is worse
-    // than saying nothing.
+    // No configured window means no verdict. Show the runtime and let
+    // the PM judge it; inventing a target and grading against it is
+    // worse than saying nothing.
     const judged = health.windowMs !== null && health.deltaMs !== null;
-    const over = judged && (health.deltaMs as number) > 0;
-    const ratio = judged
-      ? Math.min(1, health.plannedMs / (health.windowMs as number))
-      : 0;
+    const delta = health.deltaMs ?? 0;
+    const over = judged && delta > 0;
 
     return (
       <WidgetCard
-        title="Rundown health"
+        title="Rundown"
         action={
-          <Link
-            to={orgLink(slug, "rundown")}
-            className="text-[11px] text-board-muted hover:text-board-text transition-colors"
-          >
-            Open
+          <Link to={orgLink(slug, "rundown")}>
+            <WidgetAction>Open</WidgetAction>
           </Link>
         }
       >
-        {health.itemCount === 0 ? (
-          <WidgetEmpty>No rundown built for this service yet.</WidgetEmpty>
-        ) : (
-          <>
+        <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
+          <div>
             {judged ? (
-              <>
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`text-2xl font-semibold tabular-nums ${
-                      over ? "text-red-400" : "text-green-400"
-                    }`}
-                  >
-                    {over ? "+" : ""}
-                    {formatDuration(health.deltaMs as number)}
-                  </span>
-                  <span className="text-xs text-board-muted">
-                    {over ? "over window" : "under window"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-board-muted mt-1">
-                  Planned {formatDuration(health.plannedMs, true)} · window{" "}
-                  {formatDuration(health.windowMs as number, true)}
-                </p>
-                <div className="w-full h-1.5 rounded-full bg-board-bg mt-3 overflow-hidden flex">
-                  <span
-                    className={over ? "bg-yellow-400" : "bg-green-500"}
-                    style={{ width: `${Math.round(ratio * 100)}%` }}
-                  />
-                  {over && <span className="bg-red-500 flex-1" />}
-                </div>
-              </>
+              <WidgetMetric
+                value={`${over ? "+" : ""}${formatDuration(delta)}`}
+                unit={over ? "over window" : "under window"}
+                tone={over ? "fail" : "ok"}
+              />
             ) : (
-              <>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-2xl font-semibold tabular-nums text-board-text">
-                    {formatDuration(health.plannedMs, true)}
-                  </span>
-                  <span className="text-xs text-board-muted">planned runtime</span>
-                </div>
-                <p className="text-[11px] text-board-muted mt-1">
-                  No service length set, so nothing to compare against
-                </p>
-              </>
+              <WidgetMetric
+                value={formatDuration(health.plannedMs, true)}
+                unit="planned runtime"
+              />
             )}
+            <p className="text-[11px] text-board-muted mt-1.5">
+              {judged
+                ? `Planned ${formatDuration(health.plannedMs, true)} · window ${formatDuration(health.windowMs as number, true)}`
+                : "No service length set, so nothing to compare against"}
+            </p>
+          </div>
 
-            <dl className="mt-4 pt-3 border-t border-board-border space-y-1.5">
-              <HealthRow
-                label="Missing duration"
-                value={health.missingDuration}
-                tone={health.missingDuration > 0 ? "fail" : "ok"}
-              />
-              <HealthRow
-                label="Missing owner"
-                value={health.missingOwner}
-                tone={health.missingOwner > 0 ? "warn" : "ok"}
-              />
-              <HealthRow
-                label="Hard-stop conflicts"
-                value={health.hardStopConflicts}
-                tone={health.hardStopConflicts > 0 ? "fail" : "ok"}
-              />
-            </dl>
-          </>
-        )}
+          <dl className="flex items-start gap-8">
+            <HealthStat label="No duration" value={health.missingDuration} tone="fail" />
+            <HealthStat label="No owner" value={health.missingOwner} tone="warn" />
+            <HealthStat label="Hard stops" value={health.hardStopConflicts} tone="fail" />
+            <HealthStat label="Items" value={health.itemCount} tone="ok" neutral />
+          </dl>
+        </div>
       </WidgetCard>
     );
   },
 };
 
-function HealthRow({
+function HealthStat({
   label,
   value,
   tone,
+  neutral = false,
 }: {
   label: string;
   value: number;
   tone: "ok" | "warn" | "fail";
+  neutral?: boolean;
 }) {
+  const highlight = !neutral && value > 0;
   return (
-    <div className="flex items-center justify-between text-xs">
-      <dt className="text-board-muted">{label}</dt>
-      <dd className={`tabular-nums ${value > 0 ? healthTextClass(tone) : "text-board-muted"}`}>
+    <div>
+      <dd
+        className={`text-lg leading-none font-semibold tabular-nums ${
+          highlight ? healthTextClass(tone) : "text-board-text"
+        }`}
+      >
         {value}
       </dd>
+      <dt className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">{label}</dt>
     </div>
   );
 }
 
-// ─── Readiness factors ───────────────────────────────────────
+// ─── Readiness ───────────────────────────────────────────────
 
 const readinessWidget: PmWidget = {
   id: "readiness",
   title: "Readiness",
   phases: "all",
-  span: "half",
+  region: "rail",
   render: ({ model }) => (
     <WidgetCard
       title="Readiness"
       action={
-        <span className={`text-xs tabular-nums ${healthTextClass(model.readiness.status)}`}>
+        <span className={`text-[11px] tabular-nums ${healthTextClass(model.readiness.status)}`}>
           {model.readiness.score}%
         </span>
       }
     >
-      <ul className="space-y-2.5">
+      <ul className="space-y-2">
         {model.readiness.factors.map((factor) => (
-          <li key={factor.id} className="flex items-center gap-3">
-            <StatusDot status={factor.status} />
-            <span className="text-xs text-board-text w-24 shrink-0">{factor.label}</span>
-            <span className="text-[11px] text-board-muted truncate flex-1">{factor.detail}</span>
+          <li key={factor.id} className="flex items-baseline gap-2.5">
+            <StatusDot status={factor.status} className="translate-y-[-1px]" />
+            <span className="text-xs text-board-text w-[70px] shrink-0">{factor.label}</span>
+            <span className="text-[11px] text-board-muted truncate">{factor.detail}</span>
           </li>
         ))}
       </ul>
@@ -245,26 +223,19 @@ const departmentsWidget: PmWidget = {
   id: "departments",
   title: "Departments",
   phases: "all",
-  span: "full",
+  region: "banner",
   render: ({ model }) => (
-    <div className="rounded-xl border bg-board-card border-board-border px-4 py-3">
-      <div className="mb-2.5">
-        <WidgetLabel>Departments</WidgetLabel>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-        {model.departments.map((dept) => (
-          <div
-            key={dept.key}
-            className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-board-bg/50 min-w-0"
-          >
-            <StatusDot status={dept.status} />
-            <div className="min-w-0">
-              <p className="text-xs text-board-text leading-tight">{dept.label}</p>
-              <p className="text-[10px] text-board-muted truncate">{dept.detail}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="rounded-lg border border-board-border/70 bg-board-card px-4 py-2.5 flex items-center flex-wrap gap-x-7 gap-y-2">
+      <WidgetLabel>Departments</WidgetLabel>
+      {model.departments.map((dept) => (
+        <span key={dept.key} className="flex items-baseline gap-2 min-w-0">
+          <StatusDot status={dept.status} className="translate-y-[-1px]" />
+          <span className="text-xs text-board-text">{dept.label}</span>
+          <span className="text-[11px] text-board-muted truncate max-w-[190px]">
+            {dept.detail}
+          </span>
+        </span>
+      ))}
     </div>
   ),
 };
@@ -275,35 +246,30 @@ const arrivalsWidget: PmWidget = {
   id: "arrivals",
   title: "Arrivals",
   phases: ["call", "live"],
-  span: "half",
+  region: "rail",
   isRelevant: ({ model }) => model.arrivals.total > 0,
   render: ({ model, slug }) => (
     <WidgetCard
       title="Arrivals"
       action={
-        <Link
-          to={orgLink(slug, "checkin")}
-          className="text-[11px] text-board-muted hover:text-board-text transition-colors"
-        >
-          Check-in
+        <Link to={orgLink(slug, "checkin")}>
+          <WidgetAction>Check-in</WidgetAction>
         </Link>
       }
     >
-      <div className="flex items-end gap-2 mb-3">
-        <span className="text-2xl font-semibold tabular-nums text-board-text">
-          {model.arrivals.present}
-        </span>
-        <span className="text-xs text-board-muted pb-1">of {model.arrivals.total} on site</span>
-      </div>
-      <ul className="space-y-1.5">
+      <WidgetMetric
+        value={`${model.arrivals.present}`}
+        unit={`of ${model.arrivals.total} on site`}
+      />
+      <ul className="space-y-1.5 mt-3">
         {model.arrivals.departments.map((dept) => (
           <li key={dept.key} className="flex items-center gap-2 text-xs">
             <StatusDot
               status={dept.alarm ? "fail" : dept.present < dept.total ? "warn" : "ok"}
             />
-            <span className="text-board-text flex-1">{dept.label}</span>
+            <span className="text-board-text flex-1 truncate">{dept.label}</span>
             {dept.alarm && (
-              <span className="text-[10px] text-red-400 uppercase tracking-wide">No-show</span>
+              <span className="text-[10px] uppercase tracking-wide text-red-400">No-show</span>
             )}
             <span className="tabular-nums text-board-muted">
               {dept.present}/{dept.total}
@@ -321,7 +287,7 @@ const cueExceptionsWidget: PmWidget = {
   id: "cue-exceptions",
   title: "Cue sheet",
   phases: ["planning", "prep", "call"],
-  span: "half",
+  region: "main",
   isRelevant: ({ model }) => model.cueExceptions.length > 0,
   render: ({ model, slug }) => (
     <WidgetCard title="Cue sheet">
@@ -340,7 +306,7 @@ const weekAheadWidget: PmWidget = {
   id: "week-ahead",
   title: "Week ahead",
   phases: ["planning", "prep", "debrief"],
-  span: "third",
+  region: "rail",
   isRelevant: ({ model }) => model.upcoming.length > 0,
   render: ({ model }) => (
     <WidgetCard title="Week ahead">
@@ -355,7 +321,7 @@ const weekAheadWidget: PmWidget = {
                   day: "numeric",
                 })}
               </p>
-              <p className="text-[10px] text-board-muted">
+              <p className="text-[10px] text-board-muted truncate">
                 {service.itemCount} {service.itemCount === 1 ? "item" : "items"}
                 {service.scheduledStartTime ? "" : " · no start time"}
               </p>
@@ -374,42 +340,37 @@ const liveStripWidget: PmWidget = {
   id: "live-strip",
   title: "On air",
   phases: ["live"],
-  span: "full",
+  region: "banner",
   render: ({ model, slug }) => {
     const health = model.rundownHealth;
     const behind = (health.driftMs ?? 0) > 0;
     return (
-      <div className="rounded-xl border bg-red-500/5 border-red-500/25 px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-          <div className="flex items-center gap-2">
-            <Radio className="w-4 h-4 text-red-400" />
-            <WidgetLabel>On air</WidgetLabel>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-board-muted">Drift</p>
-            <p
-              className={`text-xl font-semibold tabular-nums ${
-                behind ? "text-red-400" : "text-green-400"
-              }`}
-            >
-              {health.driftMs === null
-                ? "--:--"
-                : `${behind ? "+" : ""}${formatDuration(health.driftMs)}`}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-board-muted">Projected end</p>
-            <p className="text-xl font-semibold tabular-nums text-board-text">
-              {timeOfDay(health.projectedEndMs)}
-            </p>
-          </div>
-          <Link
-            to={orgLink(slug, "show")}
-            className="ml-auto text-xs px-3 py-1.5 rounded-lg border border-board-border text-board-text hover:bg-board-bg transition-colors"
+      <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 flex flex-wrap items-center gap-x-10 gap-y-3">
+        <span className="flex items-center gap-2">
+          <Radio className="w-3.5 h-3.5 text-red-400" />
+          <WidgetLabel>On air</WidgetLabel>
+        </span>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">Drift</p>
+          <p
+            className={`text-lg leading-none font-semibold tabular-nums mt-1 ${
+              behind ? "text-red-400" : "text-green-400"
+            }`}
           >
-            Open show
-          </Link>
+            {health.driftMs === null
+              ? "--:--"
+              : `${behind ? "+" : ""}${formatDuration(health.driftMs)}`}
+          </p>
         </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">Projected end</p>
+          <p className="text-lg leading-none font-semibold tabular-nums text-board-text mt-1">
+            {timeOfDay(health.projectedEndMs)}
+          </p>
+        </div>
+        <Link to={orgLink(slug, "show")} className="ml-auto">
+          <WidgetAction>Open show</WidgetAction>
+        </Link>
       </div>
     );
   },
@@ -421,7 +382,7 @@ const debriefWidget: PmWidget = {
   id: "debrief",
   title: "Debrief",
   phases: ["debrief"],
-  span: "two-thirds",
+  region: "main",
   isRelevant: ({ model }) => model.debrief !== null,
   render: ({ model, slug }) => {
     const debrief = model.debrief;
@@ -431,99 +392,98 @@ const debriefWidget: PmWidget = {
       <WidgetCard
         title="Debrief"
         action={
-          <Link
-            to={orgLink(slug, "production/incidents")}
-            className="text-[11px] text-board-muted hover:text-board-text transition-colors"
-          >
-            Log an incident
+          <Link to={orgLink(slug, "production/incidents")}>
+            <WidgetAction>Log an incident</WidgetAction>
           </Link>
         }
       >
-        <div className="flex flex-wrap gap-x-8 gap-y-3 mb-4">
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-board-muted">Planned</p>
-            <p className="text-xl font-semibold tabular-nums text-board-text">
-              {formatDuration(debrief.plannedMs, true)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-board-muted">Actual</p>
-            <p className="text-xl font-semibold tabular-nums text-board-text">
-              {debrief.actualMs === null ? "--:--" : formatDuration(debrief.actualMs, true)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-board-muted">Delta</p>
-            <p
-              className={`text-xl font-semibold tabular-nums ${
-                over ? "text-red-400" : "text-green-400"
-              }`}
-            >
-              {debrief.deltaMs === null
+        <div className="flex flex-wrap gap-x-10 gap-y-3">
+          <DebriefStat label="Planned" value={formatDuration(debrief.plannedMs, true)} />
+          <DebriefStat
+            label="Actual"
+            value={debrief.actualMs === null ? "--:--" : formatDuration(debrief.actualMs, true)}
+          />
+          <DebriefStat
+            label="Delta"
+            value={
+              debrief.deltaMs === null
                 ? "--:--"
-                : `${over ? "+" : ""}${formatDuration(debrief.deltaMs)}`}
-            </p>
-          </div>
+                : `${over ? "+" : ""}${formatDuration(debrief.deltaMs)}`
+            }
+            tone={over ? "fail" : "ok"}
+          />
+          <DebriefStat label="Incidents" value={`${debrief.incidentCount}`} />
         </div>
 
         {debrief.worstOverruns.length > 0 && (
-          <>
-            <WidgetLabel>Ran long</WidgetLabel>
-            <ul className="mt-2 space-y-1.5">
-              {debrief.worstOverruns.map((item) => (
-                <li key={item.id} className="flex items-center justify-between text-xs">
-                  <span className="text-board-text truncate">{item.title}</span>
-                  <span className="tabular-nums text-red-400 shrink-0 ml-3">
-                    +{formatDuration(item.overrunMs)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
+          <ul className="mt-4 pt-3 border-t border-board-border/60 space-y-1.5">
+            {debrief.worstOverruns.map((item) => (
+              <li key={item.id} className="flex items-center justify-between text-xs">
+                <span className="text-board-text truncate">{item.title}</span>
+                <span className="tabular-nums text-red-400 shrink-0 ml-3">
+                  +{formatDuration(item.overrunMs)}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </WidgetCard>
     );
   },
 };
 
-// ─── Planning prompt ─────────────────────────────────────────
+function DebriefStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "ok" | "fail";
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">{label}</p>
+      <p
+        className={`text-lg leading-none font-semibold tabular-nums mt-1 ${
+          tone ? healthTextClass(tone) : "text-board-text"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
 
-/**
- * Planning days used to render an empty page. If the next service has
- * no rundown yet, that is itself the most useful thing to say.
- */
+// ─── Plan next ───────────────────────────────────────────────
+
 const planNextWidget: PmWidget = {
   id: "plan-next",
   title: "Plan the next service",
   phases: ["planning", "prep"],
-  span: "two-thirds",
+  region: "main",
   isRelevant: ({ model }) => model.planNext,
   render: ({ model, slug }) => (
     <WidgetCard title="Plan the next service">
-      <p className="text-sm text-board-text">
-        Nothing is scheduled for{" "}
-        {new Date(`${model.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        })}
-        .
-      </p>
-      <p className="text-xs text-board-muted mt-1">
-        {model.lastServiceDate
-          ? `Your last service was ${new Date(`${model.lastServiceDate}T12:00:00`).toLocaleDateString(
-              "en-US",
-              { weekday: "long", month: "long", day: "numeric" },
-            )} — open it from the date picker to copy its rundown.`
-          : "Build a rundown to get the dashboard working for you."}
-      </p>
-      <Link
-        to={orgLink(slug, "rundown")}
-        className="inline-flex items-center gap-2 mt-4 text-xs px-3 py-1.5 rounded-lg border border-board-border text-board-text hover:bg-board-bg transition-colors"
-      >
-        <Clapperboard className="w-3.5 h-3.5" />
-        Build the rundown
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[15px] text-board-text">
+            Nothing scheduled for {longDate(model.serviceDate)}
+          </p>
+          <p className="text-xs text-board-muted mt-1">
+            {model.lastServiceDate
+              ? `Last service was ${longDate(model.lastServiceDate)} — open it from the date picker to copy its rundown.`
+              : "Build a rundown to get the dashboard working for you."}
+          </p>
+        </div>
+        <Link
+          to={orgLink(slug, "rundown")}
+          className="inline-flex items-center gap-2 shrink-0 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 transition-colors"
+        >
+          <Clapperboard className="w-3.5 h-3.5" />
+          Build the rundown
+        </Link>
+      </div>
     </WidgetCard>
   ),
 };
@@ -532,14 +492,13 @@ const planNextWidget: PmWidget = {
 
 export const PM_WIDGETS: PmWidget[] = [
   liveStripWidget,
-  planNextWidget,
   departmentsWidget,
+  planNextWidget,
   attentionWidget,
   rundownHealthWidget,
-  readinessWidget,
   debriefWidget,
-  arrivalsWidget,
   cueExceptionsWidget,
+  readinessWidget,
+  arrivalsWidget,
   weekAheadWidget,
 ];
-

@@ -9,7 +9,7 @@ import {
   healthTextClass,
   selectWidgets,
   useNow,
-  widgetSpanClass,
+  widgetsInRegion,
 } from "@/components/dashboard/widget";
 
 /** How often the loader re-reads. Live services need a tighter loop. */
@@ -64,6 +64,9 @@ function ProdManagerPage() {
 
   const widgetModel: PmWidgetModel = { model, slug };
   const widgets = selectWidgets(PM_WIDGETS, model.phase, widgetModel);
+  const banners = widgetsInRegion(widgets, "banner");
+  const main = widgetsInRegion(widgets, "main");
+  const rail = widgetsInRegion(widgets, "rail");
 
   const remaining = model.countdown.remainingMs;
   const liveRemaining =
@@ -76,90 +79,103 @@ function ProdManagerPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <header className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
-                Production Manager
-              </h1>
-              <span
-                className={`text-[10px] font-medium uppercase tracking-widest px-2 py-0.5 rounded-lg border ${PHASE_CHIP[model.phase]}`}
-              >
-                {phaseLabel(model.phase)}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 mt-1.5">
-              <label htmlFor="pm-service-date" className="sr-only">
-                Service date
-              </label>
-              <select
-                id="pm-service-date"
-                value={model.serviceDate}
-                onChange={(event) => {
-                  void navigate({ search: { date: event.target.value } });
-                }}
-                className="text-xs bg-board-card border border-board-border rounded-lg px-2 py-1 text-board-text"
-              >
-                {(serviceDates.includes(model.serviceDate)
-                  ? serviceDates
-                  : [model.serviceDate, ...serviceDates]
-                ).map((date) => (
-                  <option key={date} value={date}>
-                    {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </option>
-                ))}
-              </select>
-              {model.timing.scheduledStartMs !== null && (
-                <span className="text-xs text-board-muted">
-                  call {formatClock(model.timing.callTimeMs)} · start{" "}
-                  {formatClock(model.timing.scheduledStartMs)}
-                </span>
-              )}
-            </div>
-          </div>
+      {/* One toolbar row. Identity and context on the left, live numbers
+          right-aligned against the edge so the eye always lands in the
+          same place regardless of how wide the window is. */}
+      <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
+        <div className="px-6 py-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <h1 className="text-[15px] font-semibold text-board-text font-[family-name:var(--font-display)]">
+            Production Manager
+          </h1>
+          <span
+            className={`text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
+          >
+            {phaseLabel(model.phase)}
+          </span>
 
-          <div className="flex items-center gap-6">
-            {/* A countdown with nothing to count toward is dead space in the
-                most prominent slot on the page. Offer the fix instead. */}
+          <span className="w-px h-5 bg-board-border" aria-hidden="true" />
+
+          <label htmlFor="pm-service-date" className="sr-only">
+            Service date
+          </label>
+          <select
+            id="pm-service-date"
+            value={model.serviceDate}
+            onChange={(event) => {
+              void navigate({ search: { date: event.target.value } });
+            }}
+            className="text-xs bg-transparent border border-board-border/70 rounded px-2 py-1 text-board-text hover:border-board-border transition-colors"
+          >
+            {(serviceDates.includes(model.serviceDate)
+              ? serviceDates
+              : [model.serviceDate, ...serviceDates]
+            ).map((date) => (
+              <option key={date} value={date}>
+                {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </option>
+            ))}
+          </select>
+
+          {model.timing.scheduledStartMs !== null && (
+            <span className="text-[11px] text-board-muted tabular-nums">
+              call {formatClock(model.timing.callTimeMs)} · start{" "}
+              {formatClock(model.timing.scheduledStartMs)}
+            </span>
+          )}
+
+          <div className="ml-auto flex items-center gap-5">
+            {/* A countdown with nothing to count toward is dead space in
+                the most prominent slot on the page. Offer the fix. */}
             {displayMs === null ? (
               <Link
                 to={`/${slug}/rundown` as unknown as Parameters<typeof Link>[0]["to"]}
-                className="text-xs px-3 py-1.5 rounded-lg border border-board-border text-board-text hover:bg-board-bg transition-colors"
+                className="text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
               >
                 Set a start time
               </Link>
             ) : (
-              <div className="text-right">
-                <p className="text-xl font-semibold tabular-nums text-board-text">
+              <div className="text-right leading-none">
+                <p className="text-[22px] font-semibold tabular-nums text-board-text">
                   {formatCountdown(displayMs)}
                 </p>
-                <p className="text-[10px] text-board-muted">{model.countdown.label}</p>
+                <p className="text-[10px] text-board-muted mt-1">{model.countdown.label}</p>
               </div>
             )}
-            <div className="text-center pl-6 border-l border-board-border">
+            <span className="w-px h-8 bg-board-border" aria-hidden="true" />
+            <div className="text-right leading-none">
               <p
-                className={`text-xl font-semibold tabular-nums ${healthTextClass(model.readiness.status)}`}
+                className={`text-[22px] font-semibold tabular-nums ${healthTextClass(model.readiness.status)}`}
               >
                 {model.readiness.score}%
               </p>
-              <p className="text-[10px] text-board-muted">ready</p>
+              <p className="text-[10px] text-board-muted mt-1">ready</p>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="p-6 max-w-6xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-6 gap-5">
-          {widgets.map((widget) => (
-            <div key={widget.id} className={widgetSpanClass(widget.span)}>
-              {widget.render(widgetModel)}
-            </div>
-          ))}
+      {/* Banners span the width; below them a wide reading column and a
+          fixed rail. No spans, so no ragged rows and no dead space. */}
+      <div className="px-6 py-5 w-full max-w-[1500px] space-y-4">
+        {banners.map((widget) => (
+          <div key={widget.id}>{widget.render(widgetModel)}</div>
+        ))}
+
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+          <div className="space-y-4 min-w-0">
+            {main.map((widget) => (
+              <div key={widget.id}>{widget.render(widgetModel)}</div>
+            ))}
+          </div>
+          <div className="space-y-4 min-w-0">
+            {rail.map((widget) => (
+              <div key={widget.id}>{widget.render(widgetModel)}</div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
