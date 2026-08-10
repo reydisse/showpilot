@@ -276,6 +276,35 @@ function RundownPage() {
   );
   const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // A hidden scrollbar means no cue that the toolbar scrolls, so the
+  // edges have to say so themselves.
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const [headerEdges, setHeaderEdges] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = headerScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      setHeaderEdges({
+        left: el.scrollLeft > 2,
+        right: Math.ceil(el.scrollLeft + el.clientWidth) < el.scrollWidth - 2,
+      });
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    for (const child of Array.from(el.children)) observer.observe(child);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, []);
+
+  const scrollHeaderBy = useCallback((amount: number) => {
+    headerScrollRef.current?.scrollBy({ left: amount, behavior: "smooth" });
+  }, []);
+
   const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1098,11 +1127,13 @@ function RundownPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header — outside minWidth so it always fills the viewport */}
-      <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border overflow-x-auto hide-scrollbar">
+      <div className="relative shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border">
         {/* One row that scrolls sideways when it does not fit. Nothing is
             hidden and nothing wraps — on a narrow window you swipe the
             toolbar, which is how dense tools behave and what an operator
-            on an iPad expects. */}
+            on an iPad expects. The scrollbar is hidden, so the fades and
+            arrows below are the only thing telling you there is more. */}
+        <div ref={headerScrollRef} className="overflow-x-auto hide-scrollbar">
         <div className="flex items-center gap-3 w-max min-w-full px-6 py-3">
           <div className="flex items-center gap-3 shrink-0">
             <div className="shrink-0">
@@ -1294,7 +1325,34 @@ function RundownPage() {
             )}
           </div>
         </div>
+        </div>
 
+        {headerEdges.left && (
+          <>
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-board-bg to-transparent" />
+            <button
+              type="button"
+              onClick={() => scrollHeaderBy(-260)}
+              aria-label="Scroll toolbar left"
+              className="absolute left-1 top-1/2 -translate-y-1/2 p-1 rounded-full bg-board-card border border-board-border text-board-muted hover:text-board-text transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+        {headerEdges.right && (
+          <>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-board-bg to-transparent" />
+            <button
+              type="button"
+              onClick={() => scrollHeaderBy(260)}
+              aria-label="Scroll toolbar right"
+              className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-full bg-board-card border border-board-border text-board-muted hover:text-board-text transition-colors"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Page body — flex-col container, never scrolls itself */}
