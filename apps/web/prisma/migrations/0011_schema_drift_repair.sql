@@ -1,25 +1,28 @@
--- Repair drift between prisma/schema.prisma and the numbered migrations.
+-- Bring the numbered migrations back in line with prisma/schema.prisma.
 --
--- Four models in schema.prisma were never given a CREATE TABLE, and three
--- columns were never added. Prisma generates a client for the schema, so
--- typechecking passes and the code compiles — the failure only appears at
--- runtime when a query hits a table or column D1 does not have.
+-- Four models in schema.prisma had no CREATE TABLE in any migration:
+-- org_member, rundown, rundown_item and waitlist_signup. Prisma generates
+-- a client from the schema, so typechecking passed and nothing surfaced
+-- until a query ran against a database built from these files alone.
 --
--- Affected code paths:
---   org_member        -> middleware/withPermission.ts, routes/$slug/team.tsx
---   rundown           -> scheduled start time + live status (rundown.ts).
---                        Reads are wrapped in .catch(() => null), so this
---                        degrades silently: start times were never stored.
---   rundown_item      -> relational rundown store; falls back to AppSetting
---                        JSON, so actualStart/actualEnd never persist.
---   waitlist_signup   -> routes/api/waitlist, lib/superadmin.ts
---   stream_destination.cfOutputId / liveInputId -> Stream Connect simulcast
---   chat_message.senderRole -> ChatRelay, chat.ts
+-- VERIFIED AGAINST PRODUCTION 2026-08-10.
 --
--- The CREATE TABLE statements are IF NOT EXISTS and safe to re-run.
--- SQLite has no ADD COLUMN IF NOT EXISTS, so the ALTER block at the bottom
--- is NOT idempotent — check pragma_table_info first and drop any line for a
--- column that already exists. See DEPLOY.md.
+-- Production already had every table and column below. It was shaped by a
+-- `prisma db push` at some point, so the live database ran ahead of the
+-- migration files rather than behind them — the drift was in the files,
+-- not in production. Local development databases built from the numbered
+-- migrations alone were the ones missing pieces.
+--
+-- This file is therefore a no-op against production and does the real
+-- work only for a database built from migrations. Every statement is
+-- IF NOT EXISTS, so it is idempotent and safe to run anywhere.
+--
+-- The ALTER statements this file originally carried (rundown_item timing
+-- columns, stream_destination.cfOutputId / liveInputId,
+-- chat_message.senderRole) have all been removed: production has them,
+-- a fresh database gets them from the CREATE TABLE blocks below, and
+-- SQLite has no ADD COLUMN IF NOT EXISTS so leaving them in would make
+-- this file fail on the one database that matters.
 
 -- ─── org_member ──────────────────────────────────────────────
 
@@ -94,26 +97,3 @@ CREATE TABLE IF NOT EXISTS "waitlist_signup" (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_signup_email_key" ON "waitlist_signup"("email");
-
--- ─── Missing columns (NOT idempotent — see header) ───────────
---
--- Some databases already have org_member / rundown_item / waitlist_signup
--- from an earlier `prisma db push`, in which case the CREATE TABLE blocks
--- above are skipped and these tables can still be missing columns. Check
--- each one first:
---
---   SELECT name FROM pragma_table_info('rundown_item');
---   SELECT name FROM pragma_table_info('stream_destination');
---   SELECT name FROM pragma_table_info('chat_message');
---
--- and delete any line below whose column already exists.
-
-ALTER TABLE "rundown_item" ADD COLUMN "scheduledStart" DATETIME;
-ALTER TABLE "rundown_item" ADD COLUMN "expectedEnd" DATETIME;
-ALTER TABLE "rundown_item" ADD COLUMN "actualStart" DATETIME;
-ALTER TABLE "rundown_item" ADD COLUMN "actualEnd" DATETIME;
-
-ALTER TABLE "stream_destination" ADD COLUMN "cfOutputId" TEXT NOT NULL DEFAULT '';
-ALTER TABLE "stream_destination" ADD COLUMN "liveInputId" TEXT NOT NULL DEFAULT '';
-
-ALTER TABLE "chat_message" ADD COLUMN "senderRole" TEXT;
