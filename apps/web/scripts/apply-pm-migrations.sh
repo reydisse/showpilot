@@ -27,9 +27,25 @@ if [[ ! -f "$MANIFEST" ]]; then
   exit 1
 fi
 
-d1() { pnpm exec wrangler d1 execute "$DB" --remote --command "$1" 2>/dev/null; }
+# Fails loudly. An errored query must never be read as "the column is
+# absent" — wrangler tokens expire mid-session, and a failed probe that
+# looked like a missing column would send us on to run an ALTER against a
+# column that is already there.
+d1() {
+  local out
+  if ! out=$(pnpm exec wrangler d1 execute "$DB" --remote --command "$1" 2>&1); then
+    echo >&2
+    echo "Query failed against $DB:" >&2
+    echo "$out" | tail -5 >&2
+    echo >&2
+    echo "If that is a 7403 or auth error your wrangler token has expired:" >&2
+    echo "  pnpm exec wrangler logout && pnpm exec wrangler login" >&2
+    exit 1
+  fi
+  printf '%s' "$out"
+}
 
-# Does a column exist on a table? Used to decide whether an ALTER is safe.
+# Does a column exist on a table?
 has_column() {
   d1 "SELECT name FROM pragma_table_info('$1')" | grep -qw "$2"
 }
@@ -37,10 +53,12 @@ has_column() {
 echo "Checking what production already has…"
 echo
 
+# `set -e` plus a `&&` chain would swallow a probe failure, so each check
+# runs on its own and d1() aborts the script if the query itself errors.
 INCIDENT_STATUS=no
 RUNDOWN_NAME=no
-has_column incident status   && INCIDENT_STATUS=yes
-has_column rundown  name     && RUNDOWN_NAME=yes
+if has_column incident status; then INCIDENT_STATUS=yes; fi
+if has_column rundown name;    then RUNDOWN_NAME=yes;    fi
 
 echo "  incident.status : $INCIDENT_STATUS"
 echo "  rundown.name    : $RUNDOWN_NAME"
@@ -66,6 +84,25 @@ if [[ "$RUNDOWN_NAME" == "yes" ]]; then
   SATISFIED+=("0013_rundown_name.sql")
 else
   PLAN+=("0013_rundown_name.sql")
+fi
+
+# Prisma models rundown.name as non-optional String. If the live column is
+# nullable and any row is NULL, every read throws "Inconsistent column
+# data" — and loadRundownRows is the dashboard's first query.
+if [[ "$RUNDOWN_NAME" == "yes" ]]; then
+  NULL_NAMES=$(d1 "SELECT count(*) AS n FROM rundown WHERE name IS NULL" | grep -Eo '[0-9]+' | tail -1)
+  if [[ "${NULL_NAMES:-0}" != "0" ]]; then
+    echo
+    echo "  ! $NULL_NAMES rundown rows have a NULL name."
+    echo "    Prisma types this column as non-optional, so the dashboard"
+    echo "    would throw on read. Backfill before deploying:"
+    echo
+    echo "      pnpm exec wrangler d1 execute $DB --remote --command \\"
+    echo "        \"UPDATE rundown SET name = '' WHERE name IS NULL\""
+    echo
+    exit 1
+  fi
+  echo "  rundown.name NULLs : none"
 fi
 
 echo
