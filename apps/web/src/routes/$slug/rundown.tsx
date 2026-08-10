@@ -1098,8 +1098,8 @@ function RundownPage() {
       {/* Header — outside minWidth so it always fills the viewport */}
       <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4 shrink-0">
-            <div>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="shrink-0">
               <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
                 Rundown
               </h1>
@@ -1107,11 +1107,74 @@ function RundownPage() {
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
+
+            <span className="w-px h-7 bg-board-border shrink-0" aria-hidden="true" />
+
+            {/* Which service you are editing sits beside the title
+                rather than stranded on its own line: it is what the page
+                is about, and it fills the gap the action cluster would
+                otherwise float against. */}
+            <div className="flex items-center gap-1.5 min-w-0">
+          {/* Stepper for nudging a day either way; the picker is what
+              makes planning six weeks out possible without 42 clicks. */}
+          <div className="flex items-center gap-1">
+            <label className="sr-only" htmlFor="rundown-service-date">
+                Service date
+              </label>
+              <input
+                id="rundown-service-date"
+                type="date"
+                value={serviceDate}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (!next) return;
+                  setServiceDate(next);
+                  void loadDate(next);
+                }}
+                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
+              />
+              <button
+                onClick={() => handleDateChange(-1)}
+                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  const nextToday = getTodayDateString(settings["org-timezone"]);
+                  setServiceDate(nextToday);
+                  loadDate(nextToday);
+                }}
+                className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums"
+              >
+                {formatDisplayDate(serviceDate)}
+              </button>
+              <button
+                onClick={() => handleDateChange(1)}
+                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
           </div>
-          <div className="flex items-center gap-2 min-w-0 overflow-x-auto hide-scrollbar">
+
+          {canEditRundown && (
+            <>
+              <span className="w-px h-5 bg-board-border mx-1" aria-hidden="true" />
+              <input
+                type="text"
+                value={serviceName}
+                onChange={(e) => handleServiceNameChange(e.target.value)}
+                placeholder="Name this service"
+                maxLength={120}
+                aria-label="Service name"
+                title="Optional label for a special event, e.g. Christmas Eve 7pm"
+                className="w-[120px] shrink bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border focus:w-[200px] transition-all"
+              />
+            </>
+          )}
             {/* Show start time */}
             {canEditRundown && (
-              <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer" title="Scheduled show start time — used for cascade timing">
+              <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-board-border/70 text-xs text-board-muted hover:border-board-border transition-colors cursor-pointer shrink-0" title="Scheduled show start time — used for cascade timing">
                 <Clock className="w-3 h-3 shrink-0" />
                 <span className="whitespace-nowrap">Show</span>
                 <input
@@ -1123,6 +1186,9 @@ function RundownPage() {
                 />
               </label>
             )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 min-w-0 overflow-x-auto hide-scrollbar">
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -1225,68 +1291,6 @@ function RundownPage() {
           </div>
         </div>
 
-        {/* Which service you are editing is identity, not an action.
-            It gets its own centred line so the toolbar above stays a
-            row of controls and nothing is ever pushed off-screen. */}
-        <div className="flex items-center justify-center gap-1.5 mt-2.5">
-          {/* Stepper for nudging a day either way; the picker is what
-              makes planning six weeks out possible without 42 clicks. */}
-          <div className="flex items-center gap-1">
-            <label className="sr-only" htmlFor="rundown-service-date">
-                Service date
-              </label>
-              <input
-                id="rundown-service-date"
-                type="date"
-                value={serviceDate}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (!next) return;
-                  setServiceDate(next);
-                  void loadDate(next);
-                }}
-                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
-              />
-              <button
-                onClick={() => handleDateChange(-1)}
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => {
-                  const nextToday = getTodayDateString(settings["org-timezone"]);
-                  setServiceDate(nextToday);
-                  loadDate(nextToday);
-                }}
-                className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums"
-              >
-                {formatDisplayDate(serviceDate)}
-              </button>
-              <button
-                onClick={() => handleDateChange(1)}
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-          </div>
-
-          {canEditRundown && (
-            <>
-              <span className="w-px h-5 bg-board-border mx-1" aria-hidden="true" />
-              <input
-                type="text"
-                value={serviceName}
-                onChange={(e) => handleServiceNameChange(e.target.value)}
-                placeholder="Name this service"
-                maxLength={120}
-                aria-label="Service name"
-                title="Optional label for a special event, e.g. Christmas Eve 7pm"
-                className="w-[150px] bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border focus:w-[220px] transition-all"
-              />
-            </>
-          )}
-        </div>
       </div>
 
       {/* Page body — flex-col container, never scrolls itself */}
