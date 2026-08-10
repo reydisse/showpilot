@@ -21,6 +21,8 @@ export interface RundownItem {
 
 export interface RundownMeta {
   serviceDate: string;
+  /** Optional label, e.g. "Christmas Eve 7pm". */
+  name?: string;
   scheduledStartTime?: string | null; // ISO timestamp
   status: "stopped" | "live" | "complete";
 }

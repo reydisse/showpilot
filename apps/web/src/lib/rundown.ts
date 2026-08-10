@@ -347,13 +347,14 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId, key: rundownTimerKey(serviceDate) } },
     }),
-    (prisma as unknown as { rundown?: { findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string } | null> } }).rundown?.findUnique({
+    (prisma as unknown as { rundown?: { findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string; name?: string } | null> } }).rundown?.findUnique({
       where: { orgId_serviceDate: { orgId, serviceDate } },
     }).catch(() => null) ?? Promise.resolve(null),
   ]);
 
   const meta: RundownMeta = {
     serviceDate,
+    name: rundownRecord?.name ?? "",
     scheduledStartTime: rundownRecord?.scheduledStartTime?.toISOString() ?? null,
     status: (rundownRecord?.status === "live" || rundownRecord?.status === "complete")
       ? rundownRecord.status
@@ -597,6 +598,7 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
       orgServiceDateSchema.extend({
         scheduledStartTime: z.string().max(40).nullish(),
         status: z.string().max(20).optional(),
+        name: z.string().max(120).optional(),
       }),
       data,
     ),
@@ -614,12 +616,14 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
           ? { scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null }
           : {}),
         ...(data.status ? { status: data.status } : {}),
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
       },
       create: {
         orgId: data.orgId,
         serviceDate: data.serviceDate,
         scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null,
         status: data.status ?? "stopped",
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
       },
     });
 

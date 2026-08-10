@@ -39,6 +39,7 @@ import {
   Wifi,
   WifiOff,
   Download,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   getRundownState,
@@ -62,6 +63,17 @@ import { hasPermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { getTodayDateString } from "@/lib/utils";
+import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
@@ -265,14 +277,34 @@ function RundownPage() {
   );
   const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Shared with the dashboard header — see components/ui/scroll-edges.
+  const headerScroll = useEdgeScroll();
+
+  const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
+  const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleServiceNameChange = useCallback(
+    (value: string) => {
+      setServiceName(value);
+      if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
+      saveNameTimeoutRef.current = setTimeout(() => {
+        saveRundownMeta({ data: { orgId, serviceDate, name: value } }).catch(() => {});
+      }, 800);
+    },
+    [orgId, serviceDate],
+  );
+
   const handleScheduledStartChange = useCallback((timeStr: string) => {
     setScheduledStartTime(timeStr);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     saveMetaTimeoutRef.current = setTimeout(() => {
       let isoTime: string | null = null;
       if (timeStr) {
+        // Anchor to the service being edited, not to today. Setting
+        // 10:00 for next Sunday was saving 10:00 *today*, which left
+        // every future service with a start time in the past.
         const [h, m] = timeStr.split(":").map(Number);
-        const d = new Date();
+        const d = new Date(`${serviceDate}T00:00:00`);
         d.setHours(h, m, 0, 0);
         isoTime = d.toISOString();
       }
@@ -282,18 +314,9 @@ function RundownPage() {
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  useEffect(() => {
-    if (!showExportMenu) return;
-    const handler = () => setShowExportMenu(false);
-    document.addEventListener("click", handler, { capture: true, once: true });
-    return () => document.removeEventListener("click", handler, { capture: true });
-  }, [showExportMenu]);
-
   const handleExport = useCallback(async (format: "csv" | "pdf") => {
     setExporting(true);
     setExportError(null);
-    setShowExportMenu(false);
     try {
       const report = await exportShowReport({ data: { orgId, serviceDate } });
       const exportReport: ExportReport = {
@@ -1064,8 +1087,10 @@ function RundownPage() {
     ? {
         serviceDate,
         scheduledStartTime: (() => {
+          // Anchor the cascade preview to the service being edited. Using
+          // today put every future service's timings on the wrong day.
           const [h, m] = scheduledStartTime.split(":").map(Number);
-          const d = new Date();
+          const d = new Date(`${serviceDate}T00:00:00`);
           d.setHours(h, m, 0, 0);
           return d.toISOString();
         })(),
@@ -1077,10 +1102,16 @@ function RundownPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header — outside minWidth so it always fills the viewport */}
-      <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <div>
+      <div className="relative shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border">
+        {/* One row that scrolls sideways when it does not fit. Nothing is
+            hidden and nothing wraps — on a narrow window you swipe the
+            toolbar, which is how dense tools behave and what an operator
+            on an iPad expects. The scrollbar is hidden, so the fades and
+            arrows below are the only thing telling you there is more. */}
+        <div ref={headerScroll.ref} className="overflow-x-auto hide-scrollbar">
+        <div className="flex items-center gap-3 w-max min-w-full px-6 py-3">
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="shrink-0">
               <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
                 Rundown
               </h1>
@@ -1088,11 +1119,36 @@ function RundownPage() {
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
-            {/* Date switcher */}
-            <div className="flex items-center gap-1 ml-4 shrink-0">
+
+            <span className="w-px h-7 bg-board-border shrink-0" aria-hidden="true" />
+
+            {/* Which service you are editing sits beside the title
+                rather than stranded on its own line: it is what the page
+                is about, and it fills the gap the action cluster would
+                otherwise float against. */}
+            <div className="flex items-center gap-1.5 shrink-0">
+          {/* Stepper for nudging a day either way; the picker is what
+              makes planning six weeks out possible without 42 clicks. */}
+          <div className="flex items-center gap-1">
+            <label className="sr-only" htmlFor="rundown-service-date">
+                Service date
+              </label>
+              <input
+                id="rundown-service-date"
+                type="date"
+                value={serviceDate}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (!next) return;
+                  setServiceDate(next);
+                  void loadDate(next);
+                }}
+                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
+              />
               <button
                 onClick={() => handleDateChange(-1)}
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                aria-label="Previous day"
+                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -1102,22 +1158,37 @@ function RundownPage() {
                   setServiceDate(nextToday);
                   loadDate(nextToday);
                 }}
-                className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums"
+                className="shrink-0 px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums whitespace-nowrap"
               >
                 {formatDisplayDate(serviceDate)}
               </button>
               <button
                 onClick={() => handleDateChange(1)}
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                aria-label="Next day"
+                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+
+          {canEditRundown && (
+            <>
+              <span className="w-px h-5 bg-board-border mx-1 shrink-0" aria-hidden="true" />
+              <input
+                type="text"
+                value={serviceName}
+                onChange={(e) => handleServiceNameChange(e.target.value)}
+                placeholder="Name this service"
+                maxLength={120}
+                aria-label="Service name"
+                title="Optional label for a special event, e.g. Christmas Eve 7pm"
+                className="shrink-0 w-[150px] bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border transition-colors"
+              />
+            </>
+          )}
             {/* Show start time */}
             {canEditRundown && (
-              <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-board-border text-xs text-board-muted hover:border-board-border/80 transition-colors min-h-[44px] cursor-pointer" title="Scheduled show start time — used for cascade timing">
+              <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-board-border/70 text-xs text-board-muted hover:border-board-border transition-colors cursor-pointer shrink-0" title="Scheduled show start time — used for cascade timing">
                 <Clock className="w-3 h-3 shrink-0" />
                 <span className="whitespace-nowrap">Show</span>
                 <input
@@ -1129,6 +1200,9 @@ function RundownPage() {
                 />
               </label>
             )}
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-2 shrink-0 pl-3">
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -1140,79 +1214,75 @@ function RundownPage() {
               title="Copy timer kiosk URL"
             >
               <Monitor className="w-3 h-3" />
-              Kiosk
+              <span>Kiosk</span>
               {copiedUrl ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
             </button>
             {canEditRundown ? (
               <>
-                <button
-                  onClick={() => setShowLoadModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-                  title="Load from previous date or saved template"
-                >
-                  <FolderOpen className="w-3 h-3" />
-                  Load
-                </button>
-                <button
-                  onClick={() => setShowSaveModal(true)}
-                  disabled={items.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
-                  title="Save as reusable template"
-                >
-                  <Save className="w-3 h-3" />
-                  Save
-                </button>
-                {/* Export dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowExportMenu((v) => !v)}
-                    disabled={exporting || items.length === 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors disabled:opacity-40 min-h-[44px]"
-                    title="Export post-show report"
-                  >
-                    <Download className="w-3 h-3" />
-                    {exporting ? "…" : "Export"}
-                  </button>
-                  {showExportMenu && (
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-board-card border border-board-border rounded-lg shadow-xl overflow-hidden min-w-[120px]">
-                      <button
-                        onClick={() => handleExport("csv")}
-                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
-                      >
-                        CSV
-                      </button>
-                      <button
-                        onClick={() => handleExport("pdf")}
-                        className="w-full text-left px-4 py-2 text-xs text-board-text hover:bg-board-border/40 transition-colors"
-                      >
-                        PDF
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={handleReset}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Reset
-                </button>
-                <button
-                  onClick={handleClearAll}
-                  disabled={items.length === 0}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[44px] disabled:opacity-40 ${
-                    clearPhase === "confirm"
-                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                      : "text-board-muted hover:text-red-400 hover:bg-red-500/10"
-                  }`}
-                  title="Clear all items from the rundown"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  {clearPhase === "confirm" ? `Confirm (${clearCountdown})` : "Clear All"}
-                </button>
+                {/* Load, Save, Export, Reset and Clear All are occasional
+                    file operations, not live controls. They belong behind
+                    one menu so the toolbar stays short and Add Item — the
+                    only thing used constantly — keeps its prominence. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
+                      title="Load, save, export and reset"
+                      aria-label="Rundown actions"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[190px]">
+                    <DropdownMenuItem onSelect={() => setShowLoadModal(true)}>
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      Load from date or template
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={items.length === 0}
+                      onSelect={() => setShowSaveModal(true)}
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save as template
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger disabled={exporting || items.length === 0}>
+                        <Download className="w-3.5 h-3.5" />
+                        {exporting ? "Exporting…" : "Export report"}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onSelect={() => handleExport("csv")}>CSV</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleExport("pdf")}>PDF</DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuSeparator />
+
+                    <DropdownMenuItem onSelect={handleReset}>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset timer
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={items.length === 0}
+                      // Clear All is two-phase. Keep the menu open so the
+                      // confirm step is visible rather than firing blind.
+                      onSelect={(event) => {
+                        if (clearPhase !== "confirm") event.preventDefault();
+                        handleClearAll();
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      {clearPhase === "confirm" ? `Confirm clear (${clearCountdown})` : "Clear all items"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
+                  aria-label="Add item"
+                  className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
                   style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
                 >
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
@@ -1230,6 +1300,9 @@ function RundownPage() {
             )}
           </div>
         </div>
+        </div>
+
+        <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
 
       {/* Page body — flex-col container, never scrolls itself */}

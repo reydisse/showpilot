@@ -15,3 +15,6 @@
 0008_crew_member_email.sql
 0009_cloud_enabled_default_on.sql
 0010_companion_tokens.sql
+0011_schema_drift_repair.sql
+0012_service_assignments.sql
+0013_rundown_name.sql
