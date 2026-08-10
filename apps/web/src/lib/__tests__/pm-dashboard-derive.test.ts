@@ -285,14 +285,16 @@ describe("deriveReadiness", () => {
       equipment: [{ id: "e1", name: "X32", category: "audio", status: "operational", nextService: null }],
       streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: true }],
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null }],
+      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
     });
     const health = deriveRundownHealth(snap);
     const readiness = deriveReadiness(
       snap,
       health,
-      deriveDepartments(snap, "call"),
+      deriveDepartments(snap, "prep"),
       deriveArrivals(snap, getServiceTiming({})),
       "prep",
+      deriveCrewBoard(snap),
     );
     expect(readiness.score).toBe(100);
     expect(readiness.status).toBe("ok");
@@ -313,16 +315,18 @@ describe("deriveReadiness", () => {
     expect(readiness.factors.find((f) => f.id === "rundown")?.status).toBe("fail");
   });
 
-  it("only judges crew arrival once crew is expected", () => {
+  it("omits crew while planning and judges it once the service is near", () => {
     const snap = snapshot({
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
     });
     const health = deriveRundownHealth(snap);
     const timing = getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
-    const planning = deriveReadiness(snap, health, deriveDepartments(snap, "call"), deriveArrivals(snap, timing), "planning");
-    const call = deriveReadiness(snap, health, deriveDepartments(snap, "call"), deriveArrivals(snap, timing), "call");
-    expect(planning.factors.find((f) => f.id === "crew")?.status).toBe("ok");
-    expect(call.factors.find((f) => f.id === "crew")?.status).toBe("warn");
+    const at = (phase: "planning" | "prep" | "call") =>
+      deriveReadiness(snap, health, deriveDepartments(snap, phase), deriveArrivals(snap, timing), phase);
+    // Weeks out an unassigned rota is normal, so it is not scored.
+    expect(at("planning").factors.some((f) => f.id === "crew")).toBe(false);
+    expect(at("prep").factors.find((f) => f.id === "crew")?.detail).toBe("Nobody scheduled yet");
+    expect(at("call").factors.find((f) => f.id === "crew")?.status).toBe("warn");
   });
 });
 
@@ -424,12 +428,14 @@ describe("readiness excludes features the org never configured", () => {
       deriveDepartments(snap, "prep"),
       deriveArrivals(snap, getServiceTiming({})),
       "prep",
+      deriveCrewBoard(snap),
     );
   }
 
   it("can reach 100 for an org that does not stream and tracks no gear", () => {
     const readiness = score({
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
     });
     expect(readiness.factors.map((f) => f.id)).not.toContain("stream");
     expect(readiness.factors.map((f) => f.id)).not.toContain("equipment");
@@ -439,6 +445,7 @@ describe("readiness excludes features the org never configured", () => {
   it("still fails an org that configured a destination and turned it off", () => {
     const readiness = score({
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
       streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: false }],
     });
     expect(readiness.factors.find((f) => f.id === "stream")?.status).toBe("fail");
@@ -571,5 +578,62 @@ describe("recent services", () => {
     );
     expect(recent[0].deltaMs).toBe(8 * MINUTE);
     expect(recent[1].deltaMs).toBeNull();
+  });
+});
+
+describe("the dashboard must not contradict itself", () => {
+  const carried = [
+    { id: "o1", serviceDate: "2026-05-19", category: "audio", severity: "high", description: "Radio mic 4" },
+    { id: "o2", serviceDate: "2026-05-12", category: "lighting", severity: "low", description: "Wash flickers" },
+  ];
+
+  it("counts carried-forward incidents in the readiness factor", () => {
+    const snap = snapshot({ incidents: [], openItems: carried });
+    const readiness = deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, "prep"),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+    const factor = readiness.factors.find((f) => f.id === "incidents");
+    // Would previously have read "None logged" while two sat on screen.
+    expect(factor?.status).toBe("fail");
+    expect(factor?.detail).toBe("1 high-severity incident");
+  });
+
+  it("counts carried-forward incidents against their department", () => {
+    const departments = deriveDepartments(snapshot({ openItems: carried }), "prep");
+    expect(departments.find((d) => d.key === "audio")?.status).toBe("fail");
+    expect(departments.find((d) => d.key === "lighting")?.status).toBe("ok");
+  });
+
+  it("does not call crew ok merely because a roster exists", () => {
+    const snap = snapshot({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      assignments: [],
+    });
+    const readiness = deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, "prep"),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+    const factor = readiness.factors.find((f) => f.id === "crew");
+    expect(factor?.status).toBe("warn");
+    expect(factor?.detail).toBe("Nobody scheduled yet");
+  });
+
+  it("reports no open incidents only when there really are none", () => {
+    const snap = snapshot();
+    const readiness = deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, "prep"),
+      deriveArrivals(snap, getServiceTiming({})),
+      "prep",
+    );
+    expect(readiness.factors.find((f) => f.id === "incidents")?.detail).toBe("None open");
   });
 });

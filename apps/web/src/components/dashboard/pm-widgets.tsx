@@ -688,47 +688,58 @@ const recentWidget: PmWidget = {
   phases: ["planning", "prep", "debrief"],
   region: "rail",
   isRelevant: ({ model }) => model.recent.length > 0,
-  render: ({ model }) => (
-    <WidgetCard title="Recent services">
-      <ul className="space-y-2">
-        {model.recent.map((service) => {
-          const over = (service.deltaMs ?? 0) > 0;
-          return (
-            <li key={service.serviceDate} className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-xs text-board-text">
-                  {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </p>
-                <p className="text-[10px] text-board-muted truncate">
-                  {formatDuration(service.plannedMs, true)} planned
-                  {service.incidentCount > 0
-                    ? ` · ${service.incidentCount} incident${service.incidentCount === 1 ? "" : "s"}`
-                    : ""}
-                </p>
-              </div>
-              <span
-                className={`text-[11px] tabular-nums shrink-0 ${
-                  service.deltaMs === null
-                    ? "text-board-muted"
-                    : over
-                      ? "text-red-400"
-                      : "text-green-400"
-                }`}
-              >
-                {service.deltaMs === null
-                  ? "not timed"
-                  : `${over ? "+" : ""}${formatDuration(service.deltaMs)}`}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </WidgetCard>
-  ),
+  render: ({ model }) => {
+    // Actuals only exist once a service has been run with the timer.
+    // Printing "not timed" against every row is four repetitions of the
+    // same fact; say it once, at the bottom.
+    const anyTimed = model.recent.some((s) => s.deltaMs !== null);
+    return (
+      <WidgetCard title="Recent services">
+        <ul className="space-y-2">
+          {model.recent.map((service) => {
+            const over = (service.deltaMs ?? 0) > 0;
+            const facts = [
+              service.plannedMs > 0 ? `${formatDuration(service.plannedMs, true)} planned` : null,
+              service.incidentCount > 0
+                ? `${service.incidentCount} incident${service.incidentCount === 1 ? "" : "s"}`
+                : null,
+            ].filter(Boolean);
+            return (
+              <li key={service.serviceDate} className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs text-board-text">
+                    {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </p>
+                  <p className="text-[10px] text-board-muted truncate">
+                    {facts.length > 0 ? facts.join(" · ") : "No rundown"}
+                  </p>
+                </div>
+                {service.deltaMs !== null && (
+                  <span
+                    className={`text-[11px] tabular-nums shrink-0 ${
+                      over ? "text-red-400" : "text-green-400"
+                    }`}
+                  >
+                    {over ? "+" : ""}
+                    {formatDuration(service.deltaMs)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {!anyTimed && (
+          <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
+            Actual runtimes appear once you run a service with the timer.
+          </p>
+        )}
+      </WidgetCard>
+    );
+  },
 };
 
 // ─── Registry ────────────────────────────────────────────────

@@ -789,8 +789,21 @@ export function deriveDepartments(
   snapshot: PmSnapshot,
   phase: ServicePhase,
 ): DepartmentStatus[] {
+  // Carried-forward incidents count against a department exactly like
+  // one logged today. A radio mic that broke in May is still broken.
+  const allIncidents = [
+    ...snapshot.incidents,
+    ...snapshot.openItems.map((o) => ({
+      id: o.id,
+      category: o.category,
+      severity: o.severity,
+      description: o.description,
+      reportedBy: "",
+    })),
+  ];
+
   return DEPARTMENT_ORDER.map((key) => {
-    const incidents = snapshot.incidents.filter((i) => normalizeCategory(i.category) === key);
+    const incidents = allIncidents.filter((i) => normalizeCategory(i.category) === key);
     const equipment = snapshot.equipment.filter((e) => normalizeCategory(e.category) === key);
     const unchecked = checklistIsDue(phase)
       ? snapshot.checklist.filter((c) => normalizeCategory(c.category) === key && !c.checked)
@@ -1016,14 +1029,25 @@ export function deriveReadiness(
     weight: 15,
   });
 
-  // Incidents
-  const high = snapshot.incidents.filter((i) => i.severity === "high").length;
-  const open = snapshot.incidents.length;
+  // Incidents, including everything still open from earlier services.
+  // Scoring only today's would let the card read "None logged" while
+  // three unresolved incidents sit on the same screen.
+  const todays = snapshot.incidents.length;
+  const carried = snapshot.openItems.length;
+  const high =
+    snapshot.incidents.filter((i) => i.severity === "high").length +
+    snapshot.openItems.filter((i) => i.severity === "high").length;
+  const totalOpen = todays + carried;
   factors.push({
     id: "incidents",
     label: "Incidents",
-    detail: high > 0 ? `${plural(high, "high-severity incident")}` : open > 0 ? `${plural(open, "incident")} logged` : "None logged",
-    status: high > 0 ? "fail" : open > 0 ? "warn" : "ok",
+    detail:
+      high > 0
+        ? plural(high, "high-severity incident")
+        : totalOpen > 0
+          ? `${plural(totalOpen, "open incident")}${carried > 0 && todays === 0 ? " carried over" : ""}`
+          : "None open",
+    status: high > 0 ? "fail" : totalOpen > 0 ? "warn" : "ok",
     weight: 15,
   });
 
@@ -1074,12 +1098,28 @@ export function deriveReadiness(
       status: alarmed > 0 ? "fail" : arrivals.present < arrivals.total ? "warn" : "ok",
       weight: 15,
     });
-  } else {
+  } else if (arrivals.total === 0) {
     factors.push({
       id: "crew",
       label: "Crew",
-      detail: arrivals.total === 0 ? "No crew on the roster" : `${plural(arrivals.total, "member")} on the roster`,
-      status: arrivals.total === 0 ? "fail" : "ok",
+      detail: "No crew on the roster",
+      status: "fail",
+      weight: 15,
+    });
+  } else if (phase !== "planning") {
+    // A roster is not a rota. Reporting "21 members" as green while the
+    // queue says nobody is scheduled had the dashboard contradicting
+    // itself on one screen.
+    //
+    // In planning the factor is omitted rather than scored, exactly as
+    // checklists are: weeks out, an unassigned rota is the normal state
+    // of the world, not a deficit. The queue still carries an info-level
+    // nudge so the gap is visible without dragging the score down.
+    factors.push({
+      id: "crew",
+      label: "Crew",
+      detail: "Nobody scheduled yet",
+      status: "warn",
       weight: 15,
     });
   }
