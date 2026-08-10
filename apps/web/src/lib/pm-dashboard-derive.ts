@@ -262,6 +262,17 @@ export interface OnFloor {
   overflow: number;
 }
 
+export type DutyKey = "pm" | "tm";
+
+export interface DutyOfficer {
+  key: DutyKey;
+  label: string;
+  name: string | null;
+  /** The role string as the org actually wrote it, e.g. "Tech Director". */
+  role: string;
+  status: CrewPosition["status"];
+}
+
 export interface CrewPosition {
   id: string;
   role: string;
@@ -312,6 +323,7 @@ export interface PmDashboardModel {
   planNext: boolean;
   lastServiceDate: string | null;
   crew: CrewBoard;
+  duty: DutyOfficer[];
   openItems: OpenItem[];
   recent: RecentService[];
   onFloor: OnFloor;
@@ -902,6 +914,72 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
   };
 }
 
+// ─── Duty officers ───────────────────────────────────────────
+
+/**
+ * Every team names these two differently — "Producer", "Service
+ * Producer", "Tech Director", "TD". Exact matches first, then phrase
+ * containment; short forms are only ever matched exactly so "TD" does
+ * not swallow "Stage TD Assistant".
+ */
+const DUTY_EXACT: Record<string, DutyKey> = {
+  pm: "pm",
+  producer: "pm",
+  "production manager": "pm",
+  "service producer": "pm",
+  tm: "tm",
+  td: "tm",
+  "tech manager": "tm",
+  "tech director": "tm",
+  "technical manager": "tm",
+  "technical director": "tm",
+};
+
+const DUTY_PHRASES: [string, DutyKey][] = [
+  ["production manager", "pm"],
+  ["service producer", "pm"],
+  ["technical manager", "tm"],
+  ["technical director", "tm"],
+  ["tech director", "tm"],
+  ["tech manager", "tm"],
+];
+
+export function dutyKeyFor(role: string): DutyKey | null {
+  const value = role.toLowerCase().trim();
+  if (value in DUTY_EXACT) return DUTY_EXACT[value];
+  for (const [phrase, key] of DUTY_PHRASES) {
+    if (value.includes(phrase)) return key;
+  }
+  return null;
+}
+
+const DUTY_LABELS: Record<DutyKey, string> = {
+  pm: "Production manager",
+  tm: "Technical manager",
+};
+
+/**
+ * Who is running the service. Always returns both slots, because an
+ * unnamed one is the useful information — a Sunday with no technical
+ * manager is a problem you want to see, not an absent row.
+ */
+export function deriveDuty(snapshot: PmSnapshot): DutyOfficer[] {
+  return (["pm", "tm"] as DutyKey[]).map((key) => {
+    const match = snapshot.assignments.find((a) => dutyKeyFor(a.role) === key);
+    if (!match) {
+      return { key, label: DUTY_LABELS[key], name: null, role: DUTY_LABELS[key], status: "open" as const };
+    }
+    const status: CrewPosition["status"] = !match.crewMemberName
+      ? "open"
+      : match.status === "confirmed"
+        ? "confirmed"
+        : match.status === "declined"
+          ? "declined"
+          : "assigned";
+    return { key, label: DUTY_LABELS[key], name: match.crewMemberName, role: match.role, status };
+  });
+}
+
 // ─── Crew board ──────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -913,14 +991,18 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
  * between the two is where Sunday mornings go wrong.
  */
 export function deriveCrewBoard(snapshot: PmSnapshot): CrewBoard {
-  const positions: CrewPosition[] = snapshot.assignments.map((a) => {
-    let status: CrewPosition["status"];
-    if (!a.crewMemberName) status = "open";
-    else if (a.status === "confirmed") status = "confirmed";
-    else if (a.status === "declined") status = "declined";
-    else status = "assigned";
-    return { id: a.id, role: a.role, name: a.crewMemberName, status };
-  });
+  // Duty officers get their own card; listing them here too would say
+  // the same thing twice on one screen.
+  const positions: CrewPosition[] = snapshot.assignments
+    .filter((a) => dutyKeyFor(a.role) === null)
+    .map((a) => {
+      let status: CrewPosition["status"];
+      if (!a.crewMemberName) status = "open";
+      else if (a.status === "confirmed") status = "confirmed";
+      else if (a.status === "declined") status = "declined";
+      else status = "assigned";
+      return { id: a.id, role: a.role, name: a.crewMemberName, status };
+    });
 
   const count = (status: CrewPosition["status"]) =>
     positions.filter((p) => p.status === status).length;
@@ -1294,6 +1376,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     planNext: rundownHealth.itemCount === 0 && (phase === "planning" || phase === "prep"),
     lastServiceDate: snapshot.lastServiceDate,
     crew,
+    duty: deriveDuty(snapshot),
     openItems: deriveOpenItems(snapshot),
     recent: deriveRecent(snapshot),
     onFloor: deriveOnFloor(snapshot),

@@ -25,6 +25,7 @@ import {
   type WidgetDefinition,
 } from "./widget";
 import { formatDuration } from "@/lib/rundown-timing";
+import { initialsFor } from "@/lib/pm-dashboard-derive";
 import type {
   AttentionItem,
   CrewPosition,
@@ -805,6 +806,61 @@ const recentWidget: PmWidget = {
   },
 };
 
+// ─── Duty officers ───────────────────────────────────────────
+
+/**
+ * Who is running the show this week. Both slots always render — an
+ * unnamed technical manager on a Sunday is the useful signal, and a
+ * missing row would hide it.
+ */
+const dutyWidget: PmWidget = {
+  id: "duty",
+  title: "On duty",
+  phases: "all",
+  region: "rail",
+  render: ({ model, slug }) => (
+    <WidgetCard
+      title="On duty"
+      action={
+        <Link to={orgLink(slug, "team")}>
+          <WidgetAction>Assign</WidgetAction>
+        </Link>
+      }
+    >
+      <ul className="space-y-2.5">
+        {model.duty.map((officer) => {
+          const config = CREW_STATUS[officer.status];
+          return (
+            <li key={officer.key} className="flex items-center gap-2.5">
+              <span
+                className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[9px] font-medium ${
+                  officer.name
+                    ? "bg-board-bg text-board-muted"
+                    : "border border-dashed border-board-border text-board-muted/60"
+                }`}
+                aria-hidden="true"
+              >
+                {officer.name ? initialsFor(officer.name) : "—"}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-board-text truncate">
+                  {officer.name ?? <span className="text-board-muted">Not assigned</span>}
+                </p>
+                <p className="text-[10px] text-board-muted truncate">{officer.label}</p>
+              </div>
+              {officer.status !== "confirmed" && (
+                <span className={`text-[10px] shrink-0 ${config.className}`}>
+                  {officer.status === "open" ? "Open" : config.label}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </WidgetCard>
+  ),
+};
+
 // ─── Registry ────────────────────────────────────────────────
 
 export const PM_WIDGETS: PmWidget[] = [
@@ -820,6 +876,7 @@ export const PM_WIDGETS: PmWidget[] = [
   cueExceptionsWidget,
   readinessWidget,
   recentWidget,
+  dutyWidget,
   arrivalsWidget,
   weekAheadWidget,
 ];

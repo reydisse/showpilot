@@ -4,6 +4,8 @@ import {
   deriveAttentionQueue,
   deriveCrewBoard,
   deriveCueExceptions,
+  deriveDuty,
+  dutyKeyFor,
   deriveDepartments,
   deriveOnFloor,
   deriveOpenItems,
@@ -675,5 +677,46 @@ describe("on the floor", () => {
     );
     expect(floor.total).toBe(25);
     expect(floor.overflow).toBe(24);
+  });
+});
+
+describe("duty officers", () => {
+  it("recognises the names teams actually use", () => {
+    expect(dutyKeyFor("Production Manager")).toBe("pm");
+    expect(dutyKeyFor("producer")).toBe("pm");
+    expect(dutyKeyFor("Tech Director")).toBe("tm");
+    expect(dutyKeyFor("TD")).toBe("tm");
+    expect(dutyKeyFor("Camera 2")).toBeNull();
+  });
+
+  it("matches short forms exactly so they do not swallow other roles", () => {
+    expect(dutyKeyFor("TM")).toBe("tm");
+    // 'TD' inside a longer role must not claim the technical manager slot.
+    expect(dutyKeyFor("Stage TD Assistant")).toBeNull();
+  });
+
+  it("always returns both slots, naming the gap when one is unfilled", () => {
+    const duty = deriveDuty(
+      snapshot({
+        assignments: [
+          { id: "a1", role: "Producer", crewMemberName: "Rey", status: "confirmed" },
+          { id: "a2", role: "Camera 1", crewMemberName: "Sam", status: "assigned" },
+        ],
+      }),
+    );
+    expect(duty.map((d) => d.key)).toEqual(["pm", "tm"]);
+    expect(duty[0]).toMatchObject({ name: "Rey", status: "confirmed", role: "Producer" });
+    expect(duty[1]).toMatchObject({ name: null, status: "open" });
+  });
+
+  it("keeps duty roles out of the crew board so nobody is listed twice", () => {
+    const snap = snapshot({
+      assignments: [
+        { id: "a1", role: "Production Manager", crewMemberName: "Rey", status: "confirmed" },
+        { id: "a2", role: "Camera 1", crewMemberName: "Sam", status: "assigned" },
+      ],
+    });
+    expect(deriveCrewBoard(snap).positions.map((p) => p.role)).toEqual(["Camera 1"]);
+    expect(deriveDuty(snap)[0].name).toBe("Rey");
   });
 });
