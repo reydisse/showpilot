@@ -49,6 +49,11 @@ echo
 # 0011 is pure CREATE ... IF NOT EXISTS, so it is always safe.
 PLAN=("0011_schema_drift_repair.sql")
 
+# Already satisfied by the live schema. These must still be RECORDED — the
+# deploy workflow blocks while any numbered migration is missing from the
+# manifest, whether or not it had work to do.
+SATISFIED=()
+
 if [[ "$INCIDENT_STATUS" == "yes" ]]; then
   echo "  ! incident.status already exists — 0012's ALTERs would abort the file."
   echo "    Apply 0012 by hand, keeping only the CREATE statements."
@@ -57,14 +62,18 @@ else
 fi
 
 if [[ "$RUNDOWN_NAME" == "yes" ]]; then
-  echo "  ! rundown.name already exists — 0013 is already applied. Skipping."
+  echo "  ! rundown.name already exists — nothing to apply for 0013."
+  SATISFIED+=("0013_rundown_name.sql")
 else
   PLAN+=("0013_rundown_name.sql")
 fi
 
 echo
 echo "Plan:"
-for file in "${PLAN[@]}"; do echo "  apply $file"; done
+for file in "${PLAN[@]}"; do echo "  apply  $file"; done
+for file in "${SATISFIED[@]:-}"; do
+  [[ -n "$file" ]] && echo "  record $file (already satisfied by the live schema)"
+done
 echo
 
 if [[ "$DRY_RUN" == "--dry-run" ]]; then
@@ -84,6 +93,14 @@ for file in "${PLAN[@]}"; do
   if ! grep -qx "$file" "$MANIFEST"; then
     echo "$file" >> "$MANIFEST"
     echo "   recorded in applied-remote.txt"
+  fi
+done
+
+for file in "${SATISFIED[@]:-}"; do
+  [[ -n "$file" ]] || continue
+  if ! grep -qx "$file" "$MANIFEST"; then
+    echo "$file" >> "$MANIFEST"
+    echo "   recorded $file (no statements needed)"
   fi
 done
 
