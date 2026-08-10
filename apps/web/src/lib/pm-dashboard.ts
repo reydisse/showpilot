@@ -108,6 +108,19 @@ interface AssignmentRow {
  * checkout that has not run `pnpm db:generate` will not have the
  * delegate — same defensive access `rundown.ts` uses for `rundown`.
  */
+/** Has this org ever assigned anyone to anything? */
+async function countAllAssignments(orgId: string): Promise<number> {
+  const prisma = getPrisma() as unknown as {
+    serviceAssignment?: { count(args: unknown): Promise<number> };
+  };
+  if (!prisma.serviceAssignment) return 0;
+  try {
+    return await prisma.serviceAssignment.count({ where: { orgId } });
+  } catch {
+    return 0;
+  }
+}
+
 async function loadAssignments(orgId: string, serviceDate: string): Promise<AssignmentRow[]> {
   const prisma = getPrisma() as unknown as {
     serviceAssignment?: {
@@ -270,7 +283,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // The four most recent services before this one, for the history card.
     const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
 
-    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
+    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
         prisma.checklistTemplate.findMany({
@@ -320,6 +333,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
           select: { id: true, title: true, message: true, severity: true },
         }),
         loadAssignments(orgId, serviceDate),
+        countAllAssignments(orgId),
         prisma.crewMember.findMany({
           where: { orgId, isOnline: true },
           orderBy: { lastCheckIn: "desc" },
@@ -470,6 +484,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         lastCheckIn: m.lastCheckIn ? m.lastCheckIn.toISOString() : null,
       })),
       onFloorTotal,
+      schedulingInUse: assignmentsEver > 0,
     };
 
     return {

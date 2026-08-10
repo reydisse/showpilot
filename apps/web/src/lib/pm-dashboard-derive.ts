@@ -160,6 +160,12 @@ export interface PmSnapshot {
   onFloor: SnapshotOnFloorMember[];
   /** Checked-in count before the photo query's cap was applied. */
   onFloorTotal: number;
+  /**
+   * Whether this org has ever assigned anyone to any service. False
+   * means scheduling is not part of how they work (or the feature does
+   * not exist for them yet) — so it must not be scored.
+   */
+  schedulingInUse: boolean;
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -280,6 +286,12 @@ export interface CrewPosition {
   status: "confirmed" | "assigned" | "declined" | "open";
 }
 
+export interface RosterMember {
+  id: string;
+  name: string;
+  role: string;
+}
+
 export interface CrewBoard {
   positions: CrewPosition[];
   total: number;
@@ -324,6 +336,9 @@ export interface PmDashboardModel {
   lastServiceDate: string | null;
   crew: CrewBoard;
   duty: DutyOfficer[];
+  /** The whole crew roster, for inline assignment controls. */
+  roster: RosterMember[];
+  schedulingInUse: boolean;
   openItems: OpenItem[];
   recent: RecentService[];
   onFloor: OnFloor;
@@ -1257,6 +1272,12 @@ export function deriveReadiness(
       status: "fail",
       weight: 15,
     });
+  } else if (!snapshot.schedulingInUse) {
+    // Nobody has ever been assigned to anything. Scheduling is either
+    // not how this org works or not yet available to them; either way,
+    // marking them down for it would be scoring a gap they cannot
+    // close — the same rule already applied to streaming and
+    // checklists. The factor reappears the moment anyone is assigned.
   } else if (phase !== "planning") {
     // A roster is not a rota. Reporting "21 members" as green while the
     // queue says nobody is scheduled had the dashboard contradicting
@@ -1377,6 +1398,8 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     lastServiceDate: snapshot.lastServiceDate,
     crew,
     duty: deriveDuty(snapshot),
+    roster: snapshot.crew.map((m) => ({ id: m.id, name: m.name, role: m.role })),
+    schedulingInUse: snapshot.schedulingInUse,
     openItems: deriveOpenItems(snapshot),
     recent: deriveRecent(snapshot),
     onFloor: deriveOnFloor(snapshot),

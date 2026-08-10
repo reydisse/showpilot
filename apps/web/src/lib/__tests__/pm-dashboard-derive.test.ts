@@ -69,6 +69,7 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     recent: [],
     onFloor: [],
     onFloorTotal: 0,
+    schedulingInUse: true,
     ...overrides,
   };
 }
@@ -718,5 +719,56 @@ describe("duty officers", () => {
     });
     expect(deriveCrewBoard(snap).positions.map((p) => p.role)).toEqual(["Camera 1"]);
     expect(deriveDuty(snap)[0].name).toBe("Rey");
+  });
+});
+
+describe("scheduling is not scored until the org uses it", () => {
+  function crewFactor(overrides: Partial<PmSnapshot>, phase: "planning" | "prep" | "call") {
+    const snap = snapshot({
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      ...overrides,
+    });
+    return deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, phase),
+      deriveArrivals(snap, getServiceTiming({})),
+      phase,
+      deriveCrewBoard(snap),
+    ).factors.find((f) => f.id === "crew");
+  }
+
+  it("omits crew before the service for an org that has never assigned anyone", () => {
+    // ShowPilot has no scheduling product yet — marking an org down for
+    // a gap they cannot close is the same error as penalising a church
+    // that does not livestream.
+    for (const phase of ["planning", "prep"] as const) {
+      expect(crewFactor({ schedulingInUse: false }, phase)).toBeUndefined();
+    }
+  });
+
+  it("still scores arrivals at call time, which does not depend on scheduling", () => {
+    // "Are the right people booked?" needs a rota. "Are people here?"
+    // only needs check-in, which ships today — so it is fair to score
+    // even for an org that has never scheduled anyone.
+    const factor = crewFactor({ schedulingInUse: false }, "call");
+    expect(factor?.detail).toBe("0 of 1 checked in");
+    expect(factor?.status).toBe("warn");
+  });
+
+  it("starts scoring the moment the org assigns anyone anywhere", () => {
+    expect(crewFactor({ schedulingInUse: true }, "prep")?.detail).toBe("Nobody scheduled yet");
+  });
+
+  it("scores this service's own board once it has one", () => {
+    const factor = crewFactor(
+      {
+        schedulingInUse: true,
+        assignments: [{ id: "a1", role: "Camera 1", crewMemberName: null, status: "assigned" }],
+      },
+      "prep",
+    );
+    expect(factor?.status).toBe("fail");
+    expect(factor?.detail).toBe("1 position unfilled");
   });
 });

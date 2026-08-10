@@ -210,3 +210,87 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
 
     return { ok: true, copied: source.length };
   });
+
+// ─── Set a duty officer ──────────────────────────────────────
+
+/**
+ * Minimal inline scheduling: name the production or technical manager
+ * for one service.
+ *
+ * ShowPilot has no scheduling product yet, and the intended destination
+ * is a Planning Center Services adapter writing into ServiceAssignment
+ * as the native fallback (see the OnTime and ProPresenter pattern).
+ * This is deliberately not a rota editor — it exists so the two roles
+ * the dashboard reports on can actually be set today, and it writes the
+ * same rows the adapter eventually will.
+ */
+export const setDutyOfficer = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        serviceDate: serviceDateSchema,
+        duty: z.enum(["pm", "tm"]),
+        /** Null clears the slot. */
+        crewMemberId: idSchema.nullable(),
+      }),
+      data,
+    ),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
+
+    const prisma = getPrisma() as unknown as {
+      serviceAssignment?: {
+        findMany(args: unknown): Promise<{ id: string; role: string }[]>;
+        update(args: unknown): Promise<unknown>;
+        create(args: unknown): Promise<unknown>;
+        delete(args: unknown): Promise<unknown>;
+      };
+    };
+    if (!prisma.serviceAssignment) {
+      throw new Error("Crew scheduling is not available — run pnpm db:generate");
+    }
+
+    // The crew member must belong to this org; never trust the id alone.
+    if (data.crewMemberId) {
+      const member = await getPrisma().crewMember.findFirst({
+        where: { id: data.crewMemberId, orgId: data.orgId },
+        select: { id: true },
+      });
+      if (!member) throw new Error("Not found");
+    }
+
+    const { dutyKeyFor } = await import("@/lib/pm-dashboard-derive");
+    const existing = await prisma.serviceAssignment.findMany({
+      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      select: { id: true, role: true },
+    });
+    const current = existing.find((row) => dutyKeyFor(row.role) === data.duty);
+
+    if (!data.crewMemberId) {
+      if (current) await prisma.serviceAssignment.delete({ where: { id: current.id } });
+      return { ok: true };
+    }
+
+    const role = data.duty === "pm" ? "Production Manager" : "Technical Manager";
+    if (current) {
+      await prisma.serviceAssignment.update({
+        where: { id: current.id },
+        // A newly named person has not confirmed yet, whoever they are.
+        data: { crewMemberId: data.crewMemberId, status: "assigned", respondedAt: null },
+      });
+    } else {
+      await prisma.serviceAssignment.create({
+        data: {
+          orgId: data.orgId,
+          serviceDate: data.serviceDate,
+          role,
+          crewMemberId: data.crewMemberId,
+          status: "assigned",
+        },
+      });
+    }
+
+    return { ok: true };
+  });
