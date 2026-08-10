@@ -1098,25 +1098,29 @@ function RundownPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header — outside minWidth so it always fills the viewport */}
-      <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      <div className="shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border overflow-x-auto hide-scrollbar">
+        {/* One row that scrolls sideways when it does not fit. Nothing is
+            hidden and nothing wraps — on a narrow window you swipe the
+            toolbar, which is how dense tools behave and what an operator
+            on an iPad expects. */}
+        <div className="flex items-center gap-3 w-max min-w-full px-6 py-3">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="shrink-0">
               <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
                 Rundown
               </h1>
-              <p className="hidden sm:block text-xs text-board-muted mt-0.5 whitespace-nowrap">
+              <p className="text-xs text-board-muted mt-0.5 whitespace-nowrap">
                 {items.length} items · {formatDuration(totalDuration)} total
               </p>
             </div>
 
-            <span className="hidden md:block w-px h-7 bg-board-border shrink-0" aria-hidden="true" />
+            <span className="w-px h-7 bg-board-border shrink-0" aria-hidden="true" />
 
             {/* Which service you are editing sits beside the title
                 rather than stranded on its own line: it is what the page
                 is about, and it fills the gap the action cluster would
                 otherwise float against. */}
-            <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto hide-scrollbar">
+            <div className="flex items-center gap-1.5 shrink-0">
           {/* Stepper for nudging a day either way; the picker is what
               makes planning six weeks out possible without 42 clicks. */}
           <div className="flex items-center gap-1">
@@ -1138,7 +1142,7 @@ function RundownPage() {
               <button
                 onClick={() => handleDateChange(-1)}
                 aria-label="Previous day"
-                className="hidden xl:block p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -1148,14 +1152,14 @@ function RundownPage() {
                   setServiceDate(nextToday);
                   loadDate(nextToday);
                 }}
-                className="hidden xl:block px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums whitespace-nowrap"
+                className="shrink-0 px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums whitespace-nowrap"
               >
                 {formatDisplayDate(serviceDate)}
               </button>
               <button
                 onClick={() => handleDateChange(1)}
                 aria-label="Next day"
-                className="hidden xl:block p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1163,7 +1167,7 @@ function RundownPage() {
 
           {canEditRundown && (
             <>
-              <span className="hidden xl:block w-px h-5 bg-board-border mx-1" aria-hidden="true" />
+              <span className="w-px h-5 bg-board-border mx-1 shrink-0" aria-hidden="true" />
               <input
                 type="text"
                 value={serviceName}
@@ -1172,7 +1176,7 @@ function RundownPage() {
                 maxLength={120}
                 aria-label="Service name"
                 title="Optional label for a special event, e.g. Christmas Eve 7pm"
-                className="hidden xl:block w-[120px] shrink bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border focus:w-[200px] transition-all"
+                className="shrink-0 w-[150px] bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border transition-colors"
               />
             </>
           )}
@@ -1180,7 +1184,7 @@ function RundownPage() {
             {canEditRundown && (
               <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-board-border/70 text-xs text-board-muted hover:border-board-border transition-colors cursor-pointer shrink-0" title="Scheduled show start time — used for cascade timing">
                 <Clock className="w-3 h-3 shrink-0" />
-                <span className="hidden 2xl:inline whitespace-nowrap">Show</span>
+                <span className="whitespace-nowrap">Show</span>
                 <input
                   type="time"
                   value={scheduledStartTime}
@@ -1192,7 +1196,7 @@ function RundownPage() {
             )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="ml-auto flex items-center gap-2 shrink-0 pl-3">
             {/* Timer kiosk link */}
             <button
               onClick={() => {
@@ -1204,7 +1208,7 @@ function RundownPage() {
               title="Copy timer kiosk URL"
             >
               <Monitor className="w-3 h-3" />
-              <span className="hidden xl:inline">Kiosk</span>
+              <span>Kiosk</span>
               {copiedUrl ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
             </button>
             {canEditRundown ? (
@@ -1272,13 +1276,13 @@ function RundownPage() {
                 <button
                   onClick={() => setShowAddForm(true)}
                   aria-label="Add item"
-                  className="group flex min-h-[44px] items-center gap-2.5 rounded-xl px-2.5 sm:pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
+                  className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
                   style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
                 >
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
                     <Plus className="w-3.5 h-3.5" />
                   </span>
-                  <span className="hidden sm:inline font-[family-name:var(--font-display)] text-sm font-bold tracking-tight whitespace-nowrap">
+                  <span className="font-[family-name:var(--font-display)] text-sm font-bold tracking-tight whitespace-nowrap">
                     Add Item
                   </span>
                 </button>
