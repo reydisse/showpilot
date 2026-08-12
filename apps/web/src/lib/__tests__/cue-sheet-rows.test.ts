@@ -13,7 +13,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { deriveCallerClock, resolveCueSheetDate, toCueRows } from "@/lib/cue-sheet-derive";
+import {
+  deriveCallerClock,
+  resolveCueSheetDate,
+  resolveOpeningServiceDate,
+  toCueRows,
+} from "@/lib/cue-sheet-derive";
 import type { RundownItem } from "@/types/rundown";
 
 const toRows = toCueRows;
@@ -249,5 +254,32 @@ describe("the caller's clock", () => {
   it("never treats a section band as something to call", () => {
     const clock = deriveCallerClock({ rows, currentItemId: null, elapsedMs: 0, nowMs: START });
     expect(clock.nextTitle).not.toBe("Pre - service");
+  });
+});
+
+describe("which service the rundown opens on", () => {
+  const withItems = ["2026-05-19", "2026-08-16"];
+
+  it("reopens where the team last worked", () => {
+    expect(resolveOpeningServiceDate(withItems, "2026-08-12", "2026-05-19")).toBe("2026-05-19");
+  });
+
+  it("ignores a remembered service that has nothing in it", () => {
+    // This is the loop that emptied the cue sheet: opening the editor on
+    // a Wednesday recorded Wednesday as active, and every later load —
+    // of both pages — came back to that empty day.
+    expect(resolveOpeningServiceDate(withItems, "2026-08-12", "2026-08-12")).toBe("2026-08-16");
+  });
+
+  it("prefers the next service over the most recent one", () => {
+    expect(resolveOpeningServiceDate(withItems, "2026-08-12", null)).toBe("2026-08-16");
+  });
+
+  it("falls back to the most recent service once they are all past", () => {
+    expect(resolveOpeningServiceDate(withItems, "2026-12-01", null)).toBe("2026-08-16");
+  });
+
+  it("lands on today for an org with no rundowns at all", () => {
+    expect(resolveOpeningServiceDate([], "2026-08-12", null)).toBe("2026-08-12");
   });
 });

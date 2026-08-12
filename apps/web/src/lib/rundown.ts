@@ -415,8 +415,10 @@ async function assertRundownEditAccess(orgId: string) {
   }
 }
 
+const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
+
 function rundownItemsKey(serviceDate: string) {
-  return `rundown-items:${serviceDate}`;
+  return `${RUNDOWN_ITEMS_PREFIX}${serviceDate}`;
 }
 
 function rundownTimerKey(serviceDate: string) {
@@ -629,6 +631,51 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     });
 
     return { ok: true };
+  });
+
+/**
+ * The service the rundown should open on.
+ *
+ * Read by the rundown editor's loader so the app lands somewhere real
+ * instead of on today, which for a church is empty most of the week.
+ * Everything else — the cue sheet today, the tech dashboard next —
+ * follows the editor rather than repeating this judgement.
+ */
+export const getRundownOpeningDate = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, today: z.string().min(10).max(10) }), data),
+  )
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const [rows, active] = await Promise.all([
+      prisma.appSetting.findMany({
+        where: { orgId: data.orgId, key: { startsWith: RUNDOWN_ITEMS_PREFIX } },
+        select: { key: true, value: true },
+      }),
+      prisma.appSetting.findUnique({
+        where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+        select: { value: true },
+      }),
+    ]);
+
+    // A rundown row that exists but holds no items is not somewhere to
+    // land — that is the state the old "open on today" behaviour kept
+    // creating.
+    const datesWithItems = rows
+      .filter((row) => {
+        try {
+          const items = JSON.parse(row.value);
+          return Array.isArray(items) && items.length > 0;
+        } catch {
+          return false;
+        }
+      })
+      .map((row) => row.key.slice(RUNDOWN_ITEMS_PREFIX.length));
+
+    const { resolveOpeningServiceDate } = await import("@/lib/cue-sheet-derive");
+    return {
+      serviceDate: resolveOpeningServiceDate(datesWithItems, data.today, active?.value ?? null),
+    };
   });
 
 /** appSetting key holding the service the org is currently working on. */

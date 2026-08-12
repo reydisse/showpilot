@@ -48,6 +48,7 @@ import {
   saveRundownMessage,
   saveRundownMeta,
   setActiveServiceDate,
+  getRundownOpeningDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
@@ -192,16 +193,31 @@ export const Route = createFileRoute("/$slug/rundown")({
     await withPermission(context.role, "rundown:view", context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
-    return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings, role: context.role };
+    // Open on a service that exists rather than blindly on today. A
+    // church has no service most days, so "today" meant the editor
+    // opened empty six days a week — and once the cue sheet started
+    // following the editor, that emptiness spread to it as well.
+    const { serviceDate: openOn } = await getRundownOpeningDate({
+      data: { orgId: context.orgId, today },
+    });
+    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: openOn } });
+    return {
+      orgId: context.orgId,
+      slug: context.slug,
+      today,
+      openOn,
+      initialState: state,
+      settings,
+      role: context.role,
+    };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, today, initialState, settings, role } = Route.useLoaderData();
+  const { orgId, slug, openOn, initialState, settings, role } = Route.useLoaderData();
   const canEditRundown = hasPermission(role, "rundown:edit");
-  const [serviceDate, setServiceDate] = useState(today);
+  const [serviceDate, setServiceDate] = useState(openOn);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";

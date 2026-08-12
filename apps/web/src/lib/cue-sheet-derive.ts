@@ -208,3 +208,30 @@ export function deriveCallerClock({
     offsetMs: plannedEndMs === null ? null : expectedEndMs - plannedEndMs,
   };
 }
+
+/**
+ * Which service the *rundown* opens on.
+ *
+ * This is the one place that decides, and everything downstream just
+ * follows it. The rundown used to open blindly on today, which is empty
+ * six days a week for a church — and once the cue sheet started
+ * following the rundown, that emptiness propagated: open the editor on a
+ * Wednesday and the cue sheet went blank too.
+ *
+ * So the "does this service exist" judgement lives here, at the source,
+ * rather than being re-litigated by every page that follows along.
+ *
+ * `datesWithItems` is exactly what it says — a date whose rundown was
+ * created but never filled does not count as somewhere to land.
+ */
+export function resolveOpeningServiceDate(
+  datesWithItems: string[],
+  today: string,
+  activeServiceDate?: string | null,
+): string {
+  const sorted = [...new Set(datesWithItems)].sort();
+  // Where the team last worked, if there is still anything there.
+  if (activeServiceDate && sorted.includes(activeServiceDate)) return activeServiceDate;
+  if (sorted.length === 0) return today;
+  return sorted.find((d) => d >= today) ?? sorted[sorted.length - 1];
+}
