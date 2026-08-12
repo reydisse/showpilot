@@ -33,6 +33,7 @@ import { useTheme } from "./ThemeContext";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
 import { ROLE_COLOURS } from "./ProfileModal";
+import { NotificationCenter } from "./NotificationCenter";
 
 interface NavItem {
   icon: React.ElementType;
@@ -427,6 +428,7 @@ function renderSidebarContent({
 
       {/* Settings + Identity pinned to bottom */}
       <div className="shrink-0 border-t border-board-border px-2.5 py-3 space-y-0.5">
+        {org && user ? <NotificationCenter orgId={org.id} slug={slug} collapsed={collapsed} /> : null}
         {hasAnyPermission(role, [
           "settings:organization",
           "settings:members",
