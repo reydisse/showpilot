@@ -225,6 +225,8 @@ function RundownPage() {
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
+  /** Non-null when the last auto-save failed. Shown, not logged. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
@@ -562,11 +564,23 @@ function RundownPage() {
     saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
   }, [orgId, serviceDate]);
 
-  // Auto-save items on change (debounced)
+  // Auto-save items on change (debounced).
+  //
+  // A failure here has to be visible. The relay keeps the rundown on
+  // screen and everything looks saved, so a swallowed error means an
+  // operator builds a whole service and loses it on reload — which is
+  // exactly what the plan-limit error on a new service date was doing.
   const persistItems = useCallback((newItems: RundownItem[]) => {
     if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
     saveItemsTimeoutRef.current = setTimeout(() => {
-      saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch((e) => console.warn("[SP] Items persist failed:", e));
+      saveRundownItems({ data: { orgId, serviceDate, items: newItems } })
+        .then(() => setSaveError(null))
+        .catch((e: unknown) => {
+          console.warn("[SP] Items persist failed:", e);
+          setSaveError(
+            e instanceof Error ? e.message : "This rundown is not saving. Reload before relying on it.",
+          );
+        });
     }, 1000);
   }, [orgId, serviceDate]);
 
@@ -1321,6 +1335,16 @@ function RundownPage() {
 
         <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
+
+      {saveError && (
+        <div
+          role="alert"
+          className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
+        >
+          <span className="font-medium shrink-0">Not saving.</span>
+          <span className="min-w-0">{saveError}</span>
+        </div>
+      )}
 
       {/* Page body — flex-col container, never scrolls itself */}
       <div className="rundown-page-body flex-1 overflow-hidden flex flex-col" style={{ containerType: "inline-size" }}>

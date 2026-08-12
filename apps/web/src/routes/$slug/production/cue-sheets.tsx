@@ -195,6 +195,22 @@ function CueSheetsPage() {
   /** Live items are this service's only if the relay says so. */
   const liveMatches = hydrated && stateServiceDate === serviceDate && liveItems.length > 0;
 
+  // Follow the editor. If the rundown moves to another service, the cue
+  // sheet goes with it — that is what "the cue sheet follows the
+  // rundown" has to mean, or the two sit on different Sundays and the
+  // sheet looks broken while being perfectly correct.
+  //
+  // An explicit pick in the sheet's own control wins: someone who has
+  // deliberately opened last week to read their notes should not be
+  // dragged back the moment a colleague opens the editor.
+  const pickedRef = useRef(false);
+  useEffect(() => {
+    if (pickedRef.current) return;
+    if (!hydrated || !stateServiceDate || stateServiceDate === serviceDate) return;
+    if (liveItems.length === 0) return;
+    setServiceDate(stateServiceDate);
+  }, [hydrated, stateServiceDate, serviceDate, liveItems.length]);
+
   const cells = useMemo(
     () =>
       Object.entries(notes).flatMap(([itemId, byColumn]) =>
@@ -305,7 +321,9 @@ function CueSheetsPage() {
   const step = useCallback(
     (delta: number) => {
       const next = stepTo(delta);
-      if (next) setServiceDate(next);
+      if (!next) return;
+      pickedRef.current = true;
+      setServiceDate(next);
     },
     [stepTo],
   );
@@ -322,6 +340,17 @@ function CueSheetsPage() {
       <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="flex items-center gap-3 flex-wrap px-6 py-3">
           <h1 className="text-[15px] font-semibold text-board-text">Cue sheet</h1>
+          {pickedRef.current && stateServiceDate && stateServiceDate !== serviceDate && (
+            <button
+              onClick={() => {
+                pickedRef.current = false;
+                setServiceDate(stateServiceDate);
+              }}
+              className="text-[11px] px-2 py-0.5 rounded-full border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
+            >
+              Rundown is on {formatDisplayDate(stateServiceDate)} — follow it
+            </button>
+          )}
           {model.serviceName && (
             <span className="text-xs text-board-text">{model.serviceName}</span>
           )}
@@ -346,7 +375,10 @@ function CueSheetsPage() {
             <select
               id="cue-service-date"
               value={serviceDate}
-              onChange={(event) => setServiceDate(event.target.value)}
+              onChange={(event) => {
+                pickedRef.current = true;
+                setServiceDate(event.target.value);
+              }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[190px]"
             >
               {pickerDates.map((date) => (
