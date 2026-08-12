@@ -271,11 +271,17 @@ describe("deriveDepartments", () => {
 });
 
 describe("deriveArrivals", () => {
+  const timing = () => getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
+  const scheduled = (name: string) => ({
+    assignments: [{ id: "a1", role: "Audio", crewMemberName: name, status: "confirmed" }],
+  });
+
   it("does not raise a no-show alarm before call time", () => {
     const snap = snapshot({
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      ...scheduled("Sam"),
     });
-    const arrivals = deriveArrivals(snap, getServiceTiming({ scheduledStartTime: new Date(START).toISOString() }));
+    const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
     expect(arrivals.departments.every((d) => !d.alarm)).toBe(true);
   });
 
@@ -283,9 +289,57 @@ describe("deriveArrivals", () => {
     const snap = snapshot({
       now: START - 30 * MINUTE,
       crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      ...scheduled("Sam"),
     });
-    const arrivals = deriveArrivals(snap, getServiceTiming({ scheduledStartTime: new Date(START).toISOString() }));
+    const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
     expect(arrivals.departments.some((d) => d.alarm)).toBe(true);
+  });
+
+  it("never alarms when nobody was scheduled — the roster is not the expectation", () => {
+    // 28 volunteers on the books does not mean 28 were due today. An
+    // alarm that fires every week is an alarm nobody reads.
+    const snap = snapshot({
+      now: START - 30 * MINUTE,
+      crew: [
+        { id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null },
+        { id: "m2", name: "Ada", role: "Camera 1", isOnline: true, lastCheckIn: null },
+      ],
+    });
+    const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
+    expect(arrivals.expectedKnown).toBe(false);
+    expect(arrivals.departments.every((d) => !d.alarm)).toBe(true);
+  });
+
+  it("counts only the people actually assigned once a schedule exists", () => {
+    const snap = snapshot({
+      crew: [
+        { id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null },
+        { id: "m2", name: "Ada", role: "Camera 1", isOnline: false, lastCheckIn: null },
+      ],
+      ...scheduled("Sam"),
+    });
+    const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
+    expect(arrivals.expectedKnown).toBe(true);
+    expect(arrivals.total).toBe(1);
+    expect(arrivals.present).toBe(1);
+  });
+
+  it("scores the gap, not the arrivals, when nobody was scheduled", () => {
+    const snap = snapshot({
+      now: START - 30 * MINUTE,
+      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+    });
+    const readiness = deriveReadiness(
+      snap,
+      deriveRundownHealth(snap),
+      deriveDepartments(snap, "call"),
+      deriveArrivals(snap, timing(), deriveCrewBoard(snap)),
+      "call",
+      deriveCrewBoard(snap),
+    );
+    // Not silence — the honest reading is that nobody is scheduled,
+    // which is exactly what the factor should say.
+    expect(readiness.factors.find((f) => f.id === "crew")?.detail).toBe("Nobody scheduled yet");
   });
 });
 
@@ -303,7 +357,7 @@ describe("deriveReadiness", () => {
       snap,
       health,
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
       deriveCrewBoard(snap),
     );
@@ -318,7 +372,7 @@ describe("deriveReadiness", () => {
       snap,
       health,
       deriveDepartments(snap, "call"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
     );
     expect(readiness.status).toBe("fail");
@@ -333,7 +387,7 @@ describe("deriveReadiness", () => {
     const health = deriveRundownHealth(snap);
     const timing = getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
     const at = (phase: "planning" | "prep" | "call") =>
-      deriveReadiness(snap, health, deriveDepartments(snap, phase), deriveArrivals(snap, timing), phase);
+      deriveReadiness(snap, health, deriveDepartments(snap, phase), deriveArrivals(snap, timing, deriveCrewBoard(snap)), phase);
     // Weeks out an unassigned rota is normal, so it is not scored.
     expect(at("planning").factors.some((f) => f.id === "crew")).toBe(false);
     expect(at("prep").factors.find((f) => f.id === "crew")?.detail).toBe("Nobody scheduled yet");
@@ -437,7 +491,7 @@ describe("readiness excludes features the org never configured", () => {
       snap,
       health,
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
       deriveCrewBoard(snap),
     );
@@ -550,7 +604,7 @@ describe("crew board", () => {
       snap,
       deriveRundownHealth(snap),
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
       crew,
     );
@@ -604,7 +658,7 @@ describe("the dashboard must not contradict itself", () => {
       snap,
       deriveRundownHealth(snap),
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
     );
     const factor = readiness.factors.find((f) => f.id === "incidents");
@@ -628,7 +682,7 @@ describe("the dashboard must not contradict itself", () => {
       snap,
       deriveRundownHealth(snap),
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
     );
     const factor = readiness.factors.find((f) => f.id === "crew");
@@ -642,7 +696,7 @@ describe("the dashboard must not contradict itself", () => {
       snap,
       deriveRundownHealth(snap),
       deriveDepartments(snap, "prep"),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
     );
     expect(readiness.factors.find((f) => f.id === "incidents")?.detail).toBe("None open");
@@ -781,7 +835,7 @@ describe("scheduling is not scored until the org uses it", () => {
       snap,
       deriveRundownHealth(snap),
       deriveDepartments(snap, phase),
-      deriveArrivals(snap, getServiceTiming({})),
+      deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       phase,
       deriveCrewBoard(snap),
     ).factors.find((f) => f.id === "crew");
@@ -796,13 +850,15 @@ describe("scheduling is not scored until the org uses it", () => {
     }
   });
 
-  it("still scores arrivals at call time, which does not depend on scheduling", () => {
+  it("does not score arrivals at call time for an org with no schedule", () => {
     // "Are the right people booked?" needs a rota. "Are people here?"
     // only needs check-in, which ships today — so it is fair to score
-    // even for an org that has never scheduled anyone.
+    // even for an org that has never scheduled anyone — but a check-in
+    // count needs a list of who was expected to be meaningful, and an
+    // org that has never assigned anyone has no such list. Scoring the
+    // arrivals here would mark them down against their whole roster.
     const factor = crewFactor({ schedulingInUse: false }, "call");
-    expect(factor?.detail).toBe("0 of 1 checked in");
-    expect(factor?.status).toBe("warn");
+    expect(factor).toBeUndefined();
   });
 
   it("starts scoring the moment the org assigns anyone anywhere", () => {

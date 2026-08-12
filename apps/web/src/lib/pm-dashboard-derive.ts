@@ -258,6 +258,13 @@ export interface Arrivals {
   present: number;
   total: number;
   departments: ArrivalDepartment[];
+  /**
+   * Whether we know who was actually expected. Without a schedule the
+   * roster is not the expectation — a church with 28 volunteers on the
+   * books might have 8 serving today — so there is no honest
+   * denominator and no basis for a no-show alarm.
+   */
+  expectedKnown: boolean;
 }
 
 export interface DebriefSummary {
@@ -927,9 +934,26 @@ export function deriveDepartments(
 
 // ─── Arrivals ────────────────────────────────────────────────
 
-export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arrivals {
+export function deriveArrivals(
+  snapshot: PmSnapshot,
+  timing: ServiceTiming,
+  crew: CrewBoard = emptyCrewBoard(),
+): Arrivals {
+  // Only people actually assigned to this service are expected. Falling
+  // back to the whole roster produced "4 of 28 on site" and four
+  // department no-show alarms for an org where most of those 28 were
+  // never rostered on. An alarm that fires every week is an alarm
+  // nobody reads.
+  const expectedNames = new Set(
+    crew.positions.map((p) => p.name).filter((n): n is string => Boolean(n)),
+  );
+  const expectedKnown = crew.scheduled && expectedNames.size > 0;
+  const relevant = expectedKnown
+    ? snapshot.crew.filter((m) => expectedNames.has(m.name))
+    : snapshot.crew;
+
   const groups = new Map<RoleDepartment, { present: number; total: number }>();
-  for (const member of snapshot.crew) {
+  for (const member of relevant) {
     const dept = getDepartment(member.role);
     const current = groups.get(dept) ?? { present: 0, total: 0 };
     current.total += 1;
@@ -937,9 +961,8 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
     groups.set(dept, current);
   }
 
-  const pastCallBy =
-    timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
-  const alarmActive = pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
+  const pastCallBy = timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
+  const alarmActive = expectedKnown && pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
 
   const departments: ArrivalDepartment[] = [...groups.entries()]
     .map(([key, value]) => ({
@@ -952,9 +975,10 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
-    present: snapshot.crew.filter((m) => m.isOnline).length,
-    total: snapshot.crew.length,
+    present: relevant.filter((m) => m.isOnline).length,
+    total: relevant.length,
     departments,
+    expectedKnown,
   };
 }
 
@@ -1304,8 +1328,11 @@ export function deriveReadiness(
     });
   }
 
-  // Crew. A real schedule is the best signal there is, so prefer it.
-  // Falling back to check-ins only matters once people are due on site.
+  // Crew. Only a real schedule can be scored. Check-ins used to be the
+  // fallback, but a check-in count is only meaningful against a list of
+  // who was expected — without one, "4 of 28 on site" is comparing
+  // today's arrivals to the entire volunteer roster, which is red every
+  // week by construction. An alarm that always fires is not an alarm.
   if (crew.scheduled) {
     const detail =
       crew.open > 0
@@ -1325,15 +1352,6 @@ export function deriveReadiness(
           : crew.unconfirmed > 0
             ? "warn"
             : "ok",
-      weight: 15,
-    });
-  } else if (phase === "call" || phase === "live") {
-    const alarmed = arrivals.departments.filter((d) => d.alarm).length;
-    factors.push({
-      id: "crew",
-      label: "Crew",
-      detail: `${arrivals.present} of ${arrivals.total} checked in`,
-      status: alarmed > 0 ? "fail" : arrivals.present < arrivals.total ? "warn" : "ok",
       weight: 15,
     });
   } else if (arrivals.total === 0) {
@@ -1449,8 +1467,8 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
   const countdown = getPhaseCountdown(phase, timing, snapshot.now);
 
   const departments = deriveDepartments(snapshot, phase);
-  const arrivals = deriveArrivals(snapshot, timing);
   const crew = deriveCrewBoard(snapshot);
+  const arrivals = deriveArrivals(snapshot, timing, crew);
 
   return {
     serviceDate: snapshot.serviceDate,
