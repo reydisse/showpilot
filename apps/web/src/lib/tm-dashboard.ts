@@ -432,17 +432,15 @@ export const assignFault = createServerFn({ method: "POST" })
       // Assignment is the source of truth. A notification failure must
       // not tell the admin the assignment failed after it already saved.
       try {
-        await getPrisma().notification.create({
-          data: {
-            orgId: data.orgId,
-            type: "fault-assigned",
-            severity: "warning",
-            title: "Fault assigned to you",
-            message: name ? `${name}, a technical fault has been assigned to you.` : "A technical fault has been assigned to you.",
-            target: `user:${data.assignedTo}`,
-            source: data.id,
-          },
-        });
+        await getD1().prepare(
+          `INSERT INTO notification
+            (id, orgId, type, severity, title, message, target, source, createdAt, dismissed, userId, actionUrl)
+           VALUES (?, ?, 'fault-assigned', 'warning', 'Fault assigned to you', ?, ?, ?, CURRENT_TIMESTAMP, 0, ?, 'dashboard/tech-manager')`,
+        ).bind(
+          crypto.randomUUID(), data.orgId,
+          name ? `${name}, a technical fault has been assigned to you.` : "A technical fault has been assigned to you.",
+          `user:${data.assignedTo}`, data.id, data.assignedTo,
+        ).run();
       } catch {
         // The dashboard's live refresh still puts the fault in the tech's
         // queue; notification delivery can recover independently.

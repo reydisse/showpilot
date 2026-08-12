@@ -416,8 +416,12 @@ model Notification {
   source       String       @default("")
   createdAt    DateTime     @default(now())
   dismissed    Boolean      @default(false)
+  userId       String?
+  actionUrl    String       @default("")
+  readAt       DateTime?
 
   @@index([orgId, createdAt(sort: Desc)])
+  @@index([orgId, userId, readAt])
   @@map("notification")
 }
 
