@@ -110,27 +110,17 @@ function pinChallenge(): Response {
 }
 
 async function resolveRole(db: D1Database, userId: string, orgId: string): Promise<Role | null> {
-  let orgMember: OrgRoleRow | null = null;
-  try {
-    orgMember = await db
-      .prepare("SELECT role FROM org_member WHERE userId = ? AND orgId = ? LIMIT 1")
-      .bind(userId, orgId)
-      .first<OrgRoleRow>();
-  } catch {
-    // Older local databases may not have the additive org_member table yet.
-    // Fall back to the legacy Better Auth member table instead of failing auth.
-  }
-
-  if (orgMember?.role) {
-    return normalizeRole(orgMember.role);
-  }
-
-  const legacyMember = await db
+  // Better Auth's member table is the canonical organization membership
+  // source used by the route shell and every role-management mutation. The
+  // separate org_member table is an obsolete rundown-era mirror and can be
+  // stale; consulting it here made the UI recognize an admin while this
+  // server guard silently downgraded the same user and redirected to /board.
+  const member = await db
     .prepare("SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1")
     .bind(userId, orgId)
     .first<OrgRoleRow>();
 
-  return normalizeRole(legacyMember?.role ?? null);
+  return normalizeRole(member?.role ?? null);
 }
 
 async function isCloudEnabled(db: D1Database, orgId: string): Promise<boolean> {

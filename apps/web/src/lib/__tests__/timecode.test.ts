@@ -5,6 +5,10 @@ import {
   timecodeToString,
   parseTimecodeString,
   msToTimecode,
+  crossedTriggerFrame,
+  isValidTimecode,
+  isSafeAutomationWebhookUrl,
+  isValidTimecodeFormat,
 } from "../timecode";
 import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
 
@@ -118,6 +122,58 @@ describe("parseTimecodeString", () => {
   it("parses single-digit values", () => {
     expect(parseTimecodeString("0:0:0:0")).toEqual(tc(0, 0, 0, 0));
   });
+
+  it("rejects out-of-range clock fields", () => {
+    expect(parseTimecodeString("00:60:00:00")).toBeNull();
+    expect(parseTimecodeString("00:00:60:00")).toBeNull();
+  });
+});
+
+describe("isValidTimecode", () => {
+  it("validates frames against the selected rate", () => {
+    expect(isValidTimecode(tc(0, 0, 0, 24), fmt25)).toBe(true);
+    expect(isValidTimecode(tc(0, 0, 0, 25), fmt25)).toBe(false);
+  });
+
+  it("rejects frame labels skipped by 29.97 drop-frame", () => {
+    expect(isValidTimecode(tc(0, 1, 0, 0), fmt2997df)).toBe(false);
+    expect(isValidTimecode(tc(0, 1, 0, 2), fmt2997df)).toBe(true);
+    expect(isValidTimecode(tc(0, 10, 0, 0), fmt2997df)).toBe(true);
+  });
+});
+
+describe("isValidTimecodeFormat", () => {
+  it("accepts supported SMPTE formats only", () => {
+    expect(isValidTimecodeFormat(fmt30)).toBe(true);
+    expect(isValidTimecodeFormat(fmt2997df)).toBe(true);
+    expect(isValidTimecodeFormat({ frameRate: 30, dropFrame: "df" })).toBe(false);
+    expect(isValidTimecodeFormat({ frameRate: 60, dropFrame: "ndf" })).toBe(false);
+  });
+});
+
+describe("crossedTriggerFrame", () => {
+  it("fires when sparse relay samples cross a trigger", () => {
+    expect(crossedTriggerFrame(98, 101, 100, 2)).toBe(true);
+  });
+
+  it("does not fire old events on initial hydration or rewind", () => {
+    expect(crossedTriggerFrame(null, 500, 100, 2)).toBe(false);
+    expect(crossedTriggerFrame(500, 100, 300, 2)).toBe(false);
+  });
+});
+
+describe("isSafeAutomationWebhookUrl", () => {
+  it("accepts public HTTPS URLs", () => {
+    expect(isSafeAutomationWebhookUrl("https://hooks.example.com/showpilot")).toBe(true);
+  });
+
+  it("rejects insecure, credentialed, and private destinations", () => {
+    expect(isSafeAutomationWebhookUrl("http://hooks.example.com/x")).toBe(false);
+    expect(isSafeAutomationWebhookUrl("https://user:pass@example.com/x")).toBe(false);
+    expect(isSafeAutomationWebhookUrl("https://127.0.0.1/x")).toBe(false);
+    expect(isSafeAutomationWebhookUrl("https://192.168.1.20/x")).toBe(false);
+    expect(isSafeAutomationWebhookUrl("https://169.254.169.254/x")).toBe(false);
+  });
 });
 
 describe("msToTimecode", () => {
@@ -148,5 +204,9 @@ describe("msToTimecode", () => {
   it("handles large values", () => {
     // 1 hour
     expect(msToTimecode(3600000, fmt30)).toEqual(tc(1, 0, 0, 0));
+  });
+
+  it("generates valid 29.97 drop-frame labels", () => {
+    expect(msToTimecode(60_061, fmt2997df)).toEqual(tc(0, 1, 0, 2));
   });
 });
