@@ -11,6 +11,12 @@
  * output; deficits are.
  */
 
+import {
+  DEPARTMENT_LABELS,
+  DEPARTMENT_ORDER,
+  normalizeCategory,
+  type DepartmentKey,
+} from "@/lib/departments";
 import { computeCascadedTimes } from "@/lib/rundown-timing";
 import { getDepartment, type RoleDepartment } from "@/types";
 import type { RundownItem } from "@/types/rundown";
@@ -381,18 +387,13 @@ export interface PmDashboardModel {
 }
 
 // ─── Departments ─────────────────────────────────────────────
+//
+// The vocabulary itself lives in lib/departments so the checklist page
+// can offer exactly the categories this file knows how to read.
+// Re-exported here because widgets and tests already import it from
+// this module.
 
-export type DepartmentKey = "audio" | "video" | "lighting" | "stream" | "general";
-
-const DEPARTMENT_LABELS: Record<DepartmentKey, string> = {
-  audio: "Audio",
-  video: "Video",
-  lighting: "Lighting",
-  stream: "Stream",
-  general: "General",
-};
-
-const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream", "general"];
+export { normalizeCategory, type DepartmentKey };
 
 /**
  * Pre-service checks are only meaningful once crew is expected on site.
@@ -401,22 +402,6 @@ const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream
  */
 export function checklistIsDue(phase: ServicePhase): boolean {
   return phase === "call" || phase === "live";
-}
-
-/**
- * Checklist, incident and equipment tables each use their own category
- * vocabulary. Fold them into one so a department chip can roll up all
- * three.
- */
-export function normalizeCategory(raw: string): DepartmentKey {
-  const value = raw.toLowerCase().trim();
-  if (value === "audio") return "audio";
-  // The onboarding templates seed "visuals" for ProPresenter work, which
-  // belongs with video rather than in the general bucket.
-  if (value === "video" || value === "visuals") return "video";
-  if (value === "lighting") return "lighting";
-  if (value === "stream" || value === "streaming") return "stream";
-  return "general";
 }
 
 /** True only when a real, org-chosen window is being overrun. */

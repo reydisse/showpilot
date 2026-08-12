@@ -382,10 +382,15 @@ export const updateChecklistTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
-    return await prisma.checklistTemplate.update({
-      where: { id: data.id },
+    // updateMany, not update: the permission check proves the caller may
+    // edit checklists in *their* org, not that this row belongs to it.
+    // Scoping the write by orgId as well means a borrowed id from
+    // another tenant matches nothing instead of being rewritten.
+    const result = await prisma.checklistTemplate.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: data.updates,
     });
+    if (result.count === 0) throw new Error("Checklist item not found");
   });
 
 export const deleteChecklistTemplate = createServerFn({ method: "POST" })
@@ -395,7 +400,8 @@ export const deleteChecklistTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
-    await prisma.checklistTemplate.delete({ where: { id: data.id } });
+    // Scoped by orgId for the same reason as the update above.
+    await prisma.checklistTemplate.deleteMany({ where: { id: data.id, orgId: data.orgId } });
   });
 
 export const getChecklistEntries = createServerFn({ method: "GET" })
