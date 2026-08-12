@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getPersonalNotifications, markAllPersonalNotificationsRead, markPersonalNotificationRead, type PersonalNotification } from "@/lib/personal-notifications";
 
-export function NotificationCenter({ orgId, slug, collapsed }: { orgId: string; slug: string; collapsed: boolean }) {
+export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; placement?: "sidebar" | "account" }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PersonalNotification[]>([]);
@@ -13,9 +13,9 @@ export function NotificationCenter({ orgId, slug, collapsed }: { orgId: string; 
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const refresh = useCallback(async () => {
-    try { const result = await getPersonalNotifications({ data: { orgId } }); setItems(result.notifications); setUnread(result.unread); }
+    try { const result = await getPersonalNotifications({ data: { orgId } }); setItems(result.notifications); setUnread(result.unread); onUnreadChange?.(result.unread); }
     catch { /* Navigation must remain usable if inbox retrieval fails. */ }
-  }, [orgId]);
+  }, [orgId, onUnreadChange]);
 
   useEffect(() => { void refresh(); const timer = window.setInterval(refresh, 20_000); return () => window.clearInterval(timer); }, [refresh]);
   useEffect(() => {
@@ -30,11 +30,11 @@ export function NotificationCenter({ orgId, slug, collapsed }: { orgId: string; 
 
   const read = async (id: string) => {
     setItems((current) => current.map((item) => item.id === id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item));
-    setUnread((current) => Math.max(0, current - (items.find((item) => item.id === id)?.readAt ? 0 : 1)));
+    setUnread((current) => { const next = Math.max(0, current - (items.find((item) => item.id === id)?.readAt ? 0 : 1)); onUnreadChange?.(next); return next; });
     await markPersonalNotificationRead({ data: { orgId, id } });
   };
   const readAll = async () => {
-    setLoading(true); setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnread(0);
+    setLoading(true); setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnread(0); onUnreadChange?.(0);
     try { await markAllPersonalNotificationsRead({ data: { orgId } }); } finally { setLoading(false); }
   };
 
@@ -42,10 +42,20 @@ export function NotificationCenter({ orgId, slug, collapsed }: { orgId: string; 
     <button type="button" aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`} aria-expanded={open} onClick={() => setOpen((value) => !value)} className={`relative flex items-center rounded-lg min-h-11 transition-colors ${collapsed ? "justify-center w-full p-2.5" : "w-full gap-3 px-3 py-2.5"} ${open ? "bg-board-border/60 text-board-text" : "text-board-muted hover:bg-board-border/50 hover:text-board-text"}`}>
       <Bell className="w-[18px] h-[18px] shrink-0" />{!collapsed ? <span className="text-sm font-medium">Notifications</span> : null}{unread > 0 ? <span className={`${collapsed ? "absolute right-1 top-1" : "ml-auto"} min-w-5 h-5 px-1 rounded-full bg-fire-500 text-white text-[10px] font-semibold flex items-center justify-center tabular-nums`}>{unread > 99 ? "99+" : unread}</span> : null}
     </button>
-    {open && typeof document !== "undefined" ? createPortal(<div ref={panel} className={`fixed z-[70] left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px] max-h-[min(520px,75vh)] rounded-xl border border-board-border bg-board-card shadow-2xl overflow-hidden`}>
+    {open && typeof document !== "undefined" ? createPortal(<>
+      {placement === "account" && (
+        <button
+          type="button"
+          aria-label="Close notifications"
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-[9999] cursor-default bg-black/65 backdrop-blur-md"
+        />
+      )}
+      <div ref={panel} role={placement === "account" ? "dialog" : undefined} aria-modal={placement === "account" ? true : undefined} className={`fixed z-[10000] max-h-[min(560px,82vh)] rounded-2xl border border-board-border bg-board-card shadow-2xl overflow-hidden ${placement === "account" ? "left-1/2 top-1/2 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2" : `left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}`}>
       <header className="flex items-center gap-2 px-4 py-3 border-b border-board-border"><div><h2 className="text-sm font-semibold text-board-text">Notifications</h2><p className="text-[10px] text-board-muted">Assignments and operational updates</p></div>{unread ? <button type="button" disabled={loading} onClick={() => void readAll()} className="ml-auto inline-flex items-center gap-1 text-[10px] text-board-muted hover:text-board-text disabled:opacity-50"><CheckCheck className="w-3.5 h-3.5" />Mark all read</button> : null}</header>
       <div className="max-h-[430px] overflow-y-auto divide-y divide-board-border/60">{items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => { await read(item.id); setOpen(false); await navigateToNotification(navigate, slug, item.actionUrl); }} />) : <div className="px-4 py-10 text-center"><Inbox className="w-7 h-7 text-board-muted/50 mx-auto" /><p className="text-xs text-board-muted mt-2">Nothing waiting for you.</p></div>}</div>
-    </div>, document.body) : null}
+      </div>
+    </>, document.body) : null}
   </div>;
 }
 
