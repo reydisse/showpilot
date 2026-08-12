@@ -103,12 +103,78 @@ export function parseTimecodeString(str: string): TimecodeValue | null {
   const match = str.match(/^(\d+):(\d+):(\d+)[:;](\d+)$/);
   if (!match) return null;
 
-  return {
+  const value = {
     hours: parseInt(match[1], 10),
     minutes: parseInt(match[2], 10),
     seconds: parseInt(match[3], 10),
     frames: parseInt(match[4], 10),
   };
+  if (value.hours < 0 || value.minutes > 59 || value.seconds > 59) return null;
+  return value;
+}
+
+/** Validate a parsed value against the active SMPTE format. */
+export function isValidTimecode(tc: TimecodeValue, format: TimecodeFormat): boolean {
+  const nominalFps = Math.round(format.frameRate);
+  if (
+    !Number.isInteger(tc.hours) || tc.hours < 0 || tc.hours > 23 ||
+    !Number.isInteger(tc.minutes) || tc.minutes < 0 || tc.minutes > 59 ||
+    !Number.isInteger(tc.seconds) || tc.seconds < 0 || tc.seconds > 59 ||
+    !Number.isInteger(tc.frames) || tc.frames < 0 || tc.frames >= nominalFps
+  ) return false;
+
+  // At 29.97 DF, labels ;00 and ;01 do not exist at the start of minutes
+  // that are not divisible by ten.
+  if (
+    format.frameRate === 29.97 && format.dropFrame === "df" &&
+    tc.seconds === 0 && tc.minutes % 10 !== 0 && tc.frames < 2
+  ) return false;
+  return true;
+}
+
+export function isValidTimecodeFormat(value: unknown): value is TimecodeFormat {
+  if (!value || typeof value !== "object") return false;
+  const format = value as Partial<TimecodeFormat>;
+  if (![24, 25, 29.97, 30].includes(format.frameRate as number)) return false;
+  if (format.dropFrame !== "df" && format.dropFrame !== "ndf") return false;
+  return format.dropFrame !== "df" || format.frameRate === 29.97;
+}
+
+/**
+ * Decide whether an event was crossed between relay samples. A 10 Hz relay
+ * receives roughly every third frame at 30 fps, so equality/tolerance alone
+ * is not reliable enough for show automation.
+ */
+export function crossedTriggerFrame(
+  previousFrame: number | null,
+  currentFrame: number,
+  triggerFrame: number,
+  toleranceFrames = 2,
+): boolean {
+  if (previousFrame === null || currentFrame < previousFrame) {
+    return Math.abs(currentFrame - triggerFrame) <= toleranceFrames;
+  }
+  return triggerFrame > previousFrame && triggerFrame <= currentFrame;
+}
+
+/** Only allow public HTTPS destinations for server-side automation webhooks. */
+export function isSafeAutomationWebhookUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2_048) return false;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host === "0.0.0.0" || host === "::1") return false;
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)?.slice(1).map(Number);
+    if (ipv4) {
+      if (ipv4.some((part) => part > 255)) return false;
+      const [a, b] = ipv4;
+      if (a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return false;
+    }
+    return Boolean(host);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -118,7 +184,6 @@ export function msToTimecode(
   ms: number,
   format: TimecodeFormat
 ): TimecodeValue {
-  const fps = format.frameRate === 29.97 ? 30 : format.frameRate;
-  const totalFrames = Math.floor((ms / 1000) * fps);
-  return framesToTimecode(totalFrames, { ...format, dropFrame: "ndf" });
+  const totalFrames = Math.floor((Math.max(0, ms) / 1000) * format.frameRate);
+  return framesToTimecode(totalFrames, format);
 }

@@ -97,7 +97,10 @@ function TimecodePage() {
         />
 
         {/* Add event */}
-        <AutomationEventEditor onAdd={addEvent} />
+        <AutomationEventEditor
+          onAdd={addEvent}
+          format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
+        />
       </div>
     </div>
   );

@@ -2,14 +2,16 @@ import { describe, it, expect } from "vitest";
 import { checkPermission } from "@/middleware/withPermission";
 import { isAdminTier } from "@/lib/permissions";
 
-// Minimal D1 stub that answers the two queries the permission middleware makes
-// for lower-thirds routes: the caller's org_member role and the org's
-// cloud_enabled flag. No rundown PIN is configured.
+// Minimal D1 stub that answers the queries the permission middleware makes for
+// lower-thirds routes. Better Auth's member row is the canonical role source;
+// org_member is retained in this stub only to catch accidental regressions.
 function makeDb({
   role,
+  shadowRole = null,
   cloudEnabled,
 }: {
   role: string | null;
+  shadowRole?: string | null;
   cloudEnabled: boolean;
 }) {
   return {
@@ -18,7 +20,10 @@ function makeDb({
         bind() {
           return {
             async first<T>(): Promise<T | null> {
-              if (sql.includes("FROM org_member") || sql.includes("FROM member")) {
+              if (sql.includes("FROM org_member")) {
+                return (shadowRole ? { role: shadowRole } : null) as T | null;
+              }
+              if (sql.includes("FROM member")) {
                 return (role ? { role } : null) as T | null;
               }
               if (sql.includes("cloud_enabled")) {
@@ -42,7 +47,24 @@ function context(role: string | null, cloudEnabled: boolean) {
   };
 }
 
+function contextWithShadowRole(role: string, shadowRole: string) {
+  return {
+    request: new Request("https://showpilot.local/test"),
+    env: { DB: makeDb({ role, shadowRole, cloudEnabled: true }) },
+    session: { userId: "user-1", orgId: "org-1" },
+  };
+}
+
 describe("cloud lower thirds gating (withPermission)", () => {
+  it("uses the canonical member role when the obsolete org_member role is stale", async () => {
+    const result = await checkPermission(
+      contextWithShadowRole("admin", "member"),
+      "dashboard:tm",
+    );
+
+    expect(result).toEqual({ role: "admin" });
+  });
+
   it("role HAS permission + flag OFF → feature_disabled (423), not forbidden", async () => {
     // tm holds lowerthird:view/trigger/configure
     const result = await checkPermission(context("tm", false), "lowerthird:trigger");

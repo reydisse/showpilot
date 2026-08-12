@@ -4,23 +4,22 @@ import type {
   AutomationEvent,
   AutomationActionType,
 } from "@/types/timecode";
-import { parseTimecodeString } from "@/lib/timecode";
+import { isValidTimecode, parseTimecodeString } from "@/lib/timecode";
 
 interface AutomationEventEditorProps {
   onAdd: (event: Omit<AutomationEvent, "id" | "fired" | "triggerFrame">) => void;
+  format: import("@/types/timecode").TimecodeFormat;
 }
 
 const ACTION_OPTIONS: { value: AutomationActionType; label: string; category: string }[] = [
-  { value: "device-action", label: "Device Action", category: "Devices" },
   { value: "lower-third-show", label: "Show Lower Third", category: "Lower Thirds" },
   { value: "lower-third-clear", label: "Clear Lower Third", category: "Lower Thirds" },
   { value: "rundown-advance", label: "Advance Rundown", category: "Rundown" },
   { value: "rundown-start-item", label: "Start Rundown Item", category: "Rundown" },
-  { value: "lighting-scene", label: "Recall Lighting Scene", category: "Lighting" },
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorProps) {
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
@@ -32,8 +31,8 @@ export function AutomationEventEditor({ onAdd }: AutomationEventEditorProps) {
     setError("");
 
     const tc = parseTimecodeString(tcString);
-    if (!tc) {
-      setError("Invalid timecode. Use HH:MM:SS:FF format.");
+    if (!tc || !isValidTimecode(tc, format)) {
+      setError(`Invalid timecode for ${format.frameRate}fps ${format.dropFrame.toUpperCase()}.`);
       return;
     }
 

@@ -107,7 +107,8 @@ export type TimecodeWsMessage =
   | { type: "tc-update"; state: TimecodeState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
   | { type: "events-update"; events: AutomationEvent[] }
-  | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> };
+  | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
+  | { type: "master-status"; granted: boolean };
 
 export type TimecodeCommand =
   | "start"

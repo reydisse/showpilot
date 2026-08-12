@@ -58,11 +58,18 @@ export function useTimecode({
   const internalSourceRef = useRef<InternalTimecodeSource | null>(null);
   const mtcSourceRef = useRef<MtcSource | null>(null);
   const feedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestTcRef = useRef<{
     tc: TimecodeValue;
     totalFrames: number;
     display: string;
+    format: TimecodeFormat;
   } | null>(null);
+  const formatRef = useRef<TimecodeFormat>({ frameRate: 30, dropFrame: "ndf" });
+
+  useEffect(() => {
+    if (state?.format) formatRef.current = state.format;
+  }, [state?.format]);
 
   // ─── WebSocket connection to TimecodeRelay ──────────────
 
@@ -74,18 +81,36 @@ export function useTimecode({
     const host = base.replace(/^https?:\/\//, "");
     const url = `${protocol}://${host}/api/timecode/${orgId}/ws`;
 
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      return;
-    }
+    let disposed = false;
+    let attempts = 0;
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
-
-    ws.onmessage = (event) => {
+    const connect = () => {
+      if (disposed) return;
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      wsRef.current = ws;
+      ws.onopen = () => {
+        attempts = 0;
+        setConnected(true);
+        // A reconnect creates a new relay session. Reclaim the source lease
+        // when this browser is still actively generating timecode.
+        if (internalSourceRef.current || mtcSourceRef.current) {
+          ws.send(JSON.stringify({ type: "command", action: "start" }));
+          ws.send(JSON.stringify({
+            type: "command",
+            action: "set-source",
+            payload: { source: mtcSourceRef.current ? "mtc" : "internal-freerun" },
+          }));
+        }
+      };
+      ws.onclose = () => { if (wsRef.current === ws) wsRef.current = null; setConnected(false); scheduleReconnect(); };
+      ws.onerror = () => setConnected(false);
+      ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data) as TimecodeWsMessage;
 
@@ -108,16 +133,40 @@ export function useTimecode({
               )
             );
             break;
+          case "master-status":
+            setIsMaster(msg.granted);
+            if (!msg.granted) {
+              internalSourceRef.current?.stop();
+              internalSourceRef.current = null;
+              mtcSourceRef.current?.stop();
+              mtcSourceRef.current = null;
+              stopFeedTimer();
+            }
+            break;
         }
       } catch {
         // Ignore
       }
+      };
     };
 
-    wsRef.current = ws;
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimerRef.current) return;
+      const delay = Math.min(1_000 * 2 ** attempts, 15_000);
+      attempts += 1;
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delay);
+    };
+
+    connect();
 
     return () => {
-      ws.close();
+      disposed = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+      wsRef.current?.close();
       wsRef.current = null;
       setConnected(false);
     };
@@ -147,6 +196,7 @@ export function useTimecode({
         sendCommand("feed-tc", {
           timecode: latest.tc,
           totalFrames: latest.totalFrames,
+          format: latest.format,
         });
       }
     }, FEED_INTERVAL_MS);
@@ -166,8 +216,9 @@ export function useTimecode({
       stopMtcFn();
 
       const format = state?.format ?? { frameRate: 30, dropFrame: "ndf" as const };
+      formatRef.current = format;
       const source = new InternalTimecodeSource(format, (tc, totalFrames, display) => {
-        latestTcRef.current = { tc, totalFrames, display };
+        latestTcRef.current = { tc, totalFrames, display, format: formatRef.current };
       });
 
       internalSourceRef.current = source;
@@ -183,6 +234,8 @@ export function useTimecode({
   const stopGenerator = useCallback(() => {
     internalSourceRef.current?.stop();
     internalSourceRef.current = null;
+    mtcSourceRef.current?.stop();
+    mtcSourceRef.current = null;
     stopFeedTimer();
     setIsMaster(false);
     sendCommand("stop");
@@ -199,11 +252,14 @@ export function useTimecode({
       async (inputId: string) => {
         internalSourceRef.current?.stop();
         internalSourceRef.current = null;
+        stopMtcFn();
 
         const source = new MtcSource((tc, frameRate) => {
-          const totalFrames = timecodeToFrames(tc, { frameRate, dropFrame: "ndf" });
+          const format = { frameRate, dropFrame: "ndf" as const };
+          formatRef.current = format;
+          const totalFrames = timecodeToFrames(tc, format);
           const display = timecodeToString(tc, false);
-          latestTcRef.current = { tc, totalFrames, display };
+          latestTcRef.current = { tc, totalFrames, display, format };
         });
 
       await source.start(inputId);
@@ -213,7 +269,7 @@ export function useTimecode({
       sendCommand("start");
       sendCommand("set-source", { source: "mtc" });
     },
-    [state?.format, sendCommand, startFeedTimer]
+    [sendCommand, startFeedTimer, stopMtcFn]
   );
 
   const stopMtc = useCallback(() => {
@@ -234,6 +290,7 @@ export function useTimecode({
 
   const setFormat = useCallback(
     (format: TimecodeFormat) => {
+      formatRef.current = format;
       sendCommand("set-format", { format });
       internalSourceRef.current?.setFormat(format);
     },

@@ -8,7 +8,7 @@ import type {
   TimecodeCommand,
   TimecodeWsMessage,
 } from "@/types/timecode";
-import { timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
   appendWebhookEvent,
   sanitizePayloadSummary,
@@ -20,6 +20,14 @@ interface Env {
   RUNDOWN_RELAY: DurableObjectNamespace;
   DB: D1Database;
 }
+
+const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
+  "lower-third-show",
+  "lower-third-clear",
+  "rundown-advance",
+  "rundown-start-item",
+  "custom-webhook",
+]);
 
 export class TimecodeRelay extends DurableObject {
   private sessions: Set<WebSocket> = new Set();
@@ -34,6 +42,36 @@ export class TimecodeRelay extends DurableObject {
   };
   private events: AutomationEvent[] = [];
   private orgId = "";
+  private previousFeedFrame: number | null = null;
+  private masterSessionId: string | null = null;
+  private lastPersistedAt = 0;
+
+  constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      const stored = await ctx.storage.get<{ state: TimecodeState; events: AutomationEvent[] }>("timecode");
+      if (stored) {
+        this.state = { ...stored.state, running: false, serverTime: Date.now() };
+        this.events = stored.events ?? [];
+      }
+    });
+  }
+
+  private async persist(): Promise<void> {
+    await this.ctx.storage.put("timecode", { state: this.state, events: this.events });
+    this.lastPersistedAt = Date.now();
+  }
+
+  private sendMasterStatus(sessionId: string | undefined, granted: boolean): void {
+    if (!sessionId) return;
+    for (const ws of this.sessions) {
+      const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
+      if (attachment?.sessionId === sessionId) {
+        ws.send(JSON.stringify({ type: "master-status", granted } satisfies TimecodeWsMessage));
+        return;
+      }
+    }
+  }
 
   private logWebhookEvent(event: WebhookEventInput): void {
     if (!this.orgId) return;
@@ -56,7 +94,10 @@ export class TimecodeRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
+      server.serializeAttachment?.({
+        canWrite: url.searchParams.get("access") === "write",
+        sessionId: crypto.randomUUID(),
+      });
       this.sessions.add(server);
 
       // Hydrate
@@ -93,21 +134,29 @@ export class TimecodeRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "command") {
-        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean; sessionId?: string } | null;
         if (!attachment?.canWrite) return;
-        this.handleCommand(msg.action, msg.payload);
+        await this.handleCommand(msg.action, msg.payload, attachment.sessionId);
       }
     } catch {
       // Ignore
     }
   }
 
-  webSocketClose(ws: WebSocket) {
+  async webSocketClose(ws: WebSocket) {
     this.sessions.delete(ws);
+    const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
+    if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
+      this.masterSessionId = null;
+      this.previousFeedFrame = null;
+      this.state.running = false;
+      await this.persist();
+      this.broadcastState();
+    }
   }
 
   webSocketError(ws: WebSocket) {
@@ -118,23 +167,38 @@ export class TimecodeRelay extends DurableObject {
 
   private async handleCommand(
     action: TimecodeCommand,
-    payload?: Record<string, unknown>
+    payload?: Record<string, unknown>,
+    sessionId?: string,
   ): Promise<void> {
     switch (action) {
       case "start":
+        if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) {
+          this.sendMasterStatus(sessionId, false);
+          break;
+        }
+        if (sessionId) this.masterSessionId = sessionId;
+        this.sendMasterStatus(sessionId, true);
         this.state.running = true;
+        await this.persist();
         this.broadcastState();
         break;
 
       case "stop":
+        if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) break;
+        this.masterSessionId = null;
+        this.sendMasterStatus(sessionId, false);
         this.state.running = false;
+        this.previousFeedFrame = null;
+        await this.persist();
         this.broadcastState();
         break;
 
       case "feed-tc": {
+        if (sessionId && this.masterSessionId !== sessionId) break;
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
+        if (!isValidTimecodeFormat(format) || !tc || !isValidTimecode(tc, format)) break;
         const totalFrames =
           (payload.totalFrames as number) ?? timecodeToFrames(tc, format);
 
@@ -146,8 +210,14 @@ export class TimecodeRelay extends DurableObject {
         this.state.serverTime = Date.now();
 
         // Evaluate automation events
-        await this.evaluateEvents(totalFrames);
+        const eventFired = await this.evaluateEvents(this.previousFeedFrame, totalFrames);
+        this.previousFeedFrame = totalFrames;
 
+        // Persist automation results immediately; otherwise snapshot the
+        // running clock at a modest cadence instead of writing at 10 Hz.
+        if (eventFired || Date.now() - this.lastPersistedAt >= 5_000) {
+          await this.persist();
+        }
         this.broadcastState();
         break;
       }
@@ -155,6 +225,7 @@ export class TimecodeRelay extends DurableObject {
       case "set-timecode": {
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
+        if (!tc || !isValidTimecode(tc, this.state.format)) break;
         this.state.timecode = tc;
         this.state.totalFrames = timecodeToFrames(tc, this.state.format);
         this.state.display = timecodeToString(
@@ -162,6 +233,8 @@ export class TimecodeRelay extends DurableObject {
           this.state.format.dropFrame === "df"
         );
         this.state.serverTime = Date.now();
+        this.previousFeedFrame = null;
+        await this.persist();
         this.broadcastState();
         break;
       }
@@ -170,19 +243,35 @@ export class TimecodeRelay extends DurableObject {
         if (payload?.source) {
           this.state.source = payload.source as TimecodeState["source"];
         }
+        await this.persist();
         this.broadcastState();
         break;
 
       case "set-format":
-        if (payload?.format) {
+        if (isValidTimecodeFormat(payload?.format)) {
           this.state.format = payload.format as TimecodeFormat;
+          for (const event of this.events) {
+            event.triggerFrame = timecodeToFrames(event.triggerTimecode, this.state.format);
+            event.fired = false;
+          }
+          this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+          this.previousFeedFrame = null;
         }
+        await this.persist();
         this.broadcastState();
+        this.broadcastEvents();
         break;
 
       case "add-event": {
         if (!payload) break;
         const event = payload as unknown as AutomationEvent;
+        if (
+          !SUPPORTED_ACTIONS.has(event.action) ||
+          !event.triggerTimecode ||
+          !isValidTimecode(event.triggerTimecode, this.state.format) ||
+          typeof event.label !== "string" || event.label.length > 200 ||
+          !event.payload || typeof event.payload !== "object"
+        ) break;
         event.id = event.id || crypto.randomUUID();
         event.fired = false;
         event.toleranceFrames = event.toleranceFrames ?? 2;
@@ -192,6 +281,7 @@ export class TimecodeRelay extends DurableObject {
         );
         this.events.push(event);
         this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+        await this.persist();
         this.broadcastEvents();
         break;
       }
@@ -202,6 +292,9 @@ export class TimecodeRelay extends DurableObject {
           (e) => e.id === (payload.id as string)
         );
         if (idx >= 0) {
+          const updates = (payload.updates ?? {}) as Partial<AutomationEvent>;
+          if (updates.action && !SUPPORTED_ACTIONS.has(updates.action)) break;
+          if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
           Object.assign(this.events[idx], payload.updates ?? payload);
           // Recalculate triggerFrame if timecode changed
           if ((payload.updates as Record<string, unknown>)?.triggerTimecode || payload.triggerTimecode) {
@@ -211,6 +304,7 @@ export class TimecodeRelay extends DurableObject {
             );
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+          await this.persist();
           this.broadcastEvents();
         }
         break;
@@ -221,6 +315,7 @@ export class TimecodeRelay extends DurableObject {
         this.events = this.events.filter(
           (e) => e.id !== (payload.id as string)
         );
+        await this.persist();
         this.broadcastEvents();
         break;
       }
@@ -229,6 +324,8 @@ export class TimecodeRelay extends DurableObject {
         for (const event of this.events) {
           event.fired = false;
         }
+        this.previousFeedFrame = null;
+        await this.persist();
         this.broadcastEvents();
         break;
     }
@@ -236,17 +333,19 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Automation Engine ──────────────────────────────────
 
-  private async evaluateEvents(totalFrames: number): Promise<void> {
+  private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
+    let fired = false;
     for (const event of this.events) {
       if (event.fired) continue;
 
-      const diff = Math.abs(totalFrames - event.triggerFrame);
-      if (diff <= event.toleranceFrames) {
+      if (crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames)) {
         event.fired = true;
+        fired = true;
         await this.executeEventAction(event);
         this.broadcastEventFired(event);
       }
     }
+    return fired;
   }
 
   private async executeEventAction(event: AutomationEvent): Promise<void> {
@@ -413,12 +512,12 @@ export class TimecodeRelay extends DurableObject {
           break;
 
         case "custom-webhook": {
-          const url = event.payload.url as string;
-          if (!url) {
+          const url = event.payload.url;
+          if (!isSafeAutomationWebhookUrl(url)) {
             logResult(
               "custom-webhook",
               "warning",
-              `Custom webhook skipped for event "${event.label}": no target URL configured.`
+              `Custom webhook skipped for event "${event.label}": target must be a public HTTPS URL.`
             );
             break;
           }
