@@ -49,6 +49,7 @@ const VALID_ITEM_TYPES = new Set<ItemType>([
   "announcement",
   "offering",
   "custom",
+  "header",
 ]);
 
 const VALID_ITEM_STATUSES = new Set<ItemStatus>(["upcoming", "live", "complete"]);

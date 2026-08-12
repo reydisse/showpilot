@@ -7,6 +7,7 @@ export { RundownRelay } from "./durable-objects/RundownRelay";
 export { LowerThirdsRelay } from "./durable-objects/LowerThirdsRelay";
 export { TimecodeRelay } from "./durable-objects/TimecodeRelay";
 export { BridgeRelay } from "./durable-objects/BridgeRelay";
+export { CueSheetRelay } from "./durable-objects/CueSheetRelay";
 
 interface Env {
   DB: D1Database;
@@ -16,6 +17,7 @@ interface Env {
   RUNDOWN_RELAY: DurableObjectNamespace;
   CHAT_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
+  CUE_SHEET_RELAY: DurableObjectNamespace;
 }
 
 interface D1Database {
@@ -193,6 +195,24 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    // Cue sheet fan-out. Same shape as the rundown relay above: the org
+    // is resolved from the path, and the socket only carries edits that
+    // have already been written to D1 by a permission-checked server
+    // function — losing this connection costs live updates, never data.
+    const cueMatch = url.pathname.match(/^\/api\/cue-sheet\/([^/]+)\/(.+)$/);
+    if (cueMatch) {
+      const [, slugOrId, subpath] = cueMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const id = e.CUE_SHEET_RELAY.idFromName(orgId);
+      const stub = e.CUE_SHEET_RELAY.get(id);
+      const doUrl = new URL(request.url);
+      doUrl.pathname = `/${subpath}`;
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

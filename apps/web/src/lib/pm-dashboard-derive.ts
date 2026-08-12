@@ -19,6 +19,7 @@ import {
 } from "@/lib/departments";
 import { computeCascadedTimes } from "@/lib/rundown-timing";
 import { getDepartment, type RoleDepartment } from "@/types";
+import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem } from "@/types/rundown";
 import {
   getPhaseCountdown,
@@ -55,13 +56,6 @@ export interface SnapshotIncident {
   severity: string;
   description: string;
   reportedBy: string;
-}
-
-export interface SnapshotCue {
-  id: string;
-  cueNumber: number;
-  rundownItem: string;
-  cameraAssignments: string;
 }
 
 export interface SnapshotEquipment {
@@ -167,7 +161,6 @@ export interface PmSnapshot {
   items: RundownItem[];
   checklist: SnapshotChecklistItem[];
   incidents: SnapshotIncident[];
-  cues: SnapshotCue[];
   equipment: SnapshotEquipment[];
   crew: SnapshotCrew[];
   streamDestinations: SnapshotStreamDestination[];
@@ -207,7 +200,6 @@ export interface AttentionItem {
     | "rundown"
     | "checklist"
     | "stream"
-    | "cue"
     | "notification"
     | "crew";
   actionLabel: string;
@@ -365,7 +357,6 @@ export interface PmDashboardModel {
   attention: AttentionItem[];
   departments: DepartmentStatus[];
   arrivals: Arrivals;
-  cueExceptions: AttentionItem[];
   upcoming: UpcomingService[];
   debrief: DebriefSummary | null;
   hasRundown: boolean;
@@ -414,11 +405,16 @@ export function overrunsWindow(health: RundownHealth): boolean {
 export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
   const { items, rundown, serviceWindowMinutes, now } = snapshot;
 
-  const plannedMs = items.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
+  // Section bands carry no duration and no owner by design. Counting
+  // them would report every "Pre-service" heading as a critical fault
+  // and put the dashboard permanently in the red.
+  const timed = items.filter((item) => !isHeaderItem(item));
+
+  const plannedMs = timed.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
   const windowMs = snapshot.serviceWindowConfigured ? serviceWindowMinutes * MINUTE_MS : null;
 
-  const missingDuration = items.filter((item) => !item.duration || item.duration <= 0).length;
-  const missingOwner = items.filter((item) => !item.assignee || !item.assignee.trim()).length;
+  const missingDuration = timed.filter((item) => !item.duration || item.duration <= 0).length;
+  const missingOwner = timed.filter((item) => !item.assignee || !item.assignee.trim()).length;
 
   // Cascading overwrites scheduledStart, so capture the pinned times first.
   const pinned = new Map(items.map((item) => [item.id, item.scheduledStart ?? null]));
@@ -467,7 +463,7 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
     timing.expectedEndMs !== null && driftMs !== null ? timing.expectedEndMs + driftMs : null;
 
   return {
-    itemCount: items.length,
+    itemCount: timed.length,
     plannedMs,
     windowMs,
     deltaMs: windowMs === null ? null : plannedMs - windowMs,
@@ -826,48 +822,6 @@ export function deriveAttentionQueue(
   }
 
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
-}
-
-/** Cue problems are their own list — they belong to a different fix session. */
-export function deriveCueExceptions(snapshot: PmSnapshot): AttentionItem[] {
-  const out: AttentionItem[] = [];
-  const titles = new Set(snapshot.items.map((i) => i.title.toLowerCase().trim()));
-
-  const unassigned = snapshot.cues.filter((c) => !c.cameraAssignments.trim());
-  if (unassigned.length > 0) {
-    out.push({
-      id: "cue:no-camera",
-      severity: "warning",
-      title: `${plural(unassigned.length, "cue")} without a camera assignment`,
-      detail: unassigned
-        .slice(0, 4)
-        .map((c) => `#${c.cueNumber}`)
-        .join(", "),
-      source: "cue",
-      actionLabel: "Assign",
-      actionPath: "production/cue-sheets",
-    });
-  }
-
-  const orphans = snapshot.cues.filter(
-    (c) => c.rundownItem.trim() && !titles.has(c.rundownItem.toLowerCase().trim()),
-  );
-  if (orphans.length > 0) {
-    out.push({
-      id: "cue:orphaned",
-      severity: "info",
-      title: `${plural(orphans.length, "cue")} not matched to a rundown item`,
-      detail: orphans
-        .slice(0, 3)
-        .map((c) => c.rundownItem)
-        .join(", "),
-      source: "cue",
-      actionLabel: "Reconcile",
-      actionPath: "production/cue-sheets",
-    });
-  }
-
-  return out;
 }
 
 // ─── Departments ─────────────────────────────────────────────
@@ -1475,7 +1429,6 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     attention: deriveAttentionQueue(snapshot, rundownHealth, phase, crew),
     departments,
     arrivals,
-    cueExceptions: deriveCueExceptions(snapshot),
     upcoming: deriveUpcoming(snapshot),
     debrief: phase === "debrief" ? deriveDebrief(snapshot, rundownHealth) : null,
     hasRundown: snapshot.rundown !== null || snapshot.items.length > 0,

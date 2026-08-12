@@ -3,7 +3,6 @@ import {
   deriveArrivals,
   deriveAttentionQueue,
   deriveCrewBoard,
-  deriveCueExceptions,
   deriveDuty,
   dutyKeyFor,
   deriveDepartments,
@@ -59,7 +58,6 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     items: [item({ id: "a" }), item({ id: "b", duration: 60 * MINUTE, title: "Message" })],
     checklist: [],
     incidents: [],
-    cues: [],
     equipment: [],
     crew: [],
     streamDestinations: [],
@@ -260,20 +258,6 @@ describe("deriveAttentionQueue", () => {
     const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
     expect(planning.some((q) => q.id === "stream:no-signal")).toBe(false);
     expect(call.some((q) => q.id === "stream:no-signal")).toBe(true);
-  });
-});
-
-describe("deriveCueExceptions", () => {
-  it("reports cues with no camera and cues with no matching item", () => {
-    const exceptions = deriveCueExceptions(
-      snapshot({
-        cues: [
-          { id: "c1", cueNumber: 1, rundownItem: "Welcome", cameraAssignments: "" },
-          { id: "c2", cueNumber: 2, rundownItem: "Baptism", cameraAssignments: "Cam 1" },
-        ],
-      }),
-    );
-    expect(exceptions.map((e) => e.id)).toEqual(["cue:no-camera", "cue:orphaned"]);
   });
 });
 

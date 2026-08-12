@@ -1,3 +1,4 @@
+import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem, NativeTimerState, ItemStatus } from "@/types/rundown";
 
 // ─────────────────────────────────────────────────────────────
@@ -103,7 +104,11 @@ export function next(
   now: number = Date.now(),
 ): TransportState {
   const currentIndex = items.findIndex((i) => i.id === timer.currentItemId);
-  const nextIdx = currentIndex + 1;
+  // Section bands are structure, not running order. Stepping onto one
+  // would put a heading live and stop the clock on a real segment, so
+  // skip over any that sit between here and the next item.
+  let nextIdx = currentIndex + 1;
+  while (nextIdx < items.length && isHeaderItem(items[nextIdx])) nextIdx++;
   if (nextIdx < items.length) {
     return start(items, timer, items[nextIdx].id, now);
   }
@@ -123,7 +128,13 @@ export function previous(
   if (currentIndex <= 0) {
     return { items, timer };
   }
-  return start(items, timer, items[currentIndex - 1].id, now);
+  // Step back over section bands, for the same reason as `next`.
+  let prevIdx = currentIndex - 1;
+  while (prevIdx >= 0 && isHeaderItem(items[prevIdx])) prevIdx--;
+  if (prevIdx < 0) {
+    return { items, timer };
+  }
+  return start(items, timer, items[prevIdx].id, now);
 }
 
 /**

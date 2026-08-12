@@ -105,6 +105,7 @@ model Organization {
   checklistTemplates ChecklistTemplate[]
   checklistEntries   ChecklistEntry[]
   cueSheets          CueSheet[]
+  cueColumns         CueColumn[]
   incidents          Incident[]
   micAssignments     MicAssignment[]
   equipment          Equipment[]
@@ -247,6 +248,47 @@ model CueSheet {
 
   @@index([orgId, serviceDate])
   @@map("cue_sheet")
+}
+
+/// A department column on the cue sheet — Production, Pro Ops, LX, SM.
+/// Columns are data, not code: every org names its departments
+/// differently and adds one the week it hires someone new.
+model CueColumn {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  label        String
+  /// Header tint. Stored as a key into a fixed palette, not a hex, so
+  /// the dark theme stays coherent and contrast is guaranteed.
+  color        String       @default("slate")
+  sortOrder    Int          @default(0)
+  /// Persisted pixel width from the column resizer.
+  width        Int          @default(160)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  notes        CueNote[]
+
+  @@index([orgId, sortOrder])
+  @@map("cue_column")
+}
+
+/// One cell: what a department has to do on one rundown item, for one
+/// service. Keyed by the rundown item's stable itemId rather than a row
+/// of its own, so the cue sheet can never drift from the rundown.
+model CueNote {
+  id          String    @id @default(cuid())
+  orgId       String
+  serviceDate String
+  itemId      String
+  columnId    String
+  column      CueColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  text        String    @default("")
+  updatedAt   DateTime  @updatedAt
+  updatedBy   String    @default("")
+
+  @@unique([orgId, serviceDate, itemId, columnId])
+  @@index([orgId, serviceDate])
+  @@map("cue_note")
 }
 
 model Incident {

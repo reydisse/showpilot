@@ -31,6 +31,7 @@ import {
   type SnapshotRecentService,
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
+import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem } from "@/types/rundown";
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
@@ -244,8 +245,11 @@ const EMPTY_SUMMARY: ItemSummary = {
 
 function summarizeItems(raw: string): ItemSummary {
   try {
-    const items = JSON.parse(raw) as RundownItem[];
-    if (!Array.isArray(items)) return EMPTY_SUMMARY;
+    const parsed = JSON.parse(raw) as RundownItem[];
+    if (!Array.isArray(parsed)) return EMPTY_SUMMARY;
+    // Section bands have no duration and no owner on purpose; counting
+    // them would report a planned service as full of holes.
+    const items = parsed.filter((i) => !isHeaderItem(i));
     return {
       itemCount: items.length,
       missingDuration: items.filter((i) => !i.duration || i.duration <= 0).length,
@@ -332,7 +336,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // The four most recent services before this one, for the history card.
     const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
 
-    const [rundownState, templates, entries, incidents, cues, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, rosterDuty, orgMemberRows, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
+    const [rundownState, templates, entries, incidents, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, rosterDuty, orgMemberRows, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
       await Promise.all([
         getRundownStateForOrg({ orgId, serviceDate }),
         prisma.checklistTemplate.findMany({
@@ -348,11 +352,6 @@ export const getPmDashboard = createServerFn({ method: "GET" })
           where: { orgId, serviceDate },
           orderBy: { timestamp: "desc" },
           select: { id: true, category: true, severity: true, description: true, reportedBy: true },
-        }),
-        prisma.cueSheet.findMany({
-          where: { orgId, serviceDate },
-          orderBy: { cueNumber: "asc" },
-          select: { id: true, cueNumber: true, rundownItem: true, cameraAssignments: true },
         }),
         prisma.equipment.findMany({
           where: { orgId },
@@ -484,12 +483,6 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         severity: i.severity,
         description: i.description,
         reportedBy: i.reportedBy,
-      })),
-      cues: cues.map((c) => ({
-        id: c.id,
-        cueNumber: c.cueNumber,
-        rundownItem: c.rundownItem,
-        cameraAssignments: c.cameraAssignments,
       })),
       equipment: equipment.map((e) => ({
         id: e.id,

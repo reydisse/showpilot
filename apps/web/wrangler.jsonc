@@ -42,6 +42,10 @@
 			{
 				"name": "BRIDGE_RELAY",
 				"class_name": "BridgeRelay"
+			},
+			{
+				"name": "CUE_SHEET_RELAY",
+				"class_name": "CueSheetRelay"
 			}
 		]
 	},
@@ -67,6 +71,10 @@
 		{
 			"tag": "v3",
 			"new_sqlite_classes": ["BridgeRelay"]
+		},
+		{
+			"tag": "v4",
+			"new_sqlite_classes": ["CueSheetRelay"]
 		}
 	]
 }

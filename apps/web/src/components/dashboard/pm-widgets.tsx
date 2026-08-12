@@ -297,25 +297,6 @@ const arrivalsWidget: PmWidget = {
   ),
 };
 
-// ─── Cue exceptions ──────────────────────────────────────────
-
-const cueExceptionsWidget: PmWidget = {
-  id: "cue-exceptions",
-  title: "Cue sheet",
-  phases: ["planning", "prep", "call"],
-  region: "main",
-  isRelevant: ({ model }) => model.cueExceptions.length > 0,
-  render: ({ model, slug }) => (
-    <WidgetCard title="Cue sheet">
-      <ul>
-        {model.cueExceptions.map((item) => (
-          <AttentionRow key={item.id} item={item} slug={slug} />
-        ))}
-      </ul>
-    </WidgetCard>
-  ),
-};
-
 // ─── Week ahead ──────────────────────────────────────────────
 
 const weekAheadWidget: PmWidget = {
@@ -933,7 +914,6 @@ export const PM_WIDGETS: PmWidget[] = [
   crewWidget,
   openItemsWidget,
   debriefWidget,
-  cueExceptionsWidget,
   readinessWidget,
   recentWidget,
   dutyWidget,

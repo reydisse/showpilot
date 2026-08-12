@@ -29,6 +29,7 @@ const normalizeTimerMode = (value: unknown): "count-up" | "count-down" | "clock"
 export type ItemType =
   | "segment"
   | "song"
+  | "header"
   | "prayer"
   | "announcement"
   | "offering"
@@ -417,8 +418,11 @@ export class RundownRelay extends DurableObject {
             this.persistItemTiming(curItem.id, "actualEnd", nowIso);
           }
         }
+        // Section bands are not running order — advancing onto one would
+        // put a heading "live" and stop the clock on a real segment.
         const nextItem = this.state.items.find(
-          (_, i) => i > currentIdx && this.state.items[i].status !== "complete"
+          (item, i) =>
+            i > currentIdx && item.status !== "complete" && item.type !== "header"
         );
         if (nextItem) {
           nextItem.status = "live";
@@ -453,7 +457,11 @@ export class RundownRelay extends DurableObject {
         const curIdx = this.state.items.findIndex(
           (i) => i.id === this.state.timer.currentItemId
         );
-        if (curIdx > 0) {
+        // Step back over any section bands sitting between the two
+        // segments, for the same reason as timer-next.
+        let prevIdx = curIdx - 1;
+        while (prevIdx >= 0 && this.state.items[prevIdx].type === "header") prevIdx--;
+        if (curIdx > 0 && prevIdx >= 0) {
           if (curIdx >= 0) {
             const curItem = this.state.items[curIdx];
             curItem.status = "upcoming";
@@ -461,7 +469,7 @@ export class RundownRelay extends DurableObject {
             curItem.actualStart = null;
             curItem.actualEnd = null;
           }
-          const prevItem = this.state.items[curIdx - 1];
+          const prevItem = this.state.items[prevIdx];
           prevItem.status = "live";
           if (!prevItem.actualStart) {
             prevItem.actualStart = nowIso;
