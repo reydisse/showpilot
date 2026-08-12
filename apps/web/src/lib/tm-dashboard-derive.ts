@@ -110,6 +110,10 @@ export interface TmSnapshot {
    */
   streamingConfigured: boolean;
   duty: TmDutyOfficer[];
+  /** How many pre-service checks the org has defined at all. */
+  checklistTemplateCount: number;
+  /** Items in the running order for this service. */
+  rundownItemCount: number;
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -149,6 +153,17 @@ export interface DepartmentChecks {
   status: Health;
 }
 
+/** One thing to fix before the service. Planning and prep only. */
+export interface PrepItem {
+  id: string;
+  severity: Severity;
+  title: string;
+  detail: string;
+  actionLabel: string;
+  /** Route relative to the org root. */
+  actionPath: string;
+}
+
 export interface TmDashboardModel {
   phase: ServicePhase;
   faults: Fault[];
@@ -160,6 +175,7 @@ export interface TmDashboardModel {
   equipmentFaults: TmEquipment[];
   devices: TmDevice[];
   duty: TmDutyOfficer[];
+  prep: PrepItem[];
 }
 
 // ─── Faults ──────────────────────────────────────────────────
@@ -325,6 +341,94 @@ export function deriveDevices(snapshot: TmSnapshot): TmDevice[] {
   return snapshot.devices.filter((device) => device.configured);
 }
 
+// ─── Before the service ──────────────────────────────────────
+
+/** A fault open longer than this is a repair job, not an incident. */
+const STALE_FAULT_DAYS = 7;
+
+/**
+ * What a tech team should fix before Sunday.
+ *
+ * Only in planning and prep: during a service nobody is going to build a
+ * checklist, and putting it on screen mid-show is noise at the worst
+ * possible moment.
+ *
+ * Every entry is a real gap read from real data — never a suggestion,
+ * never a nudge to configure something the org has chosen not to use.
+ * The rule that kept the PM dashboard honest applies here too.
+ */
+export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
+  if (snapshot.phase !== "planning" && snapshot.phase !== "prep") return [];
+
+  const out: PrepItem[] = [];
+
+  if (snapshot.rundownItemCount === 0) {
+    out.push({
+      id: "prep:no-rundown",
+      severity: "critical",
+      title: "No running order for this service",
+      detail: "Nothing to check against, and no cue sheet until it exists",
+      actionLabel: "Build it",
+      actionPath: "rundown",
+    });
+  }
+
+  // A team with no checks at all walks into the service with nothing to
+  // verify. Distinct from having checks but not having started them.
+  if (snapshot.checklistTemplateCount === 0) {
+    out.push({
+      id: "prep:no-checklist",
+      severity: "critical",
+      title: "No pre-service checks exist",
+      detail: "Nothing will be verified before the service starts",
+      actionLabel: "Add checks",
+      actionPath: "production/checklist",
+    });
+  } else if (snapshot.checklist.length === 0) {
+    out.push({
+      id: "prep:checklist-not-started",
+      severity: "warning",
+      title: "Checks not started for this service",
+      detail: `${snapshot.checklistTemplateCount} checks defined, none carried onto this date`,
+      actionLabel: "Open",
+      actionPath: "production/checklist",
+    });
+  }
+
+  const dead = snapshot.equipment.filter((item) => item.status === "out-of-service");
+  if (dead.length > 0) {
+    out.push({
+      id: "prep:equipment-dead",
+      severity: "critical",
+      title: `${dead.length === 1 ? "1 item" : `${dead.length} items`} out of service`,
+      detail: dead.map((item) => item.name).join(", "),
+      actionLabel: "Repair queue",
+      actionPath: "dashboard/tech-manager",
+    });
+  }
+
+  // Faults that have survived a week are repair work, not live incidents,
+  // and the week is when they can actually be fixed.
+  const staleMs = STALE_FAULT_DAYS * 24 * 60 * MINUTE_MS;
+  const lingering = snapshot.incidents.filter(
+    (incident) => incident.status !== "resolved" && snapshot.now - incident.reportedAt > staleMs,
+  );
+  if (lingering.length > 0) {
+    const oldest = lingering.reduce((a, b) => (a.reportedAt < b.reportedAt ? a : b));
+    const days = Math.round((snapshot.now - oldest.reportedAt) / (24 * 60 * MINUTE_MS));
+    out.push({
+      id: "prep:lingering-faults",
+      severity: "warning",
+      title: `${lingering.length === 1 ? "1 fault" : `${lingering.length} faults`} open more than a week`,
+      detail: `Oldest is ${days} days old — fix before the service, not during it`,
+      actionLabel: "Review",
+      actionPath: "production/incidents",
+    });
+  }
+
+  return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+}
+
 // ─── Model ───────────────────────────────────────────────────
 
 export function deriveTmDashboard(snapshot: TmSnapshot): TmDashboardModel {
@@ -340,5 +444,6 @@ export function deriveTmDashboard(snapshot: TmSnapshot): TmDashboardModel {
     equipmentFaults: deriveEquipmentFaults(snapshot),
     devices: deriveDevices(snapshot),
     duty: snapshot.duty,
+    prep: derivePrep(snapshot),
   };
 }

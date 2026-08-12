@@ -13,6 +13,7 @@ import {
   deriveDevices,
   deriveEquipmentFaults,
   deriveFaults,
+  derivePrep,
   deriveSignalPath,
   deriveTmDashboard,
   type TmIncident,
@@ -53,6 +54,8 @@ function snapshot(overrides: Partial<TmSnapshot> = {}): TmSnapshot {
     devices: [],
     streamingConfigured: true,
     duty: [],
+    checklistTemplateCount: 0,
+    rundownItemCount: 0,
     ...overrides,
   };
 }
@@ -319,5 +322,79 @@ describe("fault age", () => {
       snapshot({ incidents: [incident({ id: "old", reportedAt: NOW - 141 * 60 * MINUTE })] }),
     );
     expect(faults[0].ageMinutes).toBe(141 * 60);
+  });
+});
+
+describe("derivePrep", () => {
+  const DAY = 24 * 60 * MINUTE;
+
+  it("says nothing once the service is under way", () => {
+    // Nobody builds a checklist mid-show, so raising it then is noise at
+    // the worst possible moment.
+    for (const phase of ["call", "live", "debrief"] as const) {
+      expect(derivePrep(snapshot({ phase, rundownItemCount: 0 }))).toHaveLength(0);
+    }
+  });
+
+  it("flags a service with no running order", () => {
+    const prep = derivePrep(snapshot({ phase: "planning", rundownItemCount: 0 }));
+    expect(prep.some((item) => item.id === "prep:no-rundown")).toBe(true);
+  });
+
+  it("distinguishes having no checks from not having started them", () => {
+    const none = derivePrep(
+      snapshot({ phase: "planning", rundownItemCount: 5, checklistTemplateCount: 0 }),
+    );
+    expect(none.find((item) => item.id === "prep:no-checklist")?.severity).toBe("critical");
+
+    const notStarted = derivePrep(
+      snapshot({ phase: "planning", rundownItemCount: 5, checklistTemplateCount: 12 }),
+    );
+    expect(notStarted.find((item) => item.id === "prep:checklist-not-started")?.severity).toBe(
+      "warning",
+    );
+  });
+
+  it("stays quiet about checks that are already carried onto the service", () => {
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
+      }),
+    );
+    // Nothing outstanding at all, which is the correct empty state
+    // rather than a card reporting that everything is fine.
+    expect(prep).toHaveLength(0);
+  });
+
+  it("raises faults that have survived a week as repair work", () => {
+    // Open since May is not an incident any more, it is a job — and the
+    // week is when it can actually be done.
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "x", category: "audio", checked: true }],
+        incidents: [incident({ id: "old", reportedAt: NOW - 30 * DAY })],
+      }),
+    );
+    const lingering = prep.find((item) => item.id === "prep:lingering-faults");
+    expect(lingering?.detail).toContain("30 days old");
+  });
+
+  it("does not call a fault from this morning lingering", () => {
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "x", category: "audio", checked: true }],
+        incidents: [incident({ id: "fresh", reportedAt: NOW - 30 * MINUTE })],
+      }),
+    );
+    expect(prep.some((item) => item.id === "prep:lingering-faults")).toBe(false);
   });
 });

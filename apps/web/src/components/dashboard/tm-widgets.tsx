@@ -209,6 +209,47 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
   );
 }
 
+// ─── Before the service ──────────────────────────────────────
+
+/**
+ * The week's work. Sits above the fault queue during planning and prep
+ * because in the week these are the jobs; during a service it does not
+ * render at all, since nobody is going to build a checklist mid-show.
+ */
+const prepWidget: TmWidget = {
+  id: "prep",
+  title: "Before the service",
+  phases: ["planning", "prep"],
+  region: "main",
+  isRelevant: ({ model }) => model.prep.length > 0,
+  render: ({ model, slug }) => (
+    <WidgetCard title="Before the service">
+      <ul className="divide-y divide-board-border/60 -my-1">
+        {model.prep.map((item) => (
+          <li key={item.id} className="flex items-start gap-3 py-2.5">
+            <span
+              className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
+                item.severity === "critical" ? "bg-red-500" : "bg-yellow-400"
+              }`}
+              aria-hidden="true"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] text-board-text">{item.title}</p>
+              <p className="text-[11px] text-board-muted mt-0.5">{item.detail}</p>
+            </div>
+            <Link
+              to={`/${slug}/${item.actionPath}` as never}
+              className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text transition-colors"
+            >
+              {item.actionLabel}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </WidgetCard>
+  ),
+};
+
 // ─── Checks ──────────────────────────────────────────────────
 
 const checksWidget: TmWidget = {
@@ -368,7 +409,9 @@ const allClearWidget: TmWidget = {
   // an empty page is ambiguous — it could mean nothing is wrong or it
   // could mean the page is broken. Say which.
   isRelevant: ({ model }) =>
-    model.faults.length === 0 && model.equipmentFaults.length === 0,
+    model.faults.length === 0 &&
+    model.equipmentFaults.length === 0 &&
+    model.prep.length === 0,
   render: () => (
     <WidgetCard title="All clear">
       <p className="text-xs text-board-muted flex items-center gap-2">
@@ -381,6 +424,7 @@ const allClearWidget: TmWidget = {
 
 export const TM_WIDGETS: TmWidget[] = [
   signalPathWidget,
+  prepWidget,
   faultQueueWidget,
   allClearWidget,
   dutyWidget,

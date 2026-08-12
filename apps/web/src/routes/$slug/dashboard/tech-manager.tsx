@@ -147,6 +147,14 @@ function TechManagerPage() {
                 {model.unownedCount > 0 ? `${model.unownedCount} unowned` : "open faults"}
               </p>
             </div>
+            {model.prep.length > 0 && (
+              <div className="text-right leading-none">
+                <p className="text-[22px] font-semibold tabular-nums text-yellow-400">
+                  {model.prep.length}
+                </p>
+                <p className="text-[10px] text-board-muted mt-1">to fix first</p>
+              </div>
+            )}
           </div>
         </div>
       </header>

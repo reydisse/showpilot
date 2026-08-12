@@ -91,7 +91,18 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     // sheet follows, so the two pages never disagree about the date.
     const serviceDate = data.serviceDate ?? settingMap["active-service-date"] ?? today;
 
-    const [rundownRow, incidents, equipment, entries, destinations, liveInputs, devices, rosterDuty] =
+    const [
+      rundownRow,
+      incidents,
+      equipment,
+      entries,
+      destinations,
+      liveInputs,
+      devices,
+      rosterDuty,
+      checklistTemplateCount,
+      rundownItemCount,
+    ] =
       await Promise.all([
         loadRundownMeta(orgId, serviceDate),
         loadOpenFaults(orgId),
@@ -122,6 +133,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         // The same weekly rota the PM dashboard reads. One source, so the
         // two pages can never name different people on duty.
         loadRosterDuty(orgId, serviceDate),
+        prisma.checklistTemplate.count({ where: { orgId } }),
+        prisma.rundownItem.count({ where: { orgId, serviceDate } }),
       ]);
 
     const { callLeadMinutes, serviceWindowMinutes, serviceWindowConfigured } =
@@ -191,6 +204,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         { key: "pm" as const, label: "Production", name: rosterDuty.pm?.name ?? null },
         { key: "tm" as const, label: "Tech", name: rosterDuty.tm?.name ?? null },
       ],
+      checklistTemplateCount,
+      rundownItemCount,
     };
 
     const members = await prisma.member.findMany({
