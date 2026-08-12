@@ -116,3 +116,95 @@ export function resolveCueSheetDate(
   if (sorted.length === 0) return today;
   return sorted.find((d) => d >= today) ?? sorted[sorted.length - 1];
 }
+
+// ─── The caller's clock ──────────────────────────────────────
+
+export interface CallerClock {
+  /** The item on air, if any. */
+  liveTitle: string | null;
+  /** What the caller calls next. Null at the end of the service. */
+  nextTitle: string | null;
+  /**
+   * Time left on the current item. Negative once it overruns — the sign
+   * matters more than the number, so it is kept rather than clamped.
+   */
+  itemRemainingMs: number | null;
+  /** How long the current item has been running. */
+  itemElapsedMs: number | null;
+  /** Where the rundown says the service ends. */
+  plannedEndMs: number | null;
+  /** Where it will actually end if everything from here runs to plan. */
+  expectedEndMs: number | null;
+  /** Expected minus planned. Positive is late. */
+  offsetMs: number | null;
+}
+
+export interface CallerClockInput {
+  rows: CueRow[];
+  currentItemId: string | null;
+  /** Milliseconds the current item has been running. */
+  elapsedMs: number;
+  nowMs: number;
+}
+
+/**
+ * The numbers a show caller reads while calling a service.
+ *
+ * Deliberately projected forward rather than reported backward: "we will
+ * finish nine minutes late" is actionable — drop a verse, tighten the
+ * notices — where "we are nine minutes behind" only says how it feels.
+ *
+ * Everything is derived from the same rows the sheet renders, so the
+ * clock can never disagree with the page under it.
+ */
+export function deriveCallerClock({
+  rows,
+  currentItemId,
+  elapsedMs,
+  nowMs,
+}: CallerClockInput): CallerClock {
+  const items = rows.filter((row) => !row.isSection);
+  const plannedEnd = items.length > 0 ? items[items.length - 1].expectedEnd : null;
+  const plannedEndMs = plannedEnd ? new Date(plannedEnd).getTime() : null;
+
+  const index = currentItemId ? items.findIndex((row) => row.itemId === currentItemId) : -1;
+  const current = index >= 0 ? items[index] : null;
+  const next = index >= 0 ? (items[index + 1] ?? null) : (items[0] ?? null);
+
+  if (!current) {
+    // Nothing running: the plan is the forecast, and there is no offset
+    // to report because nothing has had a chance to slip yet.
+    return {
+      liveTitle: null,
+      nextTitle: next?.title ?? null,
+      itemRemainingMs: null,
+      itemElapsedMs: null,
+      plannedEndMs,
+      expectedEndMs: plannedEndMs,
+      offsetMs: null,
+    };
+  }
+
+  const itemRemainingMs = current.durationMs - elapsedMs;
+  // Everything after the current item is assumed to run to plan. A
+  // caller cannot act on a guess about item nine; they can act on the
+  // consequence of the one they are in.
+  const remainingAfter = items
+    .slice(index + 1)
+    .reduce((sum, row) => sum + Math.max(0, row.durationMs), 0);
+  // Clamped at zero: an item that has overrun is still on air, so it
+  // cannot finish in the past and buy time back. Left signed, a 9-minute
+  // overrun cancelled itself out of the forecast and the service read as
+  // on time while the caller watched it slip.
+  const expectedEndMs = nowMs + Math.max(0, itemRemainingMs) + remainingAfter;
+
+  return {
+    liveTitle: current.title,
+    nextTitle: next?.title ?? null,
+    itemRemainingMs,
+    itemElapsedMs: elapsedMs,
+    plannedEndMs,
+    expectedEndMs,
+    offsetMs: plannedEndMs === null ? null : expectedEndMs - plannedEndMs,
+  };
+}

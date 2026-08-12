@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { resolveCueSheetDate, toCueRows } from "@/lib/cue-sheet-derive";
+import { deriveCallerClock, resolveCueSheetDate, toCueRows } from "@/lib/cue-sheet-derive";
 import type { RundownItem } from "@/types/rundown";
 
 const toRows = toCueRows;
@@ -167,5 +167,87 @@ describe("which service the cue sheet opens on", () => {
 
   it("does not treat an empty stored value as a choice", () => {
     expect(resolveCueSheetDate(dates, "2026-08-12", "")).toBe("2026-09-06");
+  });
+});
+
+describe("the caller's clock", () => {
+  const rows = toRows(
+    [
+      item({ id: "h", title: "Pre - service", type: "header", duration: 0 }),
+      item({ id: "a", title: "Worship", duration: 40 * MINUTE }),
+      item({ id: "b", title: "Offering", duration: 10 * MINUTE }),
+      item({ id: "c", title: "Sermon", duration: 30 * MINUTE }),
+    ],
+    meta,
+    [],
+  );
+  // Planned: 09:00 + 40 + 10 + 30 = 10:20.
+  const PLANNED_END = START + 80 * MINUTE;
+
+  it("reports the plan and no offset before anything runs", () => {
+    const clock = deriveCallerClock({ rows, currentItemId: null, elapsedMs: 0, nowMs: START });
+    expect(clock.liveTitle).toBeNull();
+    expect(clock.nextTitle).toBe("Worship");
+    expect(clock.plannedEndMs).toBe(PLANNED_END);
+    expect(clock.expectedEndMs).toBe(PLANNED_END);
+    // Nothing has had a chance to slip, so claiming "on time" would be
+    // reporting a measurement nobody took.
+    expect(clock.offsetMs).toBeNull();
+  });
+
+  it("counts down the running item and names what is next", () => {
+    const clock = deriveCallerClock({
+      rows,
+      currentItemId: "a",
+      elapsedMs: 25 * MINUTE,
+      nowMs: START + 25 * MINUTE,
+    });
+    expect(clock.liveTitle).toBe("Worship");
+    expect(clock.nextTitle).toBe("Offering");
+    expect(clock.itemRemainingMs).toBe(15 * MINUTE);
+    expect(clock.offsetMs).toBe(0);
+  });
+
+  it("projects the overrun forward rather than reporting it backward", () => {
+    // Worship is nine minutes long by now and still going. What the
+    // caller needs is "we finish nine minutes late", not "we are nine
+    // minutes behind" — one of those can be acted on.
+    const clock = deriveCallerClock({
+      rows,
+      currentItemId: "a",
+      elapsedMs: 49 * MINUTE,
+      nowMs: START + 49 * MINUTE,
+    });
+    expect(clock.itemRemainingMs).toBe(-9 * MINUTE);
+    expect(clock.expectedEndMs).toBe(PLANNED_END + 9 * MINUTE);
+    expect(clock.offsetMs).toBe(9 * MINUTE);
+  });
+
+  it("recovers the offset when an earlier item ran short", () => {
+    // Worship finished four minutes early, so Offering started at 09:36
+    // and has been running four minutes. Everything from here to plan
+    // lands the service four minutes early.
+    const clock = deriveCallerClock({
+      rows,
+      currentItemId: "b",
+      elapsedMs: 4 * MINUTE,
+      nowMs: START + 40 * MINUTE,
+    });
+    expect(clock.offsetMs).toBe(-4 * MINUTE);
+  });
+
+  it("says the service is ending rather than naming a next item", () => {
+    const clock = deriveCallerClock({
+      rows,
+      currentItemId: "c",
+      elapsedMs: 0,
+      nowMs: START + 50 * MINUTE,
+    });
+    expect(clock.nextTitle).toBeNull();
+  });
+
+  it("never treats a section band as something to call", () => {
+    const clock = deriveCallerClock({ rows, currentItemId: null, elapsedMs: 0, nowMs: START });
+    expect(clock.nextTitle).not.toBe("Pre - service");
   });
 });

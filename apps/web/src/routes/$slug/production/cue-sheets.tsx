@@ -17,7 +17,9 @@ import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
-import { toCueRows } from "@/lib/cue-sheet-derive";
+import { deriveCallerClock, toCueRows } from "@/lib/cue-sheet-derive";
+import { CallerClockBar } from "@/components/cue-sheet/caller-clock";
+import { useNow } from "@/components/dashboard/widget";
 import type { RundownItem } from "@/types/rundown";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
@@ -252,6 +254,26 @@ function CueSheetsPage() {
 
   const currentItemId = liveMatches ? liveTimer.currentItemId : model.currentItemId;
 
+  // One second is the right granularity for a caller: fast enough to
+  // count down against, slow enough not to re-render the sheet raw.
+  const nowMs = useNow(1000);
+
+  // Elapsed is reconstructed from the relay's start timestamp rather
+  // than its `elapsed` field, which is only refreshed when the timer
+  // state changes — reading it directly would freeze the countdown
+  // between commands.
+  const elapsedMs =
+    liveMatches && liveTimer.playback === "play" && liveTimer.startedAt !== null
+      ? Math.max(0, nowMs - liveTimer.startedAt)
+      : liveMatches
+        ? liveTimer.elapsed
+        : 0;
+
+  const clockState = useMemo(
+    () => deriveCallerClock({ rows, currentItemId, elapsedMs, nowMs }),
+    [rows, currentItemId, elapsedMs, nowMs],
+  );
+
   // ── Edits ─────────────────────────────────────────────────
 
   const handleNoteChange = useCallback(
@@ -402,12 +424,22 @@ function CueSheetsPage() {
                 operator UI: a cue sheet that has silently stopped
                 receiving other people's notes looks identical to one
                 where nobody is typing. */}
+            {/* Whether other people's notes are reaching this tab. It is
+                deliberately not called "live": on a cue sheet that word
+                means a service is on air, and two meanings for one word
+                is exactly the ambiguity an operator cannot afford. Only
+                the failure state is worth words — a working connection
+                should not take up the page saying so. */}
             <span
-              className={`flex items-center gap-1.5 text-[11px] ${connected ? "text-board-muted" : "text-yellow-400"}`}
-              title={connected ? "Live" : "Reconnecting — your edits still save"}
+              className={`flex items-center gap-1.5 text-[11px] ${connected ? "text-board-muted/50" : "text-yellow-400"}`}
+              title={
+                connected
+                  ? "Other people's notes appear here as they type"
+                  : "Reconnecting. Your edits are still saving; you just won't see other people's until this clears."
+              }
             >
               {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {connected ? "Live" : "Offline"}
+              {connected ? "Synced" : "Not syncing"}
             </span>
             {canManageColumns && (
               <button
@@ -475,6 +507,8 @@ function CueSheetsPage() {
           </div>
         )}
       </header>
+
+      {hasRows && <CallerClockBar clockState={clockState} nowMs={nowMs} />}
 
       {managing && canManageColumns && (
         <ColumnManager

@@ -220,7 +220,7 @@ export function CueTable({
             <tr
               key={row.itemId}
               className={`border-b border-board-border/40 ${
-                isLive ? "bg-fire-500/10" : isDone ? "opacity-55" : "hover:bg-board-card/40"
+                isLive ? "bg-fire-500/10" : isDone ? "opacity-45" : "hover:bg-board-card/40"
               }`}
             >
               <Pinned
@@ -254,9 +254,7 @@ export function CueTable({
                 width={TITLE_WIDTH}
                 bg={rowBg}
                 divider
-                className={`${isLive ? "text-fire-400 font-medium" : "text-board-text"} ${
-                  isDone ? "line-through" : ""
-                }`}
+                className={isLive ? "text-fire-400 font-medium" : "text-board-text"}
               >
                 {row.title || "Untitled"}
               </Pinned>
