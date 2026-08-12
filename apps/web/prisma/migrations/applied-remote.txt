@@ -22,3 +22,4 @@
 0015_incident_assignment.sql
 0016_incident_assignment_audit.sql
 0017_dashboard_layout.sql
+0018_personal_notifications.sql
