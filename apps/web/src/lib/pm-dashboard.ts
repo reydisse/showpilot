@@ -127,7 +127,7 @@ interface AssignmentRow {
  * The TM slot is whichever roster_role carries the code "tm"; the PM is
  * the row with kind = 'pm'.
  */
-async function loadRosterDuty(orgId: string, serviceDate: string): Promise<SnapshotRosterDuty> {
+export async function loadRosterDuty(orgId: string, serviceDate: string): Promise<SnapshotRosterDuty> {
   const weekStart = weekStartFor(serviceDate);
   const empty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
   try {

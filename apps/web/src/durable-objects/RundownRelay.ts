@@ -176,20 +176,31 @@ export class RundownRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
+      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
 
       // Hydrate with current state
       server.send(
-        JSON.stringify({ type: "hydrate", state: this.getPublicState() })
+        JSON.stringify({
+          type: "hydrate",
+          state: url.searchParams.get("access") === "write"
+            ? this.getPublicState()
+            : this.getDisplayState(),
+        })
       );
 
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/state") {
-      return Response.json(this.getPublicState());
+      return Response.json(
+        url.searchParams.get("access") === "read" ? this.getDisplayState() : this.getPublicState(),
+      );
     }
 
     if (url.pathname === "/command" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const body = (await request.json()) as {
         action: string;
         payload?: Record<string, unknown>;
@@ -201,7 +212,7 @@ export class RundownRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  async webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     await this.hydrateFromStorage();
     try {
       const parsed = JSON.parse(data as string) as {
@@ -216,6 +227,8 @@ export class RundownRelay extends DurableObject {
       }
 
       if (parsed.type === "command" && parsed.action) {
+        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        if (!attachment?.canWrite) return;
         await this.handleCommand(parsed.action, parsed.payload);
       }
     } catch {
@@ -881,15 +894,34 @@ export class RundownRelay extends DurableObject {
     };
   }
 
+  /** Minimum state needed by the intentionally public confidence timer. */
+  private getDisplayState() {
+    return {
+      serviceDate: this.state.serviceDate ?? null,
+      items: this.state.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        type: item.type,
+        duration: item.duration,
+        status: item.status,
+        sortOrder: item.sortOrder,
+        hardStop: item.hardStop,
+      })),
+      timer: { ...this.state.timer, serverTime: Date.now() },
+      ppSlide: this.state.ppSlide,
+      stageMessage: this.state.stageMessage,
+    };
+  }
+
   private broadcastState() {
-    const data = JSON.stringify({
-      type: "state",
-      state: this.getPublicState(),
-    });
     // Use ctx.getWebSockets() instead of manual Set — survives hibernation
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        ws.send(data);
+        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        ws.send(JSON.stringify({
+          type: "state",
+          state: attachment?.canWrite ? this.getPublicState() : this.getDisplayState(),
+        }));
       } catch {
         // Dead socket — Cloudflare will clean it up
       }

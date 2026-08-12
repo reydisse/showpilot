@@ -141,6 +141,11 @@ export const deleteTeam = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
+    const owns = await db()
+      .prepare("SELECT 1 AS ok FROM team WHERE id = ? AND orgId = ? LIMIT 1")
+      .bind(data.id, data.orgId)
+      .first<{ ok: number }>();
+    if (!owns) throw new Error("Team not found");
     // Explicit child delete — D1 doesn't enforce FK cascades by default.
     await db().prepare("DELETE FROM team_member WHERE teamId = ?").bind(data.id).run();
     await db().prepare("DELETE FROM team WHERE id = ? AND orgId = ?").bind(data.id, data.orgId).run();

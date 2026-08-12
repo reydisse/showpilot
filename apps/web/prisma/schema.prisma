@@ -22,6 +22,7 @@ model User {
   members       Member[]
   orgMembers    OrgMember[]
   invitations   Invitation[]
+  dashboardLayouts DashboardLayout[]
 
   @@unique([email])
   @@map("user")
@@ -118,6 +119,7 @@ model Organization {
   streamDestinations StreamDestination[]
   liveInputs         LiveInput[]
   chatMessages       ChatMessage[]
+  dashboardLayouts   DashboardLayout[]
   kioskTokens        KioskToken[]
   companionTokens    CompanionToken[]
 
@@ -291,6 +293,20 @@ model CueNote {
   @@map("cue_note")
 }
 
+model DashboardLayout {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboard    String
+  layout       String
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([orgId, userId, dashboard])
+  @@map("dashboard_layout")
+}
+
 model Incident {
   id           String       @id @default(cuid())
   orgId        String
@@ -305,9 +321,21 @@ model Incident {
   status       String       @default("open") // open | resolved
   resolvedAt   DateTime?
   resolvedBy   String?
+  /// Who is on it. An unowned fault is the one that gets dropped —
+  /// two techs both grabbing the same problem, or nobody grabbing it,
+  /// is the failure mode a tech team actually has.
+  assignedTo   String?
+  /// Denormalised for display. The dashboard renders a name on every
+  /// fault row and joining out to `user` for each one, on a page that
+  /// re-reads every twenty seconds during a service, is not worth it.
+  assignedName String       @default("")
+  acknowledgedAt DateTime?
+  assignedBy   String?
+  assignedAt   DateTime?
 
   @@index([orgId, serviceDate])
   @@index([orgId, status])
+  @@index([orgId, assignedTo])
   @@map("incident")
 }
 

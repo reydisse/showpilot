@@ -100,6 +100,11 @@ export const updateCrewMember = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
+    const existing = await prisma.crewMember.findFirst({
+      where: { id: data.id, orgId: data.orgId },
+      select: { id: true },
+    });
+    if (!existing) throw new Error("Crew member not found");
     return await prisma.crewMember.update({
       where: { id: data.id },
       data: data.updates,
@@ -113,7 +118,10 @@ export const deleteCrewMember = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
-    await prisma.crewMember.delete({ where: { id: data.id } });
+    const result = await prisma.crewMember.deleteMany({
+      where: { id: data.id, orgId: data.orgId },
+    });
+    if (result.count === 0) throw new Error("Crew member not found");
   });
 
 export const toggleCheckIn = createServerFn({ method: "POST" })
@@ -124,6 +132,11 @@ export const toggleCheckIn = createServerFn({ method: "POST" })
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     const now = new Date();
+    const existing = await prisma.crewMember.findFirst({
+      where: { id: data.id, orgId: data.orgId },
+      select: { id: true },
+    });
+    if (!existing) throw new Error("Crew member not found");
     return await prisma.crewMember.update({
       where: { id: data.id },
       data: {
@@ -430,14 +443,15 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
-    return await prisma.checklistEntry.update({
-      where: { id: data.id },
+    const result = await prisma.checklistEntry.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: {
         checked: data.checked,
         checkedBy: data.checkedBy,
         checkedAt: data.checked ? new Date() : null,
       },
     });
+    if (result.count === 0) throw new Error("Checklist entry not found");
   });
 
 export const addChecklistEntry = createServerFn({ method: "POST" })
@@ -450,6 +464,11 @@ export const addChecklistEntry = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
+    const template = await prisma.checklistTemplate.findFirst({
+      where: { id: data.templateId, orgId: data.orgId },
+      select: { id: true },
+    });
+    if (!template) throw new Error("Checklist template not found");
     return await prisma.checklistEntry.create({
       data: {
         orgId: data.orgId,
@@ -609,6 +628,11 @@ export const updateIncident = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "incidents:access");
     const prisma = getPrisma();
+    const existing = await prisma.incident.findFirst({
+      where: { id: data.id, orgId: data.orgId },
+      select: { id: true },
+    });
+    if (!existing) throw new Error("Incident not found");
     return await prisma.incident.update({
       where: { id: data.id },
       data: data.updates,
@@ -622,7 +646,10 @@ export const deleteIncident = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "incidents:access");
     const prisma = getPrisma();
-    await prisma.incident.delete({ where: { id: data.id } });
+    const result = await prisma.incident.deleteMany({
+      where: { id: data.id, orgId: data.orgId },
+    });
+    if (result.count === 0) throw new Error("Incident not found");
   });
 
 // ─── Mic Assignments ────────────────────────────────────────
@@ -630,6 +657,7 @@ export const deleteIncident = createServerFn({ method: "POST" })
 export const getMicAssignments = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; serviceDate: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.micAssignment.findMany({
       where: { orgId: data.orgId, serviceDate: data.serviceDate },
