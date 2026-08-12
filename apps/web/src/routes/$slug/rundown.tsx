@@ -47,6 +47,7 @@ import {
   saveRundownTimer,
   saveRundownMessage,
   saveRundownMeta,
+  setActiveServiceDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
@@ -242,6 +243,16 @@ function RundownPage() {
   // so all other devices get them via broadcast.
   // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
   // not just that the WS connected (syncedItems would still be [] before hydrate).
+  // Whatever service the editor is on is the org's active service. Other
+  // production pages — the cue sheet first — follow this rather than
+  // guessing at today, so opening a rundown from years ago takes them
+  // with it. Fire and forget: failing to record it must never block
+  // editing, and the next date change will try again.
+  useEffect(() => {
+    if (!canEditRundown) return;
+    setActiveServiceDate({ data: { orgId, serviceDate } }).catch(() => {});
+  }, [canEditRundown, orgId, serviceDate]);
+
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes
   const seededDateRef = useRef(serviceDate);

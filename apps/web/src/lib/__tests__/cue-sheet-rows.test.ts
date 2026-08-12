@@ -7,47 +7,19 @@
  * section bands carried through as spanning bands and notes attached by
  * the item's stable id.
  *
- * The logic under test is deliberately extracted from the server function
- * so it can run without Workers env, D1 or auth.
+ * `toCueRows` is the same function the server calls — the pure half lives
+ * in cue-sheet-derive precisely so this can exercise it directly rather
+ * than a copy that would drift.
  */
 
 import { describe, expect, it } from "vitest";
-import { computeCascadedTimes } from "@/lib/rundown-timing";
-import { isHeaderItem, type RundownItem } from "@/types/rundown";
-import type { CueRow } from "@/lib/cue-sheet";
+import { resolveCueSheetDate, toCueRows } from "@/lib/cue-sheet-derive";
+import type { RundownItem } from "@/types/rundown";
+
+const toRows = toCueRows;
 
 const MINUTE = 60_000;
 const START = new Date("2026-08-09T09:00:00.000Z").getTime();
-
-/**
- * Mirror of the mapping in `getCueSheet`. Kept in step by the assertions
- * below plus tsc — `CueRow` is the real exported type.
- */
-function toRows(
-  items: RundownItem[],
-  meta: { serviceDate: string; scheduledStartTime: string | null; status: "stopped" },
-  notes: { itemId: string; columnId: string; text: string }[],
-): CueRow[] {
-  const timed = computeCascadedTimes(items, meta);
-  const byItem = new Map<string, Record<string, string>>();
-  for (const note of notes) {
-    const bucket = byItem.get(note.itemId) ?? {};
-    bucket[note.columnId] = note.text;
-    byItem.set(note.itemId, bucket);
-  }
-  return timed.map((item) => ({
-    itemId: item.id,
-    title: item.title,
-    type: item.type,
-    isSection: isHeaderItem(item),
-    cue: item.cue ?? "",
-    durationMs: isHeaderItem(item) ? 0 : item.duration,
-    scheduledStart: isHeaderItem(item) ? null : item.scheduledStart,
-    expectedEnd: isHeaderItem(item) ? null : item.expectedEnd,
-    status: item.status,
-    notes: byItem.get(item.id) ?? {},
-  }));
-}
 
 function item(overrides: Partial<RundownItem> & { id: string }): RundownItem {
   return {
@@ -146,5 +118,32 @@ describe("cue sheet rows", () => {
 
   it("returns no rows when there is no rundown, rather than inventing any", () => {
     expect(toRows([], meta, [])).toEqual([]);
+  });
+});
+
+describe("which service the cue sheet opens on", () => {
+  const dates = ["2026-04-10", "2026-05-19", "2026-09-06"];
+
+  it("follows the rundown editor above everything else", () => {
+    // The point of the setting: open a service from years ago in the
+    // rundown and the cue sheet goes with it, even though today is not
+    // near it and it is not the next service.
+    expect(resolveCueSheetDate(dates, "2026-08-12", "2016-03-06")).toBe("2016-03-06");
+  });
+
+  it("falls back to the next service with a rundown", () => {
+    expect(resolveCueSheetDate(dates, "2026-08-12", null)).toBe("2026-09-06");
+  });
+
+  it("falls back to the most recent service when nothing is ahead", () => {
+    expect(resolveCueSheetDate(dates, "2026-12-25", null)).toBe("2026-09-06");
+  });
+
+  it("uses today only when the org has no rundowns at all", () => {
+    expect(resolveCueSheetDate([], "2026-08-12", null)).toBe("2026-08-12");
+  });
+
+  it("does not treat an empty stored value as a choice", () => {
+    expect(resolveCueSheetDate(dates, "2026-08-12", "")).toBe("2026-09-06");
   });
 });

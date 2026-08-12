@@ -22,9 +22,17 @@ import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
 import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-import { getRundownStateForOrg } from "@/lib/rundown";
-import { computeCascadedTimes } from "@/lib/rundown-timing";
-import { isHeaderItem, type RundownItem } from "@/types/rundown";
+import { ACTIVE_SERVICE_DATE_KEY, getRundownStateForOrg } from "@/lib/rundown";
+import {
+  resolveCueSheetDate,
+  toCueRows,
+  type CueColumnRow,
+  type CueRow,
+} from "@/lib/cue-sheet-derive";
+import type { RundownItem } from "@/types/rundown";
+
+export { resolveCueSheetDate, toCueRows };
+export type { CueColumnRow, CueRow };
 
 /** Column header tints. A fixed palette so contrast is guaranteed. */
 export const CUE_COLUMN_COLORS = [
@@ -58,30 +66,6 @@ const DEFAULT_COLUMNS: { label: string; color: CueColumnColor }[] = [
   { label: "Sound", color: "purple" },
 ];
 
-export interface CueColumnRow {
-  id: string;
-  label: string;
-  color: string;
-  sortOrder: number;
-  width: number;
-}
-
-/** One row of the sheet — a rundown item, with its notes attached. */
-export interface CueRow {
-  itemId: string;
-  title: string;
-  type: string;
-  /** True for a section band: no times, no cue, spans the table. */
-  isSection: boolean;
-  cue: string;
-  durationMs: number;
-  scheduledStart: string | null;
-  expectedEnd: string | null;
-  status: string;
-  /** columnId → text. Only cells with content are present. */
-  notes: Record<string, string>;
-}
-
 export interface CueSheetModel {
   serviceDate: string;
   serviceName: string;
@@ -90,6 +74,48 @@ export interface CueSheetModel {
   currentItemId: string | null;
   columns: CueColumnRow[];
   rows: CueRow[];
+  /** Every date this org has a rundown for, newest first. */
+  serviceDates: string[];
+}
+
+const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
+
+/**
+ * Every date the org actually has a running order for.
+ *
+ * Items live under an appSetting key per date; the relational
+ * rundown_item rows are the same set for orgs that have been through the
+ * newer editor. Both are read so neither storage generation goes missing
+ * from the picker.
+ */
+async function loadServiceDates(orgId: string): Promise<string[]> {
+  const prisma = getPrisma();
+  const [settingRows, itemRows] = await Promise.all([
+    prisma.appSetting.findMany({
+      where: { orgId, key: { startsWith: RUNDOWN_ITEMS_PREFIX } },
+      select: { key: true },
+    }),
+    getD1()
+      .prepare(`SELECT DISTINCT serviceDate FROM rundown_item WHERE orgId = ?`)
+      .bind(orgId)
+      .all<{ serviceDate: string }>()
+      .then((result) => result.results ?? [])
+      .catch(() => [] as { serviceDate: string }[]),
+  ]);
+
+  const dates = new Set<string>();
+  for (const row of settingRows) dates.add(row.key.slice(RUNDOWN_ITEMS_PREFIX.length));
+  for (const row of itemRows) dates.add(row.serviceDate);
+  return [...dates].sort();
+}
+
+async function readActiveServiceDate(orgId: string): Promise<string | null> {
+  const prisma = getPrisma();
+  const row = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+    select: { value: true },
+  });
+  return row?.value || null;
 }
 
 async function getOrgMemberRole(orgId: string) {
@@ -162,7 +188,15 @@ async function ensureColumns(orgId: string): Promise<CueColumnRow[]> {
 
 export const getCueSheet = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        /** Omitted on first load — the server picks the right service. */
+        serviceDate: serviceDateSchema.optional(),
+        today: serviceDateSchema,
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }): Promise<CueSheetModel> => {
     await assertCuePermission(data.orgId, [
@@ -171,45 +205,32 @@ export const getCueSheet = createServerFn({ method: "GET" })
       "cuesheet:add_notes",
     ]);
 
+    const [serviceDates, activeServiceDate] = await Promise.all([
+      loadServiceDates(data.orgId),
+      readActiveServiceDate(data.orgId),
+    ]);
+    const serviceDate =
+      data.serviceDate ?? resolveCueSheetDate(serviceDates, data.today, activeServiceDate);
+
     const [columns, state, noteRows] = await Promise.all([
       ensureColumns(data.orgId),
-      getRundownStateForOrg({ orgId: data.orgId, serviceDate: data.serviceDate }),
-      readNotes(data.orgId, data.serviceDate),
+      getRundownStateForOrg({ orgId: data.orgId, serviceDate }),
+      readNotes(data.orgId, serviceDate),
     ]);
 
-    const items = state.items ?? [];
-    // Times come from the same cascade the rundown and the dashboard use,
-    // so a start time changed in the rundown is right here too.
-    const timed = computeCascadedTimes(items, state.meta);
-
-    const notesByItem = new Map<string, Record<string, string>>();
-    for (const note of noteRows) {
-      const bucket = notesByItem.get(note.itemId) ?? {};
-      bucket[note.columnId] = note.text;
-      notesByItem.set(note.itemId, bucket);
-    }
-
-    const rows: CueRow[] = timed.map((item) => ({
-      itemId: item.id,
-      title: item.title,
-      type: item.type,
-      isSection: isHeaderItem(item),
-      cue: item.cue ?? "",
-      durationMs: isHeaderItem(item) ? 0 : item.duration,
-      scheduledStart: isHeaderItem(item) ? null : item.scheduledStart,
-      expectedEnd: isHeaderItem(item) ? null : item.expectedEnd,
-      status: item.status,
-      notes: notesByItem.get(item.id) ?? {},
-    }));
+    const rows = toCueRows(state.items ?? [], state.meta, noteRows);
 
     return {
-      serviceDate: data.serviceDate,
+      serviceDate,
       serviceName: state.meta?.name ?? "",
       scheduledStartTime: state.meta?.scheduledStartTime ?? null,
       rundownStatus: state.meta?.status ?? "stopped",
       currentItemId: state.timer?.currentItemId ?? null,
       columns,
       rows,
+      // Newest first: the picker is nearly always used to reach a recent
+      // service, not one from six months ago.
+      serviceDates: [...serviceDates].reverse(),
     };
   });
 

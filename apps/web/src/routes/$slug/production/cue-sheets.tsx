@@ -7,24 +7,17 @@
  */
 
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ListOrdered, Plus, Settings2, Wifi, WifiOff } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { hasPermission } from "@/lib/app-permissions";
-import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { CueTable } from "@/components/cue-sheet/cue-table";
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function formatDisplayDate(dateStr: string): string {
   return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
@@ -56,7 +49,10 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
     );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const model = await getCueSheet({ data: { orgId: context.orgId, serviceDate: today } });
+    // No serviceDate: the server opens on the next service that actually
+    // has a rundown. A church runs one service a week, so defaulting to
+    // today would show an empty sheet six days out of seven.
+    const model = await getCueSheet({ data: { orgId: context.orgId, today } });
     return {
       model,
       orgId: context.orgId,
@@ -70,7 +66,8 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
 function CueSheetsPage() {
   const { model: initialModel, orgId, role, orgTimezone } = Route.useLoaderData();
   const { slug } = Route.useParams();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const today = getTodayDateString(orgTimezone);
+  const [serviceDate, setServiceDate] = useState(initialModel.serviceDate);
   const [model, setModel] = useState<CueSheetModel>(initialModel);
   const [loading, setLoading] = useState(false);
   const [managing, setManaging] = useState(false);
@@ -109,23 +106,22 @@ function CueSheetsPage() {
     async (date: string) => {
       setLoading(true);
       try {
-        setModel(await getCueSheet({ data: { orgId, serviceDate: date } }));
+        setModel(await getCueSheet({ data: { orgId, serviceDate: date, today } }));
       } finally {
         setLoading(false);
       }
     },
-    [orgId],
+    [orgId, today],
   );
 
+  // The loader already fetched the opening date; re-reading it here would
+  // be a wasted round trip on every mount.
+  const loadedRef = useRef(initialModel.serviceDate);
   useEffect(() => {
+    if (loadedRef.current === serviceDate) return;
+    loadedRef.current = serviceDate;
     void load(serviceDate);
   }, [load, serviceDate]);
-
-  useServiceDateRollover({
-    serviceDate,
-    timeZone: orgTimezone,
-    onTodayChanged: setServiceDate,
-  });
 
   // ── Live ──────────────────────────────────────────────────
 
@@ -201,6 +197,31 @@ function CueSheetsPage() {
     [model.columns, orgId, publish],
   );
 
+  // Oldest first for stepping; the model hands them back newest first.
+  const pickerDates = useMemo(() => {
+    const dates = [...model.serviceDates].reverse();
+    // Always include whatever is on screen, even a date with no rundown,
+    // so the control never shows a value that isn't in its own list.
+    return dates.includes(serviceDate) ? dates : [...dates, serviceDate].sort();
+  }, [model.serviceDates, serviceDate]);
+
+  const stepTo = useCallback(
+    (delta: number) => {
+      const index = pickerDates.indexOf(serviceDate);
+      if (index < 0) return null;
+      return pickerDates[index + delta] ?? null;
+    },
+    [pickerDates, serviceDate],
+  );
+  const canStep = useCallback((delta: number) => stepTo(delta) !== null, [stepTo]);
+  const step = useCallback(
+    (delta: number) => {
+      const next = stepTo(delta);
+      if (next) setServiceDate(next);
+    },
+    [stepTo],
+  );
+
   const visibleCount = useMemo(
     () => model.columns.filter((c) => !hidden.has(c.id)).length,
     [model.columns, hidden],
@@ -219,24 +240,39 @@ function CueSheetsPage() {
 
           <span className="w-px h-5 bg-board-border" aria-hidden="true" />
 
+          {/* A picker of services, not a date stepper. Stepping a day at a
+              time through a week with one service in it is how the old
+              page ended up looking empty. */}
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setServiceDate((d) => shiftDate(d, -1))}
-              aria-label="Previous day"
-              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
+              onClick={() => step(-1)}
+              disabled={!canStep(-1)}
+              aria-label="Previous service"
+              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+            <label htmlFor="cue-service-date" className="sr-only">
+              Service
+            </label>
+            <select
+              id="cue-service-date"
+              value={serviceDate}
+              onChange={(event) => setServiceDate(event.target.value)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[190px]"
             >
-              {formatDisplayDate(serviceDate)}
-            </button>
+              {pickerDates.map((date) => (
+                <option key={date} value={date}>
+                  {formatDisplayDate(date)}
+                  {date === today ? " · today" : ""}
+                </option>
+              ))}
+            </select>
             <button
-              onClick={() => setServiceDate((d) => shiftDate(d, 1))}
-              aria-label="Next day"
-              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
+              onClick={() => step(1)}
+              disabled={!canStep(1)}
+              aria-label="Next service"
+              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

@@ -631,6 +631,35 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** appSetting key holding the service the org is currently working on. */
+export const ACTIVE_SERVICE_DATE_KEY = "active-service-date";
+
+/**
+ * Remember which service the rundown editor is on.
+ *
+ * The editor's date was pure React state, which meant nothing else could
+ * follow it: open a service from years ago in the rundown and the cue
+ * sheet still sat on today, looking empty. Persisting it per org makes
+ * the rundown the single thing that decides which service is "current",
+ * and every other production page can just read it.
+ *
+ * Notes and cues stay keyed by their own service date, so moving the
+ * active date never rewrites history — step back to last Sunday and last
+ * Sunday's notes are exactly where they were left.
+ */
+export const setActiveServiceDate = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
+  .handler(async ({ data }) => {
+    await assertRundownEditAccess(data.orgId);
+    const prisma = getPrisma();
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+      update: { value: data.serviceDate },
+      create: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY, value: data.serviceDate },
+    });
+    return { ok: true as const };
+  });
+
 /**
  * Patch actualStart / actualEnd on a single rundown item.
  */
