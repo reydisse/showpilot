@@ -207,9 +207,8 @@ function CueSheetsPage() {
   useEffect(() => {
     if (pickedRef.current) return;
     if (!hydrated || !stateServiceDate || stateServiceDate === serviceDate) return;
-    if (liveItems.length === 0) return;
     setServiceDate(stateServiceDate);
-  }, [hydrated, stateServiceDate, serviceDate, liveItems.length]);
+  }, [hydrated, stateServiceDate, serviceDate]);
 
   const cells = useMemo(
     () =>

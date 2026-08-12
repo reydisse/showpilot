@@ -245,20 +245,15 @@ function RundownPage() {
   // so all other devices get them via broadcast.
   // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
   // not just that the WS connected (syncedItems would still be [] before hydrate).
-  // Whatever service the editor is on is the org's active service. Other
-  // production pages — the cue sheet first — follow this rather than
-  // guessing at today, so opening a rundown from years ago takes them
-  // with it. Fire and forget: failing to record it must never block
-  // editing, and the next date change will try again.
+  // Whatever service the editor is on is the org's active service, full
+  // stop. The cue sheet and anything else downstream follow this rather
+  // than guessing, so opening a rundown from years ago takes them with
+  // it. Fire and forget: failing to record it must never block editing,
+  // and the next date change tries again.
   useEffect(() => {
     if (!canEditRundown) return;
-    // Only a date with a running order counts. The editor opens on today
-    // by default, and a church has no service most days — recording an
-    // empty date as "the active service" would drag the cue sheet onto a
-    // blank page, which is the exact bug this was meant to fix.
-    if (items.length === 0) return;
     setActiveServiceDate({ data: { orgId, serviceDate } }).catch(() => {});
-  }, [canEditRundown, items.length, orgId, serviceDate]);
+  }, [canEditRundown, orgId, serviceDate]);
 
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes

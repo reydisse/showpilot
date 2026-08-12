@@ -145,11 +145,12 @@ describe("which service the cue sheet opens on", () => {
     );
   });
 
-  it("ignores an active date that has no rundown", () => {
-    // The editor opens on today by default. Pinning the sheet to a blank
-    // day because someone glanced at the rundown is the bug, not the
-    // feature.
-    expect(resolveCueSheetDate(dates, "2026-08-12", "2026-08-12")).toBe("2026-09-06");
+  it("follows the rundown even onto a service with nothing in it yet", () => {
+    // Building next Sunday from scratch: the rundown is empty, so the
+    // cue sheet is empty too. Consistent beats clever — jumping the
+    // sheet to some other date would be the app second-guessing the
+    // service the team just opened.
+    expect(resolveCueSheetDate(dates, "2026-08-12", "2026-10-04")).toBe("2026-10-04");
   });
 
   it("falls back to the next service with a rundown", () => {

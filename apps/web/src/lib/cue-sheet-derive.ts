@@ -91,27 +91,28 @@ export function toCueRows(
 /**
  * Which service the sheet opens on.
  *
- * The rundown editor decides. Whatever service is open there is the one
- * the team is working on — load a rundown from years ago and the cue
- * sheet goes with it. Only when nothing has been opened yet does this
- * fall back to guessing: the next service that has a running order, then
- * the most recent one, then today.
+ * Whatever the rundown has loaded, full stop. The rundown is where the
+ * team decides which service they are working on; the cue sheet is a
+ * view of that decision, and it does not get a second opinion — even if
+ * that service is still empty, because an empty sheet next to an empty
+ * rundown is correct and consistent.
  *
- * Opening blindly on today was the bug this replaces. A church runs one
- * or two services a week, so six days out of seven "today" has no
+ * The fallbacks below only apply before anything has been opened at all:
+ * the next service that has a running order, then the most recent, then
+ * today. Opening blindly on today is what this replaces — a church runs
+ * one or two services a week, so six days out of seven "today" has no
  * rundown and the sheet looks broken when it is merely empty.
+ *
+ * From there the operator can move the sheet anywhere with its own
+ * picker; that choice is held on the page, not here.
  */
 export function resolveCueSheetDate(
   dates: string[],
   today: string,
   activeServiceDate?: string | null,
 ): string {
+  if (activeServiceDate) return activeServiceDate;
   const sorted = [...new Set(dates)].sort();
-  // Honoured only if that service actually has a running order.
-  // "Follow the rundown" means follow a real one — an active date left
-  // pointing at an empty day would land the operator back on the empty
-  // sheet this whole resolution order exists to avoid.
-  if (activeServiceDate && sorted.includes(activeServiceDate)) return activeServiceDate;
   if (sorted.length === 0) return today;
   return sorted.find((d) => d >= today) ?? sorted[sorted.length - 1];
 }
