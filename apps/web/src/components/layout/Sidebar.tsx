@@ -22,7 +22,6 @@ import {
   Minimize,
   Sun,
   Moon,
-  Settings,
   MonitorPlay,
   MessageSquare,
   Timer,
@@ -33,7 +32,6 @@ import { useTheme } from "./ThemeContext";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
 import { ROLE_COLOURS } from "./ProfileModal";
-import { NotificationCenter } from "./NotificationCenter";
 
 interface NavItem {
   icon: React.ElementType;
@@ -426,10 +424,17 @@ function renderSidebarContent({
         )}
       </div>
 
-      {/* Settings + Identity pinned to bottom */}
-      <div className="shrink-0 border-t border-board-border px-2.5 py-3 space-y-0.5">
-        {org && user ? <NotificationCenter orgId={org.id} slug={slug} collapsed={collapsed} /> : null}
-        {hasAnyPermission(role, [
+      {/* One compact account surface pinned to the bottom. */}
+      <div className="shrink-0 border-t border-board-border px-2.5 py-3">
+        {user && org && (
+          <SidebarIdentity
+            collapsed={collapsed}
+            user={user}
+            role={role ?? "member"}
+            orgName={org.name}
+            orgId={org.id}
+            slug={slug}
+            canAccessSettings={hasAnyPermission(role, [
           "settings:organization",
           "settings:members",
           "settings:billing",
@@ -441,20 +446,7 @@ function renderSidebarContent({
           "settings:webhooks",
           "settings:danger_zone",
           "org:delete",
-        ]) && (
-          <NavLink
-            item={{ icon: Settings, label: "Settings", path: "settings" }}
-            slug={slug}
-            collapsed={collapsed}
-            active={isActive("settings")}
-          />
-        )}
-        {user && (
-          <SidebarIdentity
-            collapsed={collapsed}
-            user={user}
-            role={role ?? "member"}
-            orgName={org?.name ?? ""}
+            ])}
           />
         )}
       </div>

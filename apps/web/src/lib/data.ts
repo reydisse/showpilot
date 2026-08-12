@@ -4,6 +4,8 @@ import { getPrisma } from "@/lib/db";
 import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
+import { getRundownStateForOrg } from "@/lib/rundown";
 
 const nameSchema = z.string().min(1).max(200);
 const shortTextSchema = z.string().max(500);
@@ -476,6 +478,87 @@ export const addChecklistEntry = createServerFn({ method: "POST" })
         serviceDate: data.serviceDate,
       },
     });
+  });
+
+export type SmartChecklistDraft = ReturnType<typeof deriveChecklistSuggestions>[number] & {
+  existingTemplateId: string | null;
+};
+
+async function buildSmartChecklistDraft(orgId: string, serviceDate: string): Promise<SmartChecklistDraft[]> {
+  const prisma = getPrisma();
+  const [rundown, templates, entries] = await Promise.all([
+    getRundownStateForOrg({ orgId, serviceDate }),
+    prisma.checklistTemplate.findMany({ where: { orgId }, orderBy: { sortOrder: "asc" } }),
+    prisma.checklistEntry.findMany({ where: { orgId, serviceDate }, select: { templateId: true } }),
+  ]);
+  const entryTemplateIds = new Set(entries.map((entry) => entry.templateId));
+  const templatesByLabel = new Map(
+    templates.map((template) => [normalizeChecklistLabel(template.label), template]),
+  );
+
+  return deriveChecklistSuggestions(rundown.items).flatMap((suggestion) => {
+    const existing = templatesByLabel.get(normalizeChecklistLabel(suggestion.label));
+    if (existing && entryTemplateIds.has(existing.id)) return [];
+    return [{ ...suggestion, existingTemplateId: existing?.id ?? null }];
+  });
+}
+
+/** Generate a reviewable draft. This is read-only and never publishes checks. */
+export const getSmartChecklistDraft = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "checklist:access");
+    return buildSmartChecklistDraft(data.orgId, data.serviceDate);
+  });
+
+/** Apply only selected server-generated suggestions, re-deriving them to reject invented client input. */
+export const applySmartChecklistDraft = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        serviceDate: serviceDateSchema,
+        suggestionIds: z.array(z.string().min(1).max(100)).max(30),
+      }),
+      data,
+    ),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "checklist:access");
+    const requested = new Set(data.suggestionIds);
+    const draft = await buildSmartChecklistDraft(data.orgId, data.serviceDate);
+    const selected = draft.filter((suggestion) => requested.has(suggestion.id));
+    const prisma = getPrisma();
+    let added = 0;
+
+    for (const suggestion of selected) {
+      let templateId = suggestion.existingTemplateId;
+      if (!templateId) {
+        const template = await prisma.checklistTemplate.create({
+          data: {
+            orgId: data.orgId,
+            label: suggestion.label,
+            category: suggestion.category,
+            sortOrder: 0,
+          },
+        });
+        templateId = template.id;
+      }
+
+      const duplicate = await prisma.checklistEntry.findFirst({
+        where: { orgId: data.orgId, serviceDate: data.serviceDate, templateId },
+        select: { id: true },
+      });
+      if (duplicate) continue;
+      await prisma.checklistEntry.create({
+        data: { orgId: data.orgId, serviceDate: data.serviceDate, templateId },
+      });
+      added += 1;
+    }
+
+    return { added };
   });
 
 // ─── Cue Sheets ─────────────────────────────────────────────
