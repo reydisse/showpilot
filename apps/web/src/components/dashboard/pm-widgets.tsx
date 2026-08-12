@@ -250,11 +250,13 @@ const departmentsWidget: PmWidget = {
 
 // ─── Arrivals ────────────────────────────────────────────────
 
+// Only ever appears during call and live, and at call time it is the
+// thing a PM watches hardest — the wide column, not the narrow rail.
 const arrivalsWidget: PmWidget = {
   id: "arrivals",
   title: "Arrivals",
   phases: ["call", "live"],
-  region: "rail",
+  region: "main",
   isRelevant: ({ model }) => model.arrivals.total > 0,
   render: ({ model, slug }) => (
     <WidgetCard
@@ -267,9 +269,15 @@ const arrivalsWidget: PmWidget = {
     >
       <WidgetMetric
         value={`${model.arrivals.present}`}
-        unit={`of ${model.arrivals.total} on site`}
+        unit={model.arrivals.expectedKnown ? `of ${model.arrivals.total} expected` : "on site"}
       />
-      <ul className="space-y-1.5 mt-3">
+      {!model.arrivals.expectedKnown && (
+        <p className="text-[11px] text-board-muted mt-1.5">
+          Nobody is scheduled for this service, so there is no expected list to
+          compare against — this is just who has checked in.
+        </p>
+      )}
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 mt-3">
         {model.arrivals.departments.map((dept) => (
           <li key={dept.key} className="flex items-center gap-2 text-xs">
             <StatusDot
@@ -283,25 +291,6 @@ const arrivalsWidget: PmWidget = {
               {dept.present}/{dept.total}
             </span>
           </li>
-        ))}
-      </ul>
-    </WidgetCard>
-  ),
-};
-
-// ─── Cue exceptions ──────────────────────────────────────────
-
-const cueExceptionsWidget: PmWidget = {
-  id: "cue-exceptions",
-  title: "Cue sheet",
-  phases: ["planning", "prep", "call"],
-  region: "main",
-  isRelevant: ({ model }) => model.cueExceptions.length > 0,
-  render: ({ model, slug }) => (
-    <WidgetCard title="Cue sheet">
-      <ul>
-        {model.cueExceptions.map((item) => (
-          <AttentionRow key={item.id} item={item} slug={slug} />
         ))}
       </ul>
     </WidgetCard>
@@ -925,7 +914,6 @@ export const PM_WIDGETS: PmWidget[] = [
   crewWidget,
   openItemsWidget,
   debriefWidget,
-  cueExceptionsWidget,
   readinessWidget,
   recentWidget,
   dutyWidget,

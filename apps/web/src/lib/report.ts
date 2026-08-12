@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { getRundownStateForOrg } from "@/lib/rundown";
+import { isHeaderItem } from "@/types/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
 import { z } from "zod";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
@@ -100,7 +101,11 @@ export const exportShowReport = createServerFn({ method: "POST" })
       }),
     ]);
 
-    const items: RundownItem[] = state.items;
+    // Section bands are structure, not run items: they would inflate the
+    // item count and contribute nothing to planned duration.
+    const items: RundownItem[] = (state.items as RundownItem[]).filter(
+      (item) => !isHeaderItem(item),
+    );
     const timer: NativeTimerState = state.timer;
 
     const templateMap = new Map(templates.map((template) => [template.id, template]));

@@ -1,5 +1,24 @@
-export type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
+/**
+ * "header" is a section band — "Pre-service", "Pre-sermon" — not a
+ * segment. It carries no time and never goes live; it exists to break a
+ * long rundown into readable blocks in the editor, the cue sheet and the
+ * operator views. Everything that walks the running order must skip it,
+ * which is what `isHeaderItem` below is for.
+ */
+export type ItemType =
+  | "segment"
+  | "song"
+  | "prayer"
+  | "announcement"
+  | "offering"
+  | "custom"
+  | "header";
 export type ItemStatus = "upcoming" | "live" | "complete";
+
+/** Section bands are structure, not running order. */
+export function isHeaderItem(item: { type: string }): boolean {
+  return item.type === "header";
+}
 
 export interface RundownItem {
   id: string;

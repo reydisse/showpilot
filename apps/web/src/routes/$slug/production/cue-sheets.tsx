@@ -1,44 +1,77 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, ListOrdered, Plus, Pencil, Trash2, X } from "lucide-react";
-import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
-import { getCueSheets, addCueSheet, updateCueSheet, deleteCueSheet } from "@/lib/data";
+/**
+ * Cue sheet.
+ *
+ * Rows are the rundown for this service date — never retyped, never able
+ * to drift. Departments own the columns to the right of the title and
+ * write their own instructions against each item, live.
+ */
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, ListOrdered, Plus, Settings2, Wifi, WifiOff } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { hasPermission } from "@/lib/app-permissions";
+import { useCueSheetSync } from "@/hooks/useCueSheetSync";
+import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
+import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
+import { useRundownSync } from "@/hooks/useRundownSync";
+import { deriveCallerClock, toCueRows } from "@/lib/cue-sheet-derive";
+import { CallerClockBar } from "@/components/cue-sheet/caller-clock";
+import { useNow } from "@/components/dashboard/widget";
+import type { RundownItem } from "@/types/rundown";
+import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+import { ColumnManager } from "@/components/cue-sheet/column-manager";
+import { PageSkeleton } from "@/components/ui/Skeleton";
 
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** Flatten the server's row-attached notes into the page's cell map. */
+function notesFromRows(rows: { itemId: string; notes: Record<string, string> }[]) {
+  const out: Record<string, Record<string, string>> = {};
+  for (const row of rows) {
+    if (Object.keys(row.notes).length > 0) out[row.itemId] = { ...row.notes };
+  }
+  return out;
 }
 
 function formatDisplayDate(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-type CueItem = {
-  id: string;
-  cueNumber: number;
-  rundownItem: string;
-  cameraAssignments: string;
-  notes: string;
-};
+/**
+ * Which columns an operator has hidden is a personal view preference, not
+ * org data — LX hiding Sound must not hide it for the sound engineer. It
+ * lives in localStorage, keyed per org.
+ */
+function hiddenKey(orgId: string) {
+  return `showpilot:cue-hidden:${orgId}`;
+}
 
 export const Route = createFileRoute("/$slug/production/cue-sheets")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"], context.slug, context.orgId);
+    await withPermission(
+      context.role,
+      ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"],
+      context.slug,
+      context.orgId,
+    );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const items = await getCueSheets({ data: { orgId: context.orgId, serviceDate: today } });
+    // No serviceDate: the server opens on the next service that actually
+    // has a rundown. A church runs one service a week, so defaulting to
+    // today would show an empty sheet six days out of seven.
+    const model = await getCueSheet({ data: { orgId: context.orgId, today } });
     return {
-      items: items as CueItem[],
+      model,
       orgId: context.orgId,
+      role: context.role,
       orgTimezone: settings["org-timezone"],
     };
   },
@@ -46,189 +79,493 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
 });
 
 function CueSheetsPage() {
-  const { items: initialItems, orgId, orgTimezone } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
-  const [items, setItems] = useState(initialItems);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editingItem, setEditingItem] = useState<CueItem | null>(null);
-  const [form, setForm] = useState({ rundownItem: "", cameraAssignments: "", notes: "" });
-  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const { model: initialModel, orgId, role, orgTimezone } = Route.useLoaderData();
+  const { slug } = Route.useParams();
+  const today = getTodayDateString(orgTimezone);
+  const [serviceDate, setServiceDate] = useState(initialModel.serviceDate);
+  const [model, setModel] = useState<CueSheetModel>(initialModel);
+  // itemId → columnId → text. Held apart from the rows because the rows
+  // now arrive from the rundown relay and the cells do not: keying notes
+  // off the last server row list would drop a note typed on an item that
+  // was added to the rundown after this page loaded.
+  const [notes, setNotes] = useState<Record<string, Record<string, string>>>(() =>
+    notesFromRows(initialModel.rows),
+  );
+  const [loading, setLoading] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const sheetScroll = useEdgeScroll();
 
-  const loadItems = useCallback(async (date: string) => {
-    setLoadingItems(true);
+  const canAddNotes = hasPermission(role, "cuesheet:add_notes") || hasPermission(role, "cuesheet:edit");
+  const canManageColumns = hasPermission(role, "cuesheet:edit");
+
+  useEffect(() => {
     try {
-      const latest = await getCueSheets({ data: { orgId, serviceDate: date } });
-      setItems(latest as CueItem[]);
-    } finally {
-      setLoadingItems(false);
+      const raw = localStorage.getItem(hiddenKey(orgId));
+      if (raw) setHidden(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      // A corrupt preference is not worth failing the page over.
     }
   }, [orgId]);
 
-  useEffect(() => {
-    setItems(initialItems);
-  }, [initialItems]);
-
-  useEffect(() => {
-    void loadItems(serviceDate);
-  }, [loadItems, serviceDate]);
-
-  useServiceDateRollover({
-    serviceDate,
-    timeZone: orgTimezone,
-    onTodayChanged: (nextToday) => {
-      setServiceDate(nextToday);
+  const toggleHidden = useCallback(
+    (columnId: string) => {
+      setHidden((prev) => {
+        const next = new Set(prev);
+        if (next.has(columnId)) next.delete(columnId);
+        else next.add(columnId);
+        try {
+          localStorage.setItem(hiddenKey(orgId), JSON.stringify([...next]));
+        } catch {
+          // Private browsing. The toggle still works for this session.
+        }
+        return next;
+      });
     },
+    [orgId],
+  );
+
+  const load = useCallback(
+    async (date: string) => {
+      setLoading(true);
+      try {
+        const next = await getCueSheet({ data: { orgId, serviceDate: date, today } });
+        setModel(next);
+        setNotes(notesFromRows(next.rows));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [orgId, today],
+  );
+
+  // The loader already fetched the opening date; re-reading it here would
+  // be a wasted round trip on every mount.
+  const loadedRef = useRef(initialModel.serviceDate);
+  useEffect(() => {
+    if (loadedRef.current === serviceDate) return;
+    loadedRef.current = serviceDate;
+    void load(serviceDate);
+  }, [load, serviceDate]);
+
+  // ── Live ──────────────────────────────────────────────────
+
+  const applyRemoteNote = useCallback(
+    (event: { serviceDate: string; itemId: string; columnId: string; text: string }) => {
+      // Another date's edit is not ours to show.
+      if (event.serviceDate !== serviceDate) return;
+      setNotes((prev) => ({
+        ...prev,
+        [event.itemId]: { ...(prev[event.itemId] ?? {}), [event.columnId]: event.text },
+      }));
+    },
+    [serviceDate],
+  );
+
+  const { connected, publish } = useCueSheetSync({
+    orgId,
+    onNote: applyRemoteNote,
+    onColumns: () => void load(serviceDate),
   });
 
-  const handleDateChange = (days: number) => {
-    setServiceDate((d) => shiftDate(d, days));
-  };
+  // ── Continuity with the rundown ───────────────────────────
+  //
+  // The same relay the rundown editor drives. Reading the rows once at
+  // load was the gap: rename an item, drag it, change a duration, and
+  // the cue sheet sat on a stale copy until someone reloaded — which is
+  // the drift this rebuild exists to remove, just with a slower clock.
+  //
+  // Rows are re-derived from the live items, and the notes already on
+  // screen are carried across by itemId. Server rows remain the fallback
+  // until the relay hydrates, and for a service nobody has open in the
+  // editor (the DO holds no state for it), so an unreachable socket
+  // degrades to what the page did before rather than to a blank sheet.
+  //
+  // Connected WITHOUT a service date on purpose. The relay is one room
+  // per org and takes `?serviceDate=` as an instruction — it rewrites
+  // the date its items are filed under, and its timing writes go to that
+  // date. A cue sheet opening on a different service would silently
+  // retarget the editor's room. Reading only, and checking the date the
+  // relay reports, keeps this a subscriber.
+  const {
+    items: liveItems,
+    timer: liveTimer,
+    hydrated,
+    stateServiceDate,
+  } = useRundownSync(orgId);
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.rundownItem.trim()) return;
-    const nextCue = items.length > 0 ? Math.max(...items.map((i) => i.cueNumber)) + 1 : 1;
-    await addCueSheet({
-      data: {
-        orgId, cueNumber: nextCue, rundownItem: form.rundownItem, cameraAssignments: form.cameraAssignments, notes: form.notes, serviceDate,
+  /** Live items are this service's only if the relay says so. */
+  const liveMatches = hydrated && stateServiceDate === serviceDate && liveItems.length > 0;
+
+  // Follow the editor. If the rundown moves to another service, the cue
+  // sheet goes with it — that is what "the cue sheet follows the
+  // rundown" has to mean, or the two sit on different Sundays and the
+  // sheet looks broken while being perfectly correct.
+  //
+  // An explicit pick in the sheet's own control wins: someone who has
+  // deliberately opened last week to read their notes should not be
+  // dragged back the moment a colleague opens the editor.
+  const pickedRef = useRef(false);
+  useEffect(() => {
+    if (pickedRef.current) return;
+    if (!hydrated || !stateServiceDate || stateServiceDate === serviceDate) return;
+    setServiceDate(stateServiceDate);
+  }, [hydrated, stateServiceDate, serviceDate]);
+
+  const cells = useMemo(
+    () =>
+      Object.entries(notes).flatMap(([itemId, byColumn]) =>
+        Object.entries(byColumn).map(([columnId, text]) => ({ itemId, columnId, text })),
+      ),
+    [notes],
+  );
+
+  const rows = useMemo(() => {
+    // Before the relay hydrates — and for a service nobody has open in
+    // the editor, where the DO holds nothing — the server's rows stand
+    // in. An unreachable socket degrades to what the page did before,
+    // never to a blank sheet.
+    const source: RundownItem[] =
+      liveMatches
+        ? (liveItems as unknown as RundownItem[])
+        : (model.rows.map((row) => ({
+            id: row.itemId,
+            title: row.title,
+            type: row.type,
+            duration: row.durationMs,
+            notes: row.note,
+            assignee: row.assignee,
+            cue: row.cue,
+            status: row.status,
+            sortOrder: 0,
+            hardStop: false,
+          })) as RundownItem[]);
+
+    return toCueRows(
+      source,
+      {
+        serviceDate,
+        scheduledStartTime: model.scheduledStartTime,
+        status: model.rundownStatus,
       },
-    });
-    setForm({ rundownItem: "", cameraAssignments: "", notes: "" });
-    setShowForm(false);
-    await loadItems(serviceDate);
-  };
+      cells,
+    );
+  }, [cells, liveMatches, liveItems, model.rows, model.scheduledStartTime, model.rundownStatus, serviceDate]);
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem) return;
-    await updateCueSheet({ data: { id: editingItem.id, updates: { rundownItem: form.rundownItem, cameraAssignments: form.cameraAssignments, notes: form.notes } } });
-    setEditingItem(null);
-    setForm({ rundownItem: "", cameraAssignments: "", notes: "" });
-    await loadItems(serviceDate);
-  };
+  const currentItemId = liveMatches ? liveTimer.currentItemId : model.currentItemId;
 
-  const handleDelete = async (id: string) => {
-    const ok = await confirm({
-      title: "Delete cue",
-      description: "Delete this cue? This action cannot be undone.",
-      confirmLabel: "Delete",
-    });
-    if (!ok) return;
-    await deleteCueSheet({ data: { id } });
-    await loadItems(serviceDate);
-  };
+  // One second is the right granularity for a caller: fast enough to
+  // count down against, slow enough not to re-render the sheet raw.
+  const nowMs = useNow(1000);
 
-  const startEdit = (item: CueItem) => {
-    setEditingItem(item);
-    setForm({ rundownItem: item.rundownItem, cameraAssignments: item.cameraAssignments, notes: item.notes });
-    setShowForm(false);
-  };
+  // Elapsed is reconstructed from the relay's start timestamp rather
+  // than its `elapsed` field, which is only refreshed when the timer
+  // state changes — reading it directly would freeze the countdown
+  // between commands.
+  const elapsedMs =
+    liveMatches && liveTimer.playback === "play" && liveTimer.startedAt !== null
+      ? Math.max(0, nowMs - liveTimer.startedAt)
+      : liveMatches
+        ? liveTimer.elapsed
+        : 0;
+
+  const clockState = useMemo(
+    () => deriveCallerClock({ rows, currentItemId, elapsedMs, nowMs }),
+    [rows, currentItemId, elapsedMs, nowMs],
+  );
+
+  // ── Edits ─────────────────────────────────────────────────
+
+  const handleNoteChange = useCallback(
+    async (itemId: string, columnId: string, text: string) => {
+      // Optimistic: the cell already shows what was typed. Reverting on a
+      // failed write would be worse than a stale cell — the operator has
+      // moved on and the rundown is running.
+      setNotes((prev) => ({
+        ...prev,
+        [itemId]: { ...(prev[itemId] ?? {}), [columnId]: text },
+      }));
+      publish({ type: "note", serviceDate, itemId, columnId, text, by: "", at: Date.now() });
+      const { setCueNote } = await import("@/lib/cue-sheet");
+      await setCueNote({ data: { orgId, serviceDate, itemId, columnId, text } });
+    },
+    [orgId, serviceDate, publish],
+  );
+
+  const handleWidthChange = useCallback(
+    async (columnId: string, width: number) => {
+      setModel((prev) => ({
+        ...prev,
+        columns: prev.columns.map((c) => (c.id === columnId ? { ...c, width } : c)),
+      }));
+      const { updateCueColumn } = await import("@/lib/cue-sheet");
+      await updateCueColumn({ data: { orgId, id: columnId, width } });
+    },
+    [orgId],
+  );
+
+  const handleReorder = useCallback(
+    async (fromId: string, toId: string) => {
+      const ids = model.columns.map((c) => c.id);
+      const from = ids.indexOf(fromId);
+      const to = ids.indexOf(toId);
+      if (from < 0 || to < 0) return;
+      ids.splice(to, 0, ...ids.splice(from, 1));
+      setModel((prev) => ({
+        ...prev,
+        columns: [...prev.columns].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)),
+      }));
+      const { reorderCueColumns } = await import("@/lib/cue-sheet");
+      await reorderCueColumns({ data: { orgId, ids } });
+      publish({ type: "columns", at: Date.now() });
+    },
+    [model.columns, orgId, publish],
+  );
+
+  // Oldest first for stepping; the model hands them back newest first.
+  const pickerDates = useMemo(() => {
+    const dates = [...model.serviceDates].reverse();
+    // Always include whatever is on screen, even a date with no rundown,
+    // so the control never shows a value that isn't in its own list.
+    return dates.includes(serviceDate) ? dates : [...dates, serviceDate].sort();
+  }, [model.serviceDates, serviceDate]);
+
+  const stepTo = useCallback(
+    (delta: number) => {
+      const index = pickerDates.indexOf(serviceDate);
+      if (index < 0) return null;
+      return pickerDates[index + delta] ?? null;
+    },
+    [pickerDates, serviceDate],
+  );
+  const canStep = useCallback((delta: number) => stepTo(delta) !== null, [stepTo]);
+  const step = useCallback(
+    (delta: number) => {
+      const next = stepTo(delta);
+      if (!next) return;
+      pickedRef.current = true;
+      setServiceDate(next);
+    },
+    [stepTo],
+  );
+
+  const visibleCount = useMemo(
+    () => model.columns.filter((c) => !hidden.has(c.id)).length,
+    [model.columns, hidden],
+  );
+
+  const hasRows = rows.length > 0;
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-board-text">Cue Sheets</h1>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
-              >
-                {formatDisplayDate(serviceDate)}
-              </button>
-              <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+    <div className="h-full flex flex-col overflow-hidden">
+      <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
+        <div className="flex items-center gap-3 flex-wrap px-6 py-3">
+          <h1 className="text-[15px] font-semibold text-board-text">Cue sheet</h1>
+          {pickedRef.current && stateServiceDate && stateServiceDate !== serviceDate && (
             <button
-              onClick={() => { setShowForm(true); setEditingItem(null); setForm({ rundownItem: "", cameraAssignments: "", notes: "" }); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-              style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+              onClick={() => {
+                pickedRef.current = false;
+                setServiceDate(stateServiceDate);
+              }}
+              className="text-[11px] px-2 py-0.5 rounded-full border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
             >
-              <Plus className="w-3.5 h-3.5" />
-              Add Cue
+              Rundown is on {formatDisplayDate(stateServiceDate)} — follow it
             </button>
+          )}
+          {model.serviceName && (
+            <span className="text-xs text-board-text">{model.serviceName}</span>
+          )}
+
+          <span className="w-px h-5 bg-board-border" aria-hidden="true" />
+
+          {/* A picker of services, not a date stepper. Stepping a day at a
+              time through a week with one service in it is how the old
+              page ended up looking empty. */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => step(-1)}
+              disabled={!canStep(-1)}
+              aria-label="Previous service"
+              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <label htmlFor="cue-service-date" className="sr-only">
+              Service
+            </label>
+            <select
+              id="cue-service-date"
+              value={serviceDate}
+              onChange={(event) => {
+                pickedRef.current = true;
+                setServiceDate(event.target.value);
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[190px]"
+            >
+              {pickerDates.map((date) => (
+                <option key={date} value={date}>
+                  {formatDisplayDate(date)}
+                  {date === today ? " · today" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => step(1)}
+              disabled={!canStep(1)}
+              aria-label="Next service"
+              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            {/* Connection state is worth showing here, unlike in the
+                operator UI: a cue sheet that has silently stopped
+                receiving other people's notes looks identical to one
+                where nobody is typing. */}
+            {/* Whether other people's notes are reaching this tab. It is
+                deliberately not called "live": on a cue sheet that word
+                means a service is on air, and two meanings for one word
+                is exactly the ambiguity an operator cannot afford. Only
+                the failure state is worth words — a working connection
+                should not take up the page saying so. */}
+            <span
+              className={`flex items-center gap-1.5 text-[11px] ${connected ? "text-board-muted/50" : "text-yellow-400"}`}
+              title={
+                connected
+                  ? "Other people's notes appear here as they type"
+                  : "Reconnecting. Your edits are still saving; you just won't see other people's until this clears."
+              }
+            >
+              {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              {connected ? "Synced" : "Not syncing"}
+            </span>
+            {canManageColumns && (
+              <button
+                onClick={() => setManaging((v) => !v)}
+                aria-expanded={managing}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                Columns
+              </button>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* Table */}
-        {loadingItems ? (
-          <div className="text-center py-16">
-            <p className="text-board-muted text-sm">Loading cue sheets...</p>
-          </div>
-        ) : items.length > 0 ? (
-          <div className="rounded-xl border border-board-border overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-board-card border-b border-board-border">
-                  <th className="px-4 py-3 text-left text-[10px] font-medium uppercase tracking-widest text-board-muted w-16">#</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-medium uppercase tracking-widest text-board-muted">Item</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-medium uppercase tracking-widest text-board-muted">Camera</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-medium uppercase tracking-widest text-board-muted">Notes</th>
-                  <th className="px-4 py-3 w-20" />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} className="border-b border-board-border last:border-0 hover:bg-board-card/50 group">
-                    <td className="px-4 py-3 text-sm font-mono text-fire-500 font-semibold">{item.cueNumber}</td>
-                    <td className="px-4 py-3 text-sm text-board-text">{item.rundownItem}</td>
-                    <td className="px-4 py-3 text-sm text-board-muted">{item.cameraAssignments || "—"}</td>
-                    <td className="px-4 py-3 text-sm text-board-muted">{item.notes || "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => startEdit(item)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text"><Pencil className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => handleDelete(item.id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            icon={ListOrdered}
-            title="No cues for this date"
-            description="Build the camera cue sheet for this service — each cue pairs a rundown item with camera assignments and notes."
-            action={
-              !showForm && !editingItem ? (
-                <EmptyStateButton
-                  onClick={() => { setShowForm(true); setEditingItem(null); setForm({ rundownItem: "", cameraAssignments: "", notes: "" }); }}
+        {/* Visibility toggles. Always available, even without edit rights:
+            hiding a column is a view preference, not a change to the sheet. */}
+        {model.columns.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap px-6 pb-2.5">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-board-muted mr-1">
+              Show
+            </span>
+            {/* The rundown columns toggle too. On a laptop the clock
+                columns are often dead weight next to eight departments,
+                and the width they free up is the whole point. */}
+            {TOGGLEABLE_COLUMNS.map((column) => {
+              const isHidden = hidden.has(column.key);
+              return (
+                <button
+                  key={column.key}
+                  onClick={() => toggleHidden(column.key)}
+                  aria-pressed={!isHidden}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                    isHidden
+                      ? "border-board-border text-board-muted/60 hover:text-board-text"
+                      : "border-board-border bg-board-card text-board-text"
+                  }`}
                 >
-                  Add first cue
-                </EmptyStateButton>
-              ) : undefined
-            }
-          />
+                  {column.label}
+                </button>
+              );
+            })}
+            <span className="w-px h-4 bg-board-border mx-1" aria-hidden="true" />
+            {model.columns.map((column) => {
+              const isHidden = hidden.has(column.id);
+              return (
+                <button
+                  key={column.id}
+                  onClick={() => toggleHidden(column.id)}
+                  aria-pressed={!isHidden}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                    isHidden
+                      ? "border-board-border text-board-muted/60 hover:text-board-text"
+                      : "border-fire-500/40 bg-fire-500/10 text-fire-400"
+                  }`}
+                >
+                  {column.label}
+                </button>
+              );
+            })}
+            {visibleCount === 0 && (
+              <span className="text-[11px] text-yellow-400 ml-1">
+                Every column is hidden — the sheet is just the running order.
+              </span>
+            )}
+          </div>
         )}
+      </header>
 
-        {/* Inline form */}
-        {(showForm || editingItem) && (
-          <form onSubmit={editingItem ? handleUpdate : handleAdd} className="mt-4 p-4 rounded-xl bg-board-card border border-board-border space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-board-text">{editingItem ? "Edit Cue" : "New Cue"}</h3>
-              <button type="button" onClick={() => { setShowForm(false); setEditingItem(null); }} className="text-board-muted hover:text-board-text"><X className="w-4 h-4" /></button>
-            </div>
-            <input value={form.rundownItem} onChange={(e) => setForm({ ...form, rundownItem: e.target.value })} placeholder="Rundown item..." className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20" />
-            <div className="grid grid-cols-2 gap-3">
-              <input value={form.cameraAssignments} onChange={(e) => setForm({ ...form, cameraAssignments: e.target.value })} placeholder="Camera assignments..." className="px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20" />
-              <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes..." className="px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20" />
-            </div>
-            <button type="submit" className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]" style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}>
-              {editingItem ? "Update" : "Add Cue"}
-            </button>
-          </form>
+      {hasRows && <CallerClockBar clockState={clockState} nowMs={nowMs} />}
+
+      {managing && canManageColumns && (
+        <ColumnManager
+          orgId={orgId}
+          columns={model.columns}
+          onChanged={() => {
+            void load(serviceDate);
+            publish({ type: "columns", at: Date.now() });
+          }}
+          onClose={() => setManaging(false)}
+        />
+      )}
+
+      {/* A real service sheet is wider than any screen. One scroller for
+          the whole grid — both axes — with the left block pinned inside
+          it, rather than a table scrolling within a page that scrolls. */}
+      <div className="flex-1 relative min-h-0">
+        <div ref={sheetScroll.ref} className="absolute inset-0 overflow-auto">
+        {loading ? (
+          <p className="text-center text-sm text-board-muted py-16">Loading cue sheet…</p>
+        ) : hasRows ? (
+          <CueTable
+            rows={rows}
+            columns={model.columns}
+            hidden={hidden}
+            currentItemId={currentItemId}
+            canEdit={canAddNotes}
+            onNoteChange={handleNoteChange}
+            onWidthChange={handleWidthChange}
+            onReorder={handleReorder}
+          />
+        ) : (
+          // The honest empty state. The old page offered "Add cue", which
+          // is what created two competing running orders in the first
+          // place — the only way to add a row now is to plan the service.
+          <div className="py-10">
+            <EmptyState
+              icon={ListOrdered}
+              title="No rundown for this date"
+              description="The cue sheet follows the rundown. Build the running order and every item appears here for each department to write against."
+              action={
+                <Link
+                  to={`/${slug}/rundown` as never}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Open the rundown
+                </Link>
+              }
+            />
+          </div>
+        )}
+        </div>
+        {hasRows && !loading && (
+          <ScrollEdges edges={sheetScroll.edges} scrollBy={sheetScroll.scrollBy} step={320} />
         )}
       </div>
-      {ConfirmDialogEl}
     </div>
   );
 }

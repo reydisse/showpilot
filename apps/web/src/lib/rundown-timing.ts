@@ -1,3 +1,4 @@
+import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem, RundownMeta } from "@/types/rundown";
 
 export interface TimedRundownItem extends RundownItem {
@@ -30,16 +31,20 @@ export function computeCascadedTimes(
   let cursor = showStart;
 
   return items.map((item) => {
+    // Section bands take no time. Forcing zero here rather than trusting
+    // the stored duration means a header that somehow acquired one can
+    // never silently push the rest of the service later.
+    const duration = isHeaderItem(item) ? 0 : item.duration;
     const scheduledStart = new Date(cursor).toISOString();
-    const expectedEnd = new Date(cursor + item.duration).toISOString();
+    const expectedEnd = new Date(cursor + duration).toISOString();
 
     // If the item has already run (actualEnd exists), advance cursor from
     // the later of expectedEnd and actualEnd so we account for overrun.
     if (item.actualEnd) {
       const actualEndMs = new Date(item.actualEnd).getTime();
-      cursor = Math.max(cursor + item.duration, actualEndMs);
+      cursor = Math.max(cursor + duration, actualEndMs);
     } else {
-      cursor += item.duration;
+      cursor += duration;
     }
 
     return {

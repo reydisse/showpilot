@@ -49,6 +49,7 @@ const VALID_ITEM_TYPES = new Set<ItemType>([
   "announcement",
   "offering",
   "custom",
+  "header",
 ]);
 
 const VALID_ITEM_STATUSES = new Set<ItemStatus>(["upcoming", "live", "complete"]);
@@ -414,8 +415,10 @@ async function assertRundownEditAccess(orgId: string) {
   }
 }
 
+const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
+
 function rundownItemsKey(serviceDate: string) {
-  return `rundown-items:${serviceDate}`;
+  return `${RUNDOWN_ITEMS_PREFIX}${serviceDate}`;
 }
 
 function rundownTimerKey(serviceDate: string) {
@@ -628,6 +631,80 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     });
 
     return { ok: true };
+  });
+
+/**
+ * The service the rundown should open on.
+ *
+ * Read by the rundown editor's loader so the app lands somewhere real
+ * instead of on today, which for a church is empty most of the week.
+ * Everything else — the cue sheet today, the tech dashboard next —
+ * follows the editor rather than repeating this judgement.
+ */
+export const getRundownOpeningDate = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, today: z.string().min(10).max(10) }), data),
+  )
+  .handler(async ({ data }) => {
+    const prisma = getPrisma();
+    const [rows, active] = await Promise.all([
+      prisma.appSetting.findMany({
+        where: { orgId: data.orgId, key: { startsWith: RUNDOWN_ITEMS_PREFIX } },
+        select: { key: true, value: true },
+      }),
+      prisma.appSetting.findUnique({
+        where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+        select: { value: true },
+      }),
+    ]);
+
+    // A rundown row that exists but holds no items is not somewhere to
+    // land — that is the state the old "open on today" behaviour kept
+    // creating.
+    const datesWithItems = rows
+      .filter((row) => {
+        try {
+          const items = JSON.parse(row.value);
+          return Array.isArray(items) && items.length > 0;
+        } catch {
+          return false;
+        }
+      })
+      .map((row) => row.key.slice(RUNDOWN_ITEMS_PREFIX.length));
+
+    const { resolveOpeningServiceDate } = await import("@/lib/cue-sheet-derive");
+    return {
+      serviceDate: resolveOpeningServiceDate(datesWithItems, data.today, active?.value ?? null),
+    };
+  });
+
+/** appSetting key holding the service the org is currently working on. */
+export const ACTIVE_SERVICE_DATE_KEY = "active-service-date";
+
+/**
+ * Remember which service the rundown editor is on.
+ *
+ * The editor's date was pure React state, which meant nothing else could
+ * follow it: open a service from years ago in the rundown and the cue
+ * sheet still sat on today, looking empty. Persisting it per org makes
+ * the rundown the single thing that decides which service is "current",
+ * and every other production page can just read it.
+ *
+ * Notes and cues stay keyed by their own service date, so moving the
+ * active date never rewrites history — step back to last Sunday and last
+ * Sunday's notes are exactly where they were left.
+ */
+export const setActiveServiceDate = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
+  .handler(async ({ data }) => {
+    await assertRundownEditAccess(data.orgId);
+    const prisma = getPrisma();
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+      update: { value: data.serviceDate },
+      create: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY, value: data.serviceDate },
+    });
+    return { ok: true as const };
   });
 
 /**

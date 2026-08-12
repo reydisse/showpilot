@@ -9,7 +9,14 @@ import {
   addChecklistEntry,
   toggleChecklistEntry,
   deleteChecklistTemplate,
+  updateChecklistTemplate,
 } from "@/lib/data";
+import {
+  DEPARTMENT_LABELS,
+  DEPARTMENT_ORDER,
+  normalizeCategory,
+  type DepartmentKey,
+} from "@/lib/departments";
 import { hasPermission } from "@/lib/app-permissions";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
@@ -57,6 +64,7 @@ function ChecklistPage() {
   }>);
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [newLabel, setNewLabel] = useState("");
+  const [newCategory, setNewCategory] = useState<DepartmentKey>("general");
   const [adding, setAdding] = useState(false);
 
   const loadEntries = useCallback(async (date: string) => {
@@ -85,6 +93,15 @@ function ChecklistPage() {
     },
   });
 
+  // Empty departments are omitted, and the headings only appear once
+  // there is more than one department to distinguish — a list that is
+  // entirely General should not grow a "General" banner.
+  const grouped = DEPARTMENT_ORDER.map((key) => ({
+    key,
+    items: entries.filter((e) => normalizeCategory(e.template?.category ?? "") === key),
+  })).filter((group) => group.items.length > 0);
+  const showGroupHeadings = grouped.length > 1;
+
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
@@ -102,15 +119,37 @@ function ChecklistPage() {
     if (!newLabel.trim()) return;
     setAdding(true);
     try {
-      const tpl = await addChecklistTemplate({ data: { orgId, label: newLabel.trim(), category: "general" } });
+      const tpl = await addChecklistTemplate({
+        data: { orgId, label: newLabel.trim(), category: newCategory },
+      });
       if (tpl) {
         await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate } });
       }
       setNewLabel("");
+      // The department is deliberately sticky. Checks are written in
+      // runs — five audio items, then four camera items — and resetting
+      // to General after each one is how a list ends up uncategorised.
       await loadEntries(serviceDate);
     } finally {
       setAdding(false);
     }
+  };
+
+  /**
+   * Retag an item. Categories exist for the dashboard's benefit: a
+   * department card can only report "2 checks outstanding" if the checks
+   * know which department they belong to.
+   */
+  const handleCategoryChange = async (templateId: string, category: DepartmentKey) => {
+    if (!canManageChecklist) return;
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.templateId === templateId && e.template
+          ? { ...e, template: { ...e.template, category } }
+          : e,
+      ),
+    );
+    await updateChecklistTemplate({ data: { orgId, id: templateId, updates: { category } } });
   };
 
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
@@ -167,25 +206,66 @@ function ChecklistPage() {
           </div>
         )}
 
-        {/* Entries */}
-        <div className="space-y-2 mb-6">
-          {entries.map((entry) => (
-            <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-              <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist}>
-                {entry.checked ? (
-                  <CheckCircle2 className="w-5 h-5 text-green-500" />
-                ) : (
-                  <Circle className="w-5 h-5 text-board-muted" />
-                )}
-              </button>
-              <span className={`flex-1 text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
-                {entry.template?.label || "Untitled"}
-              </span>
-              {canManageChecklist && (
-                <button onClick={() => handleDeleteTemplate(entry.templateId)} className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+        {/* Entries, grouped by department. Under pressure an operator
+            works one department at a time — the audio tech does not care
+            what lighting still has open. Groups with nothing in them are
+            not rendered. */}
+        <div className="space-y-5 mb-6">
+          {grouped.map(({ key, items }) => (
+            <div key={key}>
+              {showGroupHeadings && (
+                <div className="flex items-baseline justify-between mb-2 px-1">
+                  <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
+                    {DEPARTMENT_LABELS[key]}
+                  </h2>
+                  <span className="text-[11px] text-board-muted tabular-nums">
+                    {items.filter((e) => e.checked).length}/{items.length}
+                  </span>
+                </div>
               )}
+              <div className="space-y-2">
+                {items.map((entry) => (
+                  <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
+                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist}>
+                      {entry.checked ? (
+                        <CheckCircle2 className="w-5 h-5 text-green-500" />
+                      ) : (
+                        <Circle className="w-5 h-5 text-board-muted" />
+                      )}
+                    </button>
+                    <span className={`flex-1 text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
+                      {entry.template?.label || "Untitled"}
+                    </span>
+                    {canManageChecklist && (
+                      <>
+                        {/* Retagging has to be possible in place: every
+                            existing item was written before categories
+                            existed, and nobody will retype 32 checks. */}
+                        <label className="sr-only" htmlFor={`cat-${entry.id}`}>
+                          Department for {entry.template?.label || "this item"}
+                        </label>
+                        <select
+                          id={`cat-${entry.id}`}
+                          value={normalizeCategory(entry.template?.category ?? "")}
+                          onChange={(e) =>
+                            void handleCategoryChange(entry.templateId, e.target.value as DepartmentKey)
+                          }
+                          className="shrink-0 text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text hover:border-fire-500/30 outline-none focus:border-fire-500/50 transition-colors"
+                        >
+                          {DEPARTMENT_ORDER.map((key) => (
+                            <option key={key} value={key}>
+                              {DEPARTMENT_LABELS[key]}
+                            </option>
+                          ))}
+                        </select>
+                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
 
@@ -212,8 +292,23 @@ function ChecklistPage() {
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="Add checklist item..."
-              className="flex-1 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
+              className="flex-1 min-w-0 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
             />
+            <label className="sr-only" htmlFor="new-category">
+              Department
+            </label>
+            <select
+              id="new-category"
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value as DepartmentKey)}
+              className="shrink-0 px-3 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-all"
+            >
+              {DEPARTMENT_ORDER.map((key) => (
+                <option key={key} value={key}>
+                  {DEPARTMENT_LABELS[key]}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
               disabled={adding || !newLabel.trim()}

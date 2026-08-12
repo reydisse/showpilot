@@ -47,10 +47,11 @@ function formatDuration(ms: number): string {
   return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
+type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ShowTab = "show" | "chat" | "rundown";
 
 const TYPE_COLORS: Record<ItemType, string> = {
+  header: "bg-board-muted",
   segment: "bg-blue-500",
   song: "bg-purple-500",
   prayer: "bg-pink-500",
@@ -597,7 +598,11 @@ function ShowPageWithNative({
   const currentIdx = timer.currentItemId
     ? items.findIndex((i) => i.id === timer.currentItemId)
     : -1;
-  const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
+  // "Next" must name a segment the operator will actually run, not the
+  // section band sitting between two of them.
+  const nextItem = items.find(
+    (item, i) => i > currentIdx && item.status !== "complete" && item.type !== "header",
+  );
   const remaining = currentItem && timer.mode === "count-down"
     ? currentItem.duration - (timer.playback === "pause" && timer.startedAt === null ? timer.elapsed : displayTime)
     : 0;

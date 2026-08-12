@@ -47,6 +47,8 @@ import {
   saveRundownTimer,
   saveRundownMessage,
   saveRundownMeta,
+  setActiveServiceDate,
+  getRundownOpeningDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
@@ -79,7 +81,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 
-type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom";
+type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
 
 interface RundownItem {
@@ -100,6 +102,7 @@ interface RundownItem {
 }
 
 const TYPE_CONFIG: Record<ItemType, { label: string; icon: React.ElementType; color: string }> = {
+  header: { label: "Section", icon: Layers, color: "bg-board-border text-board-muted border-board-border" },
   segment: { label: "Segment", icon: Layers, color: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
   song: { label: "Song", icon: Music, color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
   prayer: { label: "Prayer", icon: Heart, color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
@@ -190,16 +193,31 @@ export const Route = createFileRoute("/$slug/rundown")({
     await withPermission(context.role, "rundown:view", context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
-    return { orgId: context.orgId, slug: context.slug, today, initialState: state, settings, role: context.role };
+    // Open on a service that exists rather than blindly on today. A
+    // church has no service most days, so "today" meant the editor
+    // opened empty six days a week — and once the cue sheet started
+    // following the editor, that emptiness spread to it as well.
+    const { serviceDate: openOn } = await getRundownOpeningDate({
+      data: { orgId: context.orgId, today },
+    });
+    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: openOn } });
+    return {
+      orgId: context.orgId,
+      slug: context.slug,
+      today,
+      openOn,
+      initialState: state,
+      settings,
+      role: context.role,
+    };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, today, initialState, settings, role } = Route.useLoaderData();
+  const { orgId, slug, openOn, initialState, settings, role } = Route.useLoaderData();
   const canEditRundown = hasPermission(role, "rundown:edit");
-  const [serviceDate, setServiceDate] = useState(today);
+  const [serviceDate, setServiceDate] = useState(openOn);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
@@ -223,6 +241,8 @@ function RundownPage() {
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
+  /** Non-null when the last auto-save failed. Shown, not logged. */
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
@@ -241,6 +261,16 @@ function RundownPage() {
   // so all other devices get them via broadcast.
   // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
   // not just that the WS connected (syncedItems would still be [] before hydrate).
+  // Whatever service the editor is on is the org's active service, full
+  // stop. The cue sheet and anything else downstream follow this rather
+  // than guessing, so opening a rundown from years ago takes them with
+  // it. Fire and forget: failing to record it must never block editing,
+  // and the next date change tries again.
+  useEffect(() => {
+    if (!canEditRundown) return;
+    setActiveServiceDate({ data: { orgId, serviceDate } }).catch(() => {});
+  }, [canEditRundown, orgId, serviceDate]);
+
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes
   const seededDateRef = useRef(serviceDate);
@@ -545,11 +575,23 @@ function RundownPage() {
     saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
   }, [orgId, serviceDate]);
 
-  // Auto-save items on change (debounced)
+  // Auto-save items on change (debounced).
+  //
+  // A failure here has to be visible. The relay keeps the rundown on
+  // screen and everything looks saved, so a swallowed error means an
+  // operator builds a whole service and loses it on reload — which is
+  // exactly what the plan-limit error on a new service date was doing.
   const persistItems = useCallback((newItems: RundownItem[]) => {
     if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
     saveItemsTimeoutRef.current = setTimeout(() => {
-      saveRundownItems({ data: { orgId, serviceDate, items: newItems } }).catch((e) => console.warn("[SP] Items persist failed:", e));
+      saveRundownItems({ data: { orgId, serviceDate, items: newItems } })
+        .then(() => setSaveError(null))
+        .catch((e: unknown) => {
+          console.warn("[SP] Items persist failed:", e);
+          setSaveError(
+            e instanceof Error ? e.message : "This rundown is not saving. Reload before relying on it.",
+          );
+        });
     }, 1000);
   }, [orgId, serviceDate]);
 
@@ -1305,6 +1347,16 @@ function RundownPage() {
         <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
 
+      {saveError && (
+        <div
+          role="alert"
+          className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
+        >
+          <span className="font-medium shrink-0">Not saving.</span>
+          <span className="min-w-0">{saveError}</span>
+        </div>
+      )}
+
       {/* Page body — flex-col container, never scrolls itself */}
       <div className="rundown-page-body flex-1 overflow-hidden flex flex-col" style={{ containerType: "inline-size" }}>
 
@@ -1774,6 +1826,59 @@ function RundownPage() {
                   const isDraggingItem = draggedItemId === item.id;
                   const isDropTarget = dropTargetItemId === item.id && draggedItemId !== item.id;
 
+                  // A section band is structure, not running order: no
+                  // duration, no clock, no play button. It reorders and
+                  // deletes like anything else so the blocks can be moved
+                  // as the service is planned.
+                  if (item.type === "header") {
+                    return (
+                      <div
+                        key={item.id}
+                        data-rundown-item-id={item.id}
+                        onDragOver={(event) => handleItemDragOver(event, item.id)}
+                        onDrop={(event) => handleItemDrop(event, item.id)}
+                        className={`group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
+                          isDraggingItem ? "opacity-60" : ""
+                        } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
+                      >
+                        {canEditRundown && (
+                          <div
+                            draggable
+                            onDragStart={(event) => handleItemDragStart(event, item.id)}
+                            onDragEnd={handleItemDragEnd}
+                            onTouchStart={() => handleItemTouchStart(item.id)}
+                            onTouchMove={handleItemTouchMove}
+                            onTouchEnd={handleItemTouchEnd}
+                            onTouchCancel={handleItemDragEnd}
+                            className="shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
+                            title="Drag to reorder"
+                          >
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                        <p className="flex-1 min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
+                          {item.title || "Section"}
+                        </p>
+                        {canEditRundown && (
+                          <div className="flex items-center gap-0.5 shrink-0 opacity-100 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
                   // Extract the bg color class for the binder bar
                   const binderColor = isCurrent
                     ? "bg-fire-500"
@@ -1998,13 +2103,20 @@ function AddItemModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    onAdd(title.trim(), type, duration, assignee.trim(), notes.trim());
+    const isSection = type === "header";
+    onAdd(
+      title.trim(),
+      type,
+      isSection ? "0:00" : duration,
+      isSection ? "" : assignee.trim(),
+      isSection ? "" : notes.trim(),
+    );
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-5">Add Rundown Item</h2>
+        <h2 className="text-lg font-semibold text-board-text mb-5">{type === "header" ? "Add section" : "Add rundown item"}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-board-muted mb-1.5">Type</label>
@@ -2023,9 +2135,10 @@ function AddItemModal({
           </div>
           <div>
             <label className="block text-sm text-board-muted mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Worship Set" autoFocus
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"} autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
           </div>
+          {type !== "header" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-board-muted mb-1.5">Duration (mm:ss)</label>
@@ -2038,11 +2151,14 @@ function AddItemModal({
                 className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
             </div>
           </div>
+          )}
+          {type !== "header" && (
           <div>
             <label className="block text-sm text-board-muted mb-1.5">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Production notes..."  rows={2}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none" />
           </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors">Cancel</button>
             <button type="submit" disabled={!title.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors">Add</button>
@@ -2078,7 +2194,14 @@ function EditItemModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    onSave(title.trim(), type, duration, assignee.trim(), notes.trim());
+    const isSection = type === "header";
+    onSave(
+      title.trim(),
+      type,
+      isSection ? "0:00" : duration,
+      isSection ? "" : assignee.trim(),
+      isSection ? "" : notes.trim(),
+    );
   };
 
   return (
@@ -2103,9 +2226,10 @@ function EditItemModal({
           </div>
           <div>
             <label className="block text-sm text-board-muted mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Worship Set" autoFocus
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"} autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
           </div>
+          {type !== "header" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-board-muted mb-1.5">Duration (mm:ss)</label>
@@ -2118,11 +2242,14 @@ function EditItemModal({
                 className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
             </div>
           </div>
+          )}
+          {type !== "header" && (
           <div>
             <label className="block text-sm text-board-muted mb-1.5">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Production notes..." rows={2}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none" />
           </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors">Cancel</button>
             <button type="submit" disabled={!title.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors">Save</button>

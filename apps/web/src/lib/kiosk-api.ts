@@ -357,3 +357,31 @@ export async function getAssets(orgId: string) {
 
   return { summary, assets, updatedAt: new Date().toISOString() };
 }
+
+// ─── Endpoint 5: Show board (crew check-in status) ───────────
+
+export async function getCrewBoard(orgId: string) {
+  const rows =
+    (
+      await db()
+        .prepare(`SELECT id, name, role, photoUrl, isOnline FROM crew_member WHERE orgId = ? ORDER BY name`)
+        .bind(orgId)
+        .all<{ id: string; name: string; role: string; photoUrl: string; isOnline: number }>()
+    ).results ?? [];
+
+  const members = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    initials: initials(r.name),
+    avatarUrl: nullable(r.photoUrl),
+    isOnline: !!r.isOnline,
+  }));
+
+  return {
+    members,
+    onlineCount: members.filter((m) => m.isOnline).length,
+    totalCount: members.length,
+    updatedAt: new Date().toISOString(),
+  };
+}

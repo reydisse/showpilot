@@ -11,8 +11,15 @@
  * output; deficits are.
  */
 
+import {
+  DEPARTMENT_LABELS,
+  DEPARTMENT_ORDER,
+  normalizeCategory,
+  type DepartmentKey,
+} from "@/lib/departments";
 import { computeCascadedTimes } from "@/lib/rundown-timing";
 import { getDepartment, type RoleDepartment } from "@/types";
+import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem } from "@/types/rundown";
 import {
   getPhaseCountdown,
@@ -49,13 +56,6 @@ export interface SnapshotIncident {
   severity: string;
   description: string;
   reportedBy: string;
-}
-
-export interface SnapshotCue {
-  id: string;
-  cueNumber: number;
-  rundownItem: string;
-  cameraAssignments: string;
 }
 
 export interface SnapshotEquipment {
@@ -161,7 +161,6 @@ export interface PmSnapshot {
   items: RundownItem[];
   checklist: SnapshotChecklistItem[];
   incidents: SnapshotIncident[];
-  cues: SnapshotCue[];
   equipment: SnapshotEquipment[];
   crew: SnapshotCrew[];
   streamDestinations: SnapshotStreamDestination[];
@@ -201,7 +200,6 @@ export interface AttentionItem {
     | "rundown"
     | "checklist"
     | "stream"
-    | "cue"
     | "notification"
     | "crew";
   actionLabel: string;
@@ -258,6 +256,13 @@ export interface Arrivals {
   present: number;
   total: number;
   departments: ArrivalDepartment[];
+  /**
+   * Whether we know who was actually expected. Without a schedule the
+   * roster is not the expectation — a church with 28 volunteers on the
+   * books might have 8 serving today — so there is no honest
+   * denominator and no basis for a no-show alarm.
+   */
+  expectedKnown: boolean;
 }
 
 export interface DebriefSummary {
@@ -352,7 +357,6 @@ export interface PmDashboardModel {
   attention: AttentionItem[];
   departments: DepartmentStatus[];
   arrivals: Arrivals;
-  cueExceptions: AttentionItem[];
   upcoming: UpcomingService[];
   debrief: DebriefSummary | null;
   hasRundown: boolean;
@@ -374,18 +378,13 @@ export interface PmDashboardModel {
 }
 
 // ─── Departments ─────────────────────────────────────────────
+//
+// The vocabulary itself lives in lib/departments so the checklist page
+// can offer exactly the categories this file knows how to read.
+// Re-exported here because widgets and tests already import it from
+// this module.
 
-export type DepartmentKey = "audio" | "video" | "lighting" | "stream" | "general";
-
-const DEPARTMENT_LABELS: Record<DepartmentKey, string> = {
-  audio: "Audio",
-  video: "Video",
-  lighting: "Lighting",
-  stream: "Stream",
-  general: "General",
-};
-
-const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream", "general"];
+export { normalizeCategory, type DepartmentKey };
 
 /**
  * Pre-service checks are only meaningful once crew is expected on site.
@@ -394,22 +393,6 @@ const DEPARTMENT_ORDER: DepartmentKey[] = ["audio", "video", "lighting", "stream
  */
 export function checklistIsDue(phase: ServicePhase): boolean {
   return phase === "call" || phase === "live";
-}
-
-/**
- * Checklist, incident and equipment tables each use their own category
- * vocabulary. Fold them into one so a department chip can roll up all
- * three.
- */
-export function normalizeCategory(raw: string): DepartmentKey {
-  const value = raw.toLowerCase().trim();
-  if (value === "audio") return "audio";
-  // The onboarding templates seed "visuals" for ProPresenter work, which
-  // belongs with video rather than in the general bucket.
-  if (value === "video" || value === "visuals") return "video";
-  if (value === "lighting") return "lighting";
-  if (value === "stream" || value === "streaming") return "stream";
-  return "general";
 }
 
 /** True only when a real, org-chosen window is being overrun. */
@@ -422,11 +405,16 @@ export function overrunsWindow(health: RundownHealth): boolean {
 export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
   const { items, rundown, serviceWindowMinutes, now } = snapshot;
 
-  const plannedMs = items.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
+  // Section bands carry no duration and no owner by design. Counting
+  // them would report every "Pre-service" heading as a critical fault
+  // and put the dashboard permanently in the red.
+  const timed = items.filter((item) => !isHeaderItem(item));
+
+  const plannedMs = timed.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
   const windowMs = snapshot.serviceWindowConfigured ? serviceWindowMinutes * MINUTE_MS : null;
 
-  const missingDuration = items.filter((item) => !item.duration || item.duration <= 0).length;
-  const missingOwner = items.filter((item) => !item.assignee || !item.assignee.trim()).length;
+  const missingDuration = timed.filter((item) => !item.duration || item.duration <= 0).length;
+  const missingOwner = timed.filter((item) => !item.assignee || !item.assignee.trim()).length;
 
   // Cascading overwrites scheduledStart, so capture the pinned times first.
   const pinned = new Map(items.map((item) => [item.id, item.scheduledStart ?? null]));
@@ -475,7 +463,7 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
     timing.expectedEndMs !== null && driftMs !== null ? timing.expectedEndMs + driftMs : null;
 
   return {
-    itemCount: items.length,
+    itemCount: timed.length,
     plannedMs,
     windowMs,
     deltaMs: windowMs === null ? null : plannedMs - windowMs,
@@ -642,14 +630,23 @@ export function deriveAttentionQueue(
   if (checklistIsDue(phase)) {
     const unchecked = checklist.filter((c) => !c.checked);
     if (unchecked.length > 0) {
-      const departments = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))]
-        .map((key) => DEPARTMENT_LABELS[key].toLowerCase())
-        .join(", ");
+      // Naming the departments only helps when the checklist actually
+      // has more than one. Every item currently lands in "general"
+      // because the checklist page has no category picker, and
+      // "outstanding across general" is three words that say nothing.
+      const keys = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))];
+      const named = keys.filter((k) => k !== "general");
+      const scope =
+        named.length === 0
+          ? ""
+          : ` across ${named.map((key) => DEPARTMENT_LABELS[key].toLowerCase()).join(", ")}${
+              keys.length > named.length ? " and general" : ""
+            }`;
       out.push({
         id: "checklist:outstanding",
         severity: "critical",
         title: `Checklist ${checklist.length - unchecked.length} of ${checklist.length} done`,
-        detail: `${plural(unchecked.length, "item")} outstanding across ${departments}`,
+        detail: `${plural(unchecked.length, "item")} outstanding${scope}`,
         source: "checklist",
         actionLabel: "Open",
         actionPath: "production/checklist",
@@ -827,48 +824,6 @@ export function deriveAttentionQueue(
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
 }
 
-/** Cue problems are their own list — they belong to a different fix session. */
-export function deriveCueExceptions(snapshot: PmSnapshot): AttentionItem[] {
-  const out: AttentionItem[] = [];
-  const titles = new Set(snapshot.items.map((i) => i.title.toLowerCase().trim()));
-
-  const unassigned = snapshot.cues.filter((c) => !c.cameraAssignments.trim());
-  if (unassigned.length > 0) {
-    out.push({
-      id: "cue:no-camera",
-      severity: "warning",
-      title: `${plural(unassigned.length, "cue")} without a camera assignment`,
-      detail: unassigned
-        .slice(0, 4)
-        .map((c) => `#${c.cueNumber}`)
-        .join(", "),
-      source: "cue",
-      actionLabel: "Assign",
-      actionPath: "production/cue-sheets",
-    });
-  }
-
-  const orphans = snapshot.cues.filter(
-    (c) => c.rundownItem.trim() && !titles.has(c.rundownItem.toLowerCase().trim()),
-  );
-  if (orphans.length > 0) {
-    out.push({
-      id: "cue:orphaned",
-      severity: "info",
-      title: `${plural(orphans.length, "cue")} not matched to a rundown item`,
-      detail: orphans
-        .slice(0, 3)
-        .map((c) => c.rundownItem)
-        .join(", "),
-      source: "cue",
-      actionLabel: "Reconcile",
-      actionPath: "production/cue-sheets",
-    });
-  }
-
-  return out;
-}
-
 // ─── Departments ─────────────────────────────────────────────
 
 export function deriveDepartments(
@@ -927,9 +882,26 @@ export function deriveDepartments(
 
 // ─── Arrivals ────────────────────────────────────────────────
 
-export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arrivals {
+export function deriveArrivals(
+  snapshot: PmSnapshot,
+  timing: ServiceTiming,
+  crew: CrewBoard = emptyCrewBoard(),
+): Arrivals {
+  // Only people actually assigned to this service are expected. Falling
+  // back to the whole roster produced "4 of 28 on site" and four
+  // department no-show alarms for an org where most of those 28 were
+  // never rostered on. An alarm that fires every week is an alarm
+  // nobody reads.
+  const expectedNames = new Set(
+    crew.positions.map((p) => p.name).filter((n): n is string => Boolean(n)),
+  );
+  const expectedKnown = crew.scheduled && expectedNames.size > 0;
+  const relevant = expectedKnown
+    ? snapshot.crew.filter((m) => expectedNames.has(m.name))
+    : snapshot.crew;
+
   const groups = new Map<RoleDepartment, { present: number; total: number }>();
-  for (const member of snapshot.crew) {
+  for (const member of relevant) {
     const dept = getDepartment(member.role);
     const current = groups.get(dept) ?? { present: 0, total: 0 };
     current.total += 1;
@@ -937,9 +909,8 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
     groups.set(dept, current);
   }
 
-  const pastCallBy =
-    timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
-  const alarmActive = pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
+  const pastCallBy = timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
+  const alarmActive = expectedKnown && pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
 
   const departments: ArrivalDepartment[] = [...groups.entries()]
     .map(([key, value]) => ({
@@ -952,9 +923,10 @@ export function deriveArrivals(snapshot: PmSnapshot, timing: ServiceTiming): Arr
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
-    present: snapshot.crew.filter((m) => m.isOnline).length,
-    total: snapshot.crew.length,
+    present: relevant.filter((m) => m.isOnline).length,
+    total: relevant.length,
     departments,
+    expectedKnown,
   };
 }
 
@@ -1304,8 +1276,11 @@ export function deriveReadiness(
     });
   }
 
-  // Crew. A real schedule is the best signal there is, so prefer it.
-  // Falling back to check-ins only matters once people are due on site.
+  // Crew. Only a real schedule can be scored. Check-ins used to be the
+  // fallback, but a check-in count is only meaningful against a list of
+  // who was expected — without one, "4 of 28 on site" is comparing
+  // today's arrivals to the entire volunteer roster, which is red every
+  // week by construction. An alarm that always fires is not an alarm.
   if (crew.scheduled) {
     const detail =
       crew.open > 0
@@ -1325,15 +1300,6 @@ export function deriveReadiness(
           : crew.unconfirmed > 0
             ? "warn"
             : "ok",
-      weight: 15,
-    });
-  } else if (phase === "call" || phase === "live") {
-    const alarmed = arrivals.departments.filter((d) => d.alarm).length;
-    factors.push({
-      id: "crew",
-      label: "Crew",
-      detail: `${arrivals.present} of ${arrivals.total} checked in`,
-      status: alarmed > 0 ? "fail" : arrivals.present < arrivals.total ? "warn" : "ok",
       weight: 15,
     });
   } else if (arrivals.total === 0) {
@@ -1449,8 +1415,8 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
   const countdown = getPhaseCountdown(phase, timing, snapshot.now);
 
   const departments = deriveDepartments(snapshot, phase);
-  const arrivals = deriveArrivals(snapshot, timing);
   const crew = deriveCrewBoard(snapshot);
+  const arrivals = deriveArrivals(snapshot, timing, crew);
 
   return {
     serviceDate: snapshot.serviceDate,
@@ -1463,7 +1429,6 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     attention: deriveAttentionQueue(snapshot, rundownHealth, phase, crew),
     departments,
     arrivals,
-    cueExceptions: deriveCueExceptions(snapshot),
     upcoming: deriveUpcoming(snapshot),
     debrief: phase === "debrief" ? deriveDebrief(snapshot, rundownHealth) : null,
     hasRundown: snapshot.rundown !== null || snapshot.items.length > 0,

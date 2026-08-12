@@ -28,6 +28,7 @@ const ITEM_TYPE_CONFIG: Record<
   ItemType,
   { label: string; color: string; bg: string; icon: typeof Layers }
 > = {
+  header: { label: "Section", color: "text-board-muted", bg: "bg-board-border/60", icon: Layers },
   segment: { label: "Segment", color: "text-blue-400", bg: "bg-blue-500/15", icon: Layers },
   song: { label: "Song", color: "text-purple-400", bg: "bg-purple-500/15", icon: Music },
   prayer: { label: "Prayer", color: "text-pink-400", bg: "bg-pink-500/15", icon: HandHeart },
