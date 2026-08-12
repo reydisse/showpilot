@@ -60,6 +60,7 @@ export interface TmDashboardResult {
   model: TmDashboardModel;
   orgId: string;
   serviceDate: string;
+  serviceDates: string[];
   viewerId: string;
   /** Everyone a fault can be handed to. */
   members: { id: string; name: string }[];
@@ -102,6 +103,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       rosterDuty,
       checklistTemplateCount,
       rundownItemCount,
+      serviceDateRows,
+      rosterInUse,
     ] =
       await Promise.all([
         loadRundownMeta(orgId, serviceDate),
@@ -135,6 +138,12 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         loadRosterDuty(orgId, serviceDate),
         prisma.checklistTemplate.count({ where: { orgId } }),
         prisma.rundownItem.count({ where: { orgId, serviceDate } }),
+        prisma.rundown.findMany({
+          where: { orgId },
+          select: { serviceDate: true },
+          orderBy: { serviceDate: "desc" },
+        }),
+        countRosterAssignments(orgId),
       ]);
 
     const { callLeadMinutes, serviceWindowMinutes, serviceWindowConfigured } =
@@ -206,6 +215,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       ],
       checklistTemplateCount,
       rundownItemCount,
+      rosterInUse,
     };
 
     const members = await prisma.member.findMany({
@@ -217,12 +227,32 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       model: deriveTmDashboard(snapshot),
       orgId,
       serviceDate,
+      serviceDates: serviceDateRows.map((row) => row.serviceDate),
       viewerId: viewer.userId,
       members: members
         .map((row) => ({ id: row.user.id, name: row.user.name }))
         .filter((member) => member.name),
     };
   });
+
+/**
+ * Has this org ever used the weekly rota?
+ *
+ * Raw D1 because roster_assignment predates the generated client in some
+ * environments, and a missing table must read as "not in use" rather
+ * than break the page — the same defensive read loadRosterDuty does.
+ */
+async function countRosterAssignments(orgId: string): Promise<boolean> {
+  try {
+    const row = await getD1()
+      .prepare(`SELECT 1 AS present FROM roster_assignment WHERE orgId = ? LIMIT 1`)
+      .bind(orgId)
+      .first<{ present: number }>();
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Open faults, read with raw D1.

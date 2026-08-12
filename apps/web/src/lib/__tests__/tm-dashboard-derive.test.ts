@@ -56,6 +56,7 @@ function snapshot(overrides: Partial<TmSnapshot> = {}): TmSnapshot {
     duty: [],
     checklistTemplateCount: 0,
     rundownItemCount: 0,
+    rosterInUse: false,
     ...overrides,
   };
 }
@@ -396,5 +397,68 @@ describe("derivePrep", () => {
       }),
     );
     expect(prep.some((item) => item.id === "prep:lingering-faults")).toBe(false);
+  });
+});
+
+describe("on duty", () => {
+  const staffed = [
+    { key: "pm" as const, label: "Production", name: "Rey" },
+    { key: "tm" as const, label: "Tech", name: "Ama" },
+  ];
+  const unstaffed = [
+    { key: "pm" as const, label: "Production", name: "Rey" },
+    { key: "tm" as const, label: "Tech", name: null },
+  ];
+
+  it("passes both slots through, named or not", () => {
+    // An unnamed slot is the useful information: a Sunday with no
+    // technical manager is a problem to see, not an absent row.
+    const model = deriveTmDashboard(snapshot({ duty: unstaffed }));
+    expect(model.duty).toHaveLength(2);
+    expect(model.duty[1].name).toBeNull();
+  });
+
+  it("raises an unstaffed slot as work for the week", () => {
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "x", category: "audio", checked: true }],
+        duty: unstaffed,
+        rosterInUse: true,
+      }),
+    );
+    expect(prep.find((item) => item.id === "prep:duty-unstaffed")?.title).toBe("No tech on duty");
+  });
+
+  it("says nothing about the rota for an org that does not use one", () => {
+    // Same rule as unconfigured integrations: not their way of working
+    // is not a deficit.
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "x", category: "audio", checked: true }],
+        duty: unstaffed,
+        rosterInUse: false,
+      }),
+    );
+    expect(prep.some((item) => item.id === "prep:duty-unstaffed")).toBe(false);
+  });
+
+  it("stays quiet when both slots are filled", () => {
+    const prep = derivePrep(
+      snapshot({
+        phase: "planning",
+        rundownItemCount: 5,
+        checklistTemplateCount: 3,
+        checklist: [{ id: "c1", label: "x", category: "audio", checked: true }],
+        duty: staffed,
+        rosterInUse: true,
+      }),
+    );
+    expect(prep).toHaveLength(0);
   });
 });

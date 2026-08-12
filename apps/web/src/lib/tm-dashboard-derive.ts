@@ -114,6 +114,13 @@ export interface TmSnapshot {
   checklistTemplateCount: number;
   /** Items in the running order for this service. */
   rundownItemCount: number;
+  /**
+   * Whether this org has ever put anyone on the weekly rota. False means
+   * they do not work that way, and an empty duty slot is not a gap to
+   * nag them about — the same rule that keeps unconfigured integrations
+   * off the page.
+   */
+  rosterInUse: boolean;
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -131,6 +138,7 @@ export interface Fault {
   ageMinutes: number;
   ownership: FaultOwnership;
   assignedName: string;
+  acknowledged: boolean;
   /** Claimed but not acknowledged for too long — treat as unowned. */
   stale: boolean;
   /** True when it was logged on an earlier service and never closed. */
@@ -222,6 +230,7 @@ export function deriveFaults(snapshot: TmSnapshot): Fault[] {
             ? ("mine" as const)
             : ("someone-else" as const),
         assignedName: incident.assignedName,
+        acknowledged: incident.acknowledgedAt !== null,
         stale,
         carriedForward: incident.serviceDate !== snapshot.serviceDate,
       };
@@ -393,6 +402,22 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
       actionLabel: "Open",
       actionPath: "production/checklist",
     });
+  }
+
+  // An unstaffed technical slot is a week problem, and the week is when
+  // it can be solved. Only for orgs that use the rota at all.
+  if (snapshot.rosterInUse) {
+    const unstaffed = snapshot.duty.filter((officer) => !officer.name);
+    if (unstaffed.length > 0) {
+      out.push({
+        id: "prep:duty-unstaffed",
+        severity: "warning",
+        title: `No ${unstaffed.map((officer) => officer.label.toLowerCase()).join(" or ")} on duty`,
+        detail: "Nobody is named for this service on the weekly rota",
+        actionLabel: "Set the rota",
+        actionPath: "dashboard/prod-manager",
+      });
+    }
   }
 
   const dead = snapshot.equipment.filter((item) => item.status === "out-of-service");
