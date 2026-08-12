@@ -12,13 +12,15 @@
  */
 
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Clock3, Radio, RefreshCw, Search, ShieldCheck, UserRoundCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { AlertTriangle, ChevronDown, ChevronUp, Clock3, GripVertical, LayoutDashboard, Radio, RefreshCw, RotateCcw, Search, ShieldCheck, UserRoundCheck } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getTmDashboard } from "@/lib/tm-dashboard";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
-import { TM_WIDGETS, type TmWidgetModel } from "@/components/dashboard/tm-widgets";
+import { TM_WIDGETS, type TmWidget, type TmWidgetModel } from "@/components/dashboard/tm-widgets";
+import { TmOperations } from "@/components/dashboard/tm-operations";
 import { selectWidgets, widgetsInRegion } from "@/components/dashboard/widget";
+import { saveTmDashboardLayout, TM_LAYOUT_SECTION_IDS, TM_LAYOUT_WIDGET_IDS, type TmDashboardLayout } from "@/lib/dashboard-layout";
 
 /** How often the page re-reads. A live service needs a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
@@ -46,13 +48,18 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
-    return await getTmDashboard({ data: { orgId: context.orgId, serviceDate: deps.date } });
+    const { getTmDashboardLayout } = await import("@/lib/dashboard-layout");
+    const [dashboard, dashboardLayout] = await Promise.all([
+      getTmDashboard({ data: { orgId: context.orgId, serviceDate: deps.date } }),
+      getTmDashboardLayout({ data: { orgId: context.orgId } }),
+    ]);
+    return { ...dashboard, dashboardLayout };
   },
   component: TechManagerPage,
 });
 
 function TechManagerPage() {
-  const { model, orgId, serviceDate, serviceDates, viewerId, members } = Route.useLoaderData();
+  const { model, orgId, serviceDate, serviceDates, viewerId, viewerRole, canAssignTechManagers, members, liveInputs, streamDestinations, dashboardLayout } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -62,6 +69,9 @@ function TechManagerPage() {
   const [query, setQuery] = useState("");
   const [faultView, setFaultView] = useState<"all" | "unowned" | "mine" | "critical">("all");
   const [lastRefresh, setLastRefresh] = useState(() => Date.now());
+  const [editingLayout, setEditingLayout] = useState(false);
+  const [layout, setLayout] = useState<TmDashboardLayout>(dashboardLayout);
+  const [layoutSaving, setLayoutSaving] = useState(false);
 
   // Faults arrive from other people — someone reporting from the floor,
   // a colleague claiming one. Without a refresh the page is a snapshot of
@@ -112,6 +122,8 @@ function TechManagerPage() {
     slug,
     orgId,
     viewerId,
+    canAssignTechManagers,
+    canClaimFaults: viewerRole === "tm",
     members,
     busyId,
     onClaim: (faultId) =>
@@ -147,7 +159,24 @@ function TechManagerPage() {
   const banners = widgetsInRegion(widgets, "banner");
   const main = widgetsInRegion(widgets, "main");
   const rail = widgetsInRegion(widgets, "rail");
+  const orderedMain = orderMainWidgets(main, layout.main);
 
+  const persistLayout = useCallback(async (next: TmDashboardLayout) => {
+    setLayout(next);
+    setLayoutSaving(true);
+    setError(null);
+    try { setLayout(await saveTmDashboardLayout({ data: { orgId, layout: next } })); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save dashboard layout"); }
+    finally { setLayoutSaving(false); }
+  }, [orgId]);
+
+  const workspaceContent = <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+    <div className="space-y-4 min-w-0">
+      <FaultToolbar query={query} onQueryChange={setQuery} value={faultView} onChange={setFaultView} counts={{ all: model.openCount, unowned: model.unownedCount, mine: model.mineCount, critical: model.faults.filter((fault) => fault.severity === "critical").length }} />
+      <ReorderableMainWidgets widgets={orderedMain} widgetModel={widgetModel} editing={editingLayout} saving={layoutSaving} onReorder={(mainOrder) => void persistLayout({ ...layout, main: mainOrder as TmDashboardLayout["main"] })} />
+    </div>
+    <div className="space-y-4 min-w-0">{rail.map((widget) => <div key={widget.id}>{widget.render(widgetModel)}</div>)}</div>
+  </div>;
   return (
     <div className="h-full overflow-auto">
       <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
@@ -157,7 +186,7 @@ function TechManagerPage() {
               <Radio className="w-4 h-4 text-fire-400" aria-hidden="true" />
             </span>
             <div>
-              <h1 className="text-[15px] leading-none font-semibold text-board-text font-[family-name:var(--font-display)]">Technical control</h1>
+              <h1 className="text-[15px] leading-none font-semibold text-board-text font-[family-name:var(--font-display)]">Technical Control</h1>
               <p className="text-[10px] text-board-muted mt-1">Signal, systems & response</p>
             </div>
           </div>
@@ -178,6 +207,7 @@ function TechManagerPage() {
           </select>
 
           <div className="ml-auto flex items-center gap-4">
+            <button type="button" onClick={() => setEditingLayout((value) => !value)} className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11px] transition-colors ${editingLayout ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border text-board-muted hover:text-board-text"}`}><LayoutDashboard className="w-3.5 h-3.5" />{editingLayout ? "Done arranging" : "Arrange widgets"}</button>
             <div className="hidden md:flex items-center gap-1.5 text-[10px] text-board-muted">
               <Clock3 className="w-3 h-3" />
               updated {formatFreshness(lastRefresh)}
@@ -225,34 +255,22 @@ function TechManagerPage() {
       )}
 
       <div className="px-6 py-5 w-full max-w-[1500px] space-y-4">
-        <HealthOverview model={model} />
-
-        {banners.map((widget) => (
-          <div key={widget.id}>{widget.render(widgetModel)}</div>
-        ))}
-
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
-          <div className="space-y-4 min-w-0">
-            <FaultToolbar
-              query={query}
-              onQueryChange={setQuery}
-              value={faultView}
-              onChange={setFaultView}
-              counts={{ all: model.openCount, unowned: model.unownedCount, mine: model.mineCount, critical: model.faults.filter((fault) => fault.severity === "critical").length }}
-            />
-            {main.map((widget) => (
-              <div key={widget.id}>{widget.render(widgetModel)}</div>
-            ))}
-          </div>
-          <div className="space-y-4 min-w-0">
-            {rail.map((widget) => (
-              <div key={widget.id}>{widget.render(widgetModel)}</div>
-            ))}
-          </div>
-        </div>
+        <ReorderableSections
+          editing={editingLayout}
+          saving={layoutSaving}
+          order={layout.sections}
+          onReorder={(sections) => void persistLayout({ ...layout, sections: sections as TmDashboardLayout["sections"] })}
+          sections={{
+            overview: { title: "System overview", content: <HealthOverview model={model} /> },
+            operations: { title: "Live operations", content: <TmOperations orgId={orgId} slug={slug} inputs={liveInputs} destinations={streamDestinations} /> },
+            "signal-path": { title: "Signal path", content: <>{banners.map((widget) => <div key={widget.id}>{widget.render(widgetModel)}</div>)}</> },
+            workspace: { title: "Fault workspace", content: workspaceContent },
+          }}
+        />
       </div>
     </div>
   );
+
 }
 
 function HealthOverview({ model }: { model: TmWidgetModel["model"] }) {
@@ -277,6 +295,78 @@ function HealthOverview({ model }: { model: TmWidgetModel["model"] }) {
       ))}
     </section>
   );
+}
+
+function orderMainWidgets(widgets: TmWidget[], order: readonly string[]): TmWidget[] {
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return [...widgets].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
+function ReorderableSections({ order, sections, editing, saving, onReorder }: {
+  order: readonly string[];
+  sections: Record<string, { title: string; content: ReactNode }>;
+  editing: boolean;
+  saving: boolean;
+  onReorder(order: string[]): void;
+}) {
+  const [dragging, setDragging] = useState<string | null>(null);
+  const visible = order.filter((id) => sections[id]);
+  const move = (id: string, offset: number) => {
+    const from = visible.indexOf(id);
+    const to = from + offset;
+    if (from < 0 || to < 0 || to >= visible.length) return;
+    const next = [...visible];
+    [next[from], next[to]] = [next[to], next[from]];
+    onReorder(next);
+  };
+  const dropOn = (targetId: string) => {
+    if (!dragging || dragging === targetId) return;
+    const next = visible.filter((id) => id !== dragging);
+    next.splice(next.indexOf(targetId), 0, dragging);
+    setDragging(null);
+    onReorder(next);
+  };
+  return <div className="space-y-4">
+    {editing ? <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted"><GripVertical className="w-3.5 h-3.5 text-fire-400" /><span>Arrange the major dashboard zones. Operational controls are locked while arranging.</span>{saving ? <span className="ml-auto text-fire-400">Saving…</span> : <button type="button" onClick={() => onReorder([...TM_LAYOUT_SECTION_IDS])} className="ml-auto inline-flex items-center gap-1 hover:text-board-text"><RotateCcw className="w-3 h-3" />Reset all</button>}</div> : null}
+    {visible.map((id, index) => { const section = sections[id]; return <div key={id} draggable={editing && !saving} onDragStart={() => setDragging(id)} onDragEnd={() => setDragging(null)} onDragOver={(event) => { if (editing && !saving) event.preventDefault(); }} onDrop={() => dropOn(id)} className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === id ? "opacity-45 scale-[.99]" : ""}`}>
+      {editing ? <div className="absolute z-20 right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg"><span className="px-2 text-[10px] text-board-muted">{section.title}</span><button type="button" aria-label={`Move ${section.title} up`} disabled={index === 0 || saving} onClick={() => move(id, -1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronUp className="w-3.5 h-3.5" /></button><button type="button" aria-label={`Move ${section.title} down`} disabled={index === visible.length - 1 || saving} onClick={() => move(id, 1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronDown className="w-3.5 h-3.5" /></button><GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" /></div> : null}
+      <div className={editing ? "pointer-events-none select-none" : ""}>{section.content}</div>
+    </div>; })}
+  </div>;
+}
+
+function ReorderableMainWidgets({ widgets, widgetModel, editing, saving, onReorder }: {
+  widgets: TmWidget[];
+  widgetModel: TmWidgetModel;
+  editing: boolean;
+  saving: boolean;
+  onReorder(order: string[]): void;
+}) {
+  const [dragging, setDragging] = useState<string | null>(null);
+  const ids = widgets.map((widget) => widget.id);
+  const move = (id: string, offset: number) => {
+    const from = ids.indexOf(id);
+    const to = from + offset;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    const next = [...ids];
+    [next[from], next[to]] = [next[to], next[from]];
+    onReorder(next);
+  };
+  const dropOn = (targetId: string) => {
+    if (!dragging || dragging === targetId) return;
+    const next = ids.filter((id) => id !== dragging);
+    next.splice(next.indexOf(targetId), 0, dragging);
+    setDragging(null);
+    onReorder(next);
+  };
+  if (!widgets.length) return null;
+  return <div className="space-y-4">
+    {editing ? <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted"><GripVertical className="w-3.5 h-3.5 text-fire-400" /><span>Drag widgets or use the arrow buttons. Changes save to your account.</span>{saving ? <span className="ml-auto text-fire-400">Saving…</span> : <button type="button" onClick={() => onReorder([...TM_LAYOUT_WIDGET_IDS])} className="ml-auto inline-flex items-center gap-1 text-board-muted hover:text-board-text"><RotateCcw className="w-3 h-3" />Reset</button>}</div> : null}
+    {widgets.map((widget, index) => <div key={widget.id} draggable={editing && !saving} onDragStart={() => setDragging(widget.id)} onDragEnd={() => setDragging(null)} onDragOver={(event) => { if (editing && !saving) event.preventDefault(); }} onDrop={() => dropOn(widget.id)} className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === widget.id ? "opacity-45 scale-[.99]" : ""}`}>
+      {editing ? <div className="absolute z-[2] right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg"><span className="px-2 text-[10px] text-board-muted max-w-28 truncate">{widget.title}</span><button type="button" aria-label={`Move ${widget.title} up`} disabled={index === 0 || saving} onClick={() => move(widget.id, -1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronUp className="w-3.5 h-3.5" /></button><button type="button" aria-label={`Move ${widget.title} down`} disabled={index === widgets.length - 1 || saving} onClick={() => move(widget.id, 1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronDown className="w-3.5 h-3.5" /></button><GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" /></div> : null}
+      <div className={editing ? "pointer-events-none select-none" : ""}>{widget.render(widgetModel)}</div>
+    </div>)}
+  </div>;
 }
 
 function FaultToolbar({ query, onQueryChange, value, onChange, counts }: { query: string; onQueryChange(value: string): void; value: "all" | "unowned" | "mine" | "critical"; onChange(value: "all" | "unowned" | "mine" | "critical"): void; counts: Record<"all" | "unowned" | "mine" | "critical", number> }) {

@@ -22,6 +22,7 @@ model User {
   members       Member[]
   orgMembers    OrgMember[]
   invitations   Invitation[]
+  dashboardLayouts DashboardLayout[]
 
   @@unique([email])
   @@map("user")
@@ -118,6 +119,7 @@ model Organization {
   streamDestinations StreamDestination[]
   liveInputs         LiveInput[]
   chatMessages       ChatMessage[]
+  dashboardLayouts   DashboardLayout[]
   kioskTokens        KioskToken[]
   companionTokens    CompanionToken[]
 
@@ -291,6 +293,20 @@ model CueNote {
   @@map("cue_note")
 }
 
+model DashboardLayout {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboard    String
+  layout       String
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([orgId, userId, dashboard])
+  @@map("dashboard_layout")
+}
+
 model Incident {
   id           String       @id @default(cuid())
   orgId        String
@@ -314,6 +330,8 @@ model Incident {
   /// re-reads every twenty seconds during a service, is not worth it.
   assignedName String       @default("")
   acknowledgedAt DateTime?
+  assignedBy   String?
+  assignedAt   DateTime?
 
   @@index([orgId, serviceDate])
   @@index([orgId, status])

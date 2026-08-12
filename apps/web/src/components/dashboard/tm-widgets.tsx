@@ -9,7 +9,8 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, ArrowRight, Check, CircleDot, Cpu, ExternalLink, Radio, UserMinus, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDot, Cpu, ExternalLink, Radio, UserMinus, Wrench } from "lucide-react";
 import {
   HealthChip,
   WidgetCard,
@@ -23,6 +24,8 @@ export interface TmWidgetModel {
   slug: string;
   orgId: string;
   viewerId: string;
+  canAssignTechManagers: boolean;
+  canClaimFaults: boolean;
   members: { id: string; name: string }[];
   busyId: string | null;
   onClaim(faultId: string): void;
@@ -151,7 +154,7 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
       </div>
 
       <div className="flex items-center gap-2 mt-2 flex-wrap">
-        {fault.ownership !== "mine" && (
+        {widget.canClaimFaults && fault.ownership !== "mine" && (
           <button
             onClick={() => widget.onClaim(fault.id)}
             disabled={busy}
@@ -170,31 +173,27 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
         >
           Resolve
         </button>
-        {fault.ownership !== "unassigned" && (
+        {fault.ownership !== "unassigned" && (widget.canAssignTechManagers || fault.ownership === "mine") && (
           <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return fault to the unassigned queue" className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
         )}
-        <label className="sr-only" htmlFor={`assign-${fault.id}`}>
-          Hand this fault to someone
-        </label>
-        <select
-          id={`assign-${fault.id}`}
-          value=""
-          disabled={busy}
-          onChange={(event) => {
-            const member = widget.members.find((m) => m.id === event.target.value);
-            if (member) widget.onAssign(fault.id, member.id, member.name);
-          }}
-          className="text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none"
-        >
-          <option value="">Hand off…</option>
-          {widget.members
-            .filter((member) => member.id !== widget.viewerId)
-            .map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.name}
-              </option>
-            ))}
-        </select>
+        {widget.canAssignTechManagers ? (
+          <>
+            <label className="sr-only" htmlFor={`assign-${fault.id}`}>Assign a Tech Manager</label>
+            <select
+              id={`assign-${fault.id}`}
+              value=""
+              disabled={busy || widget.members.length === 0}
+              onChange={(event) => {
+                const member = widget.members.find((m) => m.id === event.target.value);
+                if (member) widget.onAssign(fault.id, member.id, member.name);
+              }}
+              className="text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
+            >
+              <option value="">{widget.members.length ? "Assign Tech Manager…" : "No Tech Managers available"}</option>
+              {widget.members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+            </select>
+          </>
+        ) : null}
         <span className="text-[11px] text-board-muted/60 ml-auto">
           {fault.carriedForward ? "carried forward" : `reported by ${fault.reportedBy}`}
         </span>
@@ -285,27 +284,7 @@ const equipmentWidget: TmWidget = {
   isRelevant: ({ model }) => model.equipmentFaults.length > 0,
   render: ({ model, slug }) => (
     <WidgetCard title="Equipment">
-      <ul className="space-y-2">
-        {model.equipmentFaults.map((item) => (
-          <li key={item.id} className="text-xs">
-            <p className="text-board-text flex items-center gap-1.5">
-              <Wrench className="w-3 h-3 text-board-muted shrink-0" aria-hidden="true" />
-              {item.name}
-            </p>
-            <p
-              className={
-                item.status === "out-of-service" ? "text-red-400 mt-0.5" : "text-yellow-400 mt-0.5"
-              }
-            >
-              {item.status === "out-of-service"
-                ? "Out of service"
-                : item.status === "in-repair"
-                  ? "In repair"
-                  : "Needs repair"}
-            </p>
-          </li>
-        ))}
-      </ul>
+      <EquipmentRotator items={model.equipmentFaults} />
       <Link
         to={`/${slug}/production/assets` as never}
         className="block mt-3 text-[11px] text-board-muted hover:text-board-text transition-colors"
@@ -315,6 +294,48 @@ const equipmentWidget: TmWidget = {
     </WidgetCard>
   ),
 };
+
+const EQUIPMENT_PAGE_SIZE = 3;
+const EQUIPMENT_ROTATION_MS = 5_000;
+
+function EquipmentRotator({ items }: { items: TmDashboardModel["equipmentFaults"] }) {
+  const pageCount = Math.ceil(items.length / EQUIPMENT_PAGE_SIZE);
+  const [page, setPage] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (paused || pageCount <= 1) return;
+    const id = window.setInterval(() => setPage((current) => (current + 1) % pageCount), EQUIPMENT_ROTATION_MS);
+    return () => window.clearInterval(id);
+  }, [pageCount, paused]);
+
+  useEffect(() => setPage((current) => Math.min(current, Math.max(0, pageCount - 1))), [pageCount]);
+
+  const visible = items.slice(page * EQUIPMENT_PAGE_SIZE, (page + 1) * EQUIPMENT_PAGE_SIZE);
+  return (
+    <div onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={() => setPaused(false)}>
+      <ul key={page} className="space-y-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300">
+        {visible.map((item) => (
+          <li key={item.id} className="text-xs">
+            <p className="text-board-text flex items-center gap-1.5"><Wrench className="w-3 h-3 text-board-muted shrink-0" aria-hidden="true" />{item.name}</p>
+            <p className={item.status === "out-of-service" ? "text-red-400 mt-0.5" : "text-yellow-400 mt-0.5"}>
+              {item.status === "out-of-service" ? "Out of service" : item.status === "in-repair" ? "In repair" : "Needs repair"}
+            </p>
+          </li>
+        ))}
+      </ul>
+      {pageCount > 1 ? (
+        <div className="flex items-center justify-between mt-3 pt-2 border-t border-board-border/60">
+          <span className="text-[10px] text-board-muted">{page * EQUIPMENT_PAGE_SIZE + 1}–{Math.min((page + 1) * EQUIPMENT_PAGE_SIZE, items.length)} of {items.length}</span>
+          <div className="flex items-center gap-1">
+            <button type="button" aria-label="Previous equipment" onClick={() => setPage((current) => (current - 1 + pageCount) % pageCount)} className="w-6 h-6 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowLeft className="w-3 h-3" /></button>
+            <button type="button" aria-label="Next equipment" onClick={() => setPage((current) => (current + 1) % pageCount)} className="w-6 h-6 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowRight className="w-3 h-3" /></button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // ─── Devices ─────────────────────────────────────────────────
 

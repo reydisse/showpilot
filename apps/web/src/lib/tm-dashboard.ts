@@ -62,6 +62,10 @@ export interface TmDashboardResult {
   serviceDate: string;
   serviceDates: string[];
   viewerId: string;
+  viewerRole: string;
+  canAssignTechManagers: boolean;
+  liveInputs: { id: string; name: string; status: string }[];
+  streamDestinations: { id: string; name: string; platform: string; enabled: boolean; connected: boolean }[];
   /** Everyone a fault can be handed to. */
   members: { id: string; name: string }[];
 }
@@ -219,7 +223,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     };
 
     const members = await prisma.member.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId: orgId, role: "tm" },
       select: { user: { select: { id: true, name: true } } },
     });
 
@@ -229,6 +233,16 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       serviceDate,
       serviceDates: serviceDateRows.map((row) => row.serviceDate),
       viewerId: viewer.userId,
+      viewerRole: viewer.role,
+      canAssignTechManagers: viewer.role === "owner" || viewer.role === "admin",
+      liveInputs: liveInputs.map((row) => ({ id: row.id, name: row.name, status: row.status })),
+      streamDestinations: destinations.map((row) => ({
+        id: row.id,
+        name: row.name,
+        platform: row.platform,
+        enabled: row.enabled,
+        connected: Boolean(row.cfOutputId),
+      })),
       members: members
         .map((row) => ({ id: row.user.id, name: row.user.name }))
         .filter((member) => member.name),
@@ -368,25 +382,72 @@ export const assignFault = createServerFn({ method: "POST" })
     // not: they have not seen it yet, and that gap is exactly what the
     // staleness rule watches for.
     const claimingSelf = data.assignedTo === viewer.userId;
-    const name = data.assignedTo ? data.assignedName || viewer.userName : "";
+    if (claimingSelf && viewer.role !== "tm") {
+      throw new Error("Only Tech Managers can claim faults");
+    }
+    let name = data.assignedTo ? data.assignedName || viewer.userName : "";
+
+    if (data.assignedTo && !claimingSelf) {
+      if (viewer.role !== "owner" && viewer.role !== "admin") throw new Error("Forbidden");
+      const target = await getPrisma().member.findFirst({
+        where: { organizationId: data.orgId, userId: data.assignedTo, role: "tm" },
+        select: { user: { select: { name: true } } },
+      });
+      if (!target) throw new Error("Only Tech Managers can be assigned to faults");
+      // Never trust the display name supplied by the browser. It is
+      // denormalised onto the incident, so source it from membership.
+      name = target.user.name;
+    }
+
+    if (!data.assignedTo && viewer.role !== "owner" && viewer.role !== "admin") {
+      const current = await getD1()
+        .prepare(`SELECT assignedTo FROM incident WHERE id = ? AND orgId = ?`)
+        .bind(data.id, data.orgId)
+        .first<{ assignedTo: string | null }>();
+      if (current?.assignedTo !== viewer.userId) throw new Error("Forbidden");
+    }
 
     // orgId in the WHERE, not just the permission check. The check proves
     // this caller may manage faults in their own org, not that this fault
     // belongs to it.
     const result = await getD1()
       .prepare(
-        `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?
+        `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?,
+          assignedBy = ?, assignedAt = ?
           WHERE id = ? AND orgId = ?`,
       )
       .bind(
         data.assignedTo,
         name,
         claimingSelf ? new Date().toISOString() : null,
+        data.assignedTo ? viewer.userId : null,
+        data.assignedTo ? new Date().toISOString() : null,
         data.id,
         data.orgId,
       )
       .run();
     if (!result.success) throw new Error("Could not assign that fault");
+
+    if (data.assignedTo && !claimingSelf) {
+      // Assignment is the source of truth. A notification failure must
+      // not tell the admin the assignment failed after it already saved.
+      try {
+        await getPrisma().notification.create({
+          data: {
+            orgId: data.orgId,
+            type: "fault-assigned",
+            severity: "warning",
+            title: "Fault assigned to you",
+            message: name ? `${name}, a technical fault has been assigned to you.` : "A technical fault has been assigned to you.",
+            target: `user:${data.assignedTo}`,
+            source: data.id,
+          },
+        });
+      } catch {
+        // The dashboard's live refresh still puts the fault in the tech's
+        // queue; notification delivery can recover independently.
+      }
+    }
     return { ok: true as const };
   });
 
@@ -396,10 +457,10 @@ export const acknowledgeFault = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertTm(data.orgId, ["dashboard:tm", "incidents:access"]);
+    const viewer = await assertTm(data.orgId, ["dashboard:tm", "incidents:access"]);
     await getD1()
-      .prepare(`UPDATE incident SET acknowledgedAt = ? WHERE id = ? AND orgId = ?`)
-      .bind(new Date().toISOString(), data.id, data.orgId)
+      .prepare(`UPDATE incident SET acknowledgedAt = ? WHERE id = ? AND orgId = ? AND assignedTo = ?`)
+      .bind(new Date().toISOString(), data.id, data.orgId, viewer.userId)
       .run();
     return { ok: true as const };
   });

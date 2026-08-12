@@ -19,3 +19,6 @@
 0012_service_assignments.sql
 0013_rundown_name.sql
 0014_cue_sheet_columns.sql
+0015_incident_assignment.sql
+0016_incident_assignment_audit.sql
+0017_dashboard_layout.sql
