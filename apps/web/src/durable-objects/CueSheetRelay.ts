@@ -49,11 +49,15 @@ export class CueSheetRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
+      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
       this.sessions.add(server);
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/broadcast" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const event = (await request.json()) as CueSheetEvent;
       this.broadcast(JSON.stringify(event));
       return Response.json({ ok: true });
@@ -69,6 +73,8 @@ export class CueSheetRelay extends DurableObject {
    */
   async webSocketMessage(sender: WebSocket, data: string | ArrayBuffer) {
     try {
+      const attachment = sender.deserializeAttachment?.() as { canWrite?: boolean } | null;
+      if (!attachment?.canWrite) return;
       const parsed = JSON.parse(data as string) as CueSheetEvent;
       if (parsed.type !== "note" && parsed.type !== "columns") return;
       // Don't echo to the sender: it already applied the change locally,

@@ -1,5 +1,6 @@
 import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./lib/auth";
+import { hasAnyPermission, hasPermission, type Permission } from "./lib/permissions";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -87,12 +88,63 @@ async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null
 
 async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
   const presented = request.headers.get("x-showpilot-api-key");
-  if (!presented) return true;
-
   const expected = await getOrgApiKey(orgId, db);
-  if (!expected) return true;
+  if (!presented || !expected) return false;
 
-  return presented === expected;
+  const encoder = new TextEncoder();
+  const [presentedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(presented)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  const left = new Uint8Array(presentedHash);
+  const right = new Uint8Array(expectedHash);
+  let mismatch = left.length ^ right.length;
+  for (let i = 0; i < left.length; i += 1) mismatch |= left[i] ^ right[i];
+  return mismatch === 0;
+}
+
+interface OrgIdentity {
+  userId: string;
+  name: string;
+  role: string;
+}
+
+async function getOrgIdentity(
+  request: Request,
+  orgId: string,
+  db: Env["DB"],
+): Promise<OrgIdentity | null> {
+  try {
+    const session = await getAuth().api.getSession({ headers: request.headers });
+    if (!session) return null;
+    const row = await db
+      .prepare("SELECT role FROM member WHERE organizationId = ? AND userId = ? LIMIT 1")
+      .bind(orgId, session.user.id)
+      .first<{ role: string }>();
+    if (!row) return null;
+    return { userId: session.user.id, name: session.user.name, role: row.role };
+  } catch {
+    return null;
+  }
+}
+
+async function getRelayAccess(request: Request, orgId: string, db: Env["DB"]) {
+  const [hasBridgeKey, identity] = await Promise.all([
+    validateBridgeKey(request, orgId, db),
+    getOrgIdentity(request, orgId, db),
+  ]);
+  return { hasBridgeKey, identity, canWrite: hasBridgeKey || Boolean(identity) };
+}
+
+function canUse(
+  access: Awaited<ReturnType<typeof getRelayAccess>>,
+  permissions: Permission | Permission[],
+): boolean {
+  if (access.hasBridgeKey) return true;
+  if (!access.identity) return false;
+  return Array.isArray(permissions)
+    ? hasAnyPermission(access.identity.role, permissions)
+    : hasPermission(access.identity.role, permissions);
 }
 
 async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
@@ -163,11 +215,14 @@ export default {
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      const access = await getRelayAccess(request, orgId, e.DB);
+      if (!canUse(access, "timecode:access")) return new Response("Unauthorized", { status: 401 });
       const id = e.TIMECODE_RELAY.idFromName(orgId);
       const stub = e.TIMECODE_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("access", "write");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -175,11 +230,17 @@ export default {
     if (bridgeMatch) {
       const [, slugOrId, subpath] = bridgeMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      const access = await getRelayAccess(request, orgId, e.DB);
+      const requestedRole = url.searchParams.get("role") ?? "client";
+      if (requestedRole === "bridge" ? !access.hasBridgeKey : !canUse(access, "devices:access")) {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const id = e.BRIDGE_RELAY.idFromName(orgId);
       const stub = e.BRIDGE_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("access", "write");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -187,7 +248,10 @@ export default {
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
-      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+      const access = await getRelayAccess(request, orgId, e.DB);
+      const canControl = canUse(access, "rundown:edit");
+      const isMutation = subpath === "command" || (subpath === "ws" && canControl);
+      if (subpath === "command" && !canControl) {
         return new Response("Unauthorized", { status: 401 });
       }
       const id = e.RUNDOWN_RELAY.idFromName(orgId);
@@ -195,6 +259,7 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("access", isMutation ? "write" : "read");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -206,13 +271,15 @@ export default {
     if (cueMatch) {
       const [, slugOrId, subpath] = cueMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
-      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+      const access = await getRelayAccess(request, orgId, e.DB);
+      if (!canUse(access, ["cuesheet:edit", "cuesheet:add_notes"])) {
         return new Response("Unauthorized", { status: 401 });
       }
       const id = e.CUE_SHEET_RELAY.idFromName(orgId);
       const stub = e.CUE_SHEET_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("access", "write");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -220,13 +287,38 @@ export default {
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
-      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+      const access = await getRelayAccess(request, orgId, e.DB);
+      if (!canUse(access, "chat:access")) {
         return new Response("Unauthorized", { status: 401 });
       }
       const id = e.CHAT_RELAY.idFromName(orgId);
       const stub = e.CHAT_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("access", "write");
+      if (access.identity) {
+        doUrl.searchParams.set("userId", access.identity.userId);
+        doUrl.searchParams.set("name", access.identity.name);
+        doUrl.searchParams.set("role", access.identity.role);
+      }
+      if (subpath === "send" && request.method === "POST" && access.identity) {
+        let body: Record<string, unknown>;
+        try {
+          body = await request.json<Record<string, unknown>>();
+        } catch {
+          return new Response("Bad Request", { status: 400 });
+        }
+        body.orgId = orgId;
+        body.senderId = access.identity.userId;
+        body.senderName = access.identity.name;
+        body.senderRole = access.identity.role;
+        return stub.fetch(new Request(doUrl.toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }));
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -270,13 +362,17 @@ export default {
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
-      if (!(await validateBridgeKey(request, orgId, e.DB))) {
+      const access = await getRelayAccess(request, orgId, e.DB);
+      const isMutation = subpath !== "current" && subpath !== "ws";
+      const canControl = canUse(access, "lowerthird:trigger");
+      if (isMutation && !canControl) {
         return new Response("Unauthorized", { status: 401 });
       }
       const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
       const stub = e.LOWER_THIRDS_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("access", canControl ? "write" : "read");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

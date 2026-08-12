@@ -3,6 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
+import { hasPermission } from "@/lib/app-permissions";
 
 async function assertOrgAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -17,6 +18,19 @@ async function assertOrgAccess(orgId: string) {
     select: { id: true },
   });
   if (!member) throw new Error("Forbidden");
+}
+
+async function assertChatAdmin(orgId: string) {
+  const { getAuth } = await import("@/lib/auth");
+  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+  if (!session) throw new Error("Unauthorized");
+  const member = await getPrisma().member.findFirst({
+    where: { organizationId: orgId, userId: session.user.id },
+    select: { role: true },
+  });
+  if (!member || !hasPermission(member.role, "settings:organization")) {
+    throw new Error("Forbidden");
+  }
 }
 
 export const getChatMessages = createServerFn({ method: "GET" })
@@ -62,7 +76,7 @@ export const sendChatMessage = createServerFn({ method: "POST" })
 export const clearChatHistory = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertChatAdmin(data.orgId);
     const prisma = getPrisma();
     await prisma.chatMessage.deleteMany({ where: { orgId: data.orgId } });
   });

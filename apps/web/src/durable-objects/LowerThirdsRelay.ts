@@ -54,6 +54,7 @@ export class LowerThirdsRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
+      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
       this.sessions.add(server);
 
       // Hydrate late connectors
@@ -67,6 +68,7 @@ export class LowerThirdsRelay extends DurableObject {
     }
 
     if (url.pathname === "/trigger" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
       const body = (await request.json()) as Partial<LowerThirdPayload>;
       const payload: LowerThirdPayload = {
         id: body.id ?? crypto.randomUUID(),
@@ -90,6 +92,7 @@ export class LowerThirdsRelay extends DurableObject {
     }
 
     if (url.pathname === "/clear" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
       if (this.current) {
         this.current.state = "clearing";
         this.broadcast(
@@ -102,6 +105,7 @@ export class LowerThirdsRelay extends DurableObject {
     }
 
     if (url.pathname === "/queue" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
       const body = (await request.json()) as Partial<LowerThirdPayload>;
       this.queue = {
         id: body.id ?? crypto.randomUUID(),
@@ -130,9 +134,11 @@ export class LowerThirdsRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  async webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     await this.hydrateFromStorage();
     try {
+      const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+      if (!attachment?.canWrite) return;
       const parsed = JSON.parse(data as string) as {
         action: string;
         payload?: Partial<LowerThirdPayload>;

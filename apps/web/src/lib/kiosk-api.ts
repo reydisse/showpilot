@@ -76,6 +76,9 @@ export async function authenticateKiosk(
   if (!row || row.revokedAt) {
     return { error: { code: "unauthorized", message: "Revoked or unknown kiosk token", status: 401 } };
   }
+  if (row.orgId !== payload.orgId) {
+    return { error: { code: "unauthorized", message: "Token organization mismatch", status: 401 } };
+  }
   return { orgId: payload.orgId, orgSlug: (payload.orgSlug as string) ?? "" };
 }
 

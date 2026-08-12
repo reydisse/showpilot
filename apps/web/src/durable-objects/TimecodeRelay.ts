@@ -56,6 +56,7 @@ export class TimecodeRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
+      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
       this.sessions.add(server);
 
       // Hydrate
@@ -78,6 +79,9 @@ export class TimecodeRelay extends DurableObject {
     }
 
     if (url.pathname === "/command" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const body = (await request.json()) as {
         action: TimecodeCommand;
         payload?: Record<string, unknown>;
@@ -89,10 +93,12 @@ export class TimecodeRelay extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  webSocketMessage(_ws: WebSocket, data: string | ArrayBuffer) {
+  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "command") {
+        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        if (!attachment?.canWrite) return;
         this.handleCommand(msg.action, msg.payload);
       }
     } catch {

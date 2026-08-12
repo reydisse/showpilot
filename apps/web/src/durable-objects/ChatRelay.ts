@@ -12,7 +12,7 @@ interface ChatMessage {
 }
 
 export class ChatRelay extends DurableObject {
-  private sessions: Map<WebSocket, { name: string; role?: string }> = new Map();
+  private sessions: Map<WebSocket, { userId?: string; name: string; role?: string; orgId: string }> = new Map();
   private recentMessages: ChatMessage[] = [];
   private readonly MAX_MESSAGES = 200;
   private historyLoaded = false;
@@ -39,7 +39,13 @@ export class ChatRelay extends DurableObject {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      this.sessions.set(server, { name: "Anonymous" });
+      this.sessions.set(server, {
+        userId: url.searchParams.get("userId") ?? undefined,
+        name: url.searchParams.get("name") ?? "Gateway",
+        role: url.searchParams.get("role") ?? undefined,
+        orgId: url.searchParams.get("orgId") ?? "",
+      });
+      server.serializeAttachment?.(this.sessions.get(server));
 
       // Send recent messages for hydration
       server.send(
@@ -53,15 +59,23 @@ export class ChatRelay extends DurableObject {
     }
 
     if (url.pathname === "/send" && request.method === "POST") {
+      if (url.searchParams.get("access") === "read") {
+        return new Response("Unauthorized", { status: 401 });
+      }
       const body = (await request.json()) as Partial<ChatMessage>;
+      const text = (body.text ?? "").trim().slice(0, 4000);
+      if (!text) return new Response("Bad Request", { status: 400 });
+      const messageType = body.type === "alert" || body.type === "cue" || body.type === "system"
+        ? body.type
+        : "text";
       const message: ChatMessage = {
         id: crypto.randomUUID(),
         orgId: body.orgId ?? "",
         senderId: body.senderId,
         senderName: body.senderName ?? "Unknown",
         senderRole: body.senderRole,
-        text: body.text ?? "",
-        type: body.type ?? "text",
+        text,
+        type: messageType,
         timestamp: Date.now(),
       };
 
@@ -92,34 +106,30 @@ export class ChatRelay extends DurableObject {
       };
 
       if (parsed.type === "identify") {
-        this.sessions.set(ws, {
-          name: parsed.name ?? "Anonymous",
-          role: parsed.role,
-        });
+        // Identity is established by the Worker gateway, never by a client frame.
         return;
       }
 
       if (parsed.type === "message") {
-        const session = this.sessions.get(ws);
-        const nextName = parsed.name?.trim() || session?.name || "Anonymous";
-        const nextRole = parsed.role ?? session?.role;
-
-        this.sessions.set(ws, {
-          name: nextName,
-          role: nextRole,
-        });
+        const session = this.sessions.get(ws) ??
+          (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string } | null);
+        if (!session) return;
+        this.sessions.set(ws, session);
 
         const message: ChatMessage = {
           id: crypto.randomUUID(),
-          orgId: parsed.orgId ?? "",
-          senderId: parsed.senderId,
-          senderName: nextName,
-          senderRole: nextRole,
-          text: parsed.text ?? "",
-          type: parsed.messageType ?? "text",
+          orgId: session.orgId,
+          senderId: session.userId,
+          senderName: session.name,
+          senderRole: session.role,
+          text: (parsed.text ?? "").trim().slice(0, 4000),
+          type: parsed.messageType === "alert" || parsed.messageType === "cue"
+            ? parsed.messageType
+            : "text",
           timestamp: Date.now(),
         };
 
+        if (!message.text) return;
         this.addMessage(message);
         this.broadcast(JSON.stringify({ type: "message", message }));
       }
