@@ -1,56 +1,39 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+/**
+ * Tech manager dashboard.
+ *
+ * The same shell as the production manager's — widget registry, regions,
+ * phase-driven selection — pointed at a different question. The PM's page
+ * asks whether the service is ready and on time; this one asks whether
+ * the signal path is intact and, when it isn't, what to touch first.
+ *
+ * Faults occupy the main column and carry their own actions, because a
+ * tech who has to navigate somewhere else to claim a fault will not do it
+ * during a service.
+ */
+
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useCallback, useEffect, useState } from "react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
-import {
-  Wrench,
-  AlertTriangle,
-  CheckCircle2,
-  Settings,
-  Monitor,
-} from "lucide-react";
-import {
-  getEquipment,
-  getDevices,
-  getIncidents,
-  getChecklistTemplates,
-  getChecklistEntries,
-} from "@/lib/data";
-import { getOrgSettings } from "@/lib/settings";
-import { getTodayDateString } from "@/lib/utils";
-import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { getTmDashboard } from "@/lib/tm-dashboard";
+import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
+import { TM_WIDGETS, type TmWidgetModel } from "@/components/dashboard/tm-widgets";
+import { selectWidgets, widgetsInRegion } from "@/components/dashboard/widget";
 
-type EquipmentStatus = "operational" | "needs-repair" | "in-repair" | "out-of-service";
-
-const STATUS_CONFIG: Record<EquipmentStatus, { label: string; dot: string; badge: string }> = {
-  operational: {
-    label: "Operational",
-    dot: "bg-green-500",
-    badge: "bg-green-500/15 text-green-400 border-green-500/25",
-  },
-  "needs-repair": {
-    label: "Needs Repair",
-    dot: "bg-yellow-500",
-    badge: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
-  },
-  "in-repair": {
-    label: "In Repair",
-    dot: "bg-blue-500",
-    badge: "bg-blue-500/15 text-blue-400 border-blue-500/25",
-  },
-  "out-of-service": {
-    label: "Out of Service",
-    dot: "bg-red-500",
-    badge: "bg-red-500/15 text-red-400 border-red-500/25",
-  },
+/** How often the page re-reads. A live service needs a tighter loop. */
+const REFRESH_MS: Record<ServicePhase, number> = {
+  planning: 300_000,
+  prep: 120_000,
+  call: 30_000,
+  live: 20_000,
+  debrief: 120_000,
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  audio: "Audio",
-  video: "Video",
-  lighting: "Lighting",
-  streaming: "Streaming",
-  comms: "Comms",
-  other: "Other",
+const PHASE_CHIP: Record<ServicePhase, string> = {
+  planning: "bg-board-bg text-board-muted border-board-border",
+  prep: "bg-yellow-400/10 text-yellow-300 border-yellow-400/25",
+  call: "bg-fire-500/15 text-fire-400 border-fire-500/30",
+  live: "bg-red-500/15 text-red-400 border-red-500/30",
+  debrief: "bg-blue-500/10 text-blue-300 border-blue-500/25",
 };
 
 export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
@@ -58,329 +41,140 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
-    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
-    const today = getTodayDateString(settings["org-timezone"]);
-    const [equipment, devices, incidents, templates, entries] = await Promise.all([
-      getEquipment({ data: { orgId: context.orgId } }),
-      getDevices({ data: { orgId: context.orgId } }),
-      getIncidents({ data: { orgId: context.orgId, serviceDate: today } }),
-      getChecklistTemplates({ data: { orgId: context.orgId } }),
-      getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } }),
-    ]);
-    return {
-      equipment,
-      devices,
-      incidents,
-      templates,
-      entries,
-      slug: context.slug,
-      orgTimezone: settings["org-timezone"],
-    };
+    return await getTmDashboard({ data: { orgId: context.orgId } });
   },
   component: TechManagerPage,
 });
 
 function TechManagerPage() {
-  const { equipment, devices, incidents, templates, entries, slug, orgTimezone } =
-    Route.useLoaderData();
+  const { model, orgId, serviceDate, viewerId, members } = Route.useLoaderData();
+  const { slug } = Route.useParams();
   const router = useRouter();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useServiceDateRollover({
-    serviceDate,
-    timeZone: orgTimezone,
-    onTodayChanged: async (nextToday) => {
-      setServiceDate(nextToday);
-      await router.invalidate();
+  // Faults arrive from other people — someone reporting from the floor,
+  // a colleague claiming one. Without a refresh the page is a snapshot of
+  // whenever it was opened, which during a service is worse than useless.
+  useEffect(() => {
+    const id = setInterval(() => {
+      void router.invalidate();
+    }, REFRESH_MS[model.phase]);
+    return () => clearInterval(id);
+  }, [model.phase, router]);
+
+  const act = useCallback(
+    async (faultId: string, run: () => Promise<unknown>) => {
+      setBusyId(faultId);
+      setError(null);
+      try {
+        await run();
+        await router.invalidate();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "That did not save");
+      } finally {
+        setBusyId(null);
+      }
     },
-  });
-
-  const operational = equipment.filter((e) => e.status === "operational");
-  const needsAttention = equipment.filter(
-    (e) => e.status === "needs-repair" || e.status === "out-of-service"
+    [router],
   );
-  const inRepair = equipment.filter((e) => e.status === "in-repair");
-  const highIncidents = incidents.filter((i) => i.severity === "high");
-  const medIncidents = incidents.filter((i) => i.severity === "medium");
-  const checkedCount = entries.filter((e) => e.checked).length;
-  const totalChecklist = templates.length;
-  const progress = totalChecklist > 0 ? checkedCount / totalChecklist : 0;
-  const enabledDevices = devices.filter((d) => d.enabled);
+
+  const widgetModel: TmWidgetModel = {
+    model,
+    slug,
+    orgId,
+    viewerId,
+    members,
+    busyId,
+    onClaim: (faultId) =>
+      void act(faultId, async () => {
+        const { assignFault } = await import("@/lib/tm-dashboard");
+        return assignFault({ data: { orgId, id: faultId, assignedTo: viewerId } });
+      }),
+    onAssign: (faultId, userId, name) =>
+      void act(faultId, async () => {
+        const { assignFault } = await import("@/lib/tm-dashboard");
+        return assignFault({
+          data: { orgId, id: faultId, assignedTo: userId, assignedName: name },
+        });
+      }),
+    onResolve: (faultId) =>
+      void act(faultId, async () => {
+        const { resolveFault } = await import("@/lib/tm-dashboard");
+        return resolveFault({ data: { orgId, id: faultId } });
+      }),
+  };
+
+  const widgets = selectWidgets(TM_WIDGETS, model.phase, widgetModel);
+  const banners = widgetsInRegion(widgets, "banner");
+  const main = widgetsInRegion(widgets, "main");
+  const rail = widgetsInRegion(widgets, "rail");
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
-          Tech Manager
-        </h1>
-        <p className="text-xs text-board-muted mt-0.5">
-          Equipment, devices, and system health
-        </p>
-      </div>
+      <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
+        <div className="flex items-center gap-3 flex-wrap px-6 py-3">
+          <h1 className="text-[15px] font-semibold text-board-text font-[family-name:var(--font-display)]">
+            Tech manager
+          </h1>
+          <span
+            className={`text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
+          >
+            {phaseLabel(model.phase)}
+          </span>
+          <span className="text-xs text-board-muted">
+            {new Date(`${serviceDate}T12:00:00`).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+          </span>
 
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
-        {/* Alert banner */}
-        {(needsAttention.length > 0 || highIncidents.length > 0) && (
-          <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertTriangle className="w-4 h-4 text-red-400" />
-              <span className="text-sm font-medium text-red-400">
-                Attention Required
-              </span>
-            </div>
-            <div className="space-y-0.5 text-xs text-red-300/80">
-              {needsAttention.length > 0 && (
-                <p>
-                  {needsAttention.length} equipment item{needsAttention.length !== 1 ? "s" : ""}{" "}
-                  need{needsAttention.length === 1 ? "s" : ""} repair or{" "}
-                  {needsAttention.length === 1 ? "is" : "are"} out of service
-                </p>
-              )}
-              {highIncidents.length > 0 && (
-                <p>
-                  {highIncidents.length} high severity incident{highIncidents.length !== 1 ? "s" : ""} today
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Stats cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard
-            label="Equipment"
-            value={equipment.length}
-            sub={`${operational.length} operational`}
-            icon={<Settings className="w-4 h-4" />}
-            color="text-board-muted"
-          />
-          <StatCard
-            label="Needs Repair"
-            value={needsAttention.length}
-            sub={inRepair.length > 0 ? `${inRepair.length} in repair` : "All good"}
-            icon={<Wrench className="w-4 h-4" />}
-            color={needsAttention.length > 0 ? "text-yellow-400" : "text-board-muted"}
-          />
-          <StatCard
-            label="Incidents Today"
-            value={incidents.length}
-            sub={`${highIncidents.length} high · ${medIncidents.length} med`}
-            icon={<AlertTriangle className="w-4 h-4" />}
-            color={highIncidents.length > 0 ? "text-red-400" : "text-board-muted"}
-          />
-          <StatCard
-            label="Checklist"
-            value={`${Math.round(progress * 100)}%`}
-            sub={`${checkedCount} / ${totalChecklist}`}
-            icon={<CheckCircle2 className="w-4 h-4" />}
-            color={progress >= 1 ? "text-green-400" : "text-board-muted"}
-          />
-        </div>
-
-        {/* Devices summary */}
-        <div className="rounded-xl border bg-board-card border-board-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Monitor className="w-4 h-4 text-board-muted" />
-              <span className="text-[10px] font-medium uppercase tracking-widest text-board-muted">
-                Devices
-              </span>
-            </div>
-            <Link
-              to="/$slug/dashboard/devices"
-              params={{ slug }}
-              className="text-[10px] font-medium text-fire-500 hover:text-fire-400 transition-colors"
-            >
-              Manage Devices →
-            </Link>
-          </div>
-          {devices.length === 0 ? (
-            <p className="text-sm text-board-muted/60 text-center py-4">
-              No devices configured
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {devices.map((d) => (
-                <div
-                  key={d.id}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
-                    d.enabled ? "bg-board-bg" : "bg-board-bg/50 opacity-50"
-                  }`}
-                >
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      d.enabled ? "bg-board-muted" : "bg-red-500"
-                    }`}
-                  />
-                  <span className="text-xs text-board-text">{d.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-[10px] text-board-muted/50 mt-3">
-            {enabledDevices.length} enabled / {devices.length} total
-          </p>
-        </div>
-
-        {/* Equipment — Needs Attention */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-board-text">
-              Equipment — Needs Attention
-            </h2>
-            <Link
-              to="/$slug/production/assets"
-              params={{ slug }}
-              className="text-[10px] font-medium text-fire-500 hover:text-fire-400 transition-colors"
-            >
-              View All Assets →
-            </Link>
-          </div>
-
-          {needsAttention.length === 0 ? (
-            <div className="rounded-xl border border-board-border bg-board-card/50 p-6 text-center">
-              <CheckCircle2 className="w-8 h-8 text-green-500/30 mx-auto mb-2" />
-              <p className="text-sm text-board-muted">
-                All equipment is operational
+          <div className="ml-auto flex items-center gap-5">
+            <div className="text-right leading-none">
+              <p
+                className={`text-[22px] font-semibold tabular-nums ${
+                  model.unownedCount > 0
+                    ? "text-red-400"
+                    : model.openCount > 0
+                      ? "text-yellow-400"
+                      : "text-green-400"
+                }`}
+              >
+                {model.openCount}
               </p>
-              <p className="text-[10px] text-board-muted/50 mt-1">
-                {equipment.length} item{equipment.length !== 1 ? "s" : ""} tracked
+              <p className="text-[10px] text-board-muted mt-1">
+                {model.unownedCount > 0 ? `${model.unownedCount} unowned` : "open faults"}
               </p>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {needsAttention.map((item) => {
-                const statusCfg = STATUS_CONFIG[item.status as EquipmentStatus] ?? STATUS_CONFIG.operational;
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-board-card border border-board-border"
-                  >
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusCfg.dot}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-board-text truncate">
-                        {item.name}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-board-muted uppercase">
-                          {CATEGORY_LABELS[item.category] ?? item.category}
-                        </span>
-                        {item.location && (
-                          <>
-                            <span className="text-board-border">·</span>
-                            <span className="text-[10px] text-board-muted truncate">
-                              {item.location}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[9px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full border shrink-0 ${statusCfg.badge}`}
-                    >
-                      {statusCfg.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Incidents */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-board-text">
-              Today&apos;s Incidents
-            </h2>
-            <Link
-              to="/$slug/production/incidents"
-              params={{ slug }}
-              className="text-[10px] font-medium text-fire-500 hover:text-fire-400 transition-colors"
-            >
-              View All →
-            </Link>
           </div>
-          {incidents.length === 0 ? (
-            <div className="rounded-xl border border-board-border bg-board-card/50 p-6 text-center">
-              <CheckCircle2 className="w-8 h-8 text-green-500/30 mx-auto mb-2" />
-              <p className="text-sm text-board-muted">
-                No incidents reported today
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {incidents.map((inc) => (
-                <div
-                  key={inc.id}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-board-card border border-board-border"
-                >
-                  <div
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      inc.severity === "high"
-                        ? "bg-red-500"
-                        : inc.severity === "medium"
-                          ? "bg-yellow-400"
-                          : "bg-blue-400"
-                    }`}
-                  />
-                  <span
-                    className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                      inc.severity === "high"
-                        ? "bg-red-500/15 text-red-400"
-                        : inc.severity === "medium"
-                          ? "bg-yellow-500/15 text-yellow-400"
-                          : "bg-blue-500/15 text-blue-400"
-                    }`}
-                  >
-                    {inc.severity}
-                  </span>
-                  <span className="text-[10px] text-board-muted uppercase w-14 shrink-0">
-                    {inc.category}
-                  </span>
-                  <p className="text-xs text-board-text truncate flex-1">
-                    {inc.description}
-                  </p>
-                  <span className="text-[10px] text-board-muted/50 shrink-0">
-                    — {inc.reportedBy}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-      </div>
-    </div>
-  );
-}
+      </header>
 
-function StatCard({
-  label,
-  value,
-  sub,
-  icon,
-  color,
-}: {
-  label: string;
-  value: number | string;
-  sub: string;
-  icon: React.ReactNode;
-  color: string;
-}) {
-  return (
-    <div className="rounded-xl border bg-board-card border-board-border p-4">
-      <div className={`flex items-center gap-1.5 mb-2 ${color}`}>
-        {icon}
-        <span className="text-[10px] font-medium uppercase tracking-widest">
-          {label}
-        </span>
-      </div>
-      <p className="text-2xl font-semibold tabular-nums text-board-text">
-        {value}
-      </p>
-      {sub && (
-        <p className="text-[10px] text-board-muted mt-0.5">{sub}</p>
+      {error && (
+        <div role="alert" className="px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300">
+          {error}
+        </div>
       )}
+
+      <div className="px-6 py-5 w-full max-w-[1500px] space-y-4">
+        {banners.map((widget) => (
+          <div key={widget.id}>{widget.render(widgetModel)}</div>
+        ))}
+
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+          <div className="space-y-4 min-w-0">
+            {main.map((widget) => (
+              <div key={widget.id}>{widget.render(widgetModel)}</div>
+            ))}
+          </div>
+          <div className="space-y-4 min-w-0">
+            {rail.map((widget) => (
+              <div key={widget.id}>{widget.render(widgetModel)}</div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

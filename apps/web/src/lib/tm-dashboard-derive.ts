@@ -85,6 +85,13 @@ export interface TmChecklistItem {
   checked: boolean;
 }
 
+/** Who is on duty this week. Read-only here — the PM sets it. */
+export interface TmDutyOfficer {
+  key: "pm" | "tm";
+  label: string;
+  name: string | null;
+}
+
 export interface TmSnapshot {
   serviceDate: string;
   now: number;
@@ -102,6 +109,7 @@ export interface TmSnapshot {
    * from "configured and broken", which is a fault; this is silence.
    */
   streamingConfigured: boolean;
+  duty: TmDutyOfficer[];
 }
 
 // ─── Output ──────────────────────────────────────────────────
@@ -151,6 +159,7 @@ export interface TmDashboardModel {
   checks: DepartmentChecks[];
   equipmentFaults: TmEquipment[];
   devices: TmDevice[];
+  duty: TmDutyOfficer[];
 }
 
 // ─── Faults ──────────────────────────────────────────────────
@@ -330,5 +339,6 @@ export function deriveTmDashboard(snapshot: TmSnapshot): TmDashboardModel {
     checks: deriveChecks(snapshot),
     equipmentFaults: deriveEquipmentFaults(snapshot),
     devices: deriveDevices(snapshot),
+    duty: snapshot.duty,
   };
 }
