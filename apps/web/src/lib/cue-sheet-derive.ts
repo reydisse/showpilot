@@ -30,6 +30,14 @@ export interface CueRow {
   scheduledStart: string | null;
   expectedEnd: string | null;
   status: string;
+  /**
+   * The note written on the rundown item itself, as opposed to a
+   * department's note. Read-only here: the rundown owns it, and two
+   * places to edit one field is how the old cue sheet drifted.
+   */
+  note: string;
+  /** Who the rundown says owns the item. */
+  assignee: string;
   /** columnId → text. Only cells with content are present. */
   notes: Record<string, string>;
 }
@@ -73,6 +81,8 @@ export function toCueRows(
       scheduledStart: section ? null : item.scheduledStart,
       expectedEnd: section ? null : item.expectedEnd,
       status: item.status,
+      note: item.notes ?? "",
+      assignee: item.assignee ?? "",
       notes: byItem.get(item.id) ?? {},
     };
   });

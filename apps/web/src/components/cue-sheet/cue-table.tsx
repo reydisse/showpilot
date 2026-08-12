@@ -52,6 +52,19 @@ export const BASE_COLUMNS = [
   { key: "duration", label: "Dur", width: 48 },
 ] as const;
 
+/**
+ * Columns that come from the rundown but sit past the pinned block:
+ * useful context, not identity, so they scroll with the departments.
+ * Read-only — the rundown owns them, and a field editable in two places
+ * is how the old cue sheet drifted from the running order.
+ */
+export const RUNDOWN_DETAIL_COLUMNS = [
+  { key: "owner", label: "Owner", width: 130 },
+  { key: "note", label: "Note", width: 240 },
+] as const;
+
+export const TOGGLEABLE_COLUMNS = [...BASE_COLUMNS, ...RUNDOWN_DETAIL_COLUMNS];
+
 export type BaseColumnKey = (typeof BASE_COLUMNS)[number]["key"];
 
 const INDEX_WIDTH = 34;
@@ -94,6 +107,7 @@ export function CueTable({
 }: Props) {
   const visible = columns.filter((column) => !hidden.has(column.id));
   const bases = BASE_COLUMNS.filter((column) => !hidden.has(column.key));
+  const details = RUNDOWN_DETAIL_COLUMNS.filter((column) => !hidden.has(column.key));
   const [dragId, setDragId] = useState<string | null>(null);
 
   // Left offsets for the pinned block, accumulated in render order so
@@ -128,6 +142,15 @@ export function CueTable({
           <Pinned as="th" left={titleLeft} width={TITLE_WIDTH} header divider>
             Title
           </Pinned>
+          {details.map((column) => (
+            <th
+              key={column.key}
+              style={{ width: column.width, minWidth: column.width }}
+              className="sticky top-0 z-20 px-2 py-1.5 text-left font-medium text-board-muted bg-board-card border-b border-r border-board-border"
+            >
+              {column.label}
+            </th>
+          ))}
           {visible.map((column) => {
             const tint = tintFor(column.color);
             return (
@@ -176,7 +199,7 @@ export function CueTable({
             return (
               <tr key={row.itemId}>
                 <td
-                  colSpan={2 + bases.length + visible.length}
+                  colSpan={2 + bases.length + details.length + visible.length}
                   className="sticky left-0 px-3 py-1.5 bg-board-border/40 text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted border-y border-board-border"
                   style={{ maxWidth: pinnedWidth }}
                 >
@@ -237,6 +260,14 @@ export function CueTable({
               >
                 {row.title || "Untitled"}
               </Pinned>
+              {details.map((column) => (
+                <td
+                  key={column.key}
+                  className="px-2 py-1.5 align-top border-r border-board-border/30 text-board-muted whitespace-pre-wrap"
+                >
+                  {column.key === "owner" ? row.assignee : row.note}
+                </td>
+              ))}
               {visible.map((column) => (
                 <NoteCell
                   key={column.id}

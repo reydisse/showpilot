@@ -148,6 +148,12 @@ interface UseRundownSyncReturn {
   connected: boolean;
   /** True after we've received at least one hydrate/state message from the DO */
   hydrated: boolean;
+  /**
+   * The service the relay's items belong to. The room is per org, so a
+   * reader that did not set this date must check it before trusting the
+   * items.
+   */
+  stateServiceDate: string | null;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
   /** Current stage message broadcast to kiosk (empty string = none active) */
@@ -169,6 +175,7 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
   });
   const [connected, setConnected] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [stateServiceDate, setStateServiceDate] = useState<string | null>(null);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -251,6 +258,9 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
         if ("items" in state) {
           setItems(normalizeRundownItems(state.items));
         }
+        if ("serviceDate" in state) {
+          setStateServiceDate(typeof state.serviceDate === "string" ? state.serviceDate : null);
+        }
         if ("timer" in state) {
           setTimer(normalizeTimerState(state.timer));
         }
@@ -317,5 +327,15 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
     [sendCommand]
   );
 
-  return { items, timer, connected, hydrated, ppPreviewSlide, stageMessage, sendCommand, seedState };
+  return {
+    items,
+    timer,
+    connected,
+    hydrated,
+    stateServiceDate,
+    ppPreviewSlide,
+    stageMessage,
+    sendCommand,
+    seedState,
+  };
 }

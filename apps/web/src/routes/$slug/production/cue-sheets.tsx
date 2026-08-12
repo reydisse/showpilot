@@ -15,10 +15,22 @@ import { getTodayDateString } from "@/lib/utils";
 import { hasPermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
-import { BASE_COLUMNS, CueTable } from "@/components/cue-sheet/cue-table";
+import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
+import { useRundownSync } from "@/hooks/useRundownSync";
+import { toCueRows } from "@/lib/cue-sheet-derive";
+import type { RundownItem } from "@/types/rundown";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+
+/** Flatten the server's row-attached notes into the page's cell map. */
+function notesFromRows(rows: { itemId: string; notes: Record<string, string> }[]) {
+  const out: Record<string, Record<string, string>> = {};
+  for (const row of rows) {
+    if (Object.keys(row.notes).length > 0) out[row.itemId] = { ...row.notes };
+  }
+  return out;
+}
 
 function formatDisplayDate(dateStr: string): string {
   return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
@@ -70,6 +82,13 @@ function CueSheetsPage() {
   const today = getTodayDateString(orgTimezone);
   const [serviceDate, setServiceDate] = useState(initialModel.serviceDate);
   const [model, setModel] = useState<CueSheetModel>(initialModel);
+  // itemId → columnId → text. Held apart from the rows because the rows
+  // now arrive from the rundown relay and the cells do not: keying notes
+  // off the last server row list would drop a note typed on an item that
+  // was added to the rundown after this page loaded.
+  const [notes, setNotes] = useState<Record<string, Record<string, string>>>(() =>
+    notesFromRows(initialModel.rows),
+  );
   const [loading, setLoading] = useState(false);
   const [managing, setManaging] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -108,7 +127,9 @@ function CueSheetsPage() {
     async (date: string) => {
       setLoading(true);
       try {
-        setModel(await getCueSheet({ data: { orgId, serviceDate: date, today } }));
+        const next = await getCueSheet({ data: { orgId, serviceDate: date, today } });
+        setModel(next);
+        setNotes(notesFromRows(next.rows));
       } finally {
         setLoading(false);
       }
@@ -131,13 +152,9 @@ function CueSheetsPage() {
     (event: { serviceDate: string; itemId: string; columnId: string; text: string }) => {
       // Another date's edit is not ours to show.
       if (event.serviceDate !== serviceDate) return;
-      setModel((prev) => ({
+      setNotes((prev) => ({
         ...prev,
-        rows: prev.rows.map((row) =>
-          row.itemId === event.itemId
-            ? { ...row, notes: { ...row.notes, [event.columnId]: event.text } }
-            : row,
-        ),
+        [event.itemId]: { ...(prev[event.itemId] ?? {}), [event.columnId]: event.text },
       }));
     },
     [serviceDate],
@@ -149,6 +166,77 @@ function CueSheetsPage() {
     onColumns: () => void load(serviceDate),
   });
 
+  // ── Continuity with the rundown ───────────────────────────
+  //
+  // The same relay the rundown editor drives. Reading the rows once at
+  // load was the gap: rename an item, drag it, change a duration, and
+  // the cue sheet sat on a stale copy until someone reloaded — which is
+  // the drift this rebuild exists to remove, just with a slower clock.
+  //
+  // Rows are re-derived from the live items, and the notes already on
+  // screen are carried across by itemId. Server rows remain the fallback
+  // until the relay hydrates, and for a service nobody has open in the
+  // editor (the DO holds no state for it), so an unreachable socket
+  // degrades to what the page did before rather than to a blank sheet.
+  //
+  // Connected WITHOUT a service date on purpose. The relay is one room
+  // per org and takes `?serviceDate=` as an instruction — it rewrites
+  // the date its items are filed under, and its timing writes go to that
+  // date. A cue sheet opening on a different service would silently
+  // retarget the editor's room. Reading only, and checking the date the
+  // relay reports, keeps this a subscriber.
+  const {
+    items: liveItems,
+    timer: liveTimer,
+    hydrated,
+    stateServiceDate,
+  } = useRundownSync(orgId);
+
+  /** Live items are this service's only if the relay says so. */
+  const liveMatches = hydrated && stateServiceDate === serviceDate && liveItems.length > 0;
+
+  const cells = useMemo(
+    () =>
+      Object.entries(notes).flatMap(([itemId, byColumn]) =>
+        Object.entries(byColumn).map(([columnId, text]) => ({ itemId, columnId, text })),
+      ),
+    [notes],
+  );
+
+  const rows = useMemo(() => {
+    // Before the relay hydrates — and for a service nobody has open in
+    // the editor, where the DO holds nothing — the server's rows stand
+    // in. An unreachable socket degrades to what the page did before,
+    // never to a blank sheet.
+    const source: RundownItem[] =
+      liveMatches
+        ? (liveItems as unknown as RundownItem[])
+        : (model.rows.map((row) => ({
+            id: row.itemId,
+            title: row.title,
+            type: row.type,
+            duration: row.durationMs,
+            notes: row.note,
+            assignee: row.assignee,
+            cue: row.cue,
+            status: row.status,
+            sortOrder: 0,
+            hardStop: false,
+          })) as RundownItem[]);
+
+    return toCueRows(
+      source,
+      {
+        serviceDate,
+        scheduledStartTime: model.scheduledStartTime,
+        status: model.rundownStatus,
+      },
+      cells,
+    );
+  }, [cells, liveMatches, liveItems, model.rows, model.scheduledStartTime, model.rundownStatus, serviceDate]);
+
+  const currentItemId = liveMatches ? liveTimer.currentItemId : model.currentItemId;
+
   // ── Edits ─────────────────────────────────────────────────
 
   const handleNoteChange = useCallback(
@@ -156,11 +244,9 @@ function CueSheetsPage() {
       // Optimistic: the cell already shows what was typed. Reverting on a
       // failed write would be worse than a stale cell — the operator has
       // moved on and the rundown is running.
-      setModel((prev) => ({
+      setNotes((prev) => ({
         ...prev,
-        rows: prev.rows.map((row) =>
-          row.itemId === itemId ? { ...row, notes: { ...row.notes, [columnId]: text } } : row,
-        ),
+        [itemId]: { ...(prev[itemId] ?? {}), [columnId]: text },
       }));
       publish({ type: "note", serviceDate, itemId, columnId, text, by: "", at: Date.now() });
       const { setCueNote } = await import("@/lib/cue-sheet");
@@ -229,7 +315,7 @@ function CueSheetsPage() {
     [model.columns, hidden],
   );
 
-  const hasRows = model.rows.length > 0;
+  const hasRows = rows.length > 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -315,7 +401,7 @@ function CueSheetsPage() {
             {/* The rundown columns toggle too. On a laptop the clock
                 columns are often dead weight next to eight departments,
                 and the width they free up is the whole point. */}
-            {BASE_COLUMNS.map((column) => {
+            {TOGGLEABLE_COLUMNS.map((column) => {
               const isHidden = hidden.has(column.key);
               return (
                 <button
@@ -380,10 +466,10 @@ function CueSheetsPage() {
           <p className="text-center text-sm text-board-muted py-16">Loading cue sheet…</p>
         ) : hasRows ? (
           <CueTable
-            rows={model.rows}
+            rows={rows}
             columns={model.columns}
             hidden={hidden}
-            currentItemId={model.currentItemId}
+            currentItemId={currentItemId}
             canEdit={canAddNotes}
             onNoteChange={handleNoteChange}
             onWidthChange={handleWidthChange}

@@ -865,6 +865,11 @@ export class RundownRelay extends DurableObject {
 
   private getPublicState() {
     return {
+      // Which service these items belong to. The room is per org, not
+      // per date, so anything reading it without also driving it — the
+      // cue sheet — has to be able to tell whether the state on the wire
+      // is even about the service on screen.
+      serviceDate: this.state.serviceDate ?? null,
       items: this.state.items,
       timer: {
         ...this.state.timer,

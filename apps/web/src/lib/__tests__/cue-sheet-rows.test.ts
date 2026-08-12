@@ -116,6 +116,18 @@ describe("cue sheet rows", () => {
     expect(after[0].notes["col-prod"]).toBe("Cue 3 live");
   });
 
+  it("carries the rundown's own note and owner onto the row", () => {
+    // The note written on the rundown item has to surface here or the
+    // planner and the operator are reading two different documents.
+    const rows = toRows(
+      [item({ id: "a", notes: "Start live here.", assignee: "Worship Team" })],
+      meta,
+      [],
+    );
+    expect(rows[0].note).toBe("Start live here.");
+    expect(rows[0].assignee).toBe("Worship Team");
+  });
+
   it("returns no rows when there is no rundown, rather than inventing any", () => {
     expect(toRows([], meta, [])).toEqual([]);
   });
