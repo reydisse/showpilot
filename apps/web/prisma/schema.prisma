@@ -305,9 +305,19 @@ model Incident {
   status       String       @default("open") // open | resolved
   resolvedAt   DateTime?
   resolvedBy   String?
+  /// Who is on it. An unowned fault is the one that gets dropped —
+  /// two techs both grabbing the same problem, or nobody grabbing it,
+  /// is the failure mode a tech team actually has.
+  assignedTo   String?
+  /// Denormalised for display. The dashboard renders a name on every
+  /// fault row and joining out to `user` for each one, on a page that
+  /// re-reads every twenty seconds during a service, is not worth it.
+  assignedName String       @default("")
+  acknowledgedAt DateTime?
 
   @@index([orgId, serviceDate])
   @@index([orgId, status])
+  @@index([orgId, assignedTo])
   @@map("incident")
 }
 
