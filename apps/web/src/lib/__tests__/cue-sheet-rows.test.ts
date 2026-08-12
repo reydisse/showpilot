@@ -128,7 +128,16 @@ describe("which service the cue sheet opens on", () => {
     // The point of the setting: open a service from years ago in the
     // rundown and the cue sheet goes with it, even though today is not
     // near it and it is not the next service.
-    expect(resolveCueSheetDate(dates, "2026-08-12", "2016-03-06")).toBe("2016-03-06");
+    expect(resolveCueSheetDate([...dates, "2016-03-06"], "2026-08-12", "2016-03-06")).toBe(
+      "2016-03-06",
+    );
+  });
+
+  it("ignores an active date that has no rundown", () => {
+    // The editor opens on today by default. Pinning the sheet to a blank
+    // day because someone glanced at the rundown is the bug, not the
+    // feature.
+    expect(resolveCueSheetDate(dates, "2026-08-12", "2026-08-12")).toBe("2026-09-06");
   });
 
   it("falls back to the next service with a rundown", () => {

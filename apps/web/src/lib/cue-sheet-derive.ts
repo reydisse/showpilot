@@ -96,8 +96,12 @@ export function resolveCueSheetDate(
   today: string,
   activeServiceDate?: string | null,
 ): string {
-  if (activeServiceDate) return activeServiceDate;
-  if (dates.length === 0) return today;
   const sorted = [...new Set(dates)].sort();
+  // Honoured only if that service actually has a running order.
+  // "Follow the rundown" means follow a real one — an active date left
+  // pointing at an empty day would land the operator back on the empty
+  // sheet this whole resolution order exists to avoid.
+  if (activeServiceDate && sorted.includes(activeServiceDate)) return activeServiceDate;
+  if (sorted.length === 0) return today;
   return sorted.find((d) => d >= today) ?? sorted[sorted.length - 1];
 }

@@ -15,7 +15,8 @@ import { getTodayDateString } from "@/lib/utils";
 import { hasPermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
-import { CueTable } from "@/components/cue-sheet/cue-table";
+import { BASE_COLUMNS, CueTable } from "@/components/cue-sheet/cue-table";
+import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 
@@ -72,6 +73,7 @@ function CueSheetsPage() {
   const [loading, setLoading] = useState(false);
   const [managing, setManaging] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const sheetScroll = useEdgeScroll();
 
   const canAddNotes = hasPermission(role, "cuesheet:add_notes") || hasPermission(role, "cuesheet:edit");
   const canManageColumns = hasPermission(role, "cuesheet:edit");
@@ -310,6 +312,27 @@ function CueSheetsPage() {
             <span className="text-[10px] uppercase tracking-[0.12em] text-board-muted mr-1">
               Show
             </span>
+            {/* The rundown columns toggle too. On a laptop the clock
+                columns are often dead weight next to eight departments,
+                and the width they free up is the whole point. */}
+            {BASE_COLUMNS.map((column) => {
+              const isHidden = hidden.has(column.key);
+              return (
+                <button
+                  key={column.key}
+                  onClick={() => toggleHidden(column.key)}
+                  aria-pressed={!isHidden}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                    isHidden
+                      ? "border-board-border text-board-muted/60 hover:text-board-text"
+                      : "border-board-border bg-board-card text-board-text"
+                  }`}
+                >
+                  {column.label}
+                </button>
+              );
+            })}
+            <span className="w-px h-4 bg-board-border mx-1" aria-hidden="true" />
             {model.columns.map((column) => {
               const isHidden = hidden.has(column.id);
               return (
@@ -348,7 +371,11 @@ function CueSheetsPage() {
         />
       )}
 
-      <div className="flex-1 overflow-auto">
+      {/* A real service sheet is wider than any screen. One scroller for
+          the whole grid — both axes — with the left block pinned inside
+          it, rather than a table scrolling within a page that scrolls. */}
+      <div className="flex-1 relative min-h-0">
+        <div ref={sheetScroll.ref} className="absolute inset-0 overflow-auto">
         {loading ? (
           <p className="text-center text-sm text-board-muted py-16">Loading cue sheet…</p>
         ) : hasRows ? (
@@ -382,6 +409,10 @@ function CueSheetsPage() {
               }
             />
           </div>
+        )}
+        </div>
+        {hasRows && !loading && (
+          <ScrollEdges edges={sheetScroll.edges} scrollBy={sheetScroll.scrollBy} step={320} />
         )}
       </div>
     </div>

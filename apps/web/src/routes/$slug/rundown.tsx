@@ -250,8 +250,13 @@ function RundownPage() {
   // editing, and the next date change will try again.
   useEffect(() => {
     if (!canEditRundown) return;
+    // Only a date with a running order counts. The editor opens on today
+    // by default, and a church has no service most days — recording an
+    // empty date as "the active service" would drag the cue sheet onto a
+    // blank page, which is the exact bug this was meant to fix.
+    if (items.length === 0) return;
     setActiveServiceDate({ data: { orgId, serviceDate } }).catch(() => {});
-  }, [canEditRundown, orgId, serviceDate]);
+  }, [canEditRundown, items.length, orgId, serviceDate]);
 
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes

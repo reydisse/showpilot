@@ -60,10 +60,29 @@ const MAX_NOTE_LENGTH = 2000;
  * column names — anything else is renamed or deleted in seconds.
  */
 const DEFAULT_COLUMNS: { label: string; color: CueColumnColor }[] = [
+  // Show Caller first, and deliberately so. The SC calls the service —
+  // every other department is reacting to what they say, so their column
+  // is the one read down the page while the show runs.
+  { label: "Show Caller", color: "red" },
   { label: "Production", color: "amber" },
   { label: "Pro Ops", color: "green" },
   { label: "LX", color: "blue" },
   { label: "Sound", color: "purple" },
+];
+
+/**
+ * Columns added to the defaults after an org already seeded.
+ *
+ * ensureColumns only fires on an empty sheet, so a new default would
+ * never reach an existing org. The backfill runs exactly once per org,
+ * tracked by the marker below — checking "does a column named Show
+ * Caller exist?" on every load would re-create one the operator
+ * deliberately deleted, which is the app arguing with its user.
+ */
+const BACKFILL_MARKER_KEY = "cue-columns-backfill";
+const BACKFILL_VERSION = "1";
+const BACKFILL_COLUMNS: { label: string; color: CueColumnColor }[] = [
+  { label: "Show Caller", color: "red" },
 ];
 
 export interface CueSheetModel {
@@ -167,21 +186,70 @@ async function readColumns(orgId: string): Promise<CueColumnRow[]> {
  */
 async function ensureColumns(orgId: string): Promise<CueColumnRow[]> {
   const existing = await readColumns(orgId);
-  if (existing.length > 0) return existing;
-
   const db = getD1();
   const now = new Date().toISOString();
-  await db.batch(
-    DEFAULT_COLUMNS.map((column, index) =>
-      db
-        .prepare(
-          `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(crypto.randomUUID(), orgId, column.label, column.color, index, 160, now, now),
-    ),
+
+  if (existing.length === 0) {
+    await db.batch(
+      DEFAULT_COLUMNS.map((column, index) =>
+        db
+          .prepare(
+            `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), orgId, column.label, column.color, index, 160, now, now),
+      ),
+    );
+    // A fresh seed already contains everything in the backfill, so record
+    // it as done rather than adding a second Show Caller next load.
+    await markBackfillDone(orgId);
+    return readColumns(orgId);
+  }
+
+  const prisma = getPrisma();
+  const marker = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: BACKFILL_MARKER_KEY } },
+    select: { value: true },
+  });
+  if (marker?.value === BACKFILL_VERSION) return existing;
+
+  // Ahead of the existing columns: Show Caller leads the sheet.
+  const missing = BACKFILL_COLUMNS.filter(
+    (column) => !existing.some((e) => e.label.toLowerCase() === column.label.toLowerCase()),
   );
-  return readColumns(orgId);
+  if (missing.length > 0) {
+    const lowest = Math.min(...existing.map((column) => column.sortOrder));
+    await db.batch(
+      missing.map((column, index) =>
+        db
+          .prepare(
+            `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            orgId,
+            column.label,
+            column.color,
+            lowest - missing.length + index,
+            160,
+            now,
+            now,
+          ),
+      ),
+    );
+  }
+  await markBackfillDone(orgId);
+  return missing.length > 0 ? readColumns(orgId) : existing;
+}
+
+async function markBackfillDone(orgId: string): Promise<void> {
+  const prisma = getPrisma();
+  await prisma.appSetting.upsert({
+    where: { orgId_key: { orgId, key: BACKFILL_MARKER_KEY } },
+    update: { value: BACKFILL_VERSION },
+    create: { orgId, key: BACKFILL_MARKER_KEY, value: BACKFILL_VERSION },
+  });
 }
 
 // ─── Read ────────────────────────────────────────────────────
