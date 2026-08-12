@@ -212,6 +212,34 @@ describe("deriveAttentionQueue", () => {
     expect(rows[0].detail).toBe("3 items outstanding across audio, video");
   });
 
+  it("does not name departments when everything is uncategorised", () => {
+    // The checklist page tags every item "general", so naming it adds
+    // nothing. Only real departments are worth listing.
+    const snap = snapshot({
+      checklist: [
+        { id: "c1", label: "Doors", category: "general", checked: false },
+        { id: "c2", label: "Heating", category: "general", checked: false },
+      ],
+    });
+    const row = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").find(
+      (q) => q.source === "checklist",
+    );
+    expect(row?.detail).toBe("2 items outstanding");
+  });
+
+  it("mentions general only alongside a real department", () => {
+    const snap = snapshot({
+      checklist: [
+        { id: "c1", label: "Line check", category: "audio", checked: false },
+        { id: "c2", label: "Doors", category: "general", checked: false },
+      ],
+    });
+    const row = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").find(
+      (q) => q.source === "checklist",
+    );
+    expect(row?.detail).toBe("2 items outstanding across audio and general");
+  });
+
   it("flags an empty rundown once the service is imminent", () => {
     const snap = snapshot({ items: [] });
     const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");

@@ -649,14 +649,23 @@ export function deriveAttentionQueue(
   if (checklistIsDue(phase)) {
     const unchecked = checklist.filter((c) => !c.checked);
     if (unchecked.length > 0) {
-      const departments = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))]
-        .map((key) => DEPARTMENT_LABELS[key].toLowerCase())
-        .join(", ");
+      // Naming the departments only helps when the checklist actually
+      // has more than one. Every item currently lands in "general"
+      // because the checklist page has no category picker, and
+      // "outstanding across general" is three words that say nothing.
+      const keys = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))];
+      const named = keys.filter((k) => k !== "general");
+      const scope =
+        named.length === 0
+          ? ""
+          : ` across ${named.map((key) => DEPARTMENT_LABELS[key].toLowerCase()).join(", ")}${
+              keys.length > named.length ? " and general" : ""
+            }`;
       out.push({
         id: "checklist:outstanding",
         severity: "critical",
         title: `Checklist ${checklist.length - unchecked.length} of ${checklist.length} done`,
-        detail: `${plural(unchecked.length, "item")} outstanding across ${departments}`,
+        detail: `${plural(unchecked.length, "item")} outstanding${scope}`,
         source: "checklist",
         actionLabel: "Open",
         actionPath: "production/checklist",
