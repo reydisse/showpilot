@@ -164,6 +164,9 @@ function ChatMessageRow({
   const attachmentUrl = (url: string) => attachmentAccessToken
     ? `${url}${url.includes("?") ? "&" : "?"}guestToken=${encodeURIComponent(attachmentAccessToken)}`
     : url;
+  const textLines = message.text.split("\n");
+  const embeddedFileUrls = message.attachments?.length ? [] : textLines.filter((line) => /^\/api\/chat-file\/[^\s]+$/.test(line.trim())).map((line) => line.trim());
+  const displayText = embeddedFileUrls.length ? textLines.filter((line) => !embeddedFileUrls.includes(line.trim())).join("\n").trim() : message.text;
 
   if (isEvent) {
     return (
@@ -221,8 +224,8 @@ function ChatMessageRow({
         )}
         {message.deletedAt ? (
           <p className="text-[12px] italic text-board-muted/60">Message deleted</p>
-        ) : message.text ? (
-          <p className="break-words text-[13px] leading-[1.35rem] text-board-text/85">{renderMessageText(message.text)}</p>
+        ) : displayText ? (
+          <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.35rem] text-board-text/85">{renderMessageText(displayText)}</p>
         ) : null}
         {message.editedAt && !message.deletedAt ? <span className="mt-0.5 block text-[9px] text-board-muted/45">edited</span> : null}
         {!message.deletedAt && message.attachments?.length ? (
@@ -241,11 +244,31 @@ function ChatMessageRow({
             ))}
           </div>
         ) : null}
+        {!message.deletedAt && embeddedFileUrls.length ? (
+          <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
+            {embeddedFileUrls.map((url) => {
+              const name = chatFileName(url);
+              const resolvedUrl = attachmentUrl(url);
+              return isImageFileName(name) ? (
+                <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="group/media relative block overflow-hidden rounded-xl border border-board-border bg-board-bg/60">
+                  <img src={resolvedUrl} alt={name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
+                  <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{name}</span></span>
+                </a>
+              ) : (
+                <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{name}</span><span className="text-[10px] text-board-muted">ShowPilot attachment</span></span>
+                  <Download className="h-4 w-4 shrink-0 text-board-muted" />
+                </a>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
-      {!message.deletedAt && <div className="mt-1 flex self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-0 shadow-sm transition focus-within:opacity-100 group-hover:opacity-100">
-        {onReply && <button type="button" onClick={() => onReply(message)} className="p-1.5 transition hover:bg-board-border/60 hover:text-fire-300" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
-        {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="border-l border-board-border p-1.5 transition hover:bg-board-border/60 hover:text-board-text" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
-        {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="border-l border-board-border p-1.5 transition hover:bg-red-500/10 hover:text-red-300" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
+      {!message.deletedAt && <div className="mt-1 flex shrink-0 self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100">
+        {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
+        {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
+        {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
       </div>}
     </div>
   );
@@ -256,6 +279,15 @@ function renderMessageText(text: string): ReactNode {
   return parts.map((part, index) => part.startsWith("@")
     ? <span key={`${part}-${index}`} className="rounded bg-sky-400/10 px-1 py-0.5 font-medium text-sky-300">{part}</span>
     : part);
+}
+
+function chatFileName(url: string): string {
+  const value = url.split("?")[0].split("/").pop() || "Attachment";
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function isImageFileName(name: string): boolean {
+  return /\.(?:jpe?g|png|webp|gif|avif)$/i.test(name);
 }
 
 function formatFileSize(bytes: number): string {
