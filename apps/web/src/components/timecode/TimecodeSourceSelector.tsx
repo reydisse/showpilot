@@ -27,20 +27,29 @@ export function TimecodeSourceSelector({
   const [midiInputs, setMidiInputs] = useState<MIDIInput[]>([]);
   const [selectedMidi, setSelectedMidi] = useState("");
   const [loadingMidi, setLoadingMidi] = useState(false);
+  const [midiError, setMidiError] = useState<string | null>(null);
 
   useEffect(() => {
     if (mtcSupported) {
-      MtcSource.getInputs().then(setMidiInputs).catch(() => {});
+      MtcSource.getInputs()
+        .then((inputs) => {
+          setMidiInputs(inputs);
+          setMidiError(null);
+        })
+        .catch((cause) => {
+          setMidiError(cause instanceof Error ? cause.message : "MIDI access was denied");
+        });
     }
   }, [mtcSupported]);
 
   async function refreshMidi() {
     setLoadingMidi(true);
+    setMidiError(null);
     try {
       const inputs = await MtcSource.getInputs();
       setMidiInputs(inputs);
-    } catch {
-      // Ignore
+    } catch (cause) {
+      setMidiError(cause instanceof Error ? cause.message : "MIDI access was denied");
     }
     setLoadingMidi(false);
   }
@@ -125,7 +134,15 @@ export function TimecodeSourceSelector({
                   ))}
                 </select>
                 <button
-                  onClick={() => selectedMidi && onStartMtc(selectedMidi)}
+                  onClick={async () => {
+                    if (!selectedMidi) return;
+                    setMidiError(null);
+                    try {
+                      await onStartMtc(selectedMidi);
+                    } catch (cause) {
+                      setMidiError(cause instanceof Error ? cause.message : "Could not start this MIDI input");
+                    }
+                  }}
                   disabled={!selectedMidi}
                   className="rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 disabled:opacity-40 transition-colors"
                 >
@@ -135,6 +152,11 @@ export function TimecodeSourceSelector({
             ) : (
               <p className="text-[10px] text-board-muted/60">
                 No MIDI inputs found. Connect a MIDI device and click Refresh.
+              </p>
+            )}
+            {midiError && (
+              <p role="alert" className="text-[10px] leading-relaxed text-red-400">
+                {midiError.replace(/[.!?]+$/, "")}. Check the browser&apos;s MIDI permission, then click Refresh.
               </p>
             )}
           </div>

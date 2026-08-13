@@ -17,7 +17,7 @@ import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
-import { deriveCallerClock, toCueRows } from "@/lib/cue-sheet-derive";
+import { deriveCallerClock, liveElapsedMs, toCueRows } from "@/lib/cue-sheet-derive";
 import { CallerClockBar } from "@/components/cue-sheet/caller-clock";
 import { useNow } from "@/components/dashboard/widget";
 import type { RundownItem } from "@/types/rundown";
@@ -254,20 +254,16 @@ function CueSheetsPage() {
 
   const currentItemId = liveMatches ? liveTimer.currentItemId : model.currentItemId;
 
-  // One second is the right granularity for a caller: fast enough to
-  // count down against, slow enough not to re-render the sheet raw.
-  const nowMs = useNow(1000);
+  // Sample faster than the displayed second boundary so a relay command
+  // never appears to lag by almost a full second. 100ms stays visually
+  // immediate without driving the full cue table at animation-frame rate.
+  const nowMs = useNow(100);
 
   // Elapsed is reconstructed from the relay's start timestamp rather
   // than its `elapsed` field, which is only refreshed when the timer
   // state changes — reading it directly would freeze the countdown
   // between commands.
-  const elapsedMs =
-    liveMatches && liveTimer.playback === "play" && liveTimer.startedAt !== null
-      ? Math.max(0, nowMs - liveTimer.startedAt)
-      : liveMatches
-        ? liveTimer.elapsed
-        : 0;
+  const elapsedMs = liveMatches ? liveElapsedMs({ ...liveTimer, nowMs }) : 0;
 
   const clockState = useMemo(
     () => deriveCallerClock({ rows, currentItemId, elapsedMs, nowMs }),

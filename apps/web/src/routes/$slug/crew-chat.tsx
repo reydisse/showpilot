@@ -155,6 +155,7 @@ function CrewChatPage() {
             onSendMessage={sendMessage}
             title="Production Chat"
             subtitle={chatAdapter === "native" ? "ShowPilot native" : `Connected via ${chatAdapter}`}
+            currentUserName={senderName}
             className="border-l-0 h-full"
           />
         </div>

@@ -77,6 +77,25 @@ function withApiCorsHeaders(request: Request, response: Response): Response {
   });
 }
 
+function withRuntimeCacheHeaders(request: Request, response: Response): Response {
+  const url = new URL(request.url);
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  const isDocument = contentType.includes("text/html");
+  const isServerFunction = url.pathname.startsWith("/_serverFn/");
+
+  if (!isDocument && !isServerFunction) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store, max-age=0");
+  headers.set("Pragma", "no-cache");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 
 async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
   const row = await db
@@ -250,6 +269,7 @@ export default {
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
       const canControl = canUse(access, "rundown:edit");
+      const canObserveRundown = canUse(access, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
       const isMutation = subpath === "command" || (subpath === "ws" && canControl);
       if (subpath === "command" && !canControl) {
         return new Response("Unauthorized", { status: 401 });
@@ -259,7 +279,7 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
-      doUrl.searchParams.set("access", isMutation ? "write" : "read");
+      doUrl.searchParams.set("access", isMutation ? "write" : canObserveRundown ? "observe" : "read");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -379,6 +399,6 @@ export default {
     // TanStack Start's handler reads env/ctx via `cloudflare:workers` itself;
     // its fetch only takes (request, options?).
     const response = await handler.fetch(request);
-    return withApiCorsHeaders(request, response);
+    return withRuntimeCacheHeaders(request, withApiCorsHeaders(request, response));
   },
 };

@@ -248,6 +248,9 @@ function TimerKioskPage() {
   const [state, setState] = useState<RundownState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
+  const [messageProminent, setMessageProminent] = useState(false);
+  const lastStageMessageRef = useRef("");
+  const messageProminentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
@@ -259,6 +262,31 @@ function TimerKioskPage() {
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
   const lastTodayRef = useRef(serviceDate.current);
+
+  const applyStageMessage = useCallback((raw: string) => {
+    const priority = raw.startsWith("!!PRIORITY!!");
+    const message = priority ? raw.slice(12) : raw;
+    const changed = raw !== lastStageMessageRef.current;
+    lastStageMessageRef.current = raw;
+    setStageMessage(message);
+    setMessagePriority(priority);
+
+    if (!message || priority) {
+      if (messageProminentTimerRef.current) clearTimeout(messageProminentTimerRef.current);
+      setMessageProminent(false);
+      return;
+    }
+    // A normal message gets the operator's attention first, then yields
+    // the screen back to the timer while remaining visible at the top.
+    if (!changed) return;
+    if (messageProminentTimerRef.current) clearTimeout(messageProminentTimerRef.current);
+    setMessageProminent(true);
+    messageProminentTimerRef.current = setTimeout(() => setMessageProminent(false), 5000);
+  }, []);
+
+  useEffect(() => () => {
+    if (messageProminentTimerRef.current) clearTimeout(messageProminentTimerRef.current);
+  }, []);
 
   const resolvedOrgTimezoneDate = useMemo(() => getTodayDateString(orgTimezone || undefined), [orgTimezone]);
 
@@ -369,13 +397,7 @@ function TimerKioskPage() {
             // Stage message is now in DO state — real-time delivery
             if (Object.prototype.hasOwnProperty.call(s, "stageMessage")) {
               const raw = typeof s.stageMessage === "string" ? s.stageMessage : "";
-              if (raw.startsWith("!!PRIORITY!!")) {
-                setStageMessage(raw.slice(12));
-                setMessagePriority(true);
-              } else {
-                setStageMessage(raw);
-                setMessagePriority(raw !== "");
-              }
+              applyStageMessage(raw);
             }
           }
         } catch {}
@@ -405,7 +427,7 @@ function TimerKioskPage() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [orgSlug]);
+  }, [applyStageMessage, orgSlug]);
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
@@ -414,24 +436,22 @@ function TimerKioskPage() {
         data: { orgSlug, serviceDate: serviceDate.current },
       });
       if (result) {
-        // Only use poll state if WS isn't connected
+        // The poll is strictly a fallback. Once the relay is connected it
+        // is newer than D1 (the relay update and persistence are separate
+        // requests), so applying a poll response here can resurrect stale
+        // state and, most visibly, erase a kiosk message seconds after it
+        // arrived.
         if (!wsConnectedRef.current) {
           setState(result.state);
+          applyStageMessage(result.message);
+          setPpSlide(result.ppSlide);
+          setConnected(true);
         }
-        if (result.message.startsWith("!!PRIORITY!!")) {
-          setStageMessage(result.message.slice(12));
-          setMessagePriority(true);
-        } else {
-          setStageMessage(result.message);
-          setMessagePriority(false);
-        }
-        setPpSlide(result.ppSlide);
-        setConnected(true);
       }
     } catch {
       if (!wsConnectedRef.current) setConnected(false);
     }
-  }, [orgSlug]);
+  }, [applyStageMessage, orgSlug]);
 
   useEffect(() => {
     const next = resolvedOrgTimezoneDate;
@@ -548,7 +568,7 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (viewMode === "minimal") {
-    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />;
+    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />;
   }
 
   if (viewMode === "stage") {
@@ -561,7 +581,7 @@ function TimerKioskPage() {
         phaseColors={phaseColors}
         timer={timer}
         stageMessage={stageMessage}
-        messagePriority={messagePriority}
+        messagePriority={messagePriority || messageProminent}
         ppSlide={ppSlide}
         isFullscreen={isFullscreen}
         toggleFullscreen={toggleFullscreen}
@@ -582,7 +602,7 @@ function TimerKioskPage() {
       connected={connected}
       totalElapsed={totalElapsed}
       stageMessage={stageMessage}
-      messagePriority={messagePriority}
+      messagePriority={messagePriority || messageProminent}
       ppSlide={ppSlide}
       clockTime={formatClockForZone(new Date(now), clockFormat, timezoneDisplay === "utc" ? "UTC" : timezoneDisplay === "org" && orgTimezone ? orgTimezone : undefined)}
       overtimeBehavior={overtimeBehavior}

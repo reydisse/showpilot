@@ -10,6 +10,18 @@
 import { computeCascadedTimes } from "@/lib/rundown-timing";
 import { isHeaderItem, type RundownItem, type RundownMeta } from "@/types/rundown";
 
+/** Reconstruct relay time without discarding resumed progress or offsets. */
+export function liveElapsedMs(input: {
+  playback: string;
+  elapsed: number;
+  startedAt: number | null;
+  nowMs: number;
+}): number {
+  return input.playback === "play" && input.startedAt !== null
+    ? input.elapsed + (input.nowMs - input.startedAt)
+    : input.elapsed;
+}
+
 export interface CueColumnRow {
   id: string;
   label: string;
@@ -197,6 +209,17 @@ export function deriveCallerClock({
   // overrun cancelled itself out of the forecast and the service read as
   // on time while the caller watched it slip.
   const expectedEndMs = nowMs + Math.max(0, itemRemainingMs) + remainingAfter;
+  const plannedStart = items[0]?.scheduledStart
+    ? new Date(items[0].scheduledStart).getTime()
+    : null;
+  // A future/past rundown is often run as a rehearsal. Comparing today's
+  // wall clock with that service date produces nonsense such as -4169m.
+  // Timer and item remaining are still useful; schedule offset is not.
+  const scheduleIsCurrent =
+    plannedStart !== null &&
+    plannedEndMs !== null &&
+    nowMs >= plannedStart - 24 * 60 * 60 * 1000 &&
+    nowMs <= plannedEndMs + 24 * 60 * 60 * 1000;
 
   return {
     liveTitle: current.title,
@@ -205,7 +228,7 @@ export function deriveCallerClock({
     itemElapsedMs: elapsedMs,
     plannedEndMs,
     expectedEndMs,
-    offsetMs: plannedEndMs === null ? null : expectedEndMs - plannedEndMs,
+    offsetMs: scheduleIsCurrent ? expectedEndMs - plannedEndMs! : null,
   };
 }
 

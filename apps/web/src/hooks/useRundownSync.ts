@@ -160,7 +160,7 @@ interface UseRundownSyncReturn {
   stageMessage: string;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
-  seedState: (items: RundownItem[], timer: TimerState) => void;
+  seedState: (items: RundownItem[], timer: TimerState, force?: boolean) => void;
 }
 
 export function useRundownSync(orgId: string, serviceDate?: string): UseRundownSyncReturn {
@@ -318,10 +318,11 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
   );
 
   const seedState = useCallback(
-    (seedItems: RundownItem[], seedTimer: TimerState) => {
+    (seedItems: RundownItem[], seedTimer: TimerState, force = false) => {
       sendCommand("seed", {
         items: seedItems,
         timer: seedTimer,
+        force,
       });
     },
     [sendCommand]

@@ -24,9 +24,9 @@ export interface TmWidgetModel {
   slug: string;
   orgId: string;
   viewerId: string;
-  canAssignTechManagers: boolean;
+  canAssignPeople: boolean;
   canClaimFaults: boolean;
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; role: string; roleLabel: string }[];
   busyId: string | null;
   onClaim(faultId: string): void;
   onAssign(faultId: string, userId: string, name: string): void;
@@ -173,12 +173,12 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
         >
           Resolve
         </button>
-        {fault.ownership !== "unassigned" && (widget.canAssignTechManagers || fault.ownership === "mine") && (
+        {fault.ownership !== "unassigned" && (widget.canAssignPeople || fault.ownership === "mine") && (
           <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return fault to the unassigned queue" className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
         )}
-        {widget.canAssignTechManagers ? (
+        {widget.canAssignPeople ? (
           <>
-            <label className="sr-only" htmlFor={`assign-${fault.id}`}>Assign a Tech Manager</label>
+            <label className="sr-only" htmlFor={`assign-${fault.id}`}>Assign an operator</label>
             <select
               id={`assign-${fault.id}`}
               value=""
@@ -189,8 +189,8 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
               }}
               className="text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
             >
-              <option value="">{widget.members.length ? "Assign Tech Manager…" : "No Tech Managers available"}</option>
-              {widget.members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+              <option value="">{widget.members.length ? "Assign person…" : "No eligible people"}</option>
+              {widget.members.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.roleLabel}</option>)}
             </select>
           </>
         ) : null}

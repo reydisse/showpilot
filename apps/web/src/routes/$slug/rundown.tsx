@@ -234,6 +234,7 @@ function RundownPage() {
     items: syncedItems,
     timer: syncedTimer,
     hydrated: syncHydrated,
+    stateServiceDate: syncedServiceDate,
     ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
@@ -256,6 +257,9 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
     mode: initialState.timer.mode,
   });
+  // Immutable D1 snapshot for reconciling a Durable Object that survived
+  // a deploy with rows from a different service under this date label.
+  const databaseItemsRef = useRef(initialState.items as RundownItem[]);
 
   // Seed DO when we first connect and it's empty — push current items to DO
   // so all other devices get them via broadcast.
@@ -283,22 +287,29 @@ function RundownPage() {
   useEffect(() => {
     if (!syncHydrated) return; // Wait for actual DO response
     if (hasSeededRef.current) return; // Only seed once per date
-    // If DO is empty but we have local items (from DB), seed the DO
-    if (syncedItems.length === 0 && items.length > 0) {
+    const databaseItems = databaseItemsRef.current;
+    const databaseIds = databaseItems.map((item) => item.id).sort().join("|");
+    const relayIds = syncedItems.map((item) => item.id).sort().join("|");
+    const relayIsWrongService =
+      syncedServiceDate === serviceDate && databaseIds !== relayIds;
+    // Empty rooms and rooms retained with another service's rows are
+    // repaired from D1. Matching rooms remain authoritative, preserving
+    // active timer state and edits from other connected operators.
+    if ((syncedItems.length === 0 && databaseItems.length > 0) || relayIsWrongService) {
       hasSeededRef.current = true;
-        seedState(items as RundownItem[], {
+        seedState(databaseItems, {
           playback: timer.playback,
           currentItemId: timer.currentItemId,
           elapsed: timer.elapsed,
           startedAt: timer.startedAt,
           pausedAt: null,
           mode: timer.mode,
-        });
+        }, relayIsWrongService);
       } else if (syncedItems.length > 0) {
       // DO already has items — no need to seed
       hasSeededRef.current = true;
     }
-  }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncHydrated, syncedItems, syncedServiceDate, serviceDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
     initialState.meta?.scheduledStartTime
@@ -608,6 +619,7 @@ function RundownPage() {
     setLoading(true);
     try {
       const state = await getRundownState({ data: { orgId, serviceDate: date } });
+      databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
       setTimer({
         playback: state.timer.playback,
