@@ -39,6 +39,7 @@ import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
+import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
@@ -224,6 +225,11 @@ const SlugAdminRoute = SlugAdminRouteImport.update({
 const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
   id: '/api/waitlist/',
   path: '/api/waitlist/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinChatTokenRoute = JoinChatTokenRouteImport.update({
+  id: '/join/chat/$token',
+  path: '/join/chat/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
@@ -473,6 +479,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -540,6 +547,7 @@ export interface FileRoutesByTo {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -610,6 +618,7 @@ export interface FileRoutesById {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
@@ -680,6 +689,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -747,6 +757,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/join/chat/$token'
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -816,6 +827,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
     | '/$slug/streaming/graphics/overlay'
@@ -855,6 +867,7 @@ export interface RootRouteChildren {
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  JoinChatTokenRoute: typeof JoinChatTokenRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
   ApiV1CompanionStateRoute: typeof ApiV1CompanionStateRoute
   ApiV1KioskAssetsRoute: typeof ApiV1KioskAssetsRoute
@@ -1086,6 +1099,13 @@ declare module '@tanstack/react-router' {
       path: '/api/waitlist'
       fullPath: '/api/waitlist/'
       preLoaderRoute: typeof ApiWaitlistIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/chat/$token': {
+      id: '/join/chat/$token'
+      path: '/join/chat/$token'
+      fullPath: '/join/chat/$token'
+      preLoaderRoute: typeof JoinChatTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/stripe/webhook': {
@@ -1468,6 +1488,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  JoinChatTokenRoute: JoinChatTokenRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
   ApiV1CompanionStateRoute: ApiV1CompanionStateRoute,
   ApiV1KioskAssetsRoute: ApiV1KioskAssetsRoute,

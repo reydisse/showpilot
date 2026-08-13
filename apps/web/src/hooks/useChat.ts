@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { ChatAdapter, ChatMessage, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAdapter, ChatAttachment, ChatMessage, ChatMessageOptions, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import type { ChatAdapterType } from "@/lib/settings";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
 import { MattermostChatAdapter } from "@/lib/adapters/mattermost-chat-adapter";
@@ -17,17 +17,23 @@ interface UseChatOptions {
   senderName?: string;
   /** Role of the current user (e.g. "admin", "td", "operator") */
   senderRole?: string;
+  guestToken?: string;
+  roomId?: string;
+  orgSlug?: string;
 }
 
 interface UseChatReturn {
   messages: ChatMessage[];
-  sendMessage: (text: string, type?: MessageType) => void;
+  sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => void;
+  uploadAttachment: (file: File) => Promise<ChatAttachment>;
+  editMessage: (messageId: string, text: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
   connectionStatus: ConnectionStatus;
   unreadCount: number;
   resetUnread: () => void;
 }
 
-function createAdapter(orgId: string, type: ChatAdapterType): ChatAdapter {
+function createAdapter(orgId: string, type: ChatAdapterType, guest?: { token: string; name: string }, roomId = "production"): ChatAdapter {
   switch (type) {
     case "mattermost":
       return new MattermostChatAdapter(orgId);
@@ -38,7 +44,7 @@ function createAdapter(orgId: string, type: ChatAdapterType): ChatAdapter {
     case "discord":
       return new DiscordChatAdapter(orgId);
     default:
-      return new NativeChatAdapter(orgId);
+      return new NativeChatAdapter(orgId, guest, roomId);
   }
 }
 
@@ -48,7 +54,7 @@ function createAdapter(orgId: string, type: ChatAdapterType): ChatAdapter {
  * Creates the appropriate chat adapter based on org settings.
  * Manages connection lifecycle, message state, and unread tracking.
  */
-export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole, guestToken, roomId = "production", orgSlug }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -73,14 +79,20 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     setMessages([]);
     setConnectionStatus("disconnected");
 
-    const adapter = createAdapter(orgId, chatAdapter);
+    const effectiveAdapter = roomId === "production" ? chatAdapter : "native";
+    const adapter = createAdapter(orgId, effectiveAdapter, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId);
     adapterRef.current = adapter;
 
     // Subscribe to messages
     const unsubMessage = adapter.onMessage((message: ChatMessage) => {
       setMessages((prev) => {
         // Deduplicate by id
-        if (prev.some((m) => m.id === message.id)) return prev;
+        const existingIndex = prev.findIndex((m) => m.id === message.id);
+        if (existingIndex >= 0) {
+          const next = [...prev];
+          next[existingIndex] = message;
+          return next;
+        }
         return [...prev, message];
       });
 
@@ -106,19 +118,56 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       adapter.disconnect();
       adapterRef.current = null;
     };
-  }, [orgId, chatAdapter]);
+  }, [orgId, chatAdapter, guestToken, roomId, userName]);
 
   const sendMessage = useCallback(
-    (text: string, type: MessageType = "text") => {
-      if (!adapterRef.current || !text.trim()) return;
+    (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
+      if (!adapterRef.current || (!text.trim() && !options?.attachments?.length)) return;
 
       const name = userName || "Operator";
       const role = userRole || "Operator";
 
-      adapterRef.current.sendMessage(text.trim(), type, name, role);
+      if (chatAdapter !== "native" && options) {
+        const replyPrefix = options.replyTo
+          ? `↪ Replying to ${options.replyTo.senderName}: “${options.replyTo.text.slice(0, 100)}”\n`
+          : "";
+        const attachmentLinks = options.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
+        adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
+        return;
+      }
+      adapterRef.current.sendMessage(text.trim(), type, name, role, options);
+      if (orgSlug && !guestToken) {
+        void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
+          data: { orgId, orgSlug, roomId, text: text.trim(), mentionedUserIds: options?.mentionedUserIds },
+        })).catch(() => undefined);
+      }
     },
-    [userName, userRole],
+    [chatAdapter, guestToken, orgId, orgSlug, roomId, userName, userRole],
   );
+
+  const editMessage = useCallback(async (messageId: string, text: string) => {
+    await adapterRef.current?.editMessage?.(messageId, text);
+  }, []);
+
+  const deleteMessage = useCallback(async (messageId: string) => {
+    await adapterRef.current?.deleteMessage?.(messageId);
+  }, []);
+
+  const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
+    const formData = new FormData();
+    formData.set("file", file);
+    const params = new URLSearchParams({ room: roomId });
+    if (guestToken) params.set("guestToken", guestToken);
+    const response = await fetch(`/api/chat/${encodeURIComponent(orgId)}/upload?${params}`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || "Upload failed");
+    }
+    return response.json() as Promise<ChatAttachment>;
+  }, [guestToken, orgId, roomId]);
 
   const resetUnread = useCallback(() => {
     setUnreadCount(0);
@@ -127,6 +176,9 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   return {
     messages,
     sendMessage,
+    uploadAttachment,
+    editMessage,
+    deleteMessage,
     connectionStatus,
     unreadCount,
     resetUnread,

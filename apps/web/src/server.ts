@@ -1,6 +1,7 @@
 import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./lib/auth";
 import { hasAnyPermission, hasPermission, type Permission } from "./lib/permissions";
+import { verifyCrewChatPass } from "./lib/crew-chat-pass";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -19,6 +20,7 @@ interface Env {
   CHAT_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   CUE_SHEET_RELAY: DurableObjectNamespace;
+  KIOSK_SECRET?: string;
 }
 
 interface D1Database {
@@ -166,6 +168,25 @@ function canUse(
     : hasPermission(access.identity.role, permissions);
 }
 
+async function canAccessChatRoom(
+  roomId: string,
+  access: Awaited<ReturnType<typeof getRelayAccess>>,
+  orgId: string,
+  db: Env["DB"],
+  guest: boolean,
+): Promise<boolean> {
+  if (guest) return roomId === "production";
+  if (roomId === "production" || roomId === "planning") return canUse(access, "chat:access");
+  const parts = roomId.split(":");
+  const isCanonicalDm = parts.length === 3 && parts[0] === "dm" && parts[1] < parts[2];
+  if (!isCanonicalDm || !access.identity || !parts.slice(1).includes(access.identity.userId)) return false;
+  const members = await Promise.all(parts.slice(1).map((userId) => db
+    .prepare("SELECT userId FROM member WHERE organizationId = ? AND userId = ? LIMIT 1")
+    .bind(orgId, userId)
+    .first<{ userId: string }>()));
+  return members.every(Boolean);
+}
+
 async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
   const byId = await db
     .prepare("SELECT id FROM organization WHERE id = ?")
@@ -303,21 +324,87 @@ export default {
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
+    const chatFileMatch = url.pathname.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/(.+)$/);
+    if (chatFileMatch && request.method === "GET") {
+      const [, slugOrId, fileId, encodedName] = chatFileMatch;
+      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const access = await getRelayAccess(request, orgId, e.DB);
+      const guestToken = url.searchParams.get("guestToken");
+      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
+      if (!canUse(access, "chat:access") && guestPass?.orgId !== orgId) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const fileName = decodeURIComponent(encodedName);
+      const object = await e.STORAGE.get(`orgs/${orgId}/chat/${fileId}/${fileName}`);
+      if (!object) return new Response("Not Found", { status: 404 });
+      const objectRoom = object.customMetadata?.roomId ?? "production";
+      if (!await canAccessChatRoom(objectRoom, access, orgId, e.DB, guestPass?.orgId === orgId)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set("Cache-Control", "private, max-age=3600");
+      headers.set("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      return new Response(object.body, { headers });
+    }
+
     const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
-      if (!canUse(access, "chat:access")) {
+      const guestToken = url.searchParams.get("guestToken");
+      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
+      const guestAllowed = Boolean(guestPass && guestPass.orgId === orgId && (subpath === "ws" || subpath === "upload"));
+      if (!canUse(access, "chat:access") && !guestAllowed) {
         return new Response("Unauthorized", { status: 401 });
       }
-      const id = e.CHAT_RELAY.idFromName(orgId);
+      const roomId = url.searchParams.get("room") ?? "production";
+      if (!await canAccessChatRoom(roomId, access, orgId, e.DB, guestAllowed)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      if (subpath === "upload" && request.method === "POST") {
+        const validGuest = Boolean(guestPass && guestPass.orgId === orgId);
+        if (!canUse(access, "chat:access") && !validGuest) {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        const formData = await request.formData();
+        const file = formData.get("file");
+        if (!(file instanceof File)) return new Response("Choose a file to upload", { status: 400 });
+        const allowedTypes = new Set([
+          "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif",
+          "application/pdf", "text/plain", "text/csv",
+          "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ]);
+        if (!allowedTypes.has(file.type)) return new Response("This file type is not supported", { status: 415 });
+        if (file.size > 15 * 1024 * 1024) return new Response("Files must be 15 MB or smaller", { status: 413 });
+        const fileId = crypto.randomUUID();
+        const safeName = file.name.replace(/[\\/\u0000-\u001f]/g, "-").trim().slice(0, 180) || "attachment";
+        await e.STORAGE.put(`orgs/${orgId}/chat/${fileId}/${safeName}`, file.stream(), {
+          httpMetadata: { contentType: file.type },
+          customMetadata: { uploadedBy: access.identity?.userId ?? "guest", roomId },
+        });
+        return Response.json({
+          id: fileId,
+          name: safeName,
+          url: `/api/chat-file/${encodeURIComponent(orgId)}/${fileId}/${encodeURIComponent(safeName)}`,
+          mimeType: file.type,
+          size: file.size,
+        });
+      }
+      const id = e.CHAT_RELAY.idFromName(`${orgId}:${roomId}`);
       const stub = e.CHAT_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("room", roomId);
       doUrl.searchParams.set("access", "write");
-      if (access.identity) {
+      if (guestAllowed) {
+        doUrl.searchParams.set("name", (url.searchParams.get("guestName") || "Guest crew").trim().slice(0, 60));
+        doUrl.searchParams.set("role", "Guest");
+      } else if (access.identity) {
         doUrl.searchParams.set("userId", access.identity.userId);
         doUrl.searchParams.set("name", access.identity.name);
         doUrl.searchParams.set("role", access.identity.role);
