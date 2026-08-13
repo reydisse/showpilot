@@ -1,6 +1,7 @@
 import type {
   ChatAdapter,
   ChatMessage,
+  ChatMessageOptions,
   ConnectionStatus,
   MessageType,
 } from "./chat-adapter";
@@ -22,6 +23,7 @@ interface QueuedMessage {
   type: MessageType;
   senderName: string;
   senderRole?: string;
+  options?: ChatMessageOptions;
 }
 
 const INITIAL_RECONNECT_DELAY = 1000;
@@ -40,7 +42,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private intentionalClose = false;
   private messageHistory: ChatMessage[] = [];
 
-  constructor(orgId: string) {
+  constructor(orgId: string, private guest?: { token: string; name: string }, private roomId = "production") {
     this.orgId = orgId;
   }
 
@@ -55,7 +57,12 @@ export class NativeChatAdapter implements ChatAdapter {
     return new Promise<void>((resolve, reject) => {
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/api/chat/${this.orgId}/ws`;
+        const params = new URLSearchParams({ room: this.roomId });
+        if (this.guest) {
+          params.set("guestToken", this.guest.token);
+          params.set("guestName", this.guest.name);
+        }
+        const wsUrl = `${protocol}//${window.location.host}/api/chat/${this.orgId}/ws?${params}`;
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
@@ -75,8 +82,10 @@ export class NativeChatAdapter implements ChatAdapter {
               for (const msg of data.messages) {
                 this.notifyListeners(msg);
               }
-            } else if (data.type === "message" && data.message) {
-              this.messageHistory.push(data.message);
+            } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
+              const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
+              if (existingIndex >= 0) this.messageHistory[existingIndex] = data.message;
+              else this.messageHistory.push(data.message);
               this.notifyListeners(data.message);
             }
           } catch {
@@ -103,6 +112,16 @@ export class NativeChatAdapter implements ChatAdapter {
     });
   }
 
+  async editMessage(messageId: string, text: string): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !text.trim()) return;
+    this.ws.send(JSON.stringify({ type: "edit", messageId, text: text.trim() }));
+  }
+
+  async deleteMessage(messageId: string): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type: "delete", messageId }));
+  }
+
   disconnect(): void {
     this.intentionalClose = true;
     if (this.reconnectTimer) {
@@ -121,8 +140,9 @@ export class NativeChatAdapter implements ChatAdapter {
     type: MessageType,
     senderName: string,
     senderRole?: string,
+    options?: ChatMessageOptions,
   ): Promise<void> {
-    const payload = { text, type, senderName, senderRole };
+    const payload = { text, type: this.guest ? "text" as const : type, senderName, senderRole, options };
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
@@ -138,6 +158,8 @@ export class NativeChatAdapter implements ChatAdapter {
         messageType: payload.type,
         name: payload.senderName,
         role: payload.senderRole,
+        replyTo: payload.options?.replyTo,
+        attachments: payload.options?.attachments,
       }));
     } else {
       // Queue the message for when we reconnect
@@ -215,6 +237,8 @@ export class NativeChatAdapter implements ChatAdapter {
           messageType: msg.type,
           name: msg.senderName,
           role: msg.senderRole,
+          replyTo: msg.options?.replyTo,
+          attachments: msg.options?.attachments,
         }),
       );
     }

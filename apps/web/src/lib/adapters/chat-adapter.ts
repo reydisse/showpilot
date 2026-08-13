@@ -8,6 +8,26 @@
 export type MessageType = "text" | "alert" | "cue" | "system";
 export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error";
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+}
+
+export interface ChatReplyReference {
+  messageId: string;
+  senderName: string;
+  text: string;
+}
+
+export interface ChatMessageOptions {
+  replyTo?: ChatReplyReference;
+  attachments?: ChatAttachment[];
+  mentionedUserIds?: string[];
+}
+
 export interface ChatMessage {
   id: string;
   orgId: string;
@@ -17,6 +37,10 @@ export interface ChatMessage {
   text: string;
   type: MessageType;
   timestamp: number;
+  replyTo?: ChatReplyReference;
+  attachments?: ChatAttachment[];
+  editedAt?: number;
+  deletedAt?: number;
 }
 
 export interface ChatAdapter {
@@ -26,7 +50,14 @@ export interface ChatAdapter {
     type: MessageType,
     senderName: string,
     senderRole?: string,
+    options?: ChatMessageOptions,
   ): Promise<void>;
+
+  /** Edit one of the current user's native messages. */
+  editMessage?(messageId: string, text: string): Promise<void>;
+
+  /** Soft-delete one of the current user's native messages. */
+  deleteMessage?(messageId: string): Promise<void>;
 
   /** Subscribe to incoming messages. Returns a cleanup function. */
   onMessage(callback: (message: ChatMessage) => void): () => void;

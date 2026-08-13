@@ -76,6 +76,16 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
   }
   if (actionUrl === "production/incidents") {
     await navigate({ to: "/$slug/production/incidents", params: { slug } });
+    return;
+  }
+  if (actionUrl.startsWith("chat?")) {
+    const room = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("room");
+    const isKnownRoom = room === "production" || room === "planning";
+    const dmParts = room?.split(":") ?? [];
+    const isDmRoom = dmParts.length === 3 && dmParts[0] === "dm" && dmParts[1] < dmParts[2];
+    if (room && (isKnownRoom || isDmRoom)) {
+      await navigate({ to: "/$slug/chat", params: { slug }, search: { room } });
+    }
   }
 }
 

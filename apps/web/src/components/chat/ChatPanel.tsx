@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   MessageSquare,
   Send,
@@ -7,10 +7,20 @@ import {
   ChevronDown,
   X,
   Hash,
+  Paperclip,
+  Reply,
+  FileText,
+  Image as ImageIcon,
+  Download,
+  Loader2,
+  Pencil,
+  Trash2,
+  AtSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAttachment, ChatMessage, ChatMessageOptions, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
+import type { ChatMemberSummary } from "@/lib/chat-collaboration";
 
 // -- Role badge component --
 
@@ -136,13 +146,24 @@ function ChatMessageRow({
   isPinned,
   grouped = false,
   isOwn = false,
+  onReply,
+  onEdit,
+  onDelete,
+  attachmentAccessToken,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
   grouped?: boolean;
   isOwn?: boolean;
+  onReply?: (message: ChatMessage) => void;
+  onEdit?: (message: ChatMessage) => void;
+  onDelete?: (message: ChatMessage) => void;
+  attachmentAccessToken?: string;
 }) {
   const isEvent = message.type === "cue" || message.type === "alert";
+  const attachmentUrl = (url: string) => attachmentAccessToken
+    ? `${url}${url.includes("?") ? "&" : "?"}guestToken=${encodeURIComponent(attachmentAccessToken)}`
+    : url;
 
   if (isEvent) {
     return (
@@ -171,37 +192,81 @@ function ChatMessageRow({
   return (
     <div
       className={cn(
-        "group flex px-4",
-        isOwn ? "justify-end" : "justify-start",
-        grouped ? "pt-1" : "pt-3",
+        "group flex px-4 transition-colors hover:bg-white/[0.018]",
+        grouped ? "py-0.5" : "pb-1.5 pt-3",
       )}
     >
-      {!isOwn && !grouped && (
+      {!grouped && (
         <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold shadow-sm", avatarStyle(message.senderName))}>
           {initials(message.senderName)}
         </div>
       )}
-      {!isOwn && grouped && <span className="w-9 shrink-0" />}
-      <div className={cn("min-w-0 max-w-[82%]", !isOwn && "ml-2.5")}>
+      {grouped && <span className="w-9 shrink-0 pt-1 text-right text-[8px] tabular-nums text-transparent transition-colors group-hover:text-board-muted/45">{formatTimestamp(message.timestamp)}</span>}
+      <div className="ml-2.5 min-w-0 flex-1">
         {!grouped && (
-          <div className={cn("mb-1 flex min-w-0 items-center gap-2", isOwn && "justify-end")}>
-            {!isOwn && <span className="truncate text-[12px] font-semibold text-board-text/90">{message.senderName}</span>}
-            {!isOwn && <RoleBadge role={message.senderRole} />}
-            {isOwn && <span className="text-[10px] font-medium text-board-muted/60">You</span>}
+          <div className="mb-0.5 flex min-w-0 items-center gap-2">
+            <span className="truncate text-[12px] font-semibold text-board-text">{isOwn ? `${message.senderName} (you)` : message.senderName}</span>
+            <RoleBadge role={message.senderRole} />
+            <span className="shrink-0 text-[9px] tabular-nums text-board-muted/45">{formatTimestamp(message.timestamp)}</span>
           </div>
         )}
-        <div className={cn(
-          "relative break-words px-3 py-2 text-[13px] leading-[1.3rem] shadow-sm",
-          isOwn ? "rounded-2xl rounded-br-md bg-fire-500 text-black" : "rounded-2xl rounded-bl-md border border-board-border/80 bg-board-bg/75 text-board-text/90",
-          grouped && isOwn && "rounded-br-2xl",
-          grouped && !isOwn && "rounded-bl-2xl",
-        )}>
-          <p>{message.text}</p>
-          <span className={cn("mt-0.5 block text-right text-[8px] tabular-nums", isOwn ? "text-black/55" : "text-board-muted/45")}>{formatTimestamp(message.timestamp)}</span>
-        </div>
+        {message.replyTo && (
+          <div className="mb-1.5 flex max-w-2xl items-stretch gap-2 text-[11px]">
+            <span className="w-0.5 shrink-0 rounded-full bg-fire-400/55" />
+            <div className="min-w-0 py-0.5">
+              <span className="font-semibold text-fire-300/90">{message.replyTo.senderName}</span>
+              <p className="truncate text-board-muted/75">{message.replyTo.text || "Attachment"}</p>
+            </div>
+          </div>
+        )}
+        {message.deletedAt ? (
+          <p className="text-[12px] italic text-board-muted/60">Message deleted</p>
+        ) : message.text ? (
+          <p className="break-words text-[13px] leading-[1.35rem] text-board-text/85">{renderMessageText(message.text)}</p>
+        ) : null}
+        {message.editedAt && !message.deletedAt ? <span className="mt-0.5 block text-[9px] text-board-muted/45">edited</span> : null}
+        {!message.deletedAt && message.attachments?.length ? (
+          <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
+            {message.attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
+              <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="group/media relative block overflow-hidden rounded-xl border border-board-border bg-board-bg/60">
+                <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
+                <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{attachment.name}</span></span>
+              </a>
+            ) : (
+              <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{attachment.name}</span><span className="text-[10px] text-board-muted">{formatFileSize(attachment.size)}</span></span>
+                <Download className="h-4 w-4 shrink-0 text-board-muted" />
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
+      {!message.deletedAt && <div className="mt-1 flex self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-0 shadow-sm transition focus-within:opacity-100 group-hover:opacity-100">
+        {onReply && <button type="button" onClick={() => onReply(message)} className="p-1.5 transition hover:bg-board-border/60 hover:text-fire-300" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
+        {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="border-l border-board-border p-1.5 transition hover:bg-board-border/60 hover:text-board-text" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
+        {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="border-l border-board-border p-1.5 transition hover:bg-red-500/10 hover:text-red-300" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
+      </div>}
     </div>
   );
+}
+
+function renderMessageText(text: string): ReactNode {
+  const parts = text.split(/(@[\p{L}\p{N}][\p{L}\p{N}._'’-]*)/gu);
+  return parts.map((part, index) => part.startsWith("@")
+    ? <span key={`${part}-${index}`} className="rounded bg-sky-400/10 px-1 py-0.5 font-medium text-sky-300">{part}</span>
+    : part);
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function includesMention(text: string, name: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)@${escapedName}(?=\\s|$|[.,!?;:])`, "i").test(text);
 }
 
 // -- Main ChatPanel --
@@ -210,13 +275,21 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   connectionStatus: ConnectionStatus;
   unreadCount: number;
-  onSendMessage: (text: string, type: MessageType) => void;
+  onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void;
+  onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
+  onEditMessage?: (messageId: string, text: string) => Promise<void>;
+  onDeleteMessage?: (messageId: string) => Promise<void>;
+  mentionMembers?: ChatMemberSummary[];
   onClose?: () => void;
   className?: string;
   title?: string;
   subtitle?: string;
   currentUserName?: string;
+  currentUserId?: string;
   liveStatus?: string | null;
+  allowOperationalMessages?: boolean;
+  headerActions?: ReactNode;
+  attachmentAccessToken?: string;
 }
 
 export function ChatPanel({
@@ -229,15 +302,29 @@ export function ChatPanel({
   title = "Production Chat",
   subtitle,
   currentUserName,
+  currentUserId,
   liveStatus,
+  allowOperationalMessages = true,
+  headerActions,
+  onUploadAttachment,
+  attachmentAccessToken,
+  onEditMessage,
+  onDeleteMessage,
+  mentionMembers = [],
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedAtRef = useRef(Date.now());
@@ -338,13 +425,62 @@ export function ChatPanel({
   };
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
-    onSendMessage(inputText.trim(), messageType);
+    if (!inputText.trim() && pendingAttachments.length === 0) return;
+    if (editingMessage) {
+      if (inputText.trim() && onEditMessage) void onEditMessage(editingMessage.id, inputText.trim());
+      setEditingMessage(null);
+      setInputText("");
+      return;
+    }
+    onSendMessage(inputText.trim(), messageType, {
+      replyTo: replyingTo ? { messageId: replyingTo.id, senderName: replyingTo.senderName, text: replyingTo.text } : undefined,
+      attachments: pendingAttachments.length ? pendingAttachments : undefined,
+      mentionedUserIds: mentionMembers.filter((member) => includesMention(inputText, member.name)).map((member) => member.userId),
+    });
     setInputText("");
+    setReplyingTo(null);
+    setPendingAttachments([]);
     setMessageType("text");
 
     // Re-focus textarea
     textareaRef.current?.focus();
+  };
+
+  const beginEdit = (message: ChatMessage) => {
+    setEditingMessage(message);
+    setReplyingTo(null);
+    setPendingAttachments([]);
+    setInputText(message.text);
+    textareaRef.current?.focus();
+  };
+
+  const deleteMessage = (message: ChatMessage) => {
+    if (!onDeleteMessage || !window.confirm("Delete this message? Everyone in the room will see that it was deleted.")) return;
+    void onDeleteMessage(message.id);
+  };
+
+  const mentionQuery = inputText.match(/(?:^|\s)@([^\n@]*)$/)?.[1]?.toLowerCase();
+  const mentionSuggestions = mentionQuery === undefined ? [] : mentionMembers
+    .filter((member) => member.name.toLowerCase().includes(mentionQuery))
+    .slice(0, 5);
+
+  const insertMention = (member: ChatMemberSummary) => {
+    setInputText((current) => current.replace(/(?:^|\s)@([^\n@]*)$/, (match) => `${match.startsWith(" ") ? " " : ""}@${member.name} `));
+    textareaRef.current?.focus();
+  };
+
+  const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).slice(0, Math.max(0, 6 - pendingAttachments.length));
+    event.target.value = "";
+    if (!onUploadAttachment || files.length === 0) return;
+    setUploadError(null);
+    setUploadingCount((count) => count + files.length);
+    const results = await Promise.allSettled(files.map(onUploadAttachment));
+    const uploaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    setPendingAttachments((current) => [...current, ...uploaded].slice(0, 6));
+    const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failed) setUploadError(failed.reason instanceof Error ? failed.reason.message : "Some files could not be uploaded");
+    setUploadingCount((count) => Math.max(0, count - files.length));
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -416,6 +552,7 @@ export function ChatPanel({
             {dockedLiveTimestamp && <span className="shrink-0 text-[8px] tabular-nums text-board-muted/45">{formatTimestamp(dockedLiveTimestamp)}</span>}
           </div>
         )}
+        {headerActions && <div className={cn("flex shrink-0 items-center", !dockedLiveStatus && "ml-auto")}>{headerActions}</div>}
         {onClose && (
           <button
             onClick={onClose}
@@ -490,7 +627,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserName && msg.senderName === currentUserName)} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} />
             </div>
           );
         })}
@@ -512,11 +649,48 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
-        <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_8px_24px_rgba(0,0,0,0.14)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
+        {mentionSuggestions.length > 0 && !editingMessage && (
+          <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
+            <div className="flex items-center gap-2 border-b border-board-border px-3 py-2 text-[9px] font-semibold uppercase tracking-wider text-board-muted"><AtSign className="h-3 w-3" />Mention someone</div>
+            {mentionSuggestions.map((member) => <button key={member.userId} type="button" onClick={() => insertMention(member)} className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-board-border/45"><span className={cn("flex h-7 w-7 items-center justify-center rounded-lg border text-[9px] font-bold", avatarStyle(member.name))}>{initials(member.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{member.name}</span><span className="block text-[9px] uppercase tracking-wide text-board-muted">{member.role}</span></span></button>)}
+          </div>
+        )}
+        <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_12px_32px_rgba(0,0,0,0.18)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
+          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold text-sky-300">Editing message</p><p className="truncate text-[10px] text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={() => { setEditingMessage(null); setInputText(""); }} className="rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
+          {replyingTo && (
+            <div className="flex items-center gap-3 border-b border-board-border/70 bg-fire-500/[0.045] px-3 py-2">
+              <Reply className="h-3.5 w-3.5 shrink-0 text-fire-300" />
+              <div className="min-w-0 flex-1"><p className="text-[10px] font-semibold text-fire-300">Replying to {replyingTo.senderName}</p><p className="truncate text-[10px] text-board-muted">{replyingTo.text || "Attachment"}</p></div>
+              <button type="button" onClick={() => setReplyingTo(null)} className="rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
+          {(pendingAttachments.length > 0 || uploadingCount > 0) && (
+            <div className="flex gap-2 overflow-x-auto border-b border-board-border/70 px-3 py-2 modern-scrollbar">
+              {pendingAttachments.map((attachment) => (
+                <div key={attachment.id} className="flex min-w-0 max-w-52 shrink-0 items-center gap-2 rounded-lg border border-board-border bg-board-card px-2.5 py-2">
+                  {attachment.mimeType.startsWith("image/") ? <ImageIcon className="h-4 w-4 shrink-0 text-sky-300" /> : <FileText className="h-4 w-4 shrink-0 text-fire-300" />}
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-board-text">{attachment.name}</span>
+                  <button type="button" onClick={() => setPendingAttachments((items) => items.filter((item) => item.id !== attachment.id))} className="text-board-muted hover:text-board-text" aria-label={`Remove ${attachment.name}`}><X className="h-3 w-3" /></button>
+                </div>
+              ))}
+              {Array.from({ length: uploadingCount }, (_, index) => <div key={`uploading-${index}`} className="flex h-9 w-24 shrink-0 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-card text-[10px] text-board-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading</div>)}
+            </div>
+          )}
           <div className="flex items-center border-b border-board-border/70 px-2 py-1.5">
-            <MessageTypeSelector value={messageType} onChange={setMessageType} />
+            {allowOperationalMessages && !editingMessage ? (
+              <MessageTypeSelector value={messageType} onChange={setMessageType} />
+            ) : (
+              <span className="px-2 py-1 text-[10px] font-medium text-board-muted">{editingMessage ? "Edit message" : "Guest message"}</span>
+            )}
+            <span className="ml-auto px-2 text-[9px] text-board-muted/55">{pendingAttachments.length}/6 files</span>
           </div>
           <div className="flex items-end gap-2 p-2">
+          {onUploadAttachment && !editingMessage && (
+            <>
+              <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" onChange={handleFiles} className="hidden" />
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={pendingAttachments.length >= 6 || uploadingCount > 0} className="mb-0.5 shrink-0 rounded-lg p-2.5 text-board-muted transition hover:bg-board-border/70 hover:text-board-text disabled:cursor-not-allowed disabled:opacity-40" aria-label="Attach photos or documents" title="Attach photos or documents"><Paperclip className="h-4 w-4" /></button>
+            </>
+          )}
           <textarea
             ref={textareaRef}
             value={inputText}
@@ -537,10 +711,10 @@ export function ChatPanel({
           />
           <button
             onClick={handleSend}
-            disabled={!inputText.trim()}
+            disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0}
             className={cn(
               "mb-0.5 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
-              inputText.trim()
+              (inputText.trim() || pendingAttachments.length > 0) && uploadingCount === 0
                 ? "bg-fire-500 text-black hover:bg-fire-400"
                 : "bg-board-border text-board-muted cursor-not-allowed",
             )}
@@ -549,6 +723,7 @@ export function ChatPanel({
           </button>
           </div>
         </div>
+        {uploadError && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError}</p>}
       </div>
     </div>
   );
