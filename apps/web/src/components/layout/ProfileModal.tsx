@@ -222,7 +222,7 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
               ) : (
                 <span className="text-xl font-bold text-white select-none">{initials}</span>
               )}
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-100 transition-opacity [@media(hover:hover)]:bg-black/50 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
                 <Camera className="w-5 h-5 text-white" />
               </div>
               {uploadingPhoto && (

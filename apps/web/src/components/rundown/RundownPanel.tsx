@@ -352,7 +352,7 @@ function RundownItemRow({
         )}
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
           {item.notes && (
             <button
               onClick={onToggleNotes}

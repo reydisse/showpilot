@@ -265,7 +265,7 @@ function ChatMessageRow({
           </div>
         ) : null}
       </div>
-      {!message.deletedAt && <div className="mt-1 flex shrink-0 self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition sm:opacity-0 sm:focus-within:opacity-100 sm:group-hover:opacity-100">
+      {!message.deletedAt && <div className="mt-1 flex shrink-0 self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
