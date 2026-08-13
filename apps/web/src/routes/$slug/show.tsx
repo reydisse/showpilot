@@ -164,11 +164,13 @@ function ChatPanel({
   chatAdapter,
   userName,
   userRole,
+  liveStatus,
 }: {
   orgId: string;
   chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   userName: string;
   userRole: string;
+  liveStatus?: string | null;
 }) {
   const { messages, sendMessage, connectionStatus } = useChat({
     orgId,
@@ -202,6 +204,7 @@ function ChatPanel({
         title="Team Chat"
         subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
         currentUserName={userName}
+        liveStatus={liveStatus}
         className="border-l-0 flex-1 min-h-0"
       />
     </div>
@@ -746,7 +749,7 @@ function ShowPageWithNative({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
     </div>
   );
 
@@ -927,7 +930,7 @@ function ShowPageWithOntime({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
     </div>
   );
 

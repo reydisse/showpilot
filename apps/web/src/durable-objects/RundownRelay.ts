@@ -608,13 +608,10 @@ export class RundownRelay extends DurableObject {
       if (currentItem?.title?.trim()) {
         void this.sendAutomationChatMessage(`Now live: ${currentItem.title.trim()}`, "system");
       }
-      if (currentItem?.cue?.trim()) {
-        void this.sendAutomationChatMessage(currentItem.cue.trim(), "cue");
-      }
     }
   }
 
-  private async sendAutomationChatMessage(text: string, type: "cue" | "system") {
+  private async sendAutomationChatMessage(text: string, type: "system") {
     if (!this.orgId || !text.trim()) return;
 
     try {
@@ -643,8 +640,7 @@ export class RundownRelay extends DurableObject {
 
       const adapter = settings["chat-adapter"] || "native";
       const senderName = "ShowPilot";
-      const prefix = type === "cue" ? "[CUE] " : "";
-      const formatted = `**${senderName}**: ${prefix}${text}`;
+      const formatted = `**${senderName}**: ${text}`;
       const payloadSummary = sanitizePayloadSummary({
         source: senderName,
         type,
