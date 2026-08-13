@@ -4,7 +4,6 @@ import {
   Send,
   AlertTriangle,
   Radio,
-  Info,
   ChevronDown,
   X,
   Hash,
@@ -143,20 +142,6 @@ function ChatMessageRow({
   grouped?: boolean;
   isOwn?: boolean;
 }) {
-  const isSystem = message.type === "system";
-
-  if (isSystem) {
-    return (
-      <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-[11px] text-board-muted/65">
-        <span className="h-px w-6 bg-board-border/70" />
-        <Info className="h-3 w-3" />
-        <span>{message.text}</span>
-        <span className="tabular-nums text-board-muted/40">{formatTimestamp(message.timestamp)}</span>
-        <span className="h-px w-6 bg-board-border/70" />
-      </div>
-    );
-  }
-
   const isEvent = message.type === "cue" || message.type === "alert";
 
   if (isEvent) {
@@ -231,6 +216,7 @@ interface ChatPanelProps {
   title?: string;
   subtitle?: string;
   currentUserName?: string;
+  liveStatus?: string | null;
 }
 
 export function ChatPanel({
@@ -243,6 +229,7 @@ export function ChatPanel({
   title = "Production Chat",
   subtitle,
   currentUserName,
+  liveStatus,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -377,9 +364,21 @@ export function ChatPanel({
 
   // Separate pinned alerts from regular messages
   const pinnedAlerts = messages.filter((m) => pinnedIds.has(m.id));
+  const latestSystemUpdate = messages.reduce<ChatMessage | null>(
+    (latest, message) => message.type === "system" && (!latest || message.timestamp > latest.timestamp) ? message : latest,
+    null,
+  );
+  // `undefined` means this surface has no direct rundown state and may use
+  // chat automation as a fallback. `null` explicitly means the show is stopped.
+  const hasDirectLiveState = liveStatus !== undefined;
+  const dockedLiveStatus = hasDirectLiveState
+    ? liveStatus?.trim() || null
+    : latestSystemUpdate?.text.replace(/^Now live:\s*/i, "") || null;
+  const dockedLiveTimestamp = hasDirectLiveState ? null : latestSystemUpdate?.timestamp;
   // Pinning changes prominence, not history. Alerts remain readable in
-  // the timeline after their urgent ten-second treatment ends.
-  const timelineMessages = messages.filter((m) => !pinnedIds.has(m.id));
+  // the timeline after their urgent ten-second treatment ends. Automated
+  // rundown status belongs in the header dock, not the conversation.
+  const timelineMessages = messages.filter((m) => m.type !== "system" && !pinnedIds.has(m.id));
 
   return (
     <div
@@ -389,7 +388,7 @@ export function ChatPanel({
       )}
     >
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-board-border bg-board-bg/25 px-4 py-3">
+      <div className="flex shrink-0 items-center gap-3 border-b border-board-border bg-board-bg/25 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-bg">
             <Hash className="h-4 w-4 text-board-muted" />
@@ -404,15 +403,37 @@ export function ChatPanel({
             )}
           </div>
         </div>
+        {dockedLiveStatus && (
+          <div className="ml-auto hidden min-w-0 max-w-[48%] items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/[0.07] px-2.5 py-1.5 sm:flex" title={dockedLiveStatus}>
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-green-400/75">Now live</p>
+              <p className="truncate text-[10px] font-medium text-board-text/85">{dockedLiveStatus}</p>
+            </div>
+            {dockedLiveTimestamp && <span className="shrink-0 text-[8px] tabular-nums text-board-muted/45">{formatTimestamp(dockedLiveTimestamp)}</span>}
+          </div>
+        )}
         {onClose && (
           <button
             onClick={onClose}
-            className="text-board-muted hover:text-board-text transition-colors"
+            className="ml-auto text-board-muted hover:text-board-text transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
+
+      {dockedLiveStatus && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-board-border bg-green-500/[0.05] px-4 py-2 sm:hidden">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-green-400" />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-green-400/75">Now live</span>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-board-text/85">{dockedLiveStatus}</span>
+          {dockedLiveTimestamp && <span className="text-[9px] tabular-nums text-board-muted/45">{formatTimestamp(dockedLiveTimestamp)}</span>}
+        </div>
+      )}
 
       {/* Pinned alerts */}
       {pinnedAlerts.length > 0 && (
@@ -454,8 +475,6 @@ export function ChatPanel({
           const showDay = !previous || new Date(previous.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
           const grouped = Boolean(
             previous &&
-            previous.type !== "system" &&
-            msg.type !== "system" &&
             previous.senderName === msg.senderName &&
             previous.senderRole === msg.senderRole &&
             previous.type === msg.type &&
@@ -494,9 +513,8 @@ export function ChatPanel({
       {/* Input area */}
       <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
         <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_8px_24px_rgba(0,0,0,0.14)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
-          <div className="flex items-center justify-between border-b border-board-border/70 px-2 py-1.5">
+          <div className="flex items-center border-b border-board-border/70 px-2 py-1.5">
             <MessageTypeSelector value={messageType} onChange={setMessageType} />
-            <span className="hidden text-[10px] text-board-muted/55 sm:block">Enter to send · Shift+Enter for a new line</span>
           </div>
           <div className="flex items-end gap-2 p-2">
           <textarea
