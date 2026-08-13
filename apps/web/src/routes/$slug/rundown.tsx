@@ -1872,7 +1872,7 @@ function RundownPage() {
                           {item.title || "Section"}
                         </p>
                         {canEditRundown && (
-                          <div className="flex items-center gap-0.5 shrink-0 opacity-100 xl:opacity-0 xl:group-hover:opacity-100 transition-opacity">
+                          <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
                             <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -2031,7 +2031,7 @@ function RundownPage() {
                                 className={`flex items-center gap-0.5 shrink-0 ${
                                   isCurrent
                                     ? "opacity-100"
-                                    : "opacity-100 xl:opacity-0 xl:group-hover:opacity-100"
+                                    : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"
                                 } transition-opacity`}
                               >
                                 {!isCurrent && item.status !== "complete" && (

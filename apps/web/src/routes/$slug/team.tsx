@@ -579,7 +579,7 @@ function OrgMemberRow({
       {canManage && !isOwner && (
         <button
           onClick={onRemove}
-          className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all text-board-muted hover:text-red-400"
+          className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
           title="Remove member"
         >
           <Trash2 className="w-3.5 h-3.5" />

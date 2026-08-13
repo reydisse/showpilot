@@ -38,7 +38,7 @@ export function PhotoUpload({ currentPhotoURL, onFileSelect }: PhotoUploadProps)
               className="w-full h-full object-cover rounded-full"
             />
             {/* Hover overlay */}
-            <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/35 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:bg-black/50 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100">
               <Camera className="w-5 h-5 text-white" />
             </div>
           </>

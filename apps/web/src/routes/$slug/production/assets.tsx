@@ -232,9 +232,9 @@ function AssetsPage() {
                       <Package className="w-4 h-4 text-fire-500/70" />
                       <p className="text-sm font-medium text-board-text">{item.name}</p>
                     </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => startEdit(item)} className="p-1 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => handleDelete(item.id)} className="p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+                    <div className="flex gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
+                      <button onClick={() => startEdit(item)} className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"><Pencil className="w-3 h-3" /></button>
+                      <button onClick={() => handleDelete(item.id)} className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-2">

@@ -81,7 +81,7 @@ function MemberCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
         <button
           onClick={() => onEdit(member)}
           className="p-2 rounded-lg hover:bg-board-border transition-colors text-board-muted hover:text-board-text"

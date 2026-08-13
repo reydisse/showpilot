@@ -321,7 +321,7 @@ function ChecklistPage() {
                             </option>
                           ))}
                         </select>
-                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-500/20 text-board-muted hover:text-red-400 transition-all">
+                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>
