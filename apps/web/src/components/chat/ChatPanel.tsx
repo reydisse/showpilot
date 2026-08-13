@@ -7,6 +7,7 @@ import {
   Info,
   ChevronDown,
   X,
+  Hash,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
@@ -23,7 +24,7 @@ function RoleBadge({ role }: { role?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border",
+        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]",
         config.color,
       )}
     >
@@ -36,9 +37,8 @@ function RoleBadge({ role }: { role?: string }) {
 
 const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <MessageSquare className="w-3 h-3" /> },
-  { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
   { value: "cue", label: "Cue", icon: <Radio className="w-3 h-3" /> },
-  { value: "system", label: "System", icon: <Info className="w-3 h-3" /> },
+  { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
 ];
 
 function MessageTypeSelector({
@@ -49,23 +49,21 @@ function MessageTypeSelector({
   onChange: (type: MessageType) => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="inline-flex items-center rounded-lg border border-board-border bg-board-bg/70 p-0.5">
       {MESSAGE_TYPES.map((mt) => (
         <button
           key={mt.value}
           type="button"
           onClick={() => onChange(mt.value)}
           className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wide transition-colors",
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
             value === mt.value
               ? mt.value === "alert"
-                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                ? "bg-red-500/20 text-red-400"
                 : mt.value === "cue"
-                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                  : mt.value === "system"
-                    ? "bg-board-border text-board-muted border border-board-border"
-                    : "bg-fire-500/20 text-fire-400 border border-fire-500/30"
-              : "text-board-muted hover:text-board-text hover:bg-board-border/50 border border-transparent",
+                  ? "bg-amber-500/20 text-amber-400"
+                  : "bg-fire-500/15 text-fire-400"
+              : "text-board-muted hover:bg-board-border/50 hover:text-board-text",
           )}
         >
           {mt.icon}
@@ -104,60 +102,118 @@ function formatTimestamp(ts: number): string {
   });
 }
 
+function initials(name: string): string {
+  return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+const AVATAR_STYLES = [
+  "border-sky-400/25 bg-sky-400/10 text-sky-300",
+  "border-violet-400/25 bg-violet-400/10 text-violet-300",
+  "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
+  "border-orange-400/25 bg-orange-400/10 text-orange-300",
+  "border-pink-400/25 bg-pink-400/10 text-pink-300",
+] as const;
+
+function avatarStyle(name: string): string {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) hash = (hash * 31 + name.charCodeAt(index)) | 0;
+  return AVATAR_STYLES[Math.abs(hash) % AVATAR_STYLES.length];
+}
+
+function formatDay(ts: number): string {
+  const date = new Date(ts);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return "Today";
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+}
+
 // -- Single message row --
 
 function ChatMessageRow({
   message,
   isPinned,
+  grouped = false,
+  isOwn = false,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
+  grouped?: boolean;
+  isOwn?: boolean;
 }) {
   const isSystem = message.type === "system";
+
+  if (isSystem) {
+    return (
+      <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-[11px] text-board-muted/65">
+        <span className="h-px w-6 bg-board-border/70" />
+        <Info className="h-3 w-3" />
+        <span>{message.text}</span>
+        <span className="tabular-nums text-board-muted/40">{formatTimestamp(message.timestamp)}</span>
+        <span className="h-px w-6 bg-board-border/70" />
+      </div>
+    );
+  }
+
+  const isEvent = message.type === "cue" || message.type === "alert";
+
+  if (isEvent) {
+    return (
+      <div className={cn("px-4", grouped ? "pt-1" : "pt-3")}>
+        <div className={cn(
+          "flex gap-2.5 rounded-lg border px-3 py-2.5 shadow-sm",
+          message.type === "alert" ? "border-red-500/25 bg-red-500/[0.08]" : "border-amber-400/20 bg-amber-400/[0.06]",
+          isPinned && "ring-1 ring-red-500/35",
+        )}>
+          <div className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md", message.type === "alert" ? "bg-red-500/15 text-red-300" : "bg-amber-400/15 text-amber-300")}>
+            {message.type === "alert" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Radio className="h-3.5 w-3.5" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="mb-0.5 flex items-center gap-2">
+              <span className={cn("text-[9px] font-bold uppercase tracking-[0.1em]", message.type === "alert" ? "text-red-300" : "text-amber-300")}>{message.type}</span>
+              <span className="truncate text-[10px] text-board-muted">{message.senderName}</span>
+              <span className="ml-auto shrink-0 text-[9px] tabular-nums text-board-muted/50">{formatTimestamp(message.timestamp)}</span>
+            </div>
+            <p className={cn("break-words text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       className={cn(
-        "px-3.5 py-3 rounded-2xl transition-colors shadow-sm",
-        message.type === "alert" && "bg-red-500/15 border border-red-500/25",
-        message.type === "cue" && "bg-amber-500/10 border border-amber-500/20",
-        message.type === "system" && "bg-transparent shadow-none px-1 py-1",
-        message.type === "text" && "bg-board-bg/70 border border-board-border/70",
-        isPinned && "ring-1 ring-red-500/40",
+        "group flex px-4",
+        isOwn ? "justify-end" : "justify-start",
+        grouped ? "pt-1" : "pt-3",
       )}
     >
-      {/* Header: sender + role + time */}
-      {!isSystem && (
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-xs font-semibold text-board-text/95">
-            {message.senderName}
-          </span>
-          <RoleBadge role={message.senderRole} />
-          <span className="text-[10px] text-board-muted/80 ml-auto shrink-0">
-            {formatTimestamp(message.timestamp)}
-          </span>
+      {!isOwn && !grouped && (
+        <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold shadow-sm", avatarStyle(message.senderName))}>
+          {initials(message.senderName)}
         </div>
       )}
-
-      {/* Message body */}
-      <div
-        className={cn(
-          "text-sm leading-relaxed break-words",
-          message.type === "text" && "text-board-text",
-          message.type === "alert" && "text-red-300 font-medium",
-          message.type === "cue" && "text-amber-300 font-mono",
-          message.type === "system" && "text-board-muted text-xs italic",
+      {!isOwn && grouped && <span className="w-9 shrink-0" />}
+      <div className={cn("min-w-0 max-w-[82%]", !isOwn && "ml-2.5")}>
+        {!grouped && (
+          <div className={cn("mb-1 flex min-w-0 items-center gap-2", isOwn && "justify-end")}>
+            {!isOwn && <span className="truncate text-[12px] font-semibold text-board-text/90">{message.senderName}</span>}
+            {!isOwn && <RoleBadge role={message.senderRole} />}
+            {isOwn && <span className="text-[10px] font-medium text-board-muted/60">You</span>}
+          </div>
         )}
-      >
-        {message.type === "cue" && (
-          <span className="text-amber-400 font-bold mr-1">[CUE]</span>
-        )}
-        {message.type === "system" && (
-          <span className="text-[10px] text-board-muted mr-2">
-            {formatTimestamp(message.timestamp)}
-          </span>
-        )}
-        {message.text}
+        <div className={cn(
+          "relative break-words px-3 py-2 text-[13px] leading-[1.3rem] shadow-sm",
+          isOwn ? "rounded-2xl rounded-br-md bg-fire-500 text-black" : "rounded-2xl rounded-bl-md border border-board-border/80 bg-board-bg/75 text-board-text/90",
+          grouped && isOwn && "rounded-br-2xl",
+          grouped && !isOwn && "rounded-bl-2xl",
+        )}>
+          <p>{message.text}</p>
+          <span className={cn("mt-0.5 block text-right text-[8px] tabular-nums", isOwn ? "text-black/55" : "text-board-muted/45")}>{formatTimestamp(message.timestamp)}</span>
+        </div>
       </div>
     </div>
   );
@@ -174,17 +230,19 @@ interface ChatPanelProps {
   className?: string;
   title?: string;
   subtitle?: string;
+  currentUserName?: string;
 }
 
 export function ChatPanel({
   messages,
   connectionStatus,
-  unreadCount: _unreadCount,
+  unreadCount,
   onSendMessage,
   onClose,
   className,
   title = "Production Chat",
   subtitle,
+  currentUserName,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -319,30 +377,30 @@ export function ChatPanel({
 
   // Separate pinned alerts from regular messages
   const pinnedAlerts = messages.filter((m) => pinnedIds.has(m.id));
-  const timelineMessages = messages.filter(
-    (m) => m.type !== "alert" && !dismissedAlertIds.has(m.id),
-  );
+  // Pinning changes prominence, not history. Alerts remain readable in
+  // the timeline after their urgent ten-second treatment ends.
+  const timelineMessages = messages.filter((m) => !pinnedIds.has(m.id));
 
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col overflow-hidden bg-board-card border-l border-board-border",
+        "relative flex h-full min-h-0 flex-col overflow-hidden bg-board-card",
         className,
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-board-border shrink-0">
+      <div className="flex shrink-0 items-center justify-between border-b border-board-border bg-board-bg/25 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-fire-500/10 border border-fire-500/20 flex items-center justify-center shrink-0">
-            <MessageSquare className="w-4 h-4 text-fire-400" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-bg">
+            <Hash className="h-4 w-4 text-board-muted" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-board-text truncate">{title}</span>
-              <ConnectionDot status={connectionStatus} />
+              {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}
             </div>
             {subtitle && (
-              <p className="text-[11px] text-board-muted truncate mt-0.5">{subtitle}</p>
+              <p className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-board-muted"><ConnectionDot status={connectionStatus} />{connectionStatus === "connected" ? "Live" : connectionStatus} · {subtitle}</p>
             )}
           </div>
         </div>
@@ -358,7 +416,7 @@ export function ChatPanel({
 
       {/* Pinned alerts */}
       {pinnedAlerts.length > 0 && (
-        <div className="px-3 py-2.5 space-y-1.5 border-b border-board-border bg-red-500/5 shrink-0">
+        <div className="shrink-0 border-b border-red-500/25 bg-red-500/[0.06] py-1">
           {pinnedAlerts.map((alert) => (
             <div key={`pinned-${alert.id}`} className="relative">
               <ChatMessageRow message={alert} isPinned />
@@ -379,7 +437,7 @@ export function ChatPanel({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto modern-scrollbar px-3 py-3 space-y-2"
+        className="min-h-0 flex-1 overflow-y-auto py-2 modern-scrollbar"
       >
         {timelineMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-board-muted">
@@ -391,9 +449,32 @@ export function ChatPanel({
           </div>
         )}
 
-        {timelineMessages.map((msg) => (
-          <ChatMessageRow key={msg.id} message={msg} />
-        ))}
+        {timelineMessages.map((msg, index) => {
+          const previous = timelineMessages[index - 1];
+          const showDay = !previous || new Date(previous.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
+          const grouped = Boolean(
+            previous &&
+            previous.type !== "system" &&
+            msg.type !== "system" &&
+            previous.senderName === msg.senderName &&
+            previous.senderRole === msg.senderRole &&
+            previous.type === msg.type &&
+            msg.timestamp - previous.timestamp < 5 * 60 * 1000,
+          );
+
+          return (
+            <div key={msg.id}>
+              {showDay && (
+                <div className="my-2 flex items-center gap-3 px-4" role="separator">
+                  <span className="h-px flex-1 bg-board-border/70" />
+                  <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-board-muted/55">{formatDay(msg.timestamp)}</span>
+                  <span className="h-px flex-1 bg-board-border/70" />
+                </div>
+              )}
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserName && msg.senderName === currentUserName)} />
+            </div>
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
@@ -411,9 +492,13 @@ export function ChatPanel({
       )}
 
       {/* Input area */}
-      <div className="px-3 py-2 border-t border-board-border shrink-0 space-y-2 safe-area-bottom">
-        <MessageTypeSelector value={messageType} onChange={setMessageType} />
-        <div className="flex items-end gap-2">
+      <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
+        <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_8px_24px_rgba(0,0,0,0.14)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
+          <div className="flex items-center justify-between border-b border-board-border/70 px-2 py-1.5">
+            <MessageTypeSelector value={messageType} onChange={setMessageType} />
+            <span className="hidden text-[10px] text-board-muted/55 sm:block">Enter to send · Shift+Enter for a new line</span>
+          </div>
+          <div className="flex items-end gap-2 p-2">
           <textarea
             ref={textareaRef}
             value={inputText}
@@ -424,13 +509,11 @@ export function ChatPanel({
                 ? "Camera 2 wide..."
                 : messageType === "alert"
                   ? "Alert message..."
-                  : "Type a message..."
+                  : "Message the production team…"
             }
             rows={1}
             className={cn(
-              "flex-1 resize-none rounded-lg px-3 py-2 text-sm text-board-text placeholder:text-board-muted/50 outline-none transition-all modern-scrollbar",
-              "bg-board-bg border border-board-border",
-              "focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20",
+              "flex-1 resize-none bg-transparent px-2 py-2 text-sm text-board-text placeholder:text-board-muted/45 outline-none modern-scrollbar",
               messageType === "cue" && "font-mono",
             )}
           />
@@ -438,14 +521,15 @@ export function ChatPanel({
             onClick={handleSend}
             disabled={!inputText.trim()}
             className={cn(
-              "shrink-0 p-2 rounded-lg transition-colors touch-manipulation",
+              "mb-0.5 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
               inputText.trim()
-                ? "bg-fire-500 text-white hover:bg-fire-600"
+                ? "bg-fire-500 text-black hover:bg-fire-400"
                 : "bg-board-border text-board-muted cursor-not-allowed",
             )}
           >
             <Send className="w-4 h-4" />
           </button>
+          </div>
         </div>
       </div>
     </div>

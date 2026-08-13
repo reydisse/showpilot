@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveCallerClock,
+  liveElapsedMs,
   resolveCueSheetDate,
   resolveOpeningServiceDate,
   toCueRows,
@@ -25,6 +26,20 @@ const toRows = toCueRows;
 
 const MINUTE = 60_000;
 const START = new Date("2026-08-09T09:00:00.000Z").getTime();
+
+describe("live cue timer reconstruction", () => {
+  it("keeps accumulated progress when a resumed timer advances", () => {
+    expect(liveElapsedMs({ playback: "play", elapsed: 30_000, startedAt: 100_000, nowMs: 105_000 })).toBe(35_000);
+  });
+
+  it("preserves negative elapsed used by add-time offsets", () => {
+    expect(liveElapsedMs({ playback: "play", elapsed: -10_000, startedAt: 100_000, nowMs: 105_000 })).toBe(-5_000);
+  });
+
+  it("does not advance while paused", () => {
+    expect(liveElapsedMs({ playback: "pause", elapsed: 42_000, startedAt: 100_000, nowMs: 999_000 })).toBe(42_000);
+  });
+});
 
 function item(overrides: Partial<RundownItem> & { id: string }): RundownItem {
   return {
@@ -211,6 +226,17 @@ describe("the caller's clock", () => {
     expect(clock.nextTitle).toBe("Offering");
     expect(clock.itemRemainingMs).toBe(15 * MINUTE);
     expect(clock.offsetMs).toBe(0);
+  });
+
+  it("does not report a multi-day offset while rehearsing another service date", () => {
+    const clock = deriveCallerClock({
+      rows,
+      currentItemId: "a",
+      elapsedMs: 5 * MINUTE,
+      nowMs: START - 4 * 24 * 60 * MINUTE,
+    });
+    expect(clock.itemRemainingMs).toBe(35 * MINUTE);
+    expect(clock.offsetMs).toBeNull();
   });
 
   it("projects the overrun forward rather than reporting it backward", () => {

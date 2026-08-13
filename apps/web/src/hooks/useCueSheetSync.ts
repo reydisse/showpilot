@@ -28,7 +28,14 @@ export interface CueColumnsEvent {
   at: number;
 }
 
-export type CueSheetEvent = CueNoteEvent | CueColumnsEvent;
+export interface IncidentEvent {
+  type: "incident";
+  incidentId: string;
+  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted";
+  at: number;
+}
+
+export type CueSheetEvent = CueNoteEvent | CueColumnsEvent | IncidentEvent;
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
@@ -39,9 +46,10 @@ interface Options {
   orgId: string;
   onNote: (event: CueNoteEvent) => void;
   onColumns: () => void;
+  onIncident?: (event: IncidentEvent) => void;
 }
 
-export function useCueSheetSync({ orgId, onNote, onColumns }: Options) {
+export function useCueSheetSync({ orgId, onNote, onColumns, onIncident }: Options) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const attempts = useRef(0);
@@ -53,10 +61,12 @@ export function useCueSheetSync({ orgId, onNote, onColumns }: Options) {
   // socket down and reconnect on every keystroke.
   const onNoteRef = useRef(onNote);
   const onColumnsRef = useRef(onColumns);
+  const onIncidentRef = useRef(onIncident);
   useEffect(() => {
     onNoteRef.current = onNote;
     onColumnsRef.current = onColumns;
-  }, [onNote, onColumns]);
+    onIncidentRef.current = onIncident;
+  }, [onNote, onColumns, onIncident]);
 
   const connect = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -88,6 +98,7 @@ export function useCueSheetSync({ orgId, onNote, onColumns }: Options) {
         const message = JSON.parse(event.data) as CueSheetEvent;
         if (message.type === "note") onNoteRef.current(message);
         else if (message.type === "columns") onColumnsRef.current();
+        else if (message.type === "incident") onIncidentRef.current?.(message);
       } catch {
         // A malformed frame is not worth surfacing to an operator.
       }

@@ -43,7 +43,10 @@ export class MtcSource {
 
   static async getInputs(): Promise<MIDIInput[]> {
     if (!MtcSource.isSupported()) return [];
-    const access = await navigator.requestMIDIAccess({ sysex: true });
+    // Quarter-frame MTC is a normal MIDI system-common message and does not
+    // require privileged SysEx access. Asking for SysEx caused browsers and
+    // managed devices to reject the entire MIDI permission request.
+    const access = await navigator.requestMIDIAccess();
     return [...access.inputs.values()];
   }
 
@@ -52,7 +55,7 @@ export class MtcSource {
       throw new Error("Web MIDI API not supported in this browser");
     }
 
-    this.midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+    this.midiAccess = await navigator.requestMIDIAccess();
     this.input = this.midiAccess.inputs.get(inputId) ?? null;
 
     if (!this.input) {

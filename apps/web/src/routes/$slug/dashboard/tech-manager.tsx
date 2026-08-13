@@ -21,6 +21,8 @@ import { TM_WIDGETS, type TmWidget, type TmWidgetModel } from "@/components/dash
 import { TmOperations } from "@/components/dashboard/tm-operations";
 import { selectWidgets, widgetsInRegion } from "@/components/dashboard/widget";
 import { saveTmDashboardLayout, TM_LAYOUT_SECTION_IDS, TM_LAYOUT_WIDGET_IDS, type TmDashboardLayout } from "@/lib/dashboard-layout";
+import { hasPermission } from "@/lib/app-permissions";
+import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 
 /** How often the page re-reads. A live service needs a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
@@ -59,7 +61,7 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
 });
 
 function TechManagerPage() {
-  const { model, orgId, serviceDate, serviceDates, viewerId, viewerRole, canAssignTechManagers, members, liveInputs, streamDestinations, dashboardLayout } = Route.useLoaderData();
+  const { model, orgId, serviceDate, serviceDates, viewerId, viewerRole, canAssignPeople, members, liveInputs, streamDestinations, dashboardLayout } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -72,6 +74,12 @@ function TechManagerPage() {
   const [editingLayout, setEditingLayout] = useState(false);
   const [layout, setLayout] = useState<TmDashboardLayout>(dashboardLayout);
   const [layoutSaving, setLayoutSaving] = useState(false);
+  const { publish: publishIncident } = useCueSheetSync({
+    orgId,
+    onNote: () => {},
+    onColumns: () => {},
+    onIncident: () => void router.invalidate().then(() => setLastRefresh(Date.now())),
+  });
 
   // Faults arrive from other people — someone reporting from the floor,
   // a colleague claiming one. Without a refresh the page is a snapshot of
@@ -89,6 +97,7 @@ function TechManagerPage() {
       setError(null);
       try {
         await run();
+        publishIncident({ type: "incident", incidentId: faultId, action: "updated", at: Date.now() });
         await router.invalidate();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "That did not save");
@@ -96,7 +105,7 @@ function TechManagerPage() {
         setBusyId(null);
       }
     },
-    [router],
+    [publishIncident, router],
   );
 
   const filteredModel = useMemo(
@@ -122,8 +131,8 @@ function TechManagerPage() {
     slug,
     orgId,
     viewerId,
-    canAssignTechManagers,
-    canClaimFaults: viewerRole === "tm",
+    canAssignPeople,
+    canClaimFaults: hasPermission(viewerRole, "incidents:access"),
     members,
     busyId,
     onClaim: (faultId) =>

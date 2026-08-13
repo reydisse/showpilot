@@ -37,11 +37,17 @@ export interface CueColumnsEvent {
   at: number;
 }
 
-export type CueSheetEvent = CueNoteEvent | CueColumnsEvent;
+/** An incident changed in D1; subscribers reload their scoped view. */
+export interface IncidentEvent {
+  type: "incident";
+  incidentId: string;
+  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted";
+  at: number;
+}
+
+export type CueSheetEvent = CueNoteEvent | CueColumnsEvent | IncidentEvent;
 
 export class CueSheetRelay extends DurableObject {
-  private sessions: Set<WebSocket> = new Set();
-
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -50,7 +56,6 @@ export class CueSheetRelay extends DurableObject {
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
-      this.sessions.add(server);
       return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -76,7 +81,7 @@ export class CueSheetRelay extends DurableObject {
       const attachment = sender.deserializeAttachment?.() as { canWrite?: boolean } | null;
       if (!attachment?.canWrite) return;
       const parsed = JSON.parse(data as string) as CueSheetEvent;
-      if (parsed.type !== "note" && parsed.type !== "columns") return;
+      if (parsed.type !== "note" && parsed.type !== "columns" && parsed.type !== "incident") return;
       // Don't echo to the sender: it already applied the change locally,
       // and bouncing it back would fight their cursor mid-word.
       this.broadcast(data as string, sender);
@@ -85,21 +90,19 @@ export class CueSheetRelay extends DurableObject {
     }
   }
 
-  webSocketClose(ws: WebSocket) {
-    this.sessions.delete(ws);
-  }
+  webSocketClose() {}
 
-  webSocketError(ws: WebSocket) {
-    this.sessions.delete(ws);
-  }
+  webSocketError() {}
 
   private broadcast(data: string, except?: WebSocket) {
-    for (const ws of this.sessions) {
+    // getWebSockets survives Durable Object hibernation; an in-memory Set
+    // does not and silently loses every subscriber after the object wakes.
+    for (const ws of this.ctx.getWebSockets()) {
       if (ws === except) continue;
       try {
         ws.send(data);
       } catch {
-        this.sessions.delete(ws);
+        try { ws.close(1011, "Broadcast failed"); } catch {}
       }
     }
   }

@@ -15,7 +15,8 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import { hasAnyPermission, hasPermission, isAdminTier, type Permission } from "@/lib/app-permissions";
+import { ROLE_META, type Role } from "@/lib/permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { loadRosterDuty } from "@/lib/pm-dashboard";
@@ -63,11 +64,11 @@ export interface TmDashboardResult {
   serviceDates: string[];
   viewerId: string;
   viewerRole: string;
-  canAssignTechManagers: boolean;
+  canAssignPeople: boolean;
   liveInputs: { id: string; name: string; status: string }[];
   streamDestinations: { id: string; name: string; platform: string; enabled: boolean; connected: boolean }[];
   /** Everyone a fault can be handed to. */
-  members: { id: string; name: string }[];
+  members: { id: string; name: string; role: string; roleLabel: string }[];
 }
 
 export const getTmDashboard = createServerFn({ method: "GET" })
@@ -223,8 +224,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     };
 
     const members = await prisma.member.findMany({
-      where: { organizationId: orgId, role: "tm" },
-      select: { user: { select: { id: true, name: true } } },
+      where: { organizationId: orgId },
+      select: { role: true, user: { select: { id: true, name: true } } },
     });
 
     return {
@@ -234,7 +235,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       serviceDates: serviceDateRows.map((row) => row.serviceDate),
       viewerId: viewer.userId,
       viewerRole: viewer.role,
-      canAssignTechManagers: viewer.role === "owner" || viewer.role === "admin",
+      canAssignPeople: isAdminTier(viewer.role),
       liveInputs: liveInputs.map((row) => ({ id: row.id, name: row.name, status: row.status })),
       streamDestinations: destinations.map((row) => ({
         id: row.id,
@@ -244,7 +245,13 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         connected: Boolean(row.cfOutputId),
       })),
       members: members
-        .map((row) => ({ id: row.user.id, name: row.user.name }))
+        .filter((row) => hasPermission(row.role, "incidents:access"))
+        .map((row) => ({
+          id: row.user.id,
+          name: row.user.name,
+          role: row.role,
+          roleLabel: ROLE_META[row.role as Role]?.label ?? row.role,
+        }))
         .filter((member) => member.name),
     };
   });
@@ -382,24 +389,24 @@ export const assignFault = createServerFn({ method: "POST" })
     // not: they have not seen it yet, and that gap is exactly what the
     // staleness rule watches for.
     const claimingSelf = data.assignedTo === viewer.userId;
-    if (claimingSelf && viewer.role !== "tm") {
-      throw new Error("Only Tech Managers can claim faults");
-    }
+    if (claimingSelf && !hasPermission(viewer.role, "incidents:access")) throw new Error("Forbidden");
     let name = data.assignedTo ? data.assignedName || viewer.userName : "";
 
     if (data.assignedTo && !claimingSelf) {
-      if (viewer.role !== "owner" && viewer.role !== "admin") throw new Error("Forbidden");
+      if (!isAdminTier(viewer.role)) throw new Error("Forbidden");
       const target = await getPrisma().member.findFirst({
-        where: { organizationId: data.orgId, userId: data.assignedTo, role: "tm" },
-        select: { user: { select: { name: true } } },
+        where: { organizationId: data.orgId, userId: data.assignedTo },
+        select: { role: true, user: { select: { name: true } } },
       });
-      if (!target) throw new Error("Only Tech Managers can be assigned to faults");
+      if (!target || !hasPermission(target.role, "incidents:access")) {
+        throw new Error("That person cannot be assigned operational issues");
+      }
       // Never trust the display name supplied by the browser. It is
       // denormalised onto the incident, so source it from membership.
       name = target.user.name;
     }
 
-    if (!data.assignedTo && viewer.role !== "owner" && viewer.role !== "admin") {
+    if (!data.assignedTo && !isAdminTier(viewer.role)) {
       const current = await getD1()
         .prepare(`SELECT assignedTo FROM incident WHERE id = ? AND orgId = ?`)
         .bind(data.id, data.orgId)
@@ -435,10 +442,10 @@ export const assignFault = createServerFn({ method: "POST" })
         await getD1().prepare(
           `INSERT INTO notification
             (id, orgId, type, severity, title, message, target, source, createdAt, dismissed, userId, actionUrl)
-           VALUES (?, ?, 'fault-assigned', 'warning', 'Fault assigned to you', ?, ?, ?, CURRENT_TIMESTAMP, 0, ?, 'dashboard/tech-manager')`,
+           VALUES (?, ?, 'fault-assigned', 'warning', 'Issue assigned to you', ?, ?, ?, CURRENT_TIMESTAMP, 0, ?, 'production/incidents')`,
         ).bind(
           crypto.randomUUID(), data.orgId,
-          name ? `${name}, a technical fault has been assigned to you.` : "A technical fault has been assigned to you.",
+          name ? `${name}, an operational issue has been assigned to you.` : "An operational issue has been assigned to you.",
           `user:${data.assignedTo}`, data.id, data.assignedTo,
         ).run();
       } catch {

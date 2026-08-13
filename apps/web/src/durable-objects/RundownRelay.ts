@@ -112,6 +112,10 @@ export class RundownRelay extends DurableObject {
         ppSlide: stored.ppSlide ?? null,
         ppPreviewSlide: stored.ppPreviewSlide ?? null,
         stageMessage: stored.stageMessage ?? "",
+        // Without this, every DO wake-up relabelled the active room as
+        // unknown. Cue sheets correctly reject unknown-date live state,
+        // which made sync work until a refresh/navigation and then stop.
+        serviceDate: stored.serviceDate,
       };
     }
   }
@@ -170,19 +174,31 @@ export class RundownRelay extends DurableObject {
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
     const serviceDate = url.searchParams.get("serviceDate");
-    if (serviceDate) this.state.serviceDate = serviceDate;
+    const access = url.searchParams.get("access");
+    if (serviceDate && access === "write" && serviceDate !== this.state.serviceDate) {
+      // A room is active for one service at a time. Relabelling the old
+      // rows as a newly opened date made the cue sheet show a hybrid of
+      // two services. Empty first; the editor then seeds this date's D1 rows.
+      this.state.serviceDate = serviceDate;
+      this.state.items = [];
+      this.state.timer = { ...DEFAULT_TIMER };
+      this.persistState();
+    }
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
+      server.serializeAttachment?.({
+        canWrite: access === "write",
+        canObserve: access === "observe",
+      });
 
       // Hydrate with current state
       server.send(
         JSON.stringify({
           type: "hydrate",
-          state: url.searchParams.get("access") === "write"
+          state: access === "write" || access === "observe"
             ? this.getPublicState()
             : this.getDisplayState(),
         })
@@ -193,7 +209,7 @@ export class RundownRelay extends DurableObject {
 
     if (url.pathname === "/state") {
       return Response.json(
-        url.searchParams.get("access") === "read" ? this.getDisplayState() : this.getPublicState(),
+        access === "read" ? this.getDisplayState() : this.getPublicState(),
       );
     }
 
@@ -917,10 +933,12 @@ export class RundownRelay extends DurableObject {
     // Use ctx.getWebSockets() instead of manual Set — survives hibernation
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean; canObserve?: boolean } | null;
         ws.send(JSON.stringify({
           type: "state",
-          state: attachment?.canWrite ? this.getPublicState() : this.getDisplayState(),
+          state: attachment?.canWrite || attachment?.canObserve
+            ? this.getPublicState()
+            : this.getDisplayState(),
         }));
       } catch {
         // Dead socket — Cloudflare will clean it up

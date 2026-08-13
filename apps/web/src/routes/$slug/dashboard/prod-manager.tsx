@@ -13,6 +13,7 @@ import {
   useNow,
   widgetsInRegion,
 } from "@/components/dashboard/widget";
+import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 
 /** How often the loader re-reads. Live services need a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
@@ -55,6 +56,12 @@ function ProdManagerPage() {
   const now = useNow(1000);
   const headerScroll = useEdgeScroll();
   const [planOpen, setPlanOpen] = useState(false);
+  useCueSheetSync({
+    orgId,
+    onNote: () => {},
+    onColumns: () => {},
+    onIncident: () => void router.invalidate(),
+  });
 
   // Server data ages; the countdown does not. Re-read on a cadence that
   // matches the phase rather than making the operator hit reload.

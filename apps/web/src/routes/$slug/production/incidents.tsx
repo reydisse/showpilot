@@ -9,6 +9,7 @@ import { getTodayDateString, formatTime } from "@/lib/utils";
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -28,6 +29,10 @@ type IncidentItem = {
   description: string;
   reportedBy: string;
   timestamp: string;
+  status: string;
+  assignedTo: string | null;
+  assignedName: string;
+  acknowledgedAt: string | null;
 };
 
 function normalizeIncident(incident: {
@@ -37,6 +42,10 @@ function normalizeIncident(incident: {
   description: string;
   reportedBy: string;
   timestamp: Date | string;
+  status?: string;
+  assignedTo?: string | null;
+  assignedName?: string | null;
+  acknowledgedAt?: Date | string | null;
 }): IncidentItem {
   return {
     id: incident.id,
@@ -45,6 +54,10 @@ function normalizeIncident(incident: {
     description: incident.description,
     reportedBy: incident.reportedBy,
     timestamp: incident.timestamp instanceof Date ? incident.timestamp.toISOString() : incident.timestamp,
+    status: incident.status ?? "open",
+    assignedTo: incident.assignedTo ?? null,
+    assignedName: incident.assignedName ?? "",
+    acknowledgedAt: incident.acknowledgedAt instanceof Date ? incident.acknowledgedAt.toISOString() : incident.acknowledgedAt ?? null,
   };
 }
 
@@ -96,6 +109,13 @@ function IncidentsPage() {
     }
   }, [orgId]);
 
+  const { publish: publishIncident } = useCueSheetSync({
+    orgId,
+    onNote: () => {},
+    onColumns: () => {},
+    onIncident: () => void loadIncidents(serviceDate),
+  });
+
   useEffect(() => {
     setIncidents(initialIncidents);
   }, [initialIncidents]);
@@ -121,6 +141,7 @@ function IncidentsPage() {
     if (!canReportIncidents) return;
     if (!form.description.trim()) return;
     await addIncident({ data: { orgId, ...form, serviceDate } });
+    publishIncident({ type: "incident", incidentId: "new", action: "created", at: Date.now() });
     setForm({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
     setShowForm(false);
     await loadIncidents(serviceDate);
@@ -135,6 +156,7 @@ function IncidentsPage() {
     });
     if (!ok) return;
     await deleteIncident({ data: { orgId, id } });
+    publishIncident({ type: "incident", incidentId: id, action: "deleted", at: Date.now() });
     await loadIncidents(serviceDate);
   };
 
@@ -186,7 +208,13 @@ function IncidentsPage() {
                         <span className="text-[10px] text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border">{incident.category}</span>
                         {incident.reportedBy && <span className="text-[10px] text-board-muted">by {incident.reportedBy}</span>}
                         {incident.timestamp && <span className="text-[10px] text-board-muted">{formatTime(new Date(incident.timestamp))}</span>}
+                        <span className={`text-[10px] font-medium ${incident.status === "resolved" ? "text-green-400" : "text-board-muted"}`}>{incident.status}</span>
                       </div>
+                      <p className={`mt-2 text-[11px] ${incident.assignedTo ? "text-board-text" : "text-red-400"}`}>
+                        {incident.assignedTo
+                          ? `Assigned to ${incident.assignedName || "team member"}${incident.acknowledgedAt ? " · acknowledged" : " · awaiting acknowledgement"}`
+                          : "Unassigned"}
+                      </p>
                     </div>
                   </div>
                   {canManageIncidents && (

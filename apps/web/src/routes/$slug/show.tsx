@@ -18,13 +18,15 @@ import {
   WifiOff,
   UserPlus,
   LayoutDashboard,
+  LayoutGrid,
+  ChevronDown,
   ArrowRight,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
 import { getRundownState } from "@/lib/rundown";
 import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
-import { getTodayDateString, formatTime, formatClockFull, type ClockFormat } from "@/lib/utils";
+import { cn, getTodayDateString, formatTime, formatClockFull, type ClockFormat } from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
@@ -49,6 +51,14 @@ function formatDuration(ms: number): string {
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ShowTab = "show" | "chat" | "rundown";
+type ShowLayoutPreset = "balanced" | "show-focus" | "chat-focus" | "rundown-focus" | "custom";
+
+const SHOW_LAYOUT_PRESETS: Array<{ id: Exclude<ShowLayoutPreset, "custom">; label: string; left: number; top: number }> = [
+  { id: "balanced", label: "Balanced", left: 40, top: 45 },
+  { id: "show-focus", label: "Show focus", left: 62, top: 70 },
+  { id: "chat-focus", label: "Chat focus", left: 62, top: 24 },
+  { id: "rundown-focus", label: "Rundown focus", left: 25, top: 50 },
+];
 
 const TYPE_COLORS: Record<ItemType, string> = {
   header: "bg-board-muted",
@@ -191,6 +201,7 @@ function ChatPanel({
         onSendMessage={sendMessage}
         title="Team Chat"
         subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
+        currentUserName={userName}
         className="border-l-0 flex-1 min-h-0"
       />
     </div>
@@ -292,6 +303,7 @@ function ShowPageLayout({
   const STORAGE_LEFT_WIDTH = "show-page-left-width";
   const STORAGE_TOP_HEIGHT = "show-page-top-height";
   const STORAGE_LAYOUT_VERSION = "show-page-layout-version";
+  const STORAGE_LAYOUT_PRESET = "show-page-layout-preset";
   const CURRENT_LAYOUT_VERSION = "2";
 
   const applyStoredLayout = (leftWidth: number, topHeight: number) => {
@@ -305,7 +317,9 @@ function ShowPageLayout({
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(STORAGE_LEFT_WIDTH);
     window.localStorage.removeItem(STORAGE_TOP_HEIGHT);
+    window.localStorage.setItem(STORAGE_LAYOUT_PRESET, "balanced");
     window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
+    setLayoutPreset("balanced");
     applyStoredLayout(40, 45);
   };
 
@@ -339,6 +353,8 @@ function ShowPageLayout({
 
   const [leftWidthPercent, setLeftWidthPercent] = useState(40);
   const [topHeightPercent, setTopHeightPercent] = useState(45);
+  const [layoutPreset, setLayoutPreset] = useState<ShowLayoutPreset>("balanced");
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
 
   useEffect(() => {
     leftWidthRef.current = leftWidthPercent;
@@ -356,6 +372,7 @@ function ShowPageLayout({
 
     const savedLeft = Number(window.localStorage.getItem(STORAGE_LEFT_WIDTH));
     const savedTop = Number(window.localStorage.getItem(STORAGE_TOP_HEIGHT));
+    const savedPreset = window.localStorage.getItem(STORAGE_LAYOUT_PRESET) as ShowLayoutPreset | null;
 
     if (Number.isFinite(savedLeft) && savedLeft >= 24 && savedLeft <= 72) {
       setLeftWidthPercent(savedLeft);
@@ -364,11 +381,26 @@ function ShowPageLayout({
     if (Number.isFinite(savedTop) && savedTop >= 20 && savedTop <= 80) {
       setTopHeightPercent(savedTop);
     }
+    if (savedPreset && [...SHOW_LAYOUT_PRESETS.map((preset) => preset.id), "custom"].includes(savedPreset)) {
+      setLayoutPreset(savedPreset);
+    }
   }, []);
 
   const clamp = (value: number, min: number, max: number) => {
     if (Number.isNaN(value)) return min;
     return Math.min(Math.max(value, min), max);
+  };
+
+  const chooseLayout = (preset: (typeof SHOW_LAYOUT_PRESETS)[number]) => {
+    applyStoredLayout(preset.left, preset.top);
+    setLayoutPreset(preset.id);
+    setLayoutMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_LEFT_WIDTH, String(preset.left));
+      window.localStorage.setItem(STORAGE_TOP_HEIGHT, String(preset.top));
+      window.localStorage.setItem(STORAGE_LAYOUT_PRESET, preset.id);
+      window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
+    }
   };
 
   const beginResize = (mode: "horizontal" | "vertical") => (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -379,6 +411,8 @@ function ShowPageLayout({
     if (rect.width <= 0 || rect.height <= 0) return;
 
     event.preventDefault();
+    setLayoutPreset("custom");
+    if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_LAYOUT_PRESET, "custom");
     event.currentTarget.setPointerCapture(event.pointerId);
 
     resizeRef.current = {
@@ -459,7 +493,37 @@ function ShowPageLayout({
         <div className="show-page-shell">
           <header className="show-page-header">
             <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="relative hidden sm:block">
+                <button
+                  type="button"
+                  onClick={() => setLayoutMenuOpen((open) => !open)}
+                  className="flex items-center gap-1.5 rounded-md border border-board-border bg-board-card px-2.5 py-1.5 text-[10px] font-medium text-board-muted transition-colors hover:text-board-text"
+                  aria-expanded={layoutMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span>{layoutPreset === "custom" ? "Custom" : SHOW_LAYOUT_PRESETS.find((preset) => preset.id === layoutPreset)?.label}</span>
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                {layoutMenuOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-1.5 w-40 overflow-hidden rounded-lg border border-board-border bg-board-card p-1 shadow-2xl" role="menu">
+                    {SHOW_LAYOUT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={layoutPreset === preset.id}
+                        onClick={() => chooseLayout(preset)}
+                        className={cn("flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors", layoutPreset === preset.id ? "bg-fire-500/10 text-fire-400" : "text-board-muted hover:bg-board-border/50 hover:text-board-text")}
+                      >
+                        {preset.label}
+                        {layoutPreset === preset.id && <span className="h-1.5 w-1.5 rounded-full bg-fire-500" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <span className="text-xs text-board-muted tabular-nums">{statusClock}</span>
               {statusNode}
             </div>

@@ -53,6 +53,14 @@ export function useTimecode({
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [isMaster, setIsMaster] = useState(false);
+  const [mtcSupported, setMtcSupported] = useState(false);
+
+  // Browser capability checks must run after hydration. Computing this in
+  // render made SSR output the unsupported state while Chrome immediately
+  // rendered the supported controls, forcing React to discard the subtree.
+  useEffect(() => {
+    setMtcSupported(MtcSource.isSupported());
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const internalSourceRef = useRef<InternalTimecodeSource | null>(null);
@@ -350,6 +358,6 @@ export function useTimecode({
     updateEvent,
     removeEvent,
     resetEvents,
-    mtcSupported: MtcSource.isSupported(),
+    mtcSupported,
   };
 }
