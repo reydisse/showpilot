@@ -18,6 +18,7 @@ import {
   AtSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { ChatAttachment, ChatMessage, ChatMessageOptions, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
@@ -360,6 +361,7 @@ export function ChatPanel({
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedAtRef = useRef(Date.now());
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   // Track pinned alerts (pinned for 10 seconds)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -486,8 +488,15 @@ export function ChatPanel({
     textareaRef.current?.focus();
   };
 
-  const deleteMessage = (message: ChatMessage) => {
-    if (!onDeleteMessage || !window.confirm("Delete this message? Everyone in the room will see that it was deleted.")) return;
+  const deleteMessage = async (message: ChatMessage) => {
+    if (!onDeleteMessage) return;
+    const confirmed = await confirm({
+      title: "Delete message?",
+      description: "Everyone in this room will see that the message was deleted. This cannot be undone.",
+      confirmLabel: "Delete message",
+      variant: "danger",
+    });
+    if (!confirmed) return;
     void onDeleteMessage(message.id);
   };
 
@@ -757,6 +766,7 @@ export function ChatPanel({
         </div>
         {uploadError && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError}</p>}
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }
