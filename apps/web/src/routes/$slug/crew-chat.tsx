@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, Bell, BellOff } from "lucide-react";
-import { requestNotificationPermission } from "@/lib/notifications";
+import { enablePushForOrg } from "@/lib/notifications";
 import { getActiveAdapters } from "@/lib/settings";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -38,6 +38,7 @@ function CrewChatPage() {
   const [draftName, setDraftName] = useState(senderName);
   const [showNameInput, setShowNameInput] = useState(!senderName);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   const { messages, sendMessage, connectionStatus } = useChat({
     orgId,
@@ -71,8 +72,13 @@ function CrewChatPage() {
   }, [draftName]);
 
   const handleNotificationToggle = async () => {
-    const result = await requestNotificationPermission();
-    setNotifPermission(result);
+    try {
+      setNotifPermission(await enablePushForOrg(orgId));
+      setNotifError(null);
+    } catch (error) {
+      setNotifPermission(typeof Notification === "undefined" ? "denied" : Notification.permission);
+      setNotifError(error instanceof Error ? error.message : "Could not enable notifications");
+    }
   };
 
   return (
@@ -118,6 +124,7 @@ function CrewChatPage() {
           </div>
         </div>
       </div>
+      {notifError && <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-center text-[10px] text-red-300">{notifError}</div>}
 
       {showNameInput ? (
         <div className="flex-1 px-4 py-6">

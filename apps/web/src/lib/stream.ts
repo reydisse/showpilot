@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+import { normalizeLiveInputStatus } from "@/lib/stream-health";
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -158,21 +159,28 @@ export const getLiveInputStatus = createServerFn({ method: "GET" })
         { headers }
       );
 
-      if (!cfRes.ok) return { ...input, status: "idle" };
+      if (!cfRes.ok) return {
+        inputId: input.id,
+        status: "unknown",
+        providerStatus: "api_error",
+        checkedAt: new Date().toISOString(),
+        error: `Cloudflare status check failed (${cfRes.status})`,
+      };
 
       const cfData = (await cfRes.json()) as {
         result: {
-          status: { current: { state: string } } | null;
+          status?: string | { current?: { state?: string; reason?: string } } | null;
+          enabled?: boolean;
         };
       };
 
-      const state = cfData.result?.status?.current?.state ?? "idle";
-      const normalizedStatus =
-        state === "connected"
-          ? "connected"
-          : state === "live_streaming"
-            ? "streaming"
-            : "idle";
+      const rawStatus = typeof cfData.result?.status === "string"
+        ? cfData.result.status
+        : cfData.result?.status?.current?.state ?? "idle";
+      const reason = typeof cfData.result?.status === "object"
+        ? cfData.result?.status?.current?.reason
+        : undefined;
+      const normalizedStatus = normalizeLiveInputStatus(rawStatus, cfData.result?.enabled !== false);
 
       // Update status in D1
       await prisma.liveInput.update({
@@ -180,8 +188,20 @@ export const getLiveInputStatus = createServerFn({ method: "GET" })
         data: { status: normalizedStatus },
       });
 
-      return { ...input, status: normalizedStatus };
-    } catch {
-      return input;
+      return {
+        inputId: input.id,
+        status: normalizedStatus,
+        providerStatus: rawStatus,
+        checkedAt: new Date().toISOString(),
+        error: reason ?? (normalizedStatus === "error" ? rawStatus.replaceAll("_", " ") : undefined),
+      };
+    } catch (error) {
+      return {
+        inputId: input.id,
+        status: "unknown",
+        providerStatus: "unreachable",
+        checkedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Status unavailable",
+      };
     }
   });

@@ -226,6 +226,7 @@ async function deleteCfOutput(cfInputId: string, cfOutputId: string): Promise<vo
 export const getOutputStatuses = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
     const destinations = await prisma.streamDestination.findMany({
       where: { orgId: data.orgId, cfOutputId: { not: "" } },

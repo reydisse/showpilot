@@ -21,6 +21,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   getLiveInputs,
   createLiveInput,
@@ -48,9 +49,11 @@ function StreamHealthPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [statuses, setStatuses] = useState<Record<string, { status: string; providerStatus: string; checkedAt: string; error?: string }>>({});
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   // Poll statuses
   useEffect(() => {
@@ -58,18 +61,17 @@ function StreamHealthPage() {
 
     const pollStatuses = async () => {
       setPolling(true);
-      for (const input of inputs) {
+      const results = await Promise.all(inputs.map(async (input) => {
         try {
-          const result = await getLiveInputStatus({
+          return await getLiveInputStatus({
             data: { orgId, inputId: input.id },
           });
-          if (result) {
-            setStatuses((prev) => ({ ...prev, [input.id]: result.status }));
-          }
         } catch {
-          // Silently continue
+          return { inputId: input.id, status: "unknown", providerStatus: "request_failed", checkedAt: new Date().toISOString(), error: "Could not check this input" };
         }
-      }
+      }));
+      setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])))
+      setLastCheckedAt(new Date().toISOString());
       setPolling(false);
     };
 
@@ -97,6 +99,8 @@ function StreamHealthPage() {
   };
 
   const handleDelete = async (inputId: string) => {
+    const ok = await confirm({ title: "Delete live input?", description: "This removes the Cloudflare ingest point and its stream key. Encoders using it will stop connecting.", confirmLabel: "Delete input", variant: "danger" });
+    if (!ok) return;
     await deleteLiveInput({ data: { orgId, inputId } });
     router.invalidate();
   };
@@ -108,11 +112,12 @@ function StreamHealthPage() {
   };
 
   const liveCount = inputs.filter(
-    (i) => (statuses[i.id] ?? i.status) === "streaming"
+    (i) => statuses[i.id]?.status === "streaming"
   ).length;
   const connectedCount = inputs.filter(
-    (i) => (statuses[i.id] ?? i.status) !== "idle"
+    (i) => ["streaming", "connecting"].includes(statuses[i.id]?.status)
   ).length;
+  const unknownCount = inputs.filter((i) => !statuses[i.id] || statuses[i.id]?.status === "unknown").length;
 
   return (
     <div className="h-full overflow-auto">
@@ -154,7 +159,7 @@ function StreamHealthPage() {
               </span>
             </div>
             <p className={`text-lg font-semibold ${liveCount > 0 ? "text-green-400" : "text-board-muted"}`}>
-              {liveCount > 0 ? "Live" : "Offline"}
+              {liveCount > 0 ? "Live" : unknownCount > 0 ? "Unknown" : "Offline"}
             </p>
           </div>
           <div className="p-4 rounded-xl bg-board-card border border-board-border">
@@ -176,8 +181,9 @@ function StreamHealthPage() {
               </span>
             </div>
             <p className="text-lg font-semibold text-board-text tabular-nums">
-              {connectedCount}
+              {connectedCount}<span className="ml-1 text-xs font-normal text-board-muted">/ {inputs.length}</span>
             </p>
+            {lastCheckedAt && <p className="mt-1 text-[9px] text-board-muted">Checked {new Date(lastCheckedAt).toLocaleTimeString()}</p>}
           </div>
         </div>
 
@@ -206,9 +212,10 @@ function StreamHealthPage() {
         ) : (
           <div className="space-y-4">
             {inputs.map((input) => {
-              const status = statuses[input.id] ?? input.status;
+              const health = statuses[input.id];
+              const status = health?.status ?? "unknown";
               const isLive = status === "streaming";
-              const isConnected = status === "connected";
+              const isConnected = status === "connecting";
 
               return (
                 <div
@@ -245,8 +252,10 @@ function StreamHealthPage() {
                                 : "text-board-muted"
                           }`}
                         >
-                          {isLive ? "Streaming" : isConnected ? "Connected" : "Idle"}
+                          {isLive ? "Streaming" : isConnected ? "Reconnecting" : status === "error" ? "Fault" : status === "unknown" ? "Unknown" : status === "disabled" ? "Disabled" : "Idle"}
                         </span>
+                        {health && <p className="mt-1 text-[9px] text-board-muted">Cloudflare: {health.providerStatus.replaceAll("_", " ")}</p>}
+                        {health?.error && <p className="mt-1 text-[10px] text-red-400">{health.error}</p>}
                       </div>
                     </div>
                     {canManageStreamHealth && (
@@ -550,6 +559,7 @@ function StreamHealthPage() {
           </div>
         )}
       </div>
+      {ConfirmDialogEl}
     </div>
   );
 }

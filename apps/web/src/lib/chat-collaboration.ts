@@ -70,18 +70,26 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     });
     const cleanText = data.text.replace(mentionPattern, "@$2").trim().slice(0, 240) || "Shared an attachment";
     const actionUrl = `chat?room=${encodeURIComponent(data.roomId)}`;
-    await Promise.all(validMembers.map(({ userId }) => {
+    await Promise.all(validMembers.map(async ({ userId }) => {
       const kind = recipients.get(userId) ?? "mention";
-      return getD1().prepare(
+      const title = kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`;
+      await getD1().prepare(
         `INSERT INTO notification
          (id, orgId, userId, type, severity, title, message, target, source, actionUrl, dismissed, createdAt)
          VALUES (?, ?, ?, ?, 'info', ?, ?, ?, 'chat', ?, 0, CURRENT_TIMESTAMP)`,
       ).bind(
         crypto.randomUUID(), data.orgId, userId,
         kind === "dm" ? "chat-direct-message" : "chat-mention",
-        kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`,
+        title,
         cleanText, `user:${userId}`, actionUrl,
       ).run();
+      const { deliverPushToUser } = await import("@/lib/push-delivery.server");
+      await deliverPushToUser(data.orgId, userId, {
+        title,
+        body: cleanText,
+        url: `/${encodeURIComponent(data.orgSlug)}/chat?room=${encodeURIComponent(data.roomId)}`,
+        tag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
+      });
     }));
     return { notified: validMembers.length };
   });

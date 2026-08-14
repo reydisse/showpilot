@@ -353,6 +353,7 @@ export function ChatPanel({
   const [uploadingCount, setUploadingCount] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -461,9 +462,15 @@ export function ChatPanel({
   const handleSend = () => {
     if (!inputText.trim() && pendingAttachments.length === 0) return;
     if (editingMessage) {
-      if (inputText.trim() && onEditMessage) void onEditMessage(editingMessage.id, inputText.trim());
-      setEditingMessage(null);
-      setInputText("");
+      if (inputText.trim() && onEditMessage) {
+        const messageId = editingMessage.id;
+        const nextText = inputText.trim();
+        void onEditMessage(messageId, nextText).then(() => {
+          setEditingMessage(null);
+          setInputText("");
+          setMessageActionError(null);
+        }).catch((error) => setMessageActionError(error instanceof Error ? error.message : "Could not edit message"));
+      }
       return;
     }
     onSendMessage(inputText.trim(), messageType, {
@@ -497,7 +504,12 @@ export function ChatPanel({
       variant: "danger",
     });
     if (!confirmed) return;
-    void onDeleteMessage(message.id);
+    try {
+      await onDeleteMessage(message.id);
+      setMessageActionError(null);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : "Could not delete message");
+    }
   };
 
   const mentionQuery = inputText.match(/(?:^|\s)@([^\n@]*)$/)?.[1]?.toLowerCase();
@@ -764,7 +776,7 @@ export function ChatPanel({
           </button>
           </div>
         </div>
-        {uploadError && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError}</p>}
+        {(uploadError || messageActionError) && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError || messageActionError}</p>}
       </div>
       {ConfirmDialogEl}
     </div>

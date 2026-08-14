@@ -23,6 +23,39 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return result;
 }
 
+/** Register the network-only service worker used for persistent notifications. */
+export async function registerNotificationWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
+  try {
+    return await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  } catch (error) {
+    console.warn("[ShowPilot] Service worker registration failed:", error);
+    return null;
+  }
+}
+
+/** Enable and persist Web Push for the current signed-in member/device. */
+export async function enablePushForOrg(orgId: string, requestPermission = true): Promise<NotificationPermission> {
+  if (!isPushSupported()) return "denied";
+  const permission = requestPermission ? await requestNotificationPermission() : Notification.permission;
+  if (permission !== "granted") return permission;
+  const registration = await registerNotificationWorker();
+  if (!registration) return "denied";
+  const { getPushConfiguration, savePushSubscription } = await import("@/lib/push-notifications");
+  const config = await getPushConfiguration({ data: { orgId } });
+  if (!config.supported || !config.publicKey) throw new Error("Push delivery is not configured on this environment");
+  const subscription = await subscribeToPush(registration, config.publicKey);
+  const json = subscription?.toJSON();
+  if (!json?.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("This device could not create a push subscription");
+  await savePushSubscription({ data: {
+    orgId,
+    endpoint: json.endpoint,
+    expirationTime: json.expirationTime,
+    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+  } });
+  return permission;
+}
+
 /**
  * Subscribe to push notifications.
  * Returns the PushSubscription object which should be sent to the server.
