@@ -3,8 +3,9 @@ import { Bell, CheckCheck, CircleAlert, ExternalLink, Inbox } from "lucide-react
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getPersonalNotifications, markAllPersonalNotificationsRead, markPersonalNotificationRead, type PersonalNotification } from "@/lib/personal-notifications";
+import { getNotificationDestination } from "@/lib/notification-destination";
 
-export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; placement?: "sidebar" | "account" }) {
+export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onNavigate, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; onNavigate?: () => void; placement?: "sidebar" | "account" }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PersonalNotification[]>([]);
@@ -59,7 +60,12 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, pla
       )}
       <div ref={panel} role={placement === "account" ? "dialog" : undefined} aria-modal={placement === "account" ? true : undefined} className={`fixed z-[10000] max-h-[min(560px,82vh)] rounded-2xl border border-board-border bg-board-card shadow-2xl overflow-hidden ${placement === "account" ? "left-1/2 top-1/2 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2" : `left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}`}>
       <header className="flex items-center gap-2 px-4 py-3 border-b border-board-border"><div><h2 className="text-sm font-semibold text-board-text">Notifications</h2><p className="text-[10px] text-board-muted">Assignments and operational updates</p></div>{unread ? <button type="button" disabled={loading} onClick={() => void readAll()} className="ml-auto inline-flex items-center gap-1 text-[10px] text-board-muted hover:text-board-text disabled:opacity-50"><CheckCheck className="w-3.5 h-3.5" />Mark all read</button> : null}</header>
-      <div className="max-h-[430px] overflow-y-auto divide-y divide-board-border/60">{items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => { await read(item.id); setOpen(false); await navigateToNotification(navigate, slug, item.actionUrl); }} />) : <div className="px-4 py-10 text-center"><Inbox className="w-7 h-7 text-board-muted/50 mx-auto" /><p className="text-xs text-board-muted mt-2">Nothing waiting for you.</p></div>}</div>
+      <div className="max-h-[430px] overflow-y-auto divide-y divide-board-border/60">{items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => {
+        setOpen(false);
+        onNavigate?.();
+        void read(item.id).catch(() => { /* Reading is best-effort and must never block the destination. */ });
+        await navigateToNotification(navigate, slug, item.actionUrl);
+      }} />) : <div className="px-4 py-10 text-center"><Inbox className="w-7 h-7 text-board-muted/50 mx-auto" /><p className="text-xs text-board-muted mt-2">Nothing waiting for you.</p></div>}</div>
       </div>
     </>, document.body) : null}
   </div>;
@@ -76,24 +82,17 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
   // Notification URLs are data, not trusted router destinations. Map the
   // supported actions explicitly so a database value cannot navigate users
   // outside their organization or to an unintended external URL.
-  if (actionUrl === "dashboard/tech-manager") {
+  const destination = getNotificationDestination(actionUrl);
+  if (!destination) return;
+  if (destination.kind === "tech-manager") {
     await navigate({ to: "/$slug/dashboard/tech-manager", params: { slug }, search: { date: undefined } });
     return;
   }
-  if (actionUrl === "production/incidents" || actionUrl.startsWith("production/incidents?")) {
-    const incident = actionUrl.includes("?") ? new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("incident") : null;
-    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: incident || undefined } });
+  if (destination.kind === "incident") {
+    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: destination.incident } });
     return;
   }
-  if (actionUrl.startsWith("chat?")) {
-    const room = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("room");
-    const isKnownRoom = room === "production" || room === "planning";
-    const dmParts = room?.split(":") ?? [];
-    const isDmRoom = dmParts.length === 3 && dmParts[0] === "dm" && dmParts[1] < dmParts[2];
-    if (room && (isKnownRoom || isDmRoom)) {
-      await navigate({ to: "/$slug/chat", params: { slug }, search: { room } });
-    }
-  }
+  await navigate({ to: "/$slug/chat", params: { slug }, search: { room: destination.room } });
 }
 
 function relativeTime(value: string) { const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return "just now"; const minutes = Math.round(seconds / 60); if (minutes < 60) return `${minutes}m ago`; const hours = Math.round(minutes / 60); if (hours < 24) return `${hours}h ago`; return `${Math.round(hours / 24)}d ago`; }
