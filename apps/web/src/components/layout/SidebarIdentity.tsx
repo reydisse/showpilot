@@ -168,7 +168,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
               <span className="font-medium" style={{ color: roleColour }}>{roleLabel}</span>
             </div>
 
-            <NotificationCenter orgId={orgId} slug={slug} collapsed={false} onUnreadChange={setUnread} placement="account" />
+            <NotificationCenter orgId={orgId} slug={slug} collapsed={false} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} placement="account" />
 
             {pushSupported && !pushEnabled && (
               <button type="button" disabled={enablingPush || pushPermission === "denied"} onClick={() => void enablePush()} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text disabled:opacity-50">
