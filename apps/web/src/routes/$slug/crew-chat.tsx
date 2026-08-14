@@ -19,6 +19,7 @@ export const Route = createFileRoute("/$slug/crew-chat")({
     return {
       orgId: context.orgId,
       slug: context.slug,
+      userId: context.user.id,
       chatAdapter: adapters.chat,
     };
   },
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/$slug/crew-chat")({
 });
 
 function CrewChatPage() {
-  const { orgId, slug, chatAdapter } = Route.useLoaderData();
+  const { orgId, slug, userId, chatAdapter } = Route.useLoaderData();
   const { name: searchName } = Route.useSearch();
   const [senderName, setSenderName] = useState(() => {
     if (searchName) return searchName;
@@ -40,7 +41,7 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, connectionStatus, typingUsers, setTyping } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
     isVisible: true,
     chatAdapter,
@@ -160,11 +161,14 @@ function CrewChatPage() {
             connectionStatus={connectionStatus}
             unreadCount={0}
             onSendMessage={sendMessage}
+            onUploadAttachment={uploadAttachment}
             typingUsers={typingUsers}
             onTypingChange={chatAdapter === "native" ? setTyping : undefined}
+            onVotePoll={votePoll}
             title="Production Chat"
             subtitle={chatAdapter === "native" ? "ShowPilot native" : `Connected via ${chatAdapter}`}
             currentUserName={senderName}
+            currentUserId={userId}
             className="border-l-0 h-full"
           />
         </div>
