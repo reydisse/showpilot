@@ -151,6 +151,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         replyTo?: ChatMessage["replyTo"];
         attachments?: ChatMessage["attachments"];
         messageId?: string;
+        requestId?: string;
       };
 
       if (parsed.type === "identify") {
@@ -189,20 +190,24 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       if (parsed.type === "edit" || parsed.type === "delete") {
         const session = this.sessions.get(ws) ??
           (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string; roomId: string } | null);
-        if (!session?.userId || !parsed.messageId) return;
+        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
+        if (!session?.userId || !parsed.messageId || !parsed.requestId) { respond(false, "Invalid message update"); return; }
         const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
         const current = this.recentMessages[index];
-        if (!current || current.senderId !== session.userId || current.deletedAt) return;
+        if (!current) { respond(false, "Message no longer exists"); return; }
+        if (current.senderId !== session.userId) { respond(false, "You can only change your own messages"); return; }
+        if (current.deletedAt) { respond(false, "Message is already deleted"); return; }
         const now = Date.now();
         const updated: ChatMessage = parsed.type === "delete"
           ? { ...current, text: "", attachments: undefined, deletedAt: now, editedAt: undefined }
           : { ...current, text: (parsed.text ?? "").trim().slice(0, 4000), editedAt: now };
-        if (parsed.type === "edit" && !updated.text) return;
+        if (parsed.type === "edit" && !updated.text) { respond(false, "Message cannot be empty"); return; }
         const nextMessages = [...this.recentMessages];
         nextMessages[index] = updated;
         this.persistMessages(nextMessages);
         this.recentMessages = nextMessages;
         this.broadcast(JSON.stringify({ type: parsed.type === "delete" ? "message-deleted" : "message-edited", message: updated }));
+        respond(true);
       }
     } catch {
       // Ignore malformed messages

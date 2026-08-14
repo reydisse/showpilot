@@ -439,15 +439,24 @@ export const assignFault = createServerFn({ method: "POST" })
       // Assignment is the source of truth. A notification failure must
       // not tell the admin the assignment failed after it already saved.
       try {
+        const actionUrl = `production/incidents?incident=${encodeURIComponent(data.id)}`;
         await getD1().prepare(
           `INSERT INTO notification
             (id, orgId, type, severity, title, message, target, source, createdAt, dismissed, userId, actionUrl)
-           VALUES (?, ?, 'fault-assigned', 'warning', 'Issue assigned to you', ?, ?, ?, CURRENT_TIMESTAMP, 0, ?, 'production/incidents')`,
+           VALUES (?, ?, 'fault-assigned', 'warning', 'Issue assigned to you', ?, ?, ?, CURRENT_TIMESTAMP, 0, ?, ?)`,
         ).bind(
           crypto.randomUUID(), data.orgId,
           name ? `${name}, an operational issue has been assigned to you.` : "An operational issue has been assigned to you.",
-          `user:${data.assignedTo}`, data.id, data.assignedTo,
+          `user:${data.assignedTo}`, data.id, data.assignedTo, actionUrl,
         ).run();
+        const org = await getPrisma().organization.findUnique({ where: { id: data.orgId }, select: { slug: true } });
+        const { deliverPushToUser } = await import("@/lib/push-delivery.server");
+        await deliverPushToUser(data.orgId, data.assignedTo, {
+          title: "Issue assigned to you",
+          body: name ? `${name}, an operational issue has been assigned to you.` : "An operational issue has been assigned to you.",
+          url: org?.slug ? `/${encodeURIComponent(org.slug)}/production/incidents?incident=${encodeURIComponent(data.id)}` : "/",
+          tag: `fault-${data.id}`,
+        });
       } catch {
         // The dashboard's live refresh still puts the fault in the tech's
         // queue; notification delivery can recover independently.

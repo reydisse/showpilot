@@ -19,6 +19,12 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, pla
 
   useEffect(() => { void refresh(); const timer = window.setInterval(refresh, 20_000); return () => window.clearInterval(timer); }, [refresh]);
   useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => { if (event.data?.type === "showpilot-notification") void refresh(); };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [refresh]);
+  useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -74,8 +80,9 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
     await navigate({ to: "/$slug/dashboard/tech-manager", params: { slug }, search: { date: undefined } });
     return;
   }
-  if (actionUrl === "production/incidents") {
-    await navigate({ to: "/$slug/production/incidents", params: { slug } });
+  if (actionUrl === "production/incidents" || actionUrl.startsWith("production/incidents?")) {
+    const incident = actionUrl.includes("?") ? new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("incident") : null;
+    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: incident || undefined } });
     return;
   }
   if (actionUrl.startsWith("chat?")) {

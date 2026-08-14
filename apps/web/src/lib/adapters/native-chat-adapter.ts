@@ -41,6 +41,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
   private messageHistory: ChatMessage[] = [];
+  private pendingMutations = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(orgId: string, private guest?: { token: string; name: string }, private roomId = "production") {
     this.orgId = orgId;
@@ -87,6 +88,14 @@ export class NativeChatAdapter implements ChatAdapter {
               if (existingIndex >= 0) this.messageHistory[existingIndex] = data.message;
               else this.messageHistory.push(data.message);
               this.notifyListeners(data.message);
+            } else if (data.type === "mutation-result" && data.requestId) {
+              const pending = this.pendingMutations.get(data.requestId);
+              if (pending) {
+                clearTimeout(pending.timer);
+                this.pendingMutations.delete(data.requestId);
+                if (data.ok) pending.resolve();
+                else pending.reject(new Error(data.error || "Message update failed"));
+              }
             }
           } catch {
             // Ignore malformed messages
@@ -113,13 +122,12 @@ export class NativeChatAdapter implements ChatAdapter {
   }
 
   async editMessage(messageId: string, text: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !text.trim()) return;
-    this.ws.send(JSON.stringify({ type: "edit", messageId, text: text.trim() }));
+    if (!text.trim()) throw new Error("Message cannot be empty");
+    return this.sendMutation({ type: "edit", messageId, text: text.trim() });
   }
 
   async deleteMessage(messageId: string): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: "delete", messageId }));
+    return this.sendMutation({ type: "delete", messageId });
   }
 
   disconnect(): void {
@@ -133,6 +141,11 @@ export class NativeChatAdapter implements ChatAdapter {
       this.ws = null;
     }
     this.setStatus("disconnected");
+    for (const pending of this.pendingMutations.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Chat disconnected before the update completed"));
+    }
+    this.pendingMutations.clear();
   }
 
   async sendMessage(
@@ -195,6 +208,19 @@ export class NativeChatAdapter implements ChatAdapter {
   }
 
   // -- Private helpers --
+
+  private sendMutation(payload: { type: "edit" | "delete"; messageId: string; text?: string }): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is offline. Reconnect and try again."));
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingMutations.delete(requestId);
+        reject(new Error("The message update timed out. Please try again."));
+      }, 8000);
+      this.pendingMutations.set(requestId, { resolve, reject, timer });
+      this.ws!.send(JSON.stringify({ ...payload, requestId }));
+    });
+  }
 
   private setStatus(status: ConnectionStatus) {
     this.status = status;

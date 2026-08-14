@@ -15,6 +15,9 @@ declare namespace Cloudflare {
 		RESEND_API_KEY: string;
 		CLOUDFLARE_STREAM_API_TOKEN: string;
 		CLOUDFLARE_ACCOUNT_ID: string;
+		VAPID_PUBLIC_KEY: string;
+		VAPID_PRIVATE_KEY: string;
+		VAPID_SUBJECT: string;
 		STRIPE_SECRET_KEY: string;
 		STRIPE_WEBHOOK_SECRET: string;
 		STRIPE_PRICE_STARTER: string;

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Bell, ChevronRight, Settings, UserRound } from "lucide-react";
+import { Bell, BellRing, ChevronRight, Settings, UserRound } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { ProfileModal, ROLE_COLOURS } from "./ProfileModal";
 import { NotificationCenter } from "./NotificationCenter";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -36,6 +37,11 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const [modalOpen, setModalOpen] = useState(false);
   const [localUser, setLocalUser] = useState(user);
   const [unread, setUnread] = useState(0);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [enablingPush, setEnablingPush] = useState(false);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
   const initials = getInitials(localUser.name);
@@ -55,6 +61,26 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
     const timer = window.setInterval(refreshUnread, 20_000);
     return () => window.clearInterval(timer);
   }, [refreshUnread]);
+
+  useEffect(() => {
+    setPushSupported(isPushSupported());
+    if (typeof Notification === "undefined") return;
+    setPushPermission(Notification.permission);
+    if (Notification.permission === "granted") void enablePushForOrg(orgId, false).then(() => setPushEnabled(true)).catch(() => setPushEnabled(false));
+  }, [orgId]);
+
+  const enablePush = async () => {
+    setEnablingPush(true);
+    try {
+      setPushPermission(await enablePushForOrg(orgId));
+      setPushEnabled(true);
+      setPushError(null);
+    } catch (error) {
+      setPushPermission(typeof Notification === "undefined" ? "denied" : Notification.permission);
+      setPushError(error instanceof Error ? error.message : "Could not enable push notifications");
+    }
+    finally { setEnablingPush(false); }
+  };
 
   const handleUserUpdated = (updates: { name?: string; image?: string }) => {
     setLocalUser((u) => ({
@@ -143,6 +169,14 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             </div>
 
             <NotificationCenter orgId={orgId} slug={slug} collapsed={false} onUnreadChange={setUnread} placement="account" />
+
+            {pushSupported && !pushEnabled && (
+              <button type="button" disabled={enablingPush || pushPermission === "denied"} onClick={() => void enablePush()} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text disabled:opacity-50">
+                <BellRing className="h-[18px] w-[18px]" />
+                <span className="text-left text-sm font-medium">{pushPermission === "denied" ? "Push blocked in browser settings" : enablingPush ? "Enabling push…" : "Enable device notifications"}</span>
+              </button>
+            )}
+            {pushError && <p className="px-3 py-1 text-[10px] leading-4 text-red-400">{pushError}</p>}
 
             {canAccessSettings && (
               <Link

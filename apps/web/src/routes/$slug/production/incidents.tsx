@@ -71,6 +71,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 const CATEGORIES = ["Audio", "Video", "Lighting", "Network", "Power", "Software", "Hardware", "Other"];
 
 export const Route = createFileRoute("/$slug/production/incidents")({
+  validateSearch: (search: Record<string, unknown>) => ({ incident: typeof search.incident === "string" ? search.incident : undefined }),
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
@@ -89,6 +90,7 @@ export const Route = createFileRoute("/$slug/production/incidents")({
 });
 
 function IncidentsPage() {
+  const { incident: focusedIncidentId } = Route.useSearch();
   const { incidents: initialIncidents, orgId, role, orgTimezone } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
   const [incidents, setIncidents] = useState(initialIncidents);
@@ -197,7 +199,7 @@ function IncidentsPage() {
         {incidents.length > 0 ? (
           <div className="space-y-3">
             {incidents.map((incident) => (
-              <div key={incident.id} className="group p-4 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
+              <div id={`incident-${incident.id}`} key={incident.id} ref={(node) => { if (node && incident.id === focusedIncidentId) window.setTimeout(() => node.scrollIntoView({ behavior: "smooth", block: "center" }), 80); }} className={`group p-4 rounded-xl bg-board-card border transition-all ${incident.id === focusedIncidentId ? "border-fire-500/70 ring-2 ring-fire-500/15" : "border-board-border hover:border-fire-500/20"}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${incident.severity === "critical" ? "text-red-400" : incident.severity === "high" ? "text-orange-400" : "text-yellow-400"}`} />

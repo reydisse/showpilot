@@ -127,15 +127,16 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       const name = userName || "Operator";
       const role = userRole || "Operator";
 
-      if (chatAdapter !== "native" && options) {
+      const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
+      if (!usesNativeAdapter && options) {
         const replyPrefix = options.replyTo
           ? `↪ Replying to ${options.replyTo.senderName}: “${options.replyTo.text.slice(0, 100)}”\n`
           : "";
         const attachmentLinks = options.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
         adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
-        return;
+      } else {
+        adapterRef.current.sendMessage(text.trim(), type, name, role, options);
       }
-      adapterRef.current.sendMessage(text.trim(), type, name, role, options);
       if (orgSlug && !guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
           data: { orgId, orgSlug, roomId, text: text.trim(), mentionedUserIds: options?.mentionedUserIds },

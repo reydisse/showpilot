@@ -42,6 +42,7 @@
 		"stripe": "^22.2.0",
 		"tailwind-merge": "^3.4.0",
 		"tailwindcss": "^4.1.18",
+		"web-push": "^3.6.7",
 		"xlsx": "^0.18.5",
 		"zod": "^4.4.3"
 	},
@@ -52,6 +53,7 @@
 		"@types/pdfmake": "^0.3.2",
 		"@types/react": "^19.2.0",
 		"@types/react-dom": "^19.2.0",
+		"@types/web-push": "^3.6.4",
 		"@vitejs/plugin-react": "^5.0.4",
 		"jsdom": "^27.0.0",
 		"prisma": "^7.0.0",
