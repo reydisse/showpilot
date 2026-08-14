@@ -143,6 +143,10 @@ export class NativeChatAdapter implements ChatAdapter {
     return this.sendMutation({ type: "delete", messageId });
   }
 
+  async votePoll(messageId: string, optionId: string): Promise<void> {
+    return this.sendMutation({ type: "vote", messageId, optionId });
+  }
+
   setTyping(typing: boolean): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
   }
@@ -204,6 +208,7 @@ export class NativeChatAdapter implements ChatAdapter {
         role: payload.senderRole,
         replyTo: payload.options?.replyTo,
         attachments: payload.options?.attachments,
+        poll: payload.options?.poll,
       }));
     } else {
       // Queue the message for when we reconnect
@@ -240,7 +245,7 @@ export class NativeChatAdapter implements ChatAdapter {
 
   // -- Private helpers --
 
-  private sendMutation(payload: { type: "edit" | "delete"; messageId: string; text?: string }): Promise<void> {
+  private sendMutation(payload: { type: "edit" | "delete" | "vote"; messageId: string; text?: string; optionId?: string }): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is offline. Reconnect and try again."));
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
@@ -304,6 +309,7 @@ export class NativeChatAdapter implements ChatAdapter {
           role: msg.senderRole,
           replyTo: msg.options?.replyTo,
           attachments: msg.options?.attachments,
+          poll: msg.options?.poll,
         }),
       );
     }

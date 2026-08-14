@@ -172,7 +172,7 @@ function ChatPanel({
   userRole: string;
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, connectionStatus, typingUsers, setTyping } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
     isVisible: true,
     chatAdapter,
@@ -201,6 +201,8 @@ function ChatPanel({
         connectionStatus={connectionStatus}
         unreadCount={0}
         onSendMessage={sendMessage}
+        onUploadAttachment={uploadAttachment}
+        onVotePoll={chatAdapter === "native" ? votePoll : undefined}
         typingUsers={typingUsers}
         onTypingChange={chatAdapter === "native" ? setTyping : undefined}
         title="Team Chat"

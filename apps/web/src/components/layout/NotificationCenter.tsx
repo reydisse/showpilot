@@ -11,6 +11,7 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
   const [items, setItems] = useState<PersonalNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const refresh = useCallback(async () => {
@@ -42,7 +43,13 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
   };
   const readAll = async () => {
     setLoading(true); setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnread(0); onUnreadChange?.(0);
-    try { await markAllPersonalNotificationsRead({ data: { orgId } }); } finally { setLoading(false); }
+    try {
+      await markAllPersonalNotificationsRead({ data: { orgId } });
+      setActionError(null);
+    } catch {
+      setActionError("Could not mark notifications read. Please try again.");
+      await refresh();
+    } finally { setLoading(false); }
   };
 
   return <div ref={root} className="relative">
@@ -55,11 +62,12 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
           type="button"
           aria-label="Close notifications"
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-[9999] cursor-default bg-black/65 backdrop-blur-md"
+          className="pointer-events-auto fixed inset-0 z-[9999] cursor-default bg-black/65 backdrop-blur-md"
         />
       )}
-      <div ref={panel} role={placement === "account" ? "dialog" : undefined} aria-modal={placement === "account" ? true : undefined} className={`fixed z-[10000] max-h-[min(560px,82vh)] rounded-2xl border border-board-border bg-board-card shadow-2xl overflow-hidden ${placement === "account" ? "left-1/2 top-1/2 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2" : `left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}`}>
+      <div ref={panel} role={placement === "account" ? "dialog" : undefined} aria-modal={placement === "account" ? true : undefined} className={`pointer-events-auto fixed z-[10000] max-h-[min(560px,82vh)] rounded-2xl border border-board-border bg-board-card shadow-2xl overflow-hidden ${placement === "account" ? "left-1/2 top-1/2 w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2" : `left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}`}>
       <header className="flex items-center gap-2 px-4 py-3 border-b border-board-border"><div><h2 className="text-sm font-semibold text-board-text">Notifications</h2><p className="text-[10px] text-board-muted">Assignments and operational updates</p></div>{unread ? <button type="button" disabled={loading} onClick={() => void readAll()} className="ml-auto inline-flex items-center gap-1 text-[10px] text-board-muted hover:text-board-text disabled:opacity-50"><CheckCheck className="w-3.5 h-3.5" />Mark all read</button> : null}</header>
+      {actionError ? <p role="alert" className="border-b border-red-500/20 bg-red-500/[0.06] px-4 py-2 text-[10px] text-red-300">{actionError}</p> : null}
       <div className="max-h-[430px] overflow-y-auto divide-y divide-board-border/60">{items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => {
         setOpen(false);
         onNavigate?.();
