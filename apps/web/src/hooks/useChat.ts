@@ -65,6 +65,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   const [typingUsers, setTypingUsers] = useState<ChatTypingState[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
   const adapterRef = useRef<ChatAdapter | null>(null);
+  const pollAdapterRef = useRef<NativeChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -91,6 +92,8 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     const effectiveAdapter = roomId === "production" ? chatAdapter : "native";
     const adapter = createAdapter(orgId, effectiveAdapter, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId);
     adapterRef.current = adapter;
+    const pollAdapter = effectiveAdapter !== "native" ? new NativeChatAdapter(orgId, undefined, roomId) : null;
+    pollAdapterRef.current = pollAdapter;
 
     // Subscribe to messages
     const unsubMessage = adapter.onMessage((message: ChatMessage) => {
@@ -109,6 +112,14 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       if (!isVisibleRef.current) {
         setUnreadCount((c) => c + 1);
       }
+    });
+    const unsubPollMessage = pollAdapter?.onMessage((message) => {
+      if (!message.poll) return;
+      setMessages((current) => {
+        const index = current.findIndex((item) => item.id === message.id);
+        if (index < 0) return [...current, message];
+        const next = [...current]; next[index] = message; return next;
+      });
     });
 
     // Subscribe to status changes
@@ -141,16 +152,20 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     adapter.connect().catch(() => {
       // Adapter handles reconnection/error internally
     });
+    pollAdapter?.connect().catch(() => undefined);
 
     return () => {
       unsubMessage();
       unsubStatus?.();
+      unsubPollMessage?.();
       unsubTyping?.();
       unsubReadReceipt?.();
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
       adapter.disconnect();
+      pollAdapter?.disconnect();
       adapterRef.current = null;
+      pollAdapterRef.current = null;
     };
   }, [orgId, chatAdapter, guestToken, roomId, userName]);
 
@@ -167,6 +182,10 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       const name = userName || "Operator";
       const role = userRole || "Operator";
 
+      if (options?.poll && pollAdapterRef.current) {
+        void pollAdapterRef.current.sendMessage(text.trim(), type, name, role, options);
+      } else {
+
       const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
       if (!usesNativeAdapter && options) {
         const replyPrefix = options.replyTo
@@ -176,6 +195,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
         adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
       } else {
         adapterRef.current.sendMessage(text.trim(), type, name, role, options);
+      }
       }
       if (orgSlug && !guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
@@ -195,7 +215,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   }, []);
 
   const votePoll = useCallback(async (messageId: string, optionId: string) => {
-    await adapterRef.current?.votePoll?.(messageId, optionId);
+    await (pollAdapterRef.current ?? adapterRef.current)?.votePoll?.(messageId, optionId);
   }, []);
 
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {

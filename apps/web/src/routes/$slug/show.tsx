@@ -202,7 +202,7 @@ function ChatPanel({
         unreadCount={0}
         onSendMessage={sendMessage}
         onUploadAttachment={uploadAttachment}
-        onVotePoll={chatAdapter === "native" ? votePoll : undefined}
+        onVotePoll={votePoll}
         typingUsers={typingUsers}
         onTypingChange={chatAdapter === "native" ? setTyping : undefined}
         title="Team Chat"

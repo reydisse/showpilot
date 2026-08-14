@@ -74,7 +74,7 @@ function ChatPage() {
           onUploadAttachment={uploadAttachment}
           onEditMessage={roomId === "production" && chatAdapter !== "native" ? undefined : editMessage}
           onDeleteMessage={roomId === "production" && chatAdapter !== "native" ? undefined : deleteMessage}
-          onVotePoll={roomId === "production" && chatAdapter !== "native" ? undefined : votePoll}
+          onVotePoll={votePoll}
           mentionMembers={members.filter((member) => member.userId !== userId)}
           currentUserName={userName}
           currentUserId={userId}
