@@ -26,7 +26,11 @@ export interface ChatMessageOptions {
   replyTo?: ChatReplyReference;
   attachments?: ChatAttachment[];
   mentionedUserIds?: string[];
+  poll?: ChatPoll;
 }
+
+export interface ChatPollOption { id: string; text: string; voterIds: string[]; }
+export interface ChatPoll { question: string; options: ChatPollOption[]; }
 
 export interface ChatMessage {
   id: string;
@@ -39,6 +43,7 @@ export interface ChatMessage {
   timestamp: number;
   replyTo?: ChatReplyReference;
   attachments?: ChatAttachment[];
+  poll?: ChatPoll;
   editedAt?: number;
   deletedAt?: number;
 }
@@ -69,6 +74,7 @@ export interface ChatAdapter {
 
   /** Soft-delete one of the current user's native messages. */
   deleteMessage?(messageId: string): Promise<void>;
+  votePoll?(messageId: string, optionId: string): Promise<void>;
 
   /** Broadcast ephemeral typing presence for native chat rooms. */
   setTyping?(typing: boolean): void;

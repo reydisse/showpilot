@@ -28,6 +28,7 @@ interface UseChatReturn {
   uploadAttachment: (file: File) => Promise<ChatAttachment>;
   editMessage: (messageId: string, text: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
+  votePoll: (messageId: string, optionId: string) => Promise<void>;
   connectionStatus: ConnectionStatus;
   unreadCount: number;
   resetUnread: () => void;
@@ -161,7 +162,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
   const sendMessage = useCallback(
     (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
-      if (!adapterRef.current || (!text.trim() && !options?.attachments?.length)) return;
+      if (!adapterRef.current || (!text.trim() && !options?.attachments?.length && !options?.poll)) return;
 
       const name = userName || "Operator";
       const role = userRole || "Operator";
@@ -178,7 +179,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       }
       if (orgSlug && !guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
-          data: { orgId, orgSlug, roomId, text: text.trim(), mentionedUserIds: options?.mentionedUserIds },
+          data: { orgId, orgSlug, roomId, text: text.trim() || options?.poll?.question || "", mentionedUserIds: options?.mentionedUserIds },
         })).catch(() => undefined);
       }
     },
@@ -191,6 +192,10 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
   const deleteMessage = useCallback(async (messageId: string) => {
     await adapterRef.current?.deleteMessage?.(messageId);
+  }, []);
+
+  const votePoll = useCallback(async (messageId: string, optionId: string) => {
+    await adapterRef.current?.votePoll?.(messageId, optionId);
   }, []);
 
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
@@ -223,6 +228,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     uploadAttachment,
     editMessage,
     deleteMessage,
+    votePoll,
     connectionStatus,
     unreadCount,
     resetUnread,

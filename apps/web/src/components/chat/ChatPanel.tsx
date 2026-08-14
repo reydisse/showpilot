@@ -16,6 +16,8 @@ import {
   Pencil,
   Trash2,
   AtSign,
+  BarChart3,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -152,6 +154,8 @@ function ChatMessageRow({
   onDelete,
   attachmentAccessToken,
   isSeen = false,
+  currentUserId,
+  onVotePoll,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -162,6 +166,8 @@ function ChatMessageRow({
   onDelete?: (message: ChatMessage) => void;
   attachmentAccessToken?: string;
   isSeen?: boolean;
+  currentUserId?: string;
+  onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
 }) {
   const isEvent = message.type === "cue" || message.type === "alert";
   const attachmentUrl = (url: string) => attachmentAccessToken
@@ -229,6 +235,18 @@ function ChatMessageRow({
           <p className="text-[12px] italic text-board-muted/60">Message deleted</p>
         ) : displayText ? (
           <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.35rem] text-board-text/85">{renderMessageText(displayText)}</p>
+        ) : null}
+        {!message.deletedAt && message.poll ? (
+          <div className="mt-2 max-w-xl rounded-xl border border-board-border bg-board-bg/45 p-3">
+            <p className="text-xs font-semibold text-board-text">{message.poll.question}</p>
+            <div className="mt-2 space-y-1.5">{message.poll.options.map((option) => {
+              const total = message.poll!.options.reduce((sum, item) => sum + item.voterIds.length, 0);
+              const selected = Boolean(currentUserId && option.voterIds.includes(currentUserId));
+              const percent = total ? Math.round(option.voterIds.length / total * 100) : 0;
+              return <button key={option.id} type="button" disabled={!onVotePoll} onClick={() => void onVotePoll?.(message.id, option.id)} className={cn("relative flex w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-[11px] transition", selected ? "border-sky-400/45 text-sky-200" : "border-board-border text-board-text hover:border-board-muted/50", !onVotePoll && "cursor-default")}><span className="absolute inset-y-0 left-0 bg-sky-400/10" style={{ width: `${percent}%` }} /><span className="relative min-w-0 flex-1 truncate">{option.text}</span><span className="relative ml-2 tabular-nums text-board-muted">{option.voterIds.length} · {percent}%</span></button>;
+            })}</div>
+            <p className="mt-2 text-[9px] text-board-muted">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
+          </div>
         ) : null}
         {message.editedAt && !message.deletedAt ? <span className="mt-0.5 block text-[9px] text-board-muted/45">edited</span> : null}
         {!message.deletedAt && message.attachments?.length ? (
@@ -329,6 +347,7 @@ interface ChatPanelProps {
   typingUsers?: ChatTypingState[];
   onTypingChange?: (typing: boolean) => void;
   seenThrough?: number;
+  onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -353,6 +372,7 @@ export function ChatPanel({
   typingUsers = [],
   onTypingChange,
   seenThrough,
+  onVotePoll,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -363,6 +383,9 @@ export function ChatPanel({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const [pollOpen, setPollOpen] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -496,6 +519,13 @@ export function ChatPanel({
 
     // Re-focus textarea
     textareaRef.current?.focus();
+  };
+
+  const sendPoll = () => {
+    const options = pollOptions.map((text) => text.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || options.length < 2) return;
+    onSendMessage("", "text", { poll: { question: pollQuestion.trim(), options: options.map((text) => ({ id: "", text, voterIds: [] })) } });
+    setPollOpen(false); setPollQuestion(""); setPollOptions(["", ""]);
   };
 
   useEffect(() => {
@@ -707,7 +737,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} />
             </div>
           );
         })}
@@ -735,6 +765,7 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
+        {pollOpen && <div className="mb-2 rounded-xl border border-board-border bg-board-card p-3 shadow-xl"><div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-xs font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto text-board-muted"><X className="h-4 w-4" /></button></div><input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-3 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />{pollOptions.map((option, index) => <input key={index} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-2 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />)}<div className="mt-3 flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions((items) => [...items, ""])} className="flex items-center gap-1 text-[10px] text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter((item) => item.trim()).length < 2} onClick={sendPoll} className="ml-auto rounded-lg bg-sky-400 px-3 py-2 text-[10px] font-semibold text-black disabled:opacity-40">Send poll</button></div></div>}
         {mentionSuggestions.length > 0 && !editingMessage && (
           <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
             <div className="flex items-center gap-2 border-b border-board-border px-3 py-2 text-[9px] font-semibold uppercase tracking-wider text-board-muted"><AtSign className="h-3 w-3" />Mention someone</div>
@@ -769,6 +800,7 @@ export function ChatPanel({
               <span className="px-2 py-1 text-[10px] font-medium text-board-muted">{editingMessage ? "Edit message" : "Guest message"}</span>
             )}
             <span className="ml-auto px-2 text-[9px] text-board-muted/55">{pendingAttachments.length}/6 files</span>
+            {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="rounded-md p-1.5 text-board-muted hover:bg-board-border hover:text-sky-300" aria-label="Create poll" title="Create poll"><BarChart3 className="h-3.5 w-3.5" /></button> : null}
           </div>
           <div className="flex items-end gap-2 p-2">
           {onUploadAttachment && !editingMessage && (
@@ -791,7 +823,7 @@ export function ChatPanel({
             }
             rows={1}
             className={cn(
-              "flex-1 resize-none bg-transparent px-2 py-2 text-sm text-board-text placeholder:text-board-muted/45 outline-none modern-scrollbar",
+              "min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-board-text placeholder:text-board-muted/45 outline-none modern-scrollbar",
               messageType === "cue" && "font-mono",
             )}
           />

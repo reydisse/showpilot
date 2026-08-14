@@ -12,6 +12,7 @@ interface ChatMessage {
   roomId?: string;
   replyTo?: { messageId: string; senderName: string; text: string };
   attachments?: Array<{ id: string; name: string; url: string; mimeType: string; size: number }>;
+  poll?: { question: string; options: Array<{ id: string; text: string; voterIds: string[] }> };
   editedAt?: number;
   deletedAt?: number;
 }
@@ -155,8 +156,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         orgId?: string;
         replyTo?: ChatMessage["replyTo"];
         attachments?: ChatMessage["attachments"];
+        poll?: ChatMessage["poll"];
         messageId?: string;
         requestId?: string;
+        optionId?: string;
         typing?: boolean;
         readAt?: number;
       };
@@ -208,11 +211,38 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           roomId: session.roomId,
           replyTo: this.cleanReply(parsed.replyTo),
           attachments: this.cleanAttachments(parsed.attachments, session.orgId),
+          poll: this.cleanPoll(parsed.poll),
         };
 
-        if (!message.text && !message.attachments?.length) return;
+        if (!message.text && !message.attachments?.length && !message.poll) return;
         await this.addMessage(message);
         this.broadcast(JSON.stringify({ type: "message", message }));
+        return;
+      }
+
+      if (parsed.type === "vote") {
+        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
+        if (!session.userId || !parsed.messageId || !parsed.optionId || !parsed.requestId) { respond(false, "Sign in to vote"); return; }
+        const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
+        const current = this.recentMessages[index];
+        if (!current?.poll || current.deletedAt) { respond(false, "Poll no longer exists"); return; }
+        if (!current.poll.options.some((option) => option.id === parsed.optionId)) { respond(false, "Poll option not found"); return; }
+        const poll = {
+          ...current.poll,
+          options: current.poll.options.map((option) => ({
+            ...option,
+            voterIds: option.id === parsed.optionId
+              ? [...option.voterIds.filter((id) => id !== session.userId), session.userId!]
+              : option.voterIds.filter((id) => id !== session.userId),
+          })),
+        };
+        const updated = { ...current, poll };
+        const nextMessages = [...this.recentMessages];
+        nextMessages[index] = updated;
+        this.persistMessages(nextMessages);
+        this.recentMessages = nextMessages;
+        this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
+        respond(true);
         return;
       }
 
@@ -226,7 +256,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         if (current.deletedAt) { respond(false, "Message is already deleted"); return; }
         const now = Date.now();
         const updated: ChatMessage = parsed.type === "delete"
-          ? { ...current, text: "", attachments: undefined, deletedAt: now, editedAt: undefined }
+          ? { ...current, text: "", attachments: undefined, poll: undefined, deletedAt: now, editedAt: undefined }
           : { ...current, text: (parsed.text ?? "").trim().slice(0, 4000), editedAt: now };
         if (parsed.type === "edit" && !updated.text) { respond(false, "Message cannot be empty"); return; }
         const nextMessages = [...this.recentMessages];
@@ -292,6 +322,16 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }];
     });
     return clean.length ? clean : undefined;
+  }
+
+  private cleanPoll(poll: ChatMessage["poll"]): ChatMessage["poll"] {
+    const question = String(poll?.question ?? "").trim().slice(0, 240);
+    if (!question || !Array.isArray(poll?.options)) return undefined;
+    const options = poll.options.slice(0, 6).flatMap((option) => {
+      const text = String(option?.text ?? "").trim().slice(0, 120);
+      return text ? [{ id: crypto.randomUUID(), text, voterIds: [] }] : [];
+    });
+    return options.length >= 2 ? { question, options } : undefined;
   }
 
   private getSession(ws: WebSocket) {
