@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { ChatAdapter, ChatAttachment, ChatMessage, ChatMessageOptions, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAdapter, ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import type { ChatAdapterType } from "@/lib/settings";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
 import { MattermostChatAdapter } from "@/lib/adapters/mattermost-chat-adapter";
@@ -31,6 +31,9 @@ interface UseChatReturn {
   connectionStatus: ConnectionStatus;
   unreadCount: number;
   resetUnread: () => void;
+  typingUsers: ChatTypingState[];
+  setTyping: (typing: boolean) => void;
+  readReceipts: Record<string, number>;
 }
 
 function createAdapter(orgId: string, type: ChatAdapterType, guest?: { token: string; name: string }, roomId = "production"): ChatAdapter {
@@ -58,8 +61,11 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
+  const [typingUsers, setTypingUsers] = useState<ChatTypingState[]>([]);
+  const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
   const adapterRef = useRef<ChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
+  const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   // Keep the ref in sync
   isVisibleRef.current = isVisible;
@@ -77,6 +83,8 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
     // Clear previous messages when switching adapters
     setMessages([]);
+    setTypingUsers([]);
+    setReadReceipts({});
     setConnectionStatus("disconnected");
 
     const effectiveAdapter = roomId === "production" ? chatAdapter : "native";
@@ -107,6 +115,27 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       setConnectionStatus(status);
     });
 
+    const unsubTyping = adapter.onTyping?.((state) => {
+      const key = state.userId || `name:${state.name}`;
+      const currentTimer = typingTimersRef.current.get(key);
+      if (currentTimer) clearTimeout(currentTimer);
+      setTypingUsers((current) => state.typing
+        ? [...current.filter((item) => (item.userId || `name:${item.name}`) !== key), state]
+        : current.filter((item) => (item.userId || `name:${item.name}`) !== key));
+      if (state.typing) {
+        typingTimersRef.current.set(key, setTimeout(() => {
+          setTypingUsers((current) => current.filter((item) => (item.userId || `name:${item.name}`) !== key));
+          typingTimersRef.current.delete(key);
+        }, 3500));
+      } else {
+        typingTimersRef.current.delete(key);
+      }
+    });
+
+    const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => {
+      setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] || 0, readAt) }));
+    });
+
     // Connect
     adapter.connect().catch(() => {
       // Adapter handles reconnection/error internally
@@ -115,10 +144,20 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     return () => {
       unsubMessage();
       unsubStatus?.();
+      unsubTyping?.();
+      unsubReadReceipt?.();
+      for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
+      typingTimersRef.current.clear();
       adapter.disconnect();
       adapterRef.current = null;
     };
   }, [orgId, chatAdapter, guestToken, roomId, userName]);
+
+  useEffect(() => {
+    if (!isVisible || !roomId.startsWith("dm:") || messages.length === 0) return;
+    const latestTimestamp = messages.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
+    adapterRef.current?.markRead?.(latestTimestamp);
+  }, [isVisible, messages, roomId]);
 
   const sendMessage = useCallback(
     (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
@@ -174,6 +213,10 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     setUnreadCount(0);
   }, []);
 
+  const setTyping = useCallback((typing: boolean) => {
+    adapterRef.current?.setTyping?.(typing);
+  }, []);
+
   return {
     messages,
     sendMessage,
@@ -183,5 +226,8 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     connectionStatus,
     unreadCount,
     resetUnread,
+    typingUsers,
+    setTyping,
+    readReceipts,
   };
 }

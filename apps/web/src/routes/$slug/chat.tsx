@@ -33,7 +33,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, connectionStatus, unreadCount } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
+  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
   const [shareOpen, setShareOpen] = useState(false);
   const [hours, setHours] = useState(8);
   const [joinUrl, setJoinUrl] = useState("");
@@ -79,6 +79,9 @@ function ChatPage() {
           currentUserId={userId}
           title={roomTitle}
           subtitle={roomSubtitle}
+          typingUsers={typingUsers}
+          onTypingChange={roomId !== "production" || chatAdapter === "native" ? setTyping : undefined}
+          seenThrough={dmMember ? readReceipts[dmMember.userId] : undefined}
           className="h-full"
           headerActions={<div className="flex items-center gap-2 lg:hidden">
             <select value={roomId} onChange={(event) => openRoom(event.target.value)} aria-label="Switch chat room" className="max-w-36 rounded-lg border border-board-border bg-board-bg px-2 py-2 text-[10px] font-medium text-board-text outline-none">

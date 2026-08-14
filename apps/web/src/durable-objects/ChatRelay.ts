@@ -34,6 +34,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         payload TEXT NOT NULL
       )`);
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_idx ON chat_messages(timestamp)");
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_reads (
+        user_id TEXT PRIMARY KEY,
+        read_at INTEGER NOT NULL
+      )`);
     });
   }
 
@@ -97,6 +101,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         JSON.stringify({
           type: "hydrate",
           messages: this.recentMessages,
+          readReceipts: this.isDirectMessageRoom(this.roomId) ? this.getReadReceipts() : undefined,
         })
       );
 
@@ -152,6 +157,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         attachments?: ChatMessage["attachments"];
         messageId?: string;
         requestId?: string;
+        typing?: boolean;
+        readAt?: number;
       };
 
       if (parsed.type === "identify") {
@@ -159,12 +166,34 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         return;
       }
 
-      if (parsed.type === "message") {
-        const session = this.sessions.get(ws) ??
-          (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string; roomId: string } | null);
-        if (!session) return;
-        this.sessions.set(ws, session);
+      const session = this.getSession(ws);
+      if (!session) return;
 
+      if (parsed.type === "typing") {
+        this.broadcast(JSON.stringify({
+          type: "typing",
+          userId: session.userId,
+          name: session.name,
+          typing: parsed.typing === true,
+        }), ws);
+        return;
+      }
+
+      if (parsed.type === "read") {
+        if (!session.userId || !this.isDirectMessageRoom(session.roomId) || !session.roomId.split(":").slice(1).includes(session.userId)) return;
+        const readAt = Math.max(0, Math.min(Date.now(), Math.floor(Number(parsed.readAt) || 0)));
+        if (!readAt) return;
+        this.ctx.storage.sql.exec(
+          `INSERT INTO chat_reads (user_id, read_at) VALUES (?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)`,
+          session.userId,
+          readAt,
+        );
+        this.broadcast(JSON.stringify({ type: "read-receipt", userId: session.userId, readAt }));
+        return;
+      }
+
+      if (parsed.type === "message") {
         const message: ChatMessage = {
           id: crypto.randomUUID(),
           orgId: session.orgId,
@@ -188,8 +217,6 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       if (parsed.type === "edit" || parsed.type === "delete") {
-        const session = this.sessions.get(ws) ??
-          (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string; roomId: string } | null);
         const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
         if (!session?.userId || !parsed.messageId || !parsed.requestId) { respond(false, "Invalid message update"); return; }
         const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
@@ -215,10 +242,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   webSocketClose(ws: WebSocket) {
+    this.clearTyping(ws);
     this.sessions.delete(ws);
   }
 
   webSocketError(ws: WebSocket) {
+    this.clearTyping(ws);
     this.sessions.delete(ws);
   }
 
@@ -265,8 +294,30 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     return clean.length ? clean : undefined;
   }
 
+  private getSession(ws: WebSocket) {
+    const session = this.sessions.get(ws) ??
+      (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string; roomId: string } | null);
+    if (session) this.sessions.set(ws, session);
+    return session;
+  }
+
+  private isDirectMessageRoom(roomId: string): boolean {
+    return /^dm:[^:]+:[^:]+$/.test(roomId);
+  }
+
+  private getReadReceipts(): Record<string, number> {
+    return Object.fromEntries(this.ctx.storage.sql.exec<{ user_id: string; read_at: number }>(
+      "SELECT user_id, read_at FROM chat_reads",
+    ).toArray().map((row) => [row.user_id, row.read_at]));
+  }
+
+  private clearTyping(ws: WebSocket) {
+    const session = this.getSession(ws);
+    if (session) this.broadcast(JSON.stringify({ type: "typing", userId: session.userId, name: session.name, typing: false }), ws);
+  }
+
   private broadcast(data: string, exclude?: WebSocket) {
-    for (const [ws] of this.sessions) {
+    for (const ws of this.ctx.getWebSockets()) {
       if (ws === exclude) continue;
       try {
         ws.send(data);

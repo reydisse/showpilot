@@ -172,7 +172,7 @@ function ChatPanel({
   userRole: string;
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, connectionStatus } = useChat({
+  const { messages, sendMessage, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
     isVisible: true,
     chatAdapter,
@@ -201,6 +201,8 @@ function ChatPanel({
         connectionStatus={connectionStatus}
         unreadCount={0}
         onSendMessage={sendMessage}
+        typingUsers={typingUsers}
+        onTypingChange={chatAdapter === "native" ? setTyping : undefined}
         title="Team Chat"
         subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
         currentUserName={userName}

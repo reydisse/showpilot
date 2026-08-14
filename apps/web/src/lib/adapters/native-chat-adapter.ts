@@ -2,6 +2,8 @@ import type {
   ChatAdapter,
   ChatMessage,
   ChatMessageOptions,
+  ChatReadReceipt,
+  ChatTypingState,
   ConnectionStatus,
   MessageType,
 } from "./chat-adapter";
@@ -36,6 +38,8 @@ export class NativeChatAdapter implements ChatAdapter {
   private status: ConnectionStatus = "disconnected";
   private listeners: Set<(message: ChatMessage) => void> = new Set();
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
+  private typingListeners = new Set<(state: ChatTypingState) => void>();
+  private readReceiptListeners = new Set<(receipt: ChatReadReceipt) => void>();
   private messageQueue: QueuedMessage[] = [];
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -83,6 +87,11 @@ export class NativeChatAdapter implements ChatAdapter {
               for (const msg of data.messages) {
                 this.notifyListeners(msg);
               }
+              if (data.readReceipts && typeof data.readReceipts === "object") {
+                for (const [userId, readAt] of Object.entries(data.readReceipts)) {
+                  if (typeof readAt === "number") this.notifyReadReceipt({ userId, readAt });
+                }
+              }
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
               if (existingIndex >= 0) this.messageHistory[existingIndex] = data.message;
@@ -96,6 +105,10 @@ export class NativeChatAdapter implements ChatAdapter {
                 if (data.ok) pending.resolve();
                 else pending.reject(new Error(data.error || "Message update failed"));
               }
+            } else if (data.type === "typing" && typeof data.name === "string" && typeof data.typing === "boolean") {
+              this.notifyTyping({ userId: typeof data.userId === "string" ? data.userId : undefined, name: data.name, typing: data.typing });
+            } else if (data.type === "read-receipt" && typeof data.userId === "string" && typeof data.readAt === "number") {
+              this.notifyReadReceipt({ userId: data.userId, readAt: data.readAt });
             }
           } catch {
             // Ignore malformed messages
@@ -128,6 +141,24 @@ export class NativeChatAdapter implements ChatAdapter {
 
   async deleteMessage(messageId: string): Promise<void> {
     return this.sendMutation({ type: "delete", messageId });
+  }
+
+  setTyping(typing: boolean): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
+  }
+
+  markRead(readAt: number): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "read", readAt }));
+  }
+
+  onTyping(callback: (state: ChatTypingState) => void): () => void {
+    this.typingListeners.add(callback);
+    return () => this.typingListeners.delete(callback);
+  }
+
+  onReadReceipt(callback: (receipt: ChatReadReceipt) => void): () => void {
+    this.readReceiptListeners.add(callback);
+    return () => this.readReceiptListeners.delete(callback);
   }
 
   disconnect(): void {
@@ -241,6 +272,14 @@ export class NativeChatAdapter implements ChatAdapter {
         // Don't let listener errors break the adapter
       }
     }
+  }
+
+  private notifyTyping(state: ChatTypingState) {
+    for (const listener of this.typingListeners) listener(state);
+  }
+
+  private notifyReadReceipt(receipt: ChatReadReceipt) {
+    for (const listener of this.readReceiptListeners) listener(receipt);
   }
 
   private flushQueue() {

@@ -32,5 +32,5 @@ function GuestChatJoinPage() {
     </div>
   );
 
-  return <div className="h-[100dvh] bg-board-bg p-2 sm:p-4"><div className="mx-auto h-full max-w-4xl overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" /></div></div>;
+  return <div className="h-[100dvh] bg-board-bg p-2 sm:p-4"><div className="mx-auto h-full max-w-4xl overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} typingUsers={chat.typingUsers} onTypingChange={chat.setTyping} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" /></div></div>;
 }
