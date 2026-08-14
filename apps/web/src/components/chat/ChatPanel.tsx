@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { ChatAttachment, ChatMessage, ChatMessageOptions, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
 
@@ -151,6 +151,7 @@ function ChatMessageRow({
   onEdit,
   onDelete,
   attachmentAccessToken,
+  isSeen = false,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -160,6 +161,7 @@ function ChatMessageRow({
   onEdit?: (message: ChatMessage) => void;
   onDelete?: (message: ChatMessage) => void;
   attachmentAccessToken?: string;
+  isSeen?: boolean;
 }) {
   const isEvent = message.type === "cue" || message.type === "alert";
   const attachmentUrl = (url: string) => attachmentAccessToken
@@ -265,6 +267,7 @@ function ChatMessageRow({
             })}
           </div>
         ) : null}
+        {isSeen ? <span className="mt-1 block text-[9px] font-medium text-sky-300/75">Seen</span> : null}
       </div>
       {!message.deletedAt && <div className="mt-1 flex shrink-0 self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
@@ -323,6 +326,9 @@ interface ChatPanelProps {
   allowOperationalMessages?: boolean;
   headerActions?: ReactNode;
   attachmentAccessToken?: string;
+  typingUsers?: ChatTypingState[];
+  onTypingChange?: (typing: boolean) => void;
+  seenThrough?: number;
 }
 
 export function ChatPanel({
@@ -344,6 +350,9 @@ export function ChatPanel({
   onEditMessage,
   onDeleteMessage,
   mentionMembers = [],
+  typingUsers = [],
+  onTypingChange,
+  seenThrough,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -362,6 +371,7 @@ export function ChatPanel({
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedAtRef = useRef(Date.now());
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   // Track pinned alerts (pinned for 10 seconds)
@@ -461,6 +471,7 @@ export function ChatPanel({
 
   const handleSend = () => {
     if (!inputText.trim() && pendingAttachments.length === 0) return;
+    onTypingChange?.(false);
     if (editingMessage) {
       if (inputText.trim() && onEditMessage) {
         const messageId = editingMessage.id;
@@ -486,6 +497,19 @@ export function ChatPanel({
     // Re-focus textarea
     textareaRef.current?.focus();
   };
+
+  useEffect(() => {
+    if (!onTypingChange) return;
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    const isTyping = inputText.trim().length > 0;
+    onTypingChange(isTyping);
+    if (isTyping) typingTimeoutRef.current = setTimeout(() => onTypingChange(false), 1600);
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    };
+  }, [inputText, onTypingChange]);
+
+  useEffect(() => () => onTypingChange?.(false), [onTypingChange]);
 
   const beginEdit = (message: ChatMessage) => {
     setEditingMessage(message);
@@ -568,6 +592,9 @@ export function ChatPanel({
   // the timeline after their urgent ten-second treatment ends. Automated
   // rundown status belongs in the header dock, not the conversation.
   const timelineMessages = messages.filter((m) => m.type !== "system" && !pinnedIds.has(m.id));
+  const latestSeenOwnMessageId = seenThrough === undefined ? undefined : [...timelineMessages]
+    .reverse()
+    .find((message) => !message.deletedAt && (currentUserId ? message.senderId === currentUserId : currentUserName && message.senderName === currentUserName) && message.timestamp <= seenThrough)?.id;
 
   return (
     <div
@@ -680,10 +707,16 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} />
             </div>
           );
         })}
+        {typingUsers.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 text-[10px] text-board-muted" aria-live="polite">
+            <span className="flex gap-0.5" aria-hidden="true"><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:120ms]" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:240ms]" /></span>
+            <span>{typingUsers.length === 1 ? `${typingUsers[0].name} is typing…` : `${typingUsers.slice(0, 2).map((user) => user.name).join(" and ")} are typing…`}</span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

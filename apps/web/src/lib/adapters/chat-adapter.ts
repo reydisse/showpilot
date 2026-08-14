@@ -43,6 +43,17 @@ export interface ChatMessage {
   deletedAt?: number;
 }
 
+export interface ChatTypingState {
+  userId?: string;
+  name: string;
+  typing: boolean;
+}
+
+export interface ChatReadReceipt {
+  userId: string;
+  readAt: number;
+}
+
 export interface ChatAdapter {
   /** Send a message through the active chat backend */
   sendMessage(
@@ -58,6 +69,16 @@ export interface ChatAdapter {
 
   /** Soft-delete one of the current user's native messages. */
   deleteMessage?(messageId: string): Promise<void>;
+
+  /** Broadcast ephemeral typing presence for native chat rooms. */
+  setTyping?(typing: boolean): void;
+
+  /** Mark a native direct-message conversation read through this timestamp. */
+  markRead?(readAt: number): void;
+
+  onTyping?(callback: (state: ChatTypingState) => void): () => void;
+
+  onReadReceipt?(callback: (receipt: ChatReadReceipt) => void): () => void;
 
   /** Subscribe to incoming messages. Returns a cleanup function. */
   onMessage(callback: (message: ChatMessage) => void): () => void;
