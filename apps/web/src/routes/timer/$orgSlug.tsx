@@ -261,6 +261,8 @@ function TimerKioskPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
+  const [relayServiceDate, setRelayServiceDate] = useState(serviceDate.current);
+  const hasActiveServiceDateRef = useRef(false);
   const lastTodayRef = useRef(serviceDate.current);
 
   const applyStageMessage = useCallback((raw: string) => {
@@ -298,6 +300,12 @@ function TimerKioskPage() {
         setTimezoneDisplay(settings.timezoneDisplay);
         setOrgTimezone(settings.orgTimezone);
         setOvertimeBehavior(settings.overtimeBehavior);
+        const orgToday = getTodayDateString(settings.orgTimezone || undefined);
+        const activeDate = settings.activeServiceDate || orgToday;
+        hasActiveServiceDateRef.current = Boolean(settings.activeServiceDate);
+        serviceDate.current = activeDate;
+        lastTodayRef.current = orgToday;
+        setRelayServiceDate(activeDate);
       })
       .catch(() => {});
   }, [orgSlug]);
@@ -327,7 +335,7 @@ function TimerKioskPage() {
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws`;
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws?serviceDate=${encodeURIComponent(relayServiceDate)}`;
 
     const clearPing = () => {
       if (pingRef.current) {
@@ -427,7 +435,7 @@ function TimerKioskPage() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [applyStageMessage, orgSlug]);
+  }, [applyStageMessage, orgSlug, relayServiceDate]);
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
@@ -454,9 +462,11 @@ function TimerKioskPage() {
   }, [applyStageMessage, orgSlug]);
 
   useEffect(() => {
+    if (hasActiveServiceDateRef.current) return;
     const next = resolvedOrgTimezoneDate;
     if (serviceDate.current !== next) {
       serviceDate.current = next;
+      setRelayServiceDate(next);
       lastTodayRef.current = next;
       if (!wsConnectedRef.current) {
         void poll();
@@ -485,6 +495,7 @@ function TimerKioskPage() {
       }
 
       serviceDate.current = nextToday;
+      setRelayServiceDate(nextToday);
       if (!wsConnectedRef.current) {
         void poll();
       }

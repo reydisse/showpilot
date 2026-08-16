@@ -6,6 +6,8 @@ import { hasPermission } from "@/lib/app-permissions";
 import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow, serviceDateSchema, textSchema } from "@/lib/validation";
+import { rundownRelayKey } from "@/lib/rundown-relay-key";
+import { getTodayDateString } from "@/lib/utils";
 
 // ─── Input schemas ───────────────────────────────────────────
 // Item arrays are validated as bounded unknowns here; per-item shape is
@@ -1016,10 +1018,16 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
     const bindings = env as unknown as RundownRelayEnv;
     if (bindings.RUNDOWN_RELAY) {
       try {
-        const id = bindings.RUNDOWN_RELAY.idFromName(data.orgId);
+        const timezone = await prisma.appSetting.findUnique({
+          where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
+          select: { value: true },
+        });
+        const id = bindings.RUNDOWN_RELAY.idFromName(
+          rundownRelayKey(data.orgId, data.serviceDate, getTodayDateString(timezone?.value)),
+        );
         const stub = bindings.RUNDOWN_RELAY.get(id);
         await stub.fetch(
-          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}`, {
+          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&access=write`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

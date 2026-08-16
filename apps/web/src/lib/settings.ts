@@ -423,6 +423,7 @@ export interface DisplaySettingsBySlug {
   overtimeBehavior: "flash" | "countup" | "stop";
   defaultTimerMode: "countdown" | "countup" | "clock";
   defaultCountdownMinutes: number;
+  activeServiceDate: string;
 }
 
 export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
@@ -438,6 +439,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
         overtimeBehavior: "flash",
         defaultTimerMode: "countdown",
         defaultCountdownMinutes: 5,
+        activeServiceDate: "",
       };
     }
 
@@ -452,6 +454,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
             "overtime-behavior",
             "default-timer-mode",
             "default-countdown-minutes",
+            "active-service-date",
           ],
         },
       },
@@ -467,6 +470,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
       overtimeBehavior: (map["overtime-behavior"] as "flash" | "countup" | "stop") || "flash",
       defaultTimerMode: (map["default-timer-mode"] as "countdown" | "countup" | "clock") || "countdown",
       defaultCountdownMinutes: Number(map["default-countdown-minutes"] || "5") || 5,
+      activeServiceDate: map["active-service-date"] || "",
     };
   });
 
