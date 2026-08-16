@@ -301,8 +301,8 @@ function TimerKioskPage() {
         setOrgTimezone(settings.orgTimezone);
         setOvertimeBehavior(settings.overtimeBehavior);
         const orgToday = getTodayDateString(settings.orgTimezone || undefined);
-        const activeDate = settings.activeServiceDate || orgToday;
-        hasActiveServiceDateRef.current = Boolean(settings.activeServiceDate);
+        const activeDate = settings.rundownServiceDate || orgToday;
+        hasActiveServiceDateRef.current = Boolean(settings.activeServiceDate) || activeDate !== orgToday;
         serviceDate.current = activeDate;
         lastTodayRef.current = orgToday;
         setRelayServiceDate(activeDate);
