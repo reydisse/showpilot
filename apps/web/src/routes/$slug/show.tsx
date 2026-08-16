@@ -24,8 +24,8 @@ import {
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
-import { getRundownState } from "@/lib/rundown";
-import { getActiveAdapters, getClockFormat, type RundownAdapterType } from "@/lib/settings";
+import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
+import { getActiveAdapters, getClockFormat, getOrgSettings, type RundownAdapterType } from "@/lib/settings";
 import { cn, getTodayDateString, formatTime, formatClockFull, type ClockFormat } from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useChat } from "@/hooks/useChat";
@@ -77,12 +77,16 @@ export const Route = createFileRoute("/$slug/show")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "show:view", context.slug, context.orgId);
-    const today = getTodayDateString();
-    const [members, adapters, clockFormat] = await Promise.all([
+    const [members, adapters, clockFormat, settings] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
       getActiveAdapters({ data: { orgId: context.orgId } }),
       getClockFormat({ data: { orgId: context.orgId } }),
+      getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
+    const today = getTodayDateString(settings["org-timezone"]);
+    const { serviceDate } = await getRundownOpeningDate({
+      data: { orgId: context.orgId, today },
+    });
 
     // Load rundown data based on adapter
     let ontimeState: OntimeRuntimeState | null = null;
@@ -97,11 +101,11 @@ export const Route = createFileRoute("/$slug/show")({
       } else {
         // OnTime not reachable — silent fallback to native
         effectiveRundownAdapter = "native";
-        nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
+        nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate } });
       }
     } else {
       // Native (or any other not-yet-implemented adapter)
-      nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate: today } });
+      nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate } });
     }
 
     return {
@@ -112,7 +116,7 @@ export const Route = createFileRoute("/$slug/show")({
       chatAdapter: adapters.chat,
       orgId: context.orgId,
       slug: context.slug,
-      serviceDate: today,
+      serviceDate,
       clockFormat,
       userName: context.user.name,
       userRole: context.role,
@@ -220,7 +224,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members: initialMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, clockFormat, userName, userRole,
+    chatAdapter, orgId, slug, serviceDate, clockFormat, userName, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -276,6 +280,7 @@ function ShowPage() {
         activeMembers={activeMembers}
         chatAdapter={chatAdapter}
         orgId={orgId}
+        serviceDate={serviceDate}
         slug={slug}
         clockFormat={clockFormat}
         userName={userName}
@@ -586,6 +591,7 @@ function ShowPageWithNative({
   activeMembers,
   chatAdapter,
   orgId,
+  serviceDate,
   slug,
   clockFormat,
   userName,
@@ -596,6 +602,7 @@ function ShowPageWithNative({
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
   chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
+  serviceDate: string;
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
@@ -609,7 +616,7 @@ function ShowPageWithNative({
     timer: syncedTimer,
     hydrated: syncHydrated,
     seedState,
-  } = useRundownSync(orgId);
+  } = useRundownSync(orgId, serviceDate);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])

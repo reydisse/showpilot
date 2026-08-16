@@ -814,7 +814,9 @@ function RundownPage() {
         )
       );
     }
-    const nextItem = items.find((_, i) => i > currentIdx && items[i].status !== "complete");
+    const nextItem = items.find(
+      (item, i) => i > currentIdx && item.status !== "complete" && item.type !== "header",
+    );
     if (nextItem) {
       setItems((prev) =>
         prev.map((i) =>
@@ -836,7 +838,10 @@ function RundownPage() {
     if (!canEditRundown) return;
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
-      const prevItem = items[currentIdx - 1];
+      const prevItem = [...items.slice(0, currentIdx)]
+        .reverse()
+        .find((item) => item.type !== "header");
+      if (!prevItem) return;
       // Local optimistic update — reset current to upcoming, start previous
       setItems((prev) =>
         prev.map((i, idx) =>
@@ -1107,7 +1112,7 @@ function RundownPage() {
         if (timer.playback === "play") handlePause();
         else if (timer.playback === "pause") handleResume();
         else if (items.length > 0) {
-          const first = items.find((i) => i.status !== "complete");
+          const first = items.find((i) => i.status !== "complete" && i.type !== "header");
           if (first) handleStart(first.id);
         }
       }
@@ -1123,7 +1128,7 @@ function RundownPage() {
 
   const nextItem = items.find((i) => {
     const currentIdx = items.findIndex((item) => item.id === timer.currentItemId);
-    return items.indexOf(i) > currentIdx && i.status !== "complete";
+    return items.indexOf(i) > currentIdx && i.status !== "complete" && i.type !== "header";
   });
 
   const totalDuration = items.reduce((sum, i) => sum + i.duration, 0);
