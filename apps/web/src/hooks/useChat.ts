@@ -114,7 +114,11 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       }
     });
     const unsubPollMessage = pollAdapter?.onMessage((message) => {
-      if (!message.poll) return;
+      // External-chat members also keep a native sidecar open so QR guests
+      // and native-only features can share the same visible conversation.
+      // Member messages mirrored into native are ignored here because the
+      // external adapter already delivers them to this UI.
+      if (!message.poll && message.senderRole !== "Guest") return;
       setMessages((current) => {
         const index = current.findIndex((item) => item.id === message.id);
         if (index < 0) return [...current, message];
@@ -127,7 +131,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       setConnectionStatus(status);
     });
 
-    const unsubTyping = adapter.onTyping?.((state) => {
+    const handleTyping = (state: ChatTypingState) => {
       const key = state.userId || `name:${state.name}`;
       const currentTimer = typingTimersRef.current.get(key);
       if (currentTimer) clearTimeout(currentTimer);
@@ -142,7 +146,9 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       } else {
         typingTimersRef.current.delete(key);
       }
-    });
+    };
+    const unsubTyping = adapter.onTyping?.(handleTyping);
+    const unsubPollTyping = pollAdapter?.onTyping?.(handleTyping);
 
     const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => {
       setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] || 0, readAt) }));
@@ -159,6 +165,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       unsubStatus?.();
       unsubPollMessage?.();
       unsubTyping?.();
+      unsubPollTyping?.();
       unsubReadReceipt?.();
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
@@ -182,20 +189,26 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       const name = userName || "Operator";
       const role = userRole || "Operator";
 
-      if (options?.poll && pollAdapterRef.current) {
-        void pollAdapterRef.current.sendMessage(text.trim(), type, name, role, options);
+      const nativeSidecar = pollAdapterRef.current;
+      if (options?.poll && nativeSidecar) {
+        void nativeSidecar.sendMessage(text.trim(), type, name, role, options);
       } else {
-
-      const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
-      if (!usesNativeAdapter && options) {
-        const replyPrefix = options.replyTo
-          ? `↪ Replying to ${options.replyTo.senderName}: “${options.replyTo.text.slice(0, 100)}”\n`
-          : "";
-        const attachmentLinks = options.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
-        adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
-      } else {
-        adapterRef.current.sendMessage(text.trim(), type, name, role, options);
-      }
+        const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
+        if (!usesNativeAdapter && options) {
+          const replyPrefix = options.replyTo
+            ? `↪ Replying to ${options.replyTo.senderName}: “${options.replyTo.text.slice(0, 100)}”\n`
+            : "";
+          const attachmentLinks = options.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
+          adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
+        } else {
+          adapterRef.current.sendMessage(text.trim(), type, name, role, options);
+        }
+        // Mirror external-adapter member messages into the native room used
+        // by temporary QR crew. The sidecar listener filters this sender's
+        // mirror, avoiding a duplicate beside the external adapter's echo.
+        if (nativeSidecar) {
+          void nativeSidecar.sendMessage(text.trim(), type, name, role, options);
+        }
       }
       if (orgSlug && !guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
@@ -240,6 +253,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
   const setTyping = useCallback((typing: boolean) => {
     adapterRef.current?.setTyping?.(typing);
+    pollAdapterRef.current?.setTyping?.(typing);
   }, []);
 
   return {
