@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, AlertTriangle, ShieldCheck, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, AlertTriangle, ShieldCheck, Trash2, X, MessageCircle, Send } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
@@ -10,6 +10,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
+import { addIncidentComment, getIncidentComments, type IncidentComment } from "@/lib/incident-comments";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -78,12 +79,16 @@ export const Route = createFileRoute("/$slug/production/incidents")({
     await withPermission(context.role, ["incidents:report", "incidents:access"], context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const incidents = await getIncidents({ data: { orgId: context.orgId, serviceDate: today } });
+    const [incidents, comments] = await Promise.all([
+      getIncidents({ data: { orgId: context.orgId, serviceDate: today } }),
+      getIncidentComments({ data: { orgId: context.orgId, serviceDate: today } }),
+    ]);
     return {
       incidents: incidents.map(normalizeIncident),
       orgId: context.orgId,
       role: context.role,
       orgTimezone: settings["org-timezone"],
+      comments,
     };
   },
   component: IncidentsPage,
@@ -91,11 +96,15 @@ export const Route = createFileRoute("/$slug/production/incidents")({
 
 function IncidentsPage() {
   const { incident: focusedIncidentId } = Route.useSearch();
-  const { incidents: initialIncidents, orgId, role, orgTimezone } = Route.useLoaderData();
+  const { incidents: initialIncidents, comments: initialComments, orgId, role, orgTimezone } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
   const [incidents, setIncidents] = useState(initialIncidents);
   const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [comments, setComments] = useState<IncidentComment[]>(initialComments);
+  const [openComments, setOpenComments] = useState<Set<string>>(() => focusedIncidentId ? new Set([focusedIncidentId]) : new Set());
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentBusy, setCommentBusy] = useState<string | null>(null);
   const [form, setForm] = useState({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const canReportIncidents = hasAnyPermission(role, ["incidents:report", "incidents:access"]);
@@ -104,8 +113,9 @@ function IncidentsPage() {
   const loadIncidents = useCallback(async (date: string) => {
     setLoadingIncidents(true);
     try {
-      const latest = await getIncidents({ data: { orgId, serviceDate: date } });
+      const [latest, latestComments] = await Promise.all([getIncidents({ data: { orgId, serviceDate: date } }), getIncidentComments({ data: { orgId, serviceDate: date } })]);
       setIncidents(latest.map(normalizeIncident));
+      setComments(latestComments);
     } finally {
       setLoadingIncidents(false);
     }
@@ -160,6 +170,18 @@ function IncidentsPage() {
     await deleteIncident({ data: { orgId, id } });
     publishIncident({ type: "incident", incidentId: id, action: "deleted", at: Date.now() });
     await loadIncidents(serviceDate);
+  };
+
+  const submitComment = async (incidentId: string) => {
+    const body = commentDrafts[incidentId]?.trim();
+    if (!body) return;
+    setCommentBusy(incidentId);
+    try {
+      const comment = await addIncidentComment({ data: { orgId, incidentId, body } });
+      setComments((current) => [...current, comment]);
+      setCommentDrafts((current) => ({ ...current, [incidentId]: "" }));
+      publishIncident({ type: "incident", incidentId, action: "commented", at: Date.now() });
+    } finally { setCommentBusy(null); }
   };
 
   return (
@@ -222,6 +244,13 @@ function IncidentsPage() {
                   {canManageIncidents && (
                     <button onClick={() => handleDelete(incident.id)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
                   )}
+                </div>
+                <div className="mt-3 border-t border-board-border/60 pt-3">
+                  <button type="button" onClick={() => setOpenComments((current) => { const next = new Set(current); next.has(incident.id) ? next.delete(incident.id) : next.add(incident.id); return next; })} className="flex items-center gap-1.5 text-[11px] font-medium text-board-muted hover:text-board-text"><MessageCircle className="h-3.5 w-3.5" />{comments.filter((comment) => comment.incidentId === incident.id).length} comment{comments.filter((comment) => comment.incidentId === incident.id).length === 1 ? "" : "s"}{incident.status === "resolved" ? " · resolution notes" : ""}</button>
+                  {openComments.has(incident.id) && <div className="mt-3 space-y-3">
+                    {comments.filter((comment) => comment.incidentId === incident.id).map((comment) => <div key={comment.id} className="rounded-lg bg-board-bg/55 px-3 py-2"><div className="flex items-center gap-2"><span className="text-[10px] font-semibold text-board-text">{comment.authorName}</span><span className="text-[9px] text-board-muted">{formatTime(new Date(comment.createdAt))}</span></div><p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">{comment.body}</p></div>)}
+                    <div className="flex items-end gap-2"><textarea value={commentDrafts[incident.id] ?? ""} onChange={(event) => setCommentDrafts((current) => ({ ...current, [incident.id]: event.target.value }))} placeholder={incident.status === "resolved" ? "Add a resolution note or follow-up…" : "Add an update…"} rows={2} maxLength={2000} className="min-w-0 flex-1 resize-none rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none placeholder:text-board-muted/50 focus:border-fire-500/40" /><button type="button" disabled={commentBusy === incident.id || !commentDrafts[incident.id]?.trim()} onClick={() => void submitComment(incident.id)} className="rounded-lg bg-fire-500 p-2.5 text-black disabled:opacity-40" aria-label="Post comment"><Send className="h-4 w-4" /></button></div>
+                  </div>}
                 </div>
               </div>
             ))}

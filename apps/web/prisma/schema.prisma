@@ -332,11 +332,26 @@ model Incident {
   acknowledgedAt DateTime?
   assignedBy   String?
   assignedAt   DateTime?
+  comments     IncidentComment[]
 
   @@index([orgId, serviceDate])
   @@index([orgId, status])
   @@index([orgId, assignedTo])
   @@map("incident")
+}
+
+model IncidentComment {
+  id         String   @id @default(cuid())
+  orgId      String
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String
+  authorName String
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, incidentId, createdAt])
+  @@map("incident_comment")
 }
 
 /// One position on one service. A null crewMemberId is an open slot —

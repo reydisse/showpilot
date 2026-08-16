@@ -31,7 +31,7 @@ export interface CueColumnsEvent {
 export interface IncidentEvent {
   type: "incident";
   incidentId: string;
-  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted";
+  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted" | "commented";
   at: number;
 }
 

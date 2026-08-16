@@ -2,6 +2,8 @@ import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./lib/auth";
 import { hasAnyPermission, hasPermission, type Permission } from "./lib/permissions";
 import { verifyCrewChatPass } from "./lib/crew-chat-pass";
+import { getTodayDateString } from "./lib/utils";
+import { rundownRelayKey } from "./lib/rundown-relay-key";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -295,7 +297,10 @@ export default {
       if (subpath === "command" && !canControl) {
         return new Response("Unauthorized", { status: 401 });
       }
-      const id = e.RUNDOWN_RELAY.idFromName(orgId);
+      const serviceDate = url.searchParams.get("serviceDate");
+      const timezone = await e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+        .bind(orgId).first<{ value: string }>();
+      const id = e.RUNDOWN_RELAY.idFromName(rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value)));
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
