@@ -54,8 +54,14 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     serviceWindowMinutes: 70,
     serviceWindowConfigured: true,
     lastServiceDate: null,
-    rundown: { scheduledStartTime: new Date(START).toISOString(), status: "stopped" },
-    items: [item({ id: "a" }), item({ id: "b", duration: 60 * MINUTE, title: "Message" })],
+    rundown: {
+      scheduledStartTime: new Date(START).toISOString(),
+      status: "stopped",
+    },
+    items: [
+      item({ id: "a" }),
+      item({ id: "b", duration: 60 * MINUTE, title: "Message" }),
+    ],
     checklist: [],
     incidents: [],
     equipment: [],
@@ -94,7 +100,10 @@ describe("deriveRundownHealth", () => {
   it("counts items missing a duration or an owner", () => {
     const health = deriveRundownHealth(
       snapshot({
-        items: [item({ id: "a", duration: 0 }), item({ id: "b", assignee: "  " })],
+        items: [
+          item({ id: "a", duration: 0 }),
+          item({ id: "b", assignee: "  " }),
+        ],
       }),
     );
     expect(health.missingDuration).toBe(1);
@@ -161,8 +170,20 @@ describe("deriveAttentionQueue", () => {
   it("sorts critical before warning before info", () => {
     const snap = snapshot({
       incidents: [
-        { id: "i1", category: "audio", severity: "low", description: "Hum", reportedBy: "Sam" },
-        { id: "i2", category: "video", severity: "high", description: "Cam 2 dead", reportedBy: "Ada" },
+        {
+          id: "i1",
+          category: "audio",
+          severity: "low",
+          description: "Hum",
+          reportedBy: "Sam",
+        },
+        {
+          id: "i2",
+          category: "video",
+          severity: "high",
+          description: "Cam 2 dead",
+          reportedBy: "Ada",
+        },
       ],
     });
     const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
@@ -179,7 +200,9 @@ describe("deriveAttentionQueue", () => {
 
   it("raises checklists only once crew is on site", () => {
     const snap = snapshot({
-      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: false }],
+      checklist: [
+        { id: "c1", label: "Line check", category: "audio", checked: false },
+      ],
     });
     for (const quiet of ["planning", "prep"] as const) {
       expect(
@@ -189,7 +212,9 @@ describe("deriveAttentionQueue", () => {
       ).toBe(false);
     }
     const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
-    expect(call.find((q) => q.id === "checklist:outstanding")?.severity).toBe("critical");
+    expect(call.find((q) => q.id === "checklist:outstanding")?.severity).toBe(
+      "critical",
+    );
   });
 
   it("consolidates outstanding checks into one row, not one per department", () => {
@@ -201,9 +226,11 @@ describe("deriveAttentionQueue", () => {
         { id: "c4", label: "Comms", category: "comms", checked: true },
       ],
     });
-    const rows = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").filter(
-      (q) => q.source === "checklist",
-    );
+    const rows = deriveAttentionQueue(
+      snap,
+      deriveRundownHealth(snap),
+      "call",
+    ).filter((q) => q.source === "checklist");
     expect(rows).toHaveLength(1);
     expect(rows[0].title).toBe("Checklist 1 of 4 done");
     // 'visuals' folds into video, so two departments, not three.
@@ -219,9 +246,11 @@ describe("deriveAttentionQueue", () => {
         { id: "c2", label: "Heating", category: "general", checked: false },
       ],
     });
-    const row = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").find(
-      (q) => q.source === "checklist",
-    );
+    const row = deriveAttentionQueue(
+      snap,
+      deriveRundownHealth(snap),
+      "call",
+    ).find((q) => q.source === "checklist");
     expect(row?.detail).toBe("2 items outstanding");
   });
 
@@ -232,9 +261,11 @@ describe("deriveAttentionQueue", () => {
         { id: "c2", label: "Doors", category: "general", checked: false },
       ],
     });
-    const row = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call").find(
-      (q) => q.source === "checklist",
-    );
+    const row = deriveAttentionQueue(
+      snap,
+      deriveRundownHealth(snap),
+      "call",
+    ).find((q) => q.source === "checklist");
     expect(row?.detail).toBe("2 items outstanding across audio and general");
   });
 
@@ -247,14 +278,24 @@ describe("deriveAttentionQueue", () => {
   it("leaves the empty-rundown ask to the plan-next widget while planning", () => {
     const snap = snapshot({ items: [] });
     for (const phase of ["planning", "prep"] as const) {
-      const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), phase);
+      const queue = deriveAttentionQueue(
+        snap,
+        deriveRundownHealth(snap),
+        phase,
+      );
       expect(queue.some((q) => q.id === "rundown:empty")).toBe(false);
     }
   });
 
   it("only complains about encoders once crew is on site", () => {
-    const snap = snapshot({ liveInputs: [{ id: "l1", name: "Booth", status: "idle" }] });
-    const planning = deriveAttentionQueue(snap, deriveRundownHealth(snap), "planning");
+    const snap = snapshot({
+      liveInputs: [{ id: "l1", name: "Booth", status: "idle" }],
+    });
+    const planning = deriveAttentionQueue(
+      snap,
+      deriveRundownHealth(snap),
+      "planning",
+    );
     const call = deriveAttentionQueue(snap, deriveRundownHealth(snap), "call");
     expect(planning.some((q) => q.id === "stream:no-signal")).toBe(false);
     expect(call.some((q) => q.id === "stream:no-signal")).toBe(true);
@@ -272,7 +313,13 @@ describe("deriveDepartments", () => {
     const departments = deriveDepartments(
       snapshot({
         incidents: [
-          { id: "i1", category: "audio", severity: "high", description: "FOH down", reportedBy: "Sam" },
+          {
+            id: "i1",
+            category: "audio",
+            severity: "high",
+            description: "FOH down",
+            reportedBy: "Sam",
+          },
         ],
       }),
       "call",
@@ -283,14 +330,25 @@ describe("deriveDepartments", () => {
 });
 
 describe("deriveArrivals", () => {
-  const timing = () => getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
+  const timing = () =>
+    getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
   const scheduled = (name: string) => ({
-    assignments: [{ id: "a1", role: "Audio", crewMemberName: name, status: "confirmed" }],
+    assignments: [
+      { id: "a1", role: "Audio", crewMemberName: name, status: "confirmed" },
+    ],
   });
 
   it("does not raise a no-show alarm before call time", () => {
     const snap = snapshot({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
       ...scheduled("Sam"),
     });
     const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
@@ -300,7 +358,15 @@ describe("deriveArrivals", () => {
   it("raises a no-show alarm well past call time", () => {
     const snap = snapshot({
       now: START - 30 * MINUTE,
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
       ...scheduled("Sam"),
     });
     const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
@@ -313,8 +379,20 @@ describe("deriveArrivals", () => {
     const snap = snapshot({
       now: START - 30 * MINUTE,
       crew: [
-        { id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null },
-        { id: "m2", name: "Ada", role: "Camera 1", isOnline: true, lastCheckIn: null },
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+        {
+          id: "m2",
+          name: "Ada",
+          role: "Camera 1",
+          isOnline: true,
+          lastCheckIn: null,
+        },
       ],
     });
     const arrivals = deriveArrivals(snap, timing(), deriveCrewBoard(snap));
@@ -325,8 +403,20 @@ describe("deriveArrivals", () => {
   it("counts only the people actually assigned once a schedule exists", () => {
     const snap = snapshot({
       crew: [
-        { id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null },
-        { id: "m2", name: "Ada", role: "Camera 1", isOnline: false, lastCheckIn: null },
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: true,
+          lastCheckIn: null,
+        },
+        {
+          id: "m2",
+          name: "Ada",
+          role: "Camera 1",
+          isOnline: false,
+          lastCheckIn: null,
+        },
       ],
       ...scheduled("Sam"),
     });
@@ -339,7 +429,15 @@ describe("deriveArrivals", () => {
   it("scores the gap, not the arrivals, when nobody was scheduled", () => {
     const snap = snapshot({
       now: START - 30 * MINUTE,
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
     });
     const readiness = deriveReadiness(
       snap,
@@ -351,18 +449,42 @@ describe("deriveArrivals", () => {
     );
     // Not silence — the honest reading is that nobody is scheduled,
     // which is exactly what the factor should say.
-    expect(readiness.factors.find((f) => f.id === "crew")?.detail).toBe("Nobody scheduled yet");
+    expect(readiness.factors.find((f) => f.id === "crew")?.detail).toBe(
+      "Nobody scheduled yet",
+    );
   });
 });
 
 describe("deriveReadiness", () => {
   it("scores a clean service highly", () => {
     const snap = snapshot({
-      checklist: [{ id: "c1", label: "Line check", category: "audio", checked: true }],
-      equipment: [{ id: "e1", name: "X32", category: "audio", status: "operational", nextService: null }],
-      streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: true }],
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: true, lastCheckIn: null }],
-      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
+      checklist: [
+        { id: "c1", label: "Line check", category: "audio", checked: true },
+      ],
+      equipment: [
+        {
+          id: "e1",
+          name: "X32",
+          category: "audio",
+          status: "operational",
+          nextService: null,
+        },
+      ],
+      streamDestinations: [
+        { id: "s1", name: "YouTube", platform: "youtube", enabled: true },
+      ],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: true,
+          lastCheckIn: null,
+        },
+      ],
+      assignments: [
+        { id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" },
+      ],
     });
     const health = deriveRundownHealth(snap);
     const readiness = deriveReadiness(
@@ -389,21 +511,43 @@ describe("deriveReadiness", () => {
     );
     expect(readiness.status).toBe("fail");
     expect(readiness.score).toBeLessThan(100);
-    expect(readiness.factors.find((f) => f.id === "rundown")?.status).toBe("fail");
+    expect(readiness.factors.find((f) => f.id === "rundown")?.status).toBe(
+      "fail",
+    );
   });
 
   it("omits crew while planning and judges it once the service is near", () => {
     const snap = snapshot({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
     });
     const health = deriveRundownHealth(snap);
-    const timing = getServiceTiming({ scheduledStartTime: new Date(START).toISOString() });
+    const timing = getServiceTiming({
+      scheduledStartTime: new Date(START).toISOString(),
+    });
     const at = (phase: "planning" | "prep" | "call") =>
-      deriveReadiness(snap, health, deriveDepartments(snap, phase), deriveArrivals(snap, timing, deriveCrewBoard(snap)), phase);
+      deriveReadiness(
+        snap,
+        health,
+        deriveDepartments(snap, phase),
+        deriveArrivals(snap, timing, deriveCrewBoard(snap)),
+        phase,
+      );
     // Weeks out an unassigned rota is normal, so it is not scored.
     expect(at("planning").factors.some((f) => f.id === "crew")).toBe(false);
-    expect(at("prep").factors.find((f) => f.id === "crew")?.detail).toBe("Nobody scheduled yet");
-    expect(at("call").factors.find((f) => f.id === "crew")?.status).toBe("warn");
+    expect(at("prep").factors.find((f) => f.id === "crew")?.detail).toBe(
+      "Nobody scheduled yet",
+    );
+    expect(at("call").factors.find((f) => f.id === "crew")?.status).toBe(
+      "warn",
+    );
   });
 });
 
@@ -412,7 +556,14 @@ describe("deriveUpcoming", () => {
     const upcoming = deriveUpcoming(
       snapshot({
         upcoming: [
-          { serviceDate: "2026-08-16", name: "", scheduledStartTime: null, itemCount: 0, missingDuration: 0, missingOwner: 0 },
+          {
+            serviceDate: "2026-08-16",
+            name: "",
+            scheduledStartTime: null,
+            itemCount: 0,
+            missingDuration: 0,
+            missingOwner: 0,
+          },
         ],
       }),
     );
@@ -424,7 +575,14 @@ describe("deriveUpcoming", () => {
     const upcoming = deriveUpcoming(
       snapshot({
         upcoming: [
-          { serviceDate: "2026-08-16", name: "", scheduledStartTime: null, itemCount: 4, missingDuration: 0, missingOwner: 0 },
+          {
+            serviceDate: "2026-08-16",
+            name: "",
+            scheduledStartTime: null,
+            itemCount: 4,
+            missingDuration: 0,
+            missingOwner: 0,
+          },
         ],
       }),
     );
@@ -489,9 +647,11 @@ describe("service window is only judged when the org configured one", () => {
     });
     const health = deriveRundownHealth(snap);
     expect(health.deltaMs).toBe(30 * MINUTE);
-    expect(deriveAttentionQueue(snap, health, "prep").some((q) => q.id === "rundown:overrun")).toBe(
-      true,
-    );
+    expect(
+      deriveAttentionQueue(snap, health, "prep").some(
+        (q) => q.id === "rundown:overrun",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -511,8 +671,18 @@ describe("readiness excludes features the org never configured", () => {
 
   it("can reach 100 for an org that does not stream and tracks no gear", () => {
     const readiness = score({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
-      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
+      assignments: [
+        { id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" },
+      ],
     });
     expect(readiness.factors.map((f) => f.id)).not.toContain("stream");
     expect(readiness.factors.map((f) => f.id)).not.toContain("equipment");
@@ -521,11 +691,25 @@ describe("readiness excludes features the org never configured", () => {
 
   it("still fails an org that configured a destination and turned it off", () => {
     const readiness = score({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
-      assignments: [{ id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" }],
-      streamDestinations: [{ id: "s1", name: "YouTube", platform: "youtube", enabled: false }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
+      assignments: [
+        { id: "a1", role: "Audio", crewMemberName: "Sam", status: "confirmed" },
+      ],
+      streamDestinations: [
+        { id: "s1", name: "YouTube", platform: "youtube", enabled: false },
+      ],
     });
-    expect(readiness.factors.find((f) => f.id === "stream")?.status).toBe("fail");
+    expect(readiness.factors.find((f) => f.id === "stream")?.status).toBe(
+      "fail",
+    );
     expect(readiness.score).toBeLessThan(100);
   });
 
@@ -543,7 +727,11 @@ describe("readiness excludes features the org never configured", () => {
   it("suppresses setup nudges once crew is on site", () => {
     const snap = snapshot({});
     for (const phase of ["call", "live"] as const) {
-      const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), phase);
+      const queue = deriveAttentionQueue(
+        snap,
+        deriveRundownHealth(snap),
+        phase,
+      );
       expect(queue.some((q) => q.id.startsWith("setup:"))).toBe(false);
     }
   });
@@ -590,10 +778,14 @@ describe("crew board", () => {
     const crew = deriveCrewBoard(snap);
     const health = deriveRundownHealth(snap);
     expect(
-      deriveAttentionQueue(snap, health, "prep", crew).find((q) => q.id === "crew:open")?.severity,
+      deriveAttentionQueue(snap, health, "prep", crew).find(
+        (q) => q.id === "crew:open",
+      )?.severity,
     ).toBe("warning");
     expect(
-      deriveAttentionQueue(snap, health, "call", crew).find((q) => q.id === "crew:open")?.severity,
+      deriveAttentionQueue(snap, health, "call", crew).find(
+        (q) => q.id === "crew:open",
+      )?.severity,
     ).toBe("critical");
   });
 
@@ -602,10 +794,14 @@ describe("crew board", () => {
     const crew = deriveCrewBoard(snap);
     const health = deriveRundownHealth(snap);
     expect(
-      deriveAttentionQueue(snap, health, "planning", crew).some((q) => q.id === "crew:unconfirmed"),
+      deriveAttentionQueue(snap, health, "planning", crew).some(
+        (q) => q.id === "crew:unconfirmed",
+      ),
     ).toBe(false);
     expect(
-      deriveAttentionQueue(snap, health, "prep", crew).some((q) => q.id === "crew:unconfirmed"),
+      deriveAttentionQueue(snap, health, "prep", crew).some(
+        (q) => q.id === "crew:unconfirmed",
+      ),
     ).toBe(true);
   });
 
@@ -632,8 +828,20 @@ describe("carried-forward open items", () => {
       snapshot({
         serviceDate: "2026-08-09",
         openItems: [
-          { id: "o1", serviceDate: "2026-08-02", category: "audio", severity: "low", description: "Hum on 3" },
-          { id: "o2", serviceDate: "2026-07-26", category: "video", severity: "high", description: "Cam 2 dead" },
+          {
+            id: "o1",
+            serviceDate: "2026-08-02",
+            category: "audio",
+            severity: "low",
+            description: "Hum on 3",
+          },
+          {
+            id: "o2",
+            serviceDate: "2026-07-26",
+            category: "video",
+            severity: "high",
+            description: "Cam 2 dead",
+          },
         ],
       }),
     );
@@ -648,8 +856,20 @@ describe("recent services", () => {
     const recent = deriveRecent(
       snapshot({
         recent: [
-          { serviceDate: "2026-08-02", name: "", plannedMs: 60 * MINUTE, actualMs: 68 * MINUTE, incidentCount: 1 },
-          { serviceDate: "2026-07-26", name: "", plannedMs: 60 * MINUTE, actualMs: null, incidentCount: 0 },
+          {
+            serviceDate: "2026-08-02",
+            name: "",
+            plannedMs: 60 * MINUTE,
+            actualMs: 68 * MINUTE,
+            incidentCount: 1,
+          },
+          {
+            serviceDate: "2026-07-26",
+            name: "",
+            plannedMs: 60 * MINUTE,
+            actualMs: null,
+            incidentCount: 0,
+          },
         ],
       }),
     );
@@ -660,8 +880,20 @@ describe("recent services", () => {
 
 describe("the dashboard must not contradict itself", () => {
   const carried = [
-    { id: "o1", serviceDate: "2026-05-19", category: "audio", severity: "high", description: "Radio mic 4" },
-    { id: "o2", serviceDate: "2026-05-12", category: "lighting", severity: "low", description: "Wash flickers" },
+    {
+      id: "o1",
+      serviceDate: "2026-05-19",
+      category: "audio",
+      severity: "high",
+      description: "Radio mic 4",
+    },
+    {
+      id: "o2",
+      serviceDate: "2026-05-12",
+      category: "lighting",
+      severity: "low",
+      description: "Wash flickers",
+    },
   ];
 
   it("counts carried-forward incidents in the readiness factor", () => {
@@ -680,14 +912,25 @@ describe("the dashboard must not contradict itself", () => {
   });
 
   it("counts carried-forward incidents against their department", () => {
-    const departments = deriveDepartments(snapshot({ openItems: carried }), "prep");
+    const departments = deriveDepartments(
+      snapshot({ openItems: carried }),
+      "prep",
+    );
     expect(departments.find((d) => d.key === "audio")?.status).toBe("fail");
     expect(departments.find((d) => d.key === "lighting")?.status).toBe("ok");
   });
 
   it("does not call crew ok merely because a roster exists", () => {
     const snap = snapshot({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
       assignments: [],
     });
     const readiness = deriveReadiness(
@@ -711,7 +954,9 @@ describe("the dashboard must not contradict itself", () => {
       deriveArrivals(snap, getServiceTiming({}), deriveCrewBoard(snap)),
       "prep",
     );
-    expect(readiness.factors.find((f) => f.id === "incidents")?.detail).toBe("None open");
+    expect(readiness.factors.find((f) => f.id === "incidents")?.detail).toBe(
+      "None open",
+    );
   });
 });
 
@@ -729,12 +974,27 @@ describe("on the floor", () => {
         now: START,
         onFloorTotal: 2,
         onFloor: [
-          { id: "1", name: "Early Bird", role: "Audio", photoUrl: "", lastCheckIn: new Date(START - 60 * MINUTE).toISOString() },
-          { id: "2", name: "Just Arrived", role: "Camera", photoUrl: "", lastCheckIn: new Date(START - 2 * MINUTE).toISOString() },
+          {
+            id: "1",
+            name: "Early Bird",
+            role: "Audio",
+            photoUrl: "",
+            lastCheckIn: new Date(START - 60 * MINUTE).toISOString(),
+          },
+          {
+            id: "2",
+            name: "Just Arrived",
+            role: "Camera",
+            photoUrl: "",
+            lastCheckIn: new Date(START - 2 * MINUTE).toISOString(),
+          },
         ],
       }),
     );
-    expect(floor.members.map((m) => m.name)).toEqual(["Just Arrived", "Early Bird"]);
+    expect(floor.members.map((m) => m.name)).toEqual([
+      "Just Arrived",
+      "Early Bird",
+    ]);
     expect(floor.members[0].sinceMinutes).toBe(2);
     expect(floor.overflow).toBe(0);
   });
@@ -743,7 +1003,15 @@ describe("on the floor", () => {
     const floor = deriveOnFloor(
       snapshot({
         onFloorTotal: 25,
-        onFloor: [{ id: "1", name: "Sam", role: "Audio", photoUrl: "", lastCheckIn: null }],
+        onFloor: [
+          {
+            id: "1",
+            name: "Sam",
+            role: "Audio",
+            photoUrl: "",
+            lastCheckIn: null,
+          },
+        ],
       }),
     );
     expect(floor.total).toBe(25);
@@ -770,24 +1038,51 @@ describe("duty officers", () => {
     const duty = deriveDuty(
       snapshot({
         assignments: [
-          { id: "a1", role: "Producer", crewMemberName: "Rey", status: "confirmed" },
-          { id: "a2", role: "Camera 1", crewMemberName: "Sam", status: "assigned" },
+          {
+            id: "a1",
+            role: "Producer",
+            crewMemberName: "Rey",
+            status: "confirmed",
+          },
+          {
+            id: "a2",
+            role: "Camera 1",
+            crewMemberName: "Sam",
+            status: "assigned",
+          },
         ],
       }),
     );
     expect(duty.map((d) => d.key)).toEqual(["pm", "tm"]);
-    expect(duty[0]).toMatchObject({ name: "Rey", status: "confirmed", source: "service" });
+    expect(duty[0]).toMatchObject({
+      name: "Rey",
+      status: "confirmed",
+      source: "service",
+    });
     expect(duty[1]).toMatchObject({ name: null, status: "open", source: null });
   });
 
-  it("keeps duty roles out of the crew board so nobody is listed twice", () => {
+  it("counts duty roles as scheduled crew even when they also appear on duty", () => {
     const snap = snapshot({
       assignments: [
-        { id: "a1", role: "Production Manager", crewMemberName: "Rey", status: "confirmed" },
-        { id: "a2", role: "Camera 1", crewMemberName: "Sam", status: "assigned" },
+        {
+          id: "a1",
+          role: "Production Manager",
+          crewMemberName: "Rey",
+          status: "confirmed",
+        },
+        {
+          id: "a2",
+          role: "Camera 1",
+          crewMemberName: "Sam",
+          status: "assigned",
+        },
       ],
     });
-    expect(deriveCrewBoard(snap).positions.map((p) => p.role)).toEqual(["Camera 1"]);
+    expect(deriveCrewBoard(snap).positions.map((p) => p.role)).toEqual([
+      "Production Manager",
+      "Camera 1",
+    ]);
     expect(deriveDuty(snap)[0].name).toBe("Rey");
   });
 
@@ -802,7 +1097,12 @@ describe("duty officers", () => {
           tm: null,
         },
         assignments: [
-          { id: "a1", role: "Producer", crewMemberName: "Someone Else", status: "confirmed" },
+          {
+            id: "a1",
+            role: "Producer",
+            crewMemberName: "Someone Else",
+            status: "confirmed",
+          },
         ],
       }),
     );
@@ -817,13 +1117,26 @@ describe("duty officers", () => {
   it("falls back to the per-service assignment when the week is unset", () => {
     const duty = deriveDuty(
       snapshot({
-        rosterDuty: { weekStart: "2026-08-09", pm: null, tm: { id: "u2", name: "Ada" } },
+        rosterDuty: {
+          weekStart: "2026-08-09",
+          pm: null,
+          tm: { id: "u2", name: "Ada" },
+        },
         assignments: [
-          { id: "a1", role: "Producer", crewMemberName: "Rey", status: "assigned" },
+          {
+            id: "a1",
+            role: "Producer",
+            crewMemberName: "Rey",
+            status: "assigned",
+          },
         ],
       }),
     );
-    expect(duty[0]).toMatchObject({ name: "Rey", source: "service", status: "assigned" });
+    expect(duty[0]).toMatchObject({
+      name: "Rey",
+      source: "service",
+      status: "assigned",
+    });
     expect(duty[1]).toMatchObject({ name: "Ada", source: "roster" });
   });
 });
@@ -838,9 +1151,20 @@ describe("weekStartFor", () => {
 });
 
 describe("scheduling is not scored until the org uses it", () => {
-  function crewFactor(overrides: Partial<PmSnapshot>, phase: "planning" | "prep" | "call") {
+  function crewFactor(
+    overrides: Partial<PmSnapshot>,
+    phase: "planning" | "prep" | "call",
+  ) {
     const snap = snapshot({
-      crew: [{ id: "m1", name: "Sam", role: "Audio Engineer", isOnline: false, lastCheckIn: null }],
+      crew: [
+        {
+          id: "m1",
+          name: "Sam",
+          role: "Audio Engineer",
+          isOnline: false,
+          lastCheckIn: null,
+        },
+      ],
       ...overrides,
     });
     return deriveReadiness(
@@ -874,16 +1198,25 @@ describe("scheduling is not scored until the org uses it", () => {
   });
 
   it("starts scoring the moment the org assigns anyone anywhere", () => {
-    expect(crewFactor({ schedulingInUse: true }, "prep")?.detail).toBe("Nobody scheduled yet");
+    expect(crewFactor({ schedulingInUse: true }, "prep")?.detail).toBe(
+      "Nobody scheduled yet",
+    );
   });
 
   it("scores this service's own board once it has one", () => {
     const factor = crewFactor(
       {
         schedulingInUse: true,
-    rosterDuty: { weekStart: "2026-08-09", pm: null, tm: null },
-    orgMembers: [],
-        assignments: [{ id: "a1", role: "Camera 1", crewMemberName: null, status: "assigned" }],
+        rosterDuty: { weekStart: "2026-08-09", pm: null, tm: null },
+        orgMembers: [],
+        assignments: [
+          {
+            id: "a1",
+            role: "Camera 1",
+            crewMemberName: null,
+            status: "assigned",
+          },
+        ],
       },
       "prep",
     );

@@ -1,4 +1,8 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -20,7 +24,9 @@ export const Route = createFileRoute("/crew/schedule/$token")({
     assignment:
       typeof search.assignment === "string" ? search.assignment : undefined,
   }),
-  loaderDeps: ({ search }) => ({ assignment: search.assignment }),
+  // Every assignment needed by this portal is loaded once. Switching between
+  // them is local state reflected in the URL, not a route reload.
+  loaderDeps: () => ({}),
   loader: ({ params }) =>
     getCrewSchedulePortal({ data: { token: params.token } }),
   component: CrewSchedulePortal,
@@ -47,6 +53,7 @@ function CrewSchedulePortal() {
   const data = Route.useLoaderData();
   const { token } = Route.useParams();
   const { assignment: requestedId } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [declining, setDeclining] = useState(false);
@@ -97,9 +104,9 @@ function CrewSchedulePortal() {
 
   return (
     <PortalShell>
-      <header className="border-b border-board-border pb-6">
+      <header className="border-b border-board-border pb-7 text-center">
         <p className="text-sm text-board-muted">{data.orgName}</p>
-        <div className="mt-5 flex h-12 w-12 items-center justify-center rounded-full border border-fire-500/30 bg-fire-500/10 text-fire-500">
+        <div className="mx-auto mt-5 flex h-14 w-14 items-center justify-center rounded-full border border-fire-500/30 bg-fire-500/10 text-fire-500">
           {confirmed ? (
             <Check className="h-6 w-6" />
           ) : declined ? (
@@ -108,14 +115,14 @@ function CrewSchedulePortal() {
             <CalendarDays className="h-6 w-6" />
           )}
         </div>
-        <h1 className="mt-5 text-3xl font-semibold tracking-tight text-board-text">
+        <h1 className="mt-5 text-3xl font-semibold tracking-tight text-board-text sm:text-4xl">
           {confirmed
             ? "You’re scheduled"
             : declined
               ? "Response received"
               : `Can you ${terms.participate}?`}
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-board-muted">
+        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-board-muted">
           {confirmed
             ? "Thanks! You’re all set for this assignment."
             : declined
@@ -206,24 +213,50 @@ function CrewSchedulePortal() {
         <CalendarDays className="h-4 w-4 text-fire-500" />
         Add to calendar
       </a>
-      {data.assignments.length > 1 ? (
+      {data.assignments.filter(
+        (assignment) =>
+          assignment.id !== selected.id &&
+          assignment.serviceDate >= data.today &&
+          assignment.status !== "declined",
+      ).length ? (
         <section className="pt-7">
           <h2 className="text-sm font-semibold text-board-text">
             Your other upcoming assignments
           </h2>
           <div className="mt-3 divide-y divide-board-border border-y border-board-border">
             {data.assignments
-              .filter((assignment) => assignment.id !== selected.id)
+              .filter(
+                (assignment) =>
+                  assignment.id !== selected.id &&
+                  assignment.serviceDate >= data.today &&
+                  assignment.status !== "declined",
+              )
               .slice(0, 4)
               .map((assignment) => (
-                <div key={assignment.id} className="py-3">
-                  <p className="text-sm font-medium text-board-text">
-                    {assignment.serviceName}
-                  </p>
-                  <p className="mt-1 text-xs text-board-muted">
-                    {formatDate(assignment.serviceDate)} · {assignment.role}
-                  </p>
-                </div>
+                <button
+                  key={assignment.id}
+                  onClick={() =>
+                    void navigate({
+                      search: { assignment: assignment.id },
+                      replace: true,
+                    })
+                  }
+                  className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-board-bg/50"
+                >
+                  <span>
+                    <span className="block text-sm font-medium text-board-text">
+                      {assignment.serviceName}
+                    </span>
+                    <span className="mt-1 block text-xs text-board-muted">
+                      {formatDate(assignment.serviceDate)} · {assignment.role}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${assignment.status === "confirmed" ? "text-green-400" : "text-fire-400"}`}
+                  >
+                    {assignment.status === "confirmed" ? "Accepted" : "Reply"}
+                  </span>
+                </button>
               ))}
           </div>
         </section>
@@ -236,7 +269,7 @@ function PortalShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-[100dvh] bg-board-bg px-4 py-4 text-board-text sm:px-6 sm:py-8">
       <div className="mx-auto flex w-full max-w-5xl flex-col rounded-2xl border border-board-border bg-board-card px-5 py-6 shadow-2xl sm:px-10 sm:py-8 lg:px-14">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mx-auto mb-8 flex w-full max-w-3xl flex-col items-center justify-center gap-2 text-center">
           <span className="font-display text-xl font-bold">
             <span className="text-fire-500">Show</span>Pilot
           </span>
@@ -246,9 +279,14 @@ function PortalShell({ children }: { children: React.ReactNode }) {
           </span>
         </div>
         <div className="mx-auto w-full max-w-3xl flex-1">{children}</div>
-        <footer className="mt-10 border-t border-board-border pt-5 text-center text-[11px] leading-relaxed text-board-muted">
-          <LockKeyhole className="mr-1 inline h-3 w-3" />
-          Secure link. This link is unique to you.
+        <footer className="mx-auto mt-10 w-full max-w-3xl border-t border-board-border pt-5 text-center text-[11px] leading-relaxed text-board-muted">
+          <p>
+            <LockKeyhole className="mr-1 inline h-3 w-3" />
+            Secure link. This link is unique to you.
+          </p>
+          <p className="mt-2 font-medium text-board-text/70">
+            Powered by <span className="text-fire-500">Show</span>Pilot
+          </p>
         </footer>
       </div>
     </main>

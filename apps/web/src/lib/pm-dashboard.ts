@@ -98,7 +98,12 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
   try {
     return await prisma.rundown.findMany({
       where: { orgId },
-      select: { serviceDate: true, scheduledStartTime: true, status: true, name: true },
+      select: {
+        serviceDate: true,
+        scheduledStartTime: true,
+        status: true,
+        name: true,
+      },
     });
   } catch {
     return [];
@@ -108,6 +113,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
 interface AssignmentRow {
   id: string;
   role: string;
+  department: string;
   status: string;
   crewMember: { name: string } | null;
 }
@@ -127,7 +133,10 @@ interface AssignmentRow {
  * The TM slot is whichever roster_role carries the code "tm"; the PM is
  * the row with kind = 'pm'.
  */
-export async function loadRosterDuty(orgId: string, serviceDate: string): Promise<SnapshotRosterDuty> {
+export async function loadRosterDuty(
+  orgId: string,
+  serviceDate: string,
+): Promise<SnapshotRosterDuty> {
   const weekStart = weekStartFor(serviceDate);
   const empty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
   try {
@@ -142,7 +151,12 @@ export async function loadRosterDuty(orgId: string, serviceDate: string): Promis
               WHERE a.orgId = ? AND a.weekStart = ?`,
           )
           .bind(orgId, weekStart)
-          .all<{ kind: string; code: string | null; userId: string; name: string }>()
+          .all<{
+            kind: string;
+            code: string | null;
+            userId: string;
+            name: string;
+          }>()
       ).results ?? [];
 
     const duty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
@@ -160,38 +174,24 @@ export async function loadRosterDuty(orgId: string, serviceDate: string): Promis
 
 /** Has this org ever assigned anyone to anything? */
 async function countAllAssignments(orgId: string): Promise<number> {
-  const prisma = getPrisma() as unknown as {
-    serviceAssignment?: { count(args: unknown): Promise<number> };
-  };
-  if (!prisma.serviceAssignment) return 0;
-  try {
-    return await prisma.serviceAssignment.count({ where: { orgId } });
-  } catch {
-    return 0;
-  }
+  return getPrisma().serviceAssignment.count({ where: { orgId } });
 }
 
-async function loadAssignments(orgId: string, serviceDate: string): Promise<AssignmentRow[]> {
-  const prisma = getPrisma() as unknown as {
-    serviceAssignment?: {
-      findMany(args: unknown): Promise<AssignmentRow[]>;
-    };
-  };
-  if (!prisma.serviceAssignment) return [];
-  try {
-    return await prisma.serviceAssignment.findMany({
-      where: { orgId, serviceDate },
-      orderBy: { role: "asc" },
-      select: {
-        id: true,
-        role: true,
-        status: true,
-        crewMember: { select: { name: true } },
-      },
-    });
-  } catch {
-    return [];
-  }
+async function loadAssignments(
+  orgId: string,
+  serviceDate: string,
+): Promise<AssignmentRow[]> {
+  return getPrisma().serviceAssignment.findMany({
+    where: { orgId, serviceDate },
+    orderBy: [{ department: "asc" }, { role: "asc" }],
+    select: {
+      id: true,
+      role: true,
+      department: true,
+      status: true,
+      crewMember: { select: { name: true } },
+    },
+  });
 }
 
 interface OpenIncidentRow {
@@ -203,7 +203,10 @@ interface OpenIncidentRow {
 }
 
 /** Incidents left open on any service before the one on screen. */
-async function loadOpenItems(orgId: string, serviceDate: string): Promise<OpenIncidentRow[]> {
+async function loadOpenItems(
+  orgId: string,
+  serviceDate: string,
+): Promise<OpenIncidentRow[]> {
   const prisma = getPrisma();
   try {
     return (await prisma.incident.findMany({
@@ -252,9 +255,15 @@ function summarizeItems(raw: string): ItemSummary {
     const items = parsed.filter((i) => !isHeaderItem(i));
     return {
       itemCount: items.length,
-      missingDuration: items.filter((i) => !i.duration || i.duration <= 0).length,
-      missingOwner: items.filter((i) => !i.assignee || !String(i.assignee).trim()).length,
-      plannedMs: items.reduce((sum, i) => sum + Math.max(0, Number(i.duration) || 0), 0),
+      missingDuration: items.filter((i) => !i.duration || i.duration <= 0)
+        .length,
+      missingOwner: items.filter(
+        (i) => !i.assignee || !String(i.assignee).trim(),
+      ).length,
+      plannedMs: items.reduce(
+        (sum, i) => sum + Math.max(0, Number(i.duration) || 0),
+        0,
+      ),
     };
   } catch {
     return EMPTY_SUMMARY;
@@ -277,7 +286,10 @@ export function resolveServiceDate(dates: string[], today: string): string {
 }
 
 /** Most recent service strictly before today, for the plan-next prompt. */
-export function resolveLastServiceDate(dates: string[], today: string): string | null {
+export function resolveLastServiceDate(
+  dates: string[],
+  today: string,
+): string | null {
   const past = [...new Set(dates)].sort().filter((d) => d < today);
   return past.length > 0 ? past[past.length - 1] : null;
 }
@@ -304,7 +316,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const orgId = data.orgId;
 
     const [settingRows, rundownRows] = await Promise.all([
-      prisma.appSetting.findMany({ where: { orgId }, select: { key: true, value: true } }),
+      prisma.appSetting.findMany({
+        where: { orgId },
+        select: { key: true, value: true },
+      }),
       loadRundownRows(orgId),
     ]);
 
@@ -312,7 +327,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const itemSummaries = new Map<string, ItemSummary>();
     for (const row of settingRows) {
       if (row.key.startsWith(RUNDOWN_ITEMS_PREFIX)) {
-        itemSummaries.set(row.key.slice(RUNDOWN_ITEMS_PREFIX.length), summarizeItems(row.value));
+        itemSummaries.set(
+          row.key.slice(RUNDOWN_ITEMS_PREFIX.length),
+          summarizeItems(row.value),
+        );
       } else {
         settings[row.key] = row.value;
       }
@@ -326,7 +344,9 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const startTimes = new Map<string, RundownDateRow>();
     for (const row of rundownRows) startTimes.set(row.serviceDate, row);
 
-    const allDates = [...new Set([...itemSummaries.keys(), ...startTimes.keys()])].sort();
+    const allDates = [
+      ...new Set([...itemSummaries.keys(), ...startTimes.keys()]),
+    ].sort();
     const serviceDate = data.serviceDate ?? resolveServiceDate(allDates, today);
     const lastServiceDate = resolveLastServiceDate(allDates, today);
 
@@ -334,80 +354,126 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     // keeps the payload small and stops the page inheriting a failure from
     // a column it never reads.
     // The four most recent services before this one, for the history card.
-    const recentDates = allDates.filter((d) => d < serviceDate).slice(-RECENT_LIMIT).reverse();
+    const recentDates = allDates
+      .filter((d) => d < serviceDate)
+      .slice(-RECENT_LIMIT)
+      .reverse();
 
-    const [rundownState, templates, entries, incidents, equipment, crew, destinations, liveInputs, notifications, assignments, assignmentsEver, rosterDuty, orgMemberRows, onFloorRows, onFloorTotal, openItems, recentItems, recentIncidents] =
-      await Promise.all([
-        getRundownStateForOrg({ orgId, serviceDate }),
-        prisma.checklistTemplate.findMany({
-          where: { orgId },
-          orderBy: { sortOrder: "asc" },
-          select: { id: true, label: true, category: true },
-        }),
-        prisma.checklistEntry.findMany({
-          where: { orgId, serviceDate },
-          select: { templateId: true, checked: true },
-        }),
-        prisma.incident.findMany({
-          where: { orgId, serviceDate },
-          orderBy: { timestamp: "desc" },
-          select: { id: true, category: true, severity: true, description: true, reportedBy: true, status: true },
-        }),
-        prisma.equipment.findMany({
-          where: { orgId },
-          select: { id: true, name: true, category: true, status: true, nextService: true },
-        }),
-        prisma.crewMember.findMany({
-          where: { orgId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, role: true, isOnline: true, lastCheckIn: true },
-        }),
-        prisma.streamDestination.findMany({
-          where: { orgId },
-          select: { id: true, name: true, platform: true, enabled: true },
-        }),
-        prisma.liveInput.findMany({
-          where: { orgId },
-          select: { id: true, name: true, status: true },
-        }),
-        prisma.notification.findMany({
-          where: {
-            orgId,
-            dismissed: false,
-            target: { in: ["all", "production-manager"] },
-          },
-          orderBy: { createdAt: "desc" },
-          take: NOTIFICATION_LIMIT,
-          select: { id: true, title: true, message: true, severity: true },
-        }),
-        loadAssignments(orgId, serviceDate),
-        countAllAssignments(orgId),
-        loadRosterDuty(orgId, serviceDate),
-        prisma.member.findMany({
-          where: { organizationId: orgId },
-          select: { user: { select: { id: true, name: true } } },
-        }),
-        prisma.crewMember.findMany({
-          where: { orgId, isOnline: true },
-          orderBy: { lastCheckIn: "desc" },
-          take: ON_FLOOR_PHOTO_LIMIT,
-          select: { id: true, name: true, role: true, photoUrl: true, lastCheckIn: true },
-        }),
-        prisma.crewMember.count({ where: { orgId, isOnline: true } }),
-        loadOpenItems(orgId, serviceDate),
-        recentDates.length === 0
-          ? Promise.resolve([])
-          : prisma.rundownItem.findMany({
-              where: { orgId, serviceDate: { in: recentDates } },
-              select: { serviceDate: true, actualStart: true, actualEnd: true },
-            }),
-        recentDates.length === 0
-          ? Promise.resolve([])
-          : prisma.incident.findMany({
-              where: { orgId, serviceDate: { in: recentDates } },
-              select: { serviceDate: true },
-            }),
-      ]);
+    const [
+      rundownState,
+      templates,
+      entries,
+      incidents,
+      equipment,
+      crew,
+      destinations,
+      liveInputs,
+      notifications,
+      assignments,
+      assignmentsEver,
+      rosterDuty,
+      orgMemberRows,
+      onFloorRows,
+      onFloorTotal,
+      openItems,
+      recentItems,
+      recentIncidents,
+    ] = await Promise.all([
+      getRundownStateForOrg({ orgId, serviceDate }),
+      prisma.checklistTemplate.findMany({
+        where: { orgId },
+        orderBy: { sortOrder: "asc" },
+        select: { id: true, label: true, category: true },
+      }),
+      prisma.checklistEntry.findMany({
+        where: { orgId, serviceDate },
+        select: { templateId: true, checked: true },
+      }),
+      prisma.incident.findMany({
+        where: { orgId, serviceDate },
+        orderBy: { timestamp: "desc" },
+        select: {
+          id: true,
+          category: true,
+          severity: true,
+          description: true,
+          reportedBy: true,
+          status: true,
+        },
+      }),
+      prisma.equipment.findMany({
+        where: { orgId },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          status: true,
+          nextService: true,
+        },
+      }),
+      prisma.crewMember.findMany({
+        where: { orgId },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          isOnline: true,
+          lastCheckIn: true,
+        },
+      }),
+      prisma.streamDestination.findMany({
+        where: { orgId },
+        select: { id: true, name: true, platform: true, enabled: true },
+      }),
+      prisma.liveInput.findMany({
+        where: { orgId },
+        select: { id: true, name: true, status: true },
+      }),
+      prisma.notification.findMany({
+        where: {
+          orgId,
+          dismissed: false,
+          target: { in: ["all", "production-manager"] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: NOTIFICATION_LIMIT,
+        select: { id: true, title: true, message: true, severity: true },
+      }),
+      loadAssignments(orgId, serviceDate),
+      countAllAssignments(orgId),
+      loadRosterDuty(orgId, serviceDate),
+      prisma.member.findMany({
+        where: { organizationId: orgId },
+        select: { user: { select: { id: true, name: true } } },
+      }),
+      prisma.crewMember.findMany({
+        where: { orgId, isOnline: true },
+        orderBy: { lastCheckIn: "desc" },
+        take: ON_FLOOR_PHOTO_LIMIT,
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          photoUrl: true,
+          lastCheckIn: true,
+        },
+      }),
+      prisma.crewMember.count({ where: { orgId, isOnline: true } }),
+      loadOpenItems(orgId, serviceDate),
+      recentDates.length === 0
+        ? Promise.resolve([])
+        : prisma.rundownItem.findMany({
+            where: { orgId, serviceDate: { in: recentDates } },
+            select: { serviceDate: true, actualStart: true, actualEnd: true },
+          }),
+      recentDates.length === 0
+        ? Promise.resolve([])
+        : prisma.incident.findMany({
+            where: { orgId, serviceDate: { in: recentDates } },
+            select: { serviceDate: true },
+          }),
+    ]);
 
     // Actual runtime is the span from the first item that started to the
     // last that finished. Null until a service has actually been run with
@@ -418,13 +484,22 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       const end = row.actualEnd ? row.actualEnd.getTime() : null;
       if (start === null && end === null) continue;
       const current = actualByDate.get(row.serviceDate);
-      const first = Math.min(current?.first ?? Number.POSITIVE_INFINITY, start ?? end ?? 0);
-      const last = Math.max(current?.last ?? Number.NEGATIVE_INFINITY, end ?? start ?? 0);
+      const first = Math.min(
+        current?.first ?? Number.POSITIVE_INFINITY,
+        start ?? end ?? 0,
+      );
+      const last = Math.max(
+        current?.last ?? Number.NEGATIVE_INFINITY,
+        end ?? start ?? 0,
+      );
       actualByDate.set(row.serviceDate, { first, last });
     }
     const incidentsByDate = new Map<string, number>();
     for (const row of recentIncidents) {
-      incidentsByDate.set(row.serviceDate, (incidentsByDate.get(row.serviceDate) ?? 0) + 1);
+      incidentsByDate.set(
+        row.serviceDate,
+        (incidentsByDate.get(row.serviceDate) ?? 0) + 1,
+      );
     }
 
     const recent: SnapshotRecentService[] = recentDates.map((date) => {
@@ -433,12 +508,15 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         serviceDate: date,
         name: startTimes.get(date)?.name ?? "",
         plannedMs: itemSummaries.get(date)?.plannedMs ?? 0,
-        actualMs: span && Number.isFinite(span.first) ? span.last - span.first : null,
+        actualMs:
+          span && Number.isFinite(span.first) ? span.last - span.first : null,
         incidentCount: incidentsByDate.get(date) ?? 0,
       };
     });
 
-    const checkedByTemplate = new Map(entries.map((e) => [e.templateId, e.checked]));
+    const checkedByTemplate = new Map(
+      entries.map((e) => [e.templateId, e.checked]),
+    );
 
     const upcoming: SnapshotUpcomingService[] = allDates
       .filter((d) => d > serviceDate)
@@ -448,7 +526,9 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         const row = startTimes.get(date);
         return {
           serviceDate: date,
-          scheduledStartTime: row?.scheduledStartTime ? row.scheduledStartTime.toISOString() : null,
+          scheduledStartTime: row?.scheduledStartTime
+            ? row.scheduledStartTime.toISOString()
+            : null,
           name: row?.name ?? "",
           itemCount: summary.itemCount,
           missingDuration: summary.missingDuration,
@@ -504,7 +584,11 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         platform: d.platform,
         enabled: d.enabled,
       })),
-      liveInputs: liveInputs.map((i) => ({ id: i.id, name: i.name, status: i.status })),
+      liveInputs: liveInputs.map((i) => ({
+        id: i.id,
+        name: i.name,
+        status: i.status,
+      })),
       notifications: notifications.map((n) => ({
         id: n.id,
         title: n.title,
@@ -515,6 +599,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       assignments: assignments.map<SnapshotAssignment>((a) => ({
         id: a.id,
         role: a.role,
+        department: a.department,
         crewMemberName: a.crewMember?.name ?? null,
         status: a.status,
       })),

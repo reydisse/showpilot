@@ -118,6 +118,7 @@ export interface SnapshotRosterDuty {
 export interface SnapshotAssignment {
   id: string;
   role: string;
+  department?: string;
   crewMemberName: string | null;
   status: string;
 }
@@ -159,7 +160,10 @@ export interface PmSnapshot {
   serviceWindowConfigured: boolean;
   /** Most recent service before today, for the plan-next state. */
   lastServiceDate: string | null;
-  rundown: { scheduledStartTime: string | null; status: "stopped" | "live" | "complete" } | null;
+  rundown: {
+    scheduledStartTime: string | null;
+    status: "stopped" | "live" | "complete";
+  } | null;
   items: RundownItem[];
   checklist: SnapshotChecklistItem[];
   incidents: SnapshotIncident[];
@@ -313,6 +317,7 @@ export interface DutyOfficer {
 export interface CrewPosition {
   id: string;
   role: string;
+  department: string;
   name: string | null;
   status: "confirmed" | "assigned" | "declined" | "open";
 }
@@ -413,14 +418,25 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
   // and put the dashboard permanently in the red.
   const timed = items.filter((item) => !isHeaderItem(item));
 
-  const plannedMs = timed.reduce((sum, item) => sum + Math.max(0, item.duration || 0), 0);
-  const windowMs = snapshot.serviceWindowConfigured ? serviceWindowMinutes * MINUTE_MS : null;
+  const plannedMs = timed.reduce(
+    (sum, item) => sum + Math.max(0, item.duration || 0),
+    0,
+  );
+  const windowMs = snapshot.serviceWindowConfigured
+    ? serviceWindowMinutes * MINUTE_MS
+    : null;
 
-  const missingDuration = timed.filter((item) => !item.duration || item.duration <= 0).length;
-  const missingOwner = timed.filter((item) => !item.assignee || !item.assignee.trim()).length;
+  const missingDuration = timed.filter(
+    (item) => !item.duration || item.duration <= 0,
+  ).length;
+  const missingOwner = timed.filter(
+    (item) => !item.assignee || !item.assignee.trim(),
+  ).length;
 
   // Cascading overwrites scheduledStart, so capture the pinned times first.
-  const pinned = new Map(items.map((item) => [item.id, item.scheduledStart ?? null]));
+  const pinned = new Map(
+    items.map((item) => [item.id, item.scheduledStart ?? null]),
+  );
   const cascaded = rundown
     ? computeCascadedTimes(items, {
         serviceDate: snapshot.serviceDate,
@@ -463,7 +479,9 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
   });
 
   const projectedEndMs =
-    timing.expectedEndMs !== null && driftMs !== null ? timing.expectedEndMs + driftMs : null;
+    timing.expectedEndMs !== null && driftMs !== null
+      ? timing.expectedEndMs + driftMs
+      : null;
 
   return {
     itemCount: timed.length,
@@ -480,7 +498,11 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
 
 // ─── Attention queue ─────────────────────────────────────────
 
-const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 0,
+  warning: 1,
+  info: 2,
+};
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -493,12 +515,22 @@ export function deriveAttentionQueue(
   crew: CrewBoard = emptyCrewBoard(),
 ): AttentionItem[] {
   const out: AttentionItem[] = [];
-  const { incidents, equipment, checklist, streamDestinations, liveInputs, notifications } =
-    snapshot;
+  const {
+    incidents,
+    equipment,
+    checklist,
+    streamDestinations,
+    liveInputs,
+    notifications,
+  } = snapshot;
 
   for (const incident of incidents) {
     const severity: Severity =
-      incident.severity === "high" ? "critical" : incident.severity === "medium" ? "warning" : "info";
+      incident.severity === "high"
+        ? "critical"
+        : incident.severity === "medium"
+          ? "warning"
+          : "info";
     out.push({
       id: `incident:${incident.id}`,
       severity,
@@ -613,7 +645,11 @@ export function deriveAttentionQueue(
         actionPath: "rundown",
       });
     }
-    if (health.deltaMs !== null && health.windowMs !== null && health.deltaMs > RUNTIME_TOLERANCE_MS) {
+    if (
+      health.deltaMs !== null &&
+      health.windowMs !== null &&
+      health.deltaMs > RUNTIME_TOLERANCE_MS
+    ) {
       out.push({
         id: "rundown:overrun",
         severity: "warning",
@@ -637,7 +673,9 @@ export function deriveAttentionQueue(
       // has more than one. Every item currently lands in "general"
       // because the checklist page has no category picker, and
       // "outstanding across general" is three words that say nothing.
-      const keys = [...new Set(unchecked.map((c) => normalizeCategory(c.category)))];
+      const keys = [
+        ...new Set(unchecked.map((c) => normalizeCategory(c.category))),
+      ];
       const named = keys.filter((k) => k !== "general");
       const scope =
         named.length === 0
@@ -805,7 +843,8 @@ export function deriveAttentionQueue(
         id: "setup:stream",
         severity: "info",
         title: "No stream destination",
-        detail: "Add one if this service goes out to YouTube, Facebook or an RTMP endpoint",
+        detail:
+          "Add one if this service goes out to YouTube, Facebook or an RTMP endpoint",
         source: "stream",
         actionLabel: "Set up",
         actionPath: "streaming/platforms",
@@ -824,7 +863,9 @@ export function deriveAttentionQueue(
     }
   }
 
-  return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  return out.sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  );
 }
 
 // ─── Departments ─────────────────────────────────────────────
@@ -847,28 +888,56 @@ export function deriveDepartments(
   ];
 
   return DEPARTMENT_ORDER.map((key) => {
-    const incidents = allIncidents.filter((i) => normalizeCategory(i.category) === key);
-    const equipment = snapshot.equipment.filter((e) => normalizeCategory(e.category) === key);
+    const incidents = allIncidents.filter(
+      (i) => normalizeCategory(i.category) === key,
+    );
+    const equipment = snapshot.equipment.filter(
+      (e) => normalizeCategory(e.category) === key,
+    );
     const unchecked = checklistIsDue(phase)
-      ? snapshot.checklist.filter((c) => normalizeCategory(c.category) === key && !c.checked)
+      ? snapshot.checklist.filter(
+          (c) => normalizeCategory(c.category) === key && !c.checked,
+        )
       : [];
 
     const highIncident = incidents.find((i) => i.severity === "high");
     const dead = equipment.find((e) => e.status === "out-of-service");
     if (highIncident) {
-      return { key, label: DEPARTMENT_LABELS[key], status: "fail" as Health, detail: highIncident.description };
+      return {
+        key,
+        label: DEPARTMENT_LABELS[key],
+        status: "fail" as Health,
+        detail: highIncident.description,
+      };
     }
     if (dead) {
-      return { key, label: DEPARTMENT_LABELS[key], status: "fail" as Health, detail: `${dead.name} out of service` };
+      return {
+        key,
+        label: DEPARTMENT_LABELS[key],
+        status: "fail" as Health,
+        detail: `${dead.name} out of service`,
+      };
     }
 
     const mediumIncident = incidents.find((i) => i.severity === "medium");
-    const repair = equipment.find((e) => e.status === "needs-repair" || e.status === "in-repair");
+    const repair = equipment.find(
+      (e) => e.status === "needs-repair" || e.status === "in-repair",
+    );
     if (mediumIncident) {
-      return { key, label: DEPARTMENT_LABELS[key], status: "warn" as Health, detail: mediumIncident.description };
+      return {
+        key,
+        label: DEPARTMENT_LABELS[key],
+        status: "warn" as Health,
+        detail: mediumIncident.description,
+      };
     }
     if (repair) {
-      return { key, label: DEPARTMENT_LABELS[key], status: "warn" as Health, detail: `${repair.name} needs repair` };
+      return {
+        key,
+        label: DEPARTMENT_LABELS[key],
+        status: "warn" as Health,
+        detail: `${repair.name} needs repair`,
+      };
     }
     if (unchecked.length > 0) {
       return {
@@ -879,7 +948,12 @@ export function deriveDepartments(
       };
     }
 
-    return { key, label: DEPARTMENT_LABELS[key], status: "ok" as Health, detail: "Clear" };
+    return {
+      key,
+      label: DEPARTMENT_LABELS[key],
+      status: "ok" as Health,
+      detail: "Clear",
+    };
   });
 }
 
@@ -912,8 +986,10 @@ export function deriveArrivals(
     groups.set(dept, current);
   }
 
-  const pastCallBy = timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
-  const alarmActive = expectedKnown && pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
+  const pastCallBy =
+    timing.callTimeMs === null ? null : snapshot.now - timing.callTimeMs;
+  const alarmActive =
+    expectedKnown && pastCallBy !== null && pastCallBy > ARRIVAL_ALARM_MS;
 
   const departments: ArrivalDepartment[] = [...groups.entries()]
     .map(([key, value]) => ({
@@ -1053,18 +1129,23 @@ const DAY_MS = 24 * 60 * MINUTE_MS;
  * between the two is where Sunday mornings go wrong.
  */
 export function deriveCrewBoard(snapshot: PmSnapshot): CrewBoard {
-  // Duty officers get their own card; listing them here too would say
-  // the same thing twice on one screen.
-  const positions: CrewPosition[] = snapshot.assignments
-    .filter((a) => dutyKeyFor(a.role) === null)
-    .map((a) => {
-      let status: CrewPosition["status"];
-      if (!a.crewMemberName) status = "open";
-      else if (a.status === "confirmed") status = "confirmed";
-      else if (a.status === "declined") status = "declined";
-      else status = "assigned";
-      return { id: a.id, role: a.role, name: a.crewMemberName, status };
-    });
+  // The schedule is the staffing source of truth. A manager/director may
+  // also appear in the On Duty card, but excluding that assignment here
+  // made a legitimately staffed show read as "Nobody scheduled".
+  const positions: CrewPosition[] = snapshot.assignments.map((a) => {
+    let status: CrewPosition["status"];
+    if (!a.crewMemberName) status = "open";
+    else if (a.status === "confirmed") status = "confirmed";
+    else if (a.status === "declined") status = "declined";
+    else status = "assigned";
+    return {
+      id: a.id,
+      role: a.role,
+      department: a.department || "Production",
+      name: a.crewMemberName,
+      status,
+    };
+  });
 
   const count = (status: CrewPosition["status"]) =>
     positions.filter((p) => p.status === status).length;
@@ -1098,7 +1179,9 @@ export function initialsFor(name: string): string {
 export function deriveOnFloor(snapshot: PmSnapshot): OnFloor {
   const members: OnFloorMember[] = snapshot.onFloor
     .map((member) => {
-      const checkedIn = member.lastCheckIn ? new Date(member.lastCheckIn).getTime() : NaN;
+      const checkedIn = member.lastCheckIn
+        ? new Date(member.lastCheckIn).getTime()
+        : NaN;
       return {
         id: member.id,
         name: member.name,
@@ -1110,7 +1193,9 @@ export function deriveOnFloor(snapshot: PmSnapshot): OnFloor {
           : Math.max(0, Math.round((snapshot.now - checkedIn) / MINUTE_MS)),
       };
     })
-    .sort((a, b) => (a.sinceMinutes ?? Infinity) - (b.sinceMinutes ?? Infinity));
+    .sort(
+      (a, b) => (a.sinceMinutes ?? Infinity) - (b.sinceMinutes ?? Infinity),
+    );
 
   return {
     members,
@@ -1147,7 +1232,8 @@ export function deriveOpenItems(snapshot: PmSnapshot): OpenItem[] {
 export function deriveRecent(snapshot: PmSnapshot): RecentService[] {
   return snapshot.recent.map((service) => ({
     ...service,
-    deltaMs: service.actualMs === null ? null : service.actualMs - service.plannedMs,
+    deltaMs:
+      service.actualMs === null ? null : service.actualMs - service.plannedMs,
   }));
 }
 
@@ -1179,7 +1265,13 @@ export function deriveReadiness(
 
   // Rundown
   if (health.itemCount === 0) {
-    factors.push({ id: "rundown", label: "Rundown", detail: "No items", status: "fail", weight: 25 });
+    factors.push({
+      id: "rundown",
+      label: "Rundown",
+      detail: "No items",
+      status: "fail",
+      weight: 25,
+    });
   } else if (health.missingDuration > 0 || health.hardStopConflicts > 0) {
     factors.push({
       id: "rundown",
@@ -1230,17 +1322,25 @@ export function deriveReadiness(
 
   // Equipment. An org with no inventory is not "unready" — it just does
   // not track gear here.
-  const dead = snapshot.equipment.filter((e) => e.status === "out-of-service").length;
+  const dead = snapshot.equipment.filter(
+    (e) => e.status === "out-of-service",
+  ).length;
   const repair = snapshot.equipment.filter(
     (e) => e.status === "needs-repair" || e.status === "in-repair",
   ).length;
-  if (snapshot.equipment.length > 0) factors.push({
-    id: "equipment",
-    label: "Equipment",
-    detail: dead > 0 ? `${plural(dead, "item")} out of service` : repair > 0 ? `${plural(repair, "item")} needs repair` : "All operational",
-    status: dead > 0 ? "fail" : repair > 0 ? "warn" : "ok",
-    weight: 15,
-  });
+  if (snapshot.equipment.length > 0)
+    factors.push({
+      id: "equipment",
+      label: "Equipment",
+      detail:
+        dead > 0
+          ? `${plural(dead, "item")} out of service`
+          : repair > 0
+            ? `${plural(repair, "item")} needs repair`
+            : "All operational",
+      status: dead > 0 ? "fail" : repair > 0 ? "warn" : "ok",
+      weight: 15,
+    });
 
   // Incidents, including everything still open from earlier services.
   // Scoring only today's would let the card read "None logged" while
@@ -1273,7 +1373,10 @@ export function deriveReadiness(
     factors.push({
       id: "stream",
       label: "Stream",
-      detail: enabled > 0 ? `${plural(enabled, "destination")} enabled` : "All destinations off",
+      detail:
+        enabled > 0
+          ? `${plural(enabled, "destination")} enabled`
+          : "All destinations off",
       status: enabled > 0 ? "ok" : "fail",
       weight: 10,
     });
@@ -1338,24 +1441,44 @@ export function deriveReadiness(
   }
 
   const totalWeight = factors.reduce((sum, f) => sum + f.weight, 0);
-  const earned = factors.reduce((sum, f) => sum + f.weight * HEALTH_VALUE[f.status], 0);
-  const score = totalWeight === 0 ? 0 : Math.round((earned / totalWeight) * 100);
+  const earned = factors.reduce(
+    (sum, f) => sum + f.weight * HEALTH_VALUE[f.status],
+    0,
+  );
+  const score =
+    totalWeight === 0 ? 0 : Math.round((earned / totalWeight) * 100);
 
-  const worst = departments.some((d) => d.status === "fail") || factors.some((f) => f.status === "fail");
-  const status: Health = worst ? "fail" : factors.some((f) => f.status === "warn") ? "warn" : "ok";
+  const worst =
+    departments.some((d) => d.status === "fail") ||
+    factors.some((f) => f.status === "fail");
+  const status: Health = worst
+    ? "fail"
+    : factors.some((f) => f.status === "warn")
+      ? "warn"
+      : "ok";
 
   return { score, status, factors };
 }
 
 // ─── Debrief ─────────────────────────────────────────────────
 
-export function deriveDebrief(snapshot: PmSnapshot, health: RundownHealth): DebriefSummary | null {
+export function deriveDebrief(
+  snapshot: PmSnapshot,
+  health: RundownHealth,
+): DebriefSummary | null {
   const ran = snapshot.items.filter((i) => i.actualStart && i.actualEnd);
   if (ran.length === 0) return null;
 
-  const starts = ran.map((i) => new Date(i.actualStart as string).getTime()).filter((n) => !Number.isNaN(n));
-  const ends = ran.map((i) => new Date(i.actualEnd as string).getTime()).filter((n) => !Number.isNaN(n));
-  const actualMs = starts.length && ends.length ? Math.max(...ends) - Math.min(...starts) : null;
+  const starts = ran
+    .map((i) => new Date(i.actualStart as string).getTime())
+    .filter((n) => !Number.isNaN(n));
+  const ends = ran
+    .map((i) => new Date(i.actualEnd as string).getTime())
+    .filter((n) => !Number.isNaN(n));
+  const actualMs =
+    starts.length && ends.length
+      ? Math.max(...ends) - Math.min(...starts)
+      : null;
 
   const worstOverruns = ran
     .map((item) => {
@@ -1395,7 +1518,12 @@ export function deriveUpcoming(snapshot: PmSnapshot): UpcomingService[] {
     return {
       ...service,
       readiness,
-      status: readiness >= 90 ? ("ok" as Health) : readiness >= 50 ? ("warn" as Health) : ("fail" as Health),
+      status:
+        readiness >= 90
+          ? ("ok" as Health)
+          : readiness >= 50
+            ? ("warn" as Health)
+            : ("fail" as Health),
     };
   });
 }
@@ -1427,24 +1555,40 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     phase,
     timing,
     countdown,
-    readiness: deriveReadiness(snapshot, rundownHealth, departments, arrivals, phase, crew),
+    readiness: deriveReadiness(
+      snapshot,
+      rundownHealth,
+      departments,
+      arrivals,
+      phase,
+      crew,
+    ),
     rundownHealth,
     attention: deriveAttentionQueue(snapshot, rundownHealth, phase, crew),
     departments,
     arrivals,
     upcoming: deriveUpcoming(snapshot),
-    debrief: phase === "debrief" ? deriveDebrief(snapshot, rundownHealth) : null,
+    debrief:
+      phase === "debrief" ? deriveDebrief(snapshot, rundownHealth) : null,
     hasRundown: snapshot.rundown !== null || snapshot.items.length > 0,
-    planNext: rundownHealth.itemCount === 0 && (phase === "planning" || phase === "prep"),
+    planNext:
+      rundownHealth.itemCount === 0 &&
+      (phase === "planning" || phase === "prep"),
     lastServiceDate: snapshot.lastServiceDate,
     crew,
     duty: deriveDuty(snapshot),
     dutyWeekStart: snapshot.rosterDuty.weekStart,
     orgMembers: snapshot.orgMembers,
-    roster: snapshot.crew.map((m) => ({ id: m.id, name: m.name, role: m.role })),
+    roster: snapshot.crew.map((m) => ({
+      id: m.id,
+      name: m.name,
+      role: m.role,
+    })),
     schedulingInUse: snapshot.schedulingInUse,
     openItems: deriveOpenItems(snapshot),
-    incidents: snapshot.incidents.filter((incident) => incident.status !== "resolved"),
+    incidents: snapshot.incidents.filter(
+      (incident) => incident.status !== "resolved",
+    ),
     recent: deriveRecent(snapshot),
     onFloor: deriveOnFloor(snapshot),
   };

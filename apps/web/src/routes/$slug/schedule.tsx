@@ -44,6 +44,14 @@ function shiftDate(date: string, days: number) {
   value.setDate(value.getDate() + days);
   return value.toISOString().slice(0, 10);
 }
+function nextAvailableServiceDate(today: string, serviceDates: string[]) {
+  const occupied = new Set(serviceDates);
+  let candidate = shiftDate(today, 7);
+  for (let attempt = 0; attempt < 52 && occupied.has(candidate); attempt += 1) {
+    candidate = shiftDate(candidate, 7);
+  }
+  return candidate;
+}
 function dayLabel(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString([], {
     weekday: "short",
@@ -511,6 +519,7 @@ function SchedulePage() {
         <CreateServiceModal
           orgId={data.orgId}
           today={data.today}
+          serviceDates={data.services.map((service) => service.serviceDate)}
           previousDate={data.services.at(-1)?.serviceDate}
           terminologyProfile={data.terminologyProfile}
           onClose={() => setCreateOpen(false)}
@@ -915,6 +924,7 @@ function RosterRow({
 function CreateServiceModal({
   orgId,
   today,
+  serviceDates,
   previousDate,
   terminologyProfile,
   onClose,
@@ -922,17 +932,21 @@ function CreateServiceModal({
 }: {
   orgId: string;
   today: string;
+  serviceDates: string[];
   previousDate?: string;
   terminologyProfile: OrgTerminologyProfile;
   onClose: () => void;
-  onCreated: (date: string) => void;
+  onCreated: (date: string) => void | Promise<void>;
 }) {
-  const [date, setDate] = useState(shiftDate(today, 7));
+  const [date, setDate] = useState(() =>
+    nextAvailableServiceDate(today, serviceDates),
+  );
   const [name, setName] = useState("");
   const [time, setTime] = useState("10:00");
   const [location, setLocation] = useState("");
   const [copy, setCopy] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const terms = orgTerms(terminologyProfile);
   return (
     <Modal title={`New ${terms.event}`} onClose={onClose}>
@@ -940,6 +954,7 @@ function CreateServiceModal({
         onSubmit={async (event) => {
           event.preventDefault();
           setBusy(true);
+          setError(null);
           try {
             await createNextService({
               data: {
@@ -951,7 +966,13 @@ function CreateServiceModal({
                 copyFrom: copy ? previousDate : undefined,
               },
             });
-            onCreated(date);
+            await onCreated(date);
+          } catch (cause) {
+            setError(
+              cause instanceof Error
+                ? cause.message
+                : `Could not create this ${terms.event}.`,
+            );
           } finally {
             setBusy(false);
           }
@@ -1003,6 +1024,11 @@ function CreateServiceModal({
             />
             Copy rundown from {dayLabel(previousDate)}
           </label>
+        ) : null}
+        {error ? (
+          <p role="alert" className="text-xs leading-relaxed text-red-300">
+            {error}
+          </p>
         ) : null}
         <button
           disabled={busy || !date}

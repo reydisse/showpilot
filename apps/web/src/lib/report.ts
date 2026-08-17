@@ -22,7 +22,7 @@ async function assertOrgAccess(orgId: string) {
   if (!member) throw new Error("Forbidden");
 }
 
-type ShowReport = {
+export type ShowReport = {
   generatedAt: string;
   serviceDate: string;
   organization: { id: string; name: string; slug: string };
@@ -67,7 +67,10 @@ type ShowReport = {
 
 export const exportShowReport = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+    parseOrThrow(
+      z.object({ orgId: idSchema, serviceDate: serviceDateSchema }),
+      data,
+    ),
   )
   .handler(async ({ data }): Promise<ShowReport> => {
     await assertOrgAccess(data.orgId);
@@ -79,10 +82,26 @@ export const exportShowReport = createServerFn({ method: "POST" })
     });
     if (!org) throw new Error("Organization not found");
 
-    const [state, messageSetting, incidents, entries, templates, cueSheets, crew] = await Promise.all([
-      getRundownStateForOrg({ orgId: data.orgId, serviceDate: data.serviceDate }),
+    const [
+      state,
+      messageSetting,
+      incidents,
+      entries,
+      templates,
+      cueSheets,
+      crew,
+    ] = await Promise.all([
+      getRundownStateForOrg({
+        orgId: data.orgId,
+        serviceDate: data.serviceDate,
+      }),
       prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: `rundown-message:${data.serviceDate}` } },
+        where: {
+          orgId_key: {
+            orgId: data.orgId,
+            key: `rundown-message:${data.serviceDate}`,
+          },
+        },
       }),
       prisma.incident.findMany({
         where: { orgId: data.orgId, serviceDate: data.serviceDate },
@@ -114,8 +133,13 @@ export const exportShowReport = createServerFn({ method: "POST" })
     );
     const timer: NativeTimerState = state.timer;
 
-    const templateMap = new Map(templates.map((template) => [template.id, template]));
-    const plannedDurationMs = items.reduce((sum, item) => sum + item.duration, 0);
+    const templateMap = new Map(
+      templates.map((template) => [template.id, template]),
+    );
+    const plannedDurationMs = items.reduce(
+      (sum, item) => sum + item.duration,
+      0,
+    );
 
     return {
       generatedAt: new Date().toISOString(),
@@ -123,7 +147,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
       organization: org,
       summary: {
         totalItems: items.length,
-        completedItems: items.filter((item) => item.status === "complete").length,
+        completedItems: items.filter((item) => item.status === "complete")
+          .length,
         plannedDurationMs,
         finalPlayback: timer.playback,
         currentItemId: timer.currentItemId,
@@ -160,6 +185,11 @@ export const exportShowReport = createServerFn({ method: "POST" })
         cameraAssignments: cueSheet.cameraAssignments,
         notes: cueSheet.notes,
       })),
-      crew: crew.map((assignment) => ({ role: assignment.role, name: assignment.crewMember?.name ?? "Open position", status: assignment.status, notes: assignment.notes })),
+      crew: crew.map((assignment) => ({
+        role: assignment.role,
+        name: assignment.crewMember?.name ?? "Open position",
+        status: assignment.status,
+        notes: assignment.notes,
+      })),
     };
   });
