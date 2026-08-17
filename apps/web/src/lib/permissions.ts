@@ -6,26 +6,50 @@ import {
   ownerAc,
 } from "better-auth/plugins/organization/access";
 
-export type Role = "owner" | "admin" | "td" | "cd" | "pd" | "pm" | "tm" | "sm" | "member";
+export type Role =
+  | "owner"
+  | "admin"
+  | "td"
+  | "cd"
+  | "pd"
+  | "pm"
+  | "tm"
+  | "sm"
+  | "member";
 export type LegacyRole = Role | "stageManager";
 
 export type Permission =
-  | "show:view" | "show:edit"
-  | "showboard:view" | "showboard:edit"
-  | "rundown:view" | "rundown:edit" | "rundown:pin_required"
-  | "cuesheet:view" | "cuesheet:edit" | "cuesheet:add_notes"
+  | "show:view"
+  | "show:edit"
+  | "showboard:view"
+  | "showboard:edit"
+  | "rundown:view"
+  | "rundown:edit"
+  | "rundown:pin_required"
+  | "schedule:view"
+  | "schedule:manage"
+  | "cuesheet:view"
+  | "cuesheet:edit"
+  | "cuesheet:add_notes"
   | "cuesheet:push_to_checklist" // PLANNED
   | "chat:access"
-  | "checklist:view" | "checklist:access"
-  | "incidents:report" | "incidents:access"
+  | "checklist:view"
+  | "checklist:access"
+  | "incidents:report"
+  | "incidents:access"
   | "checkin:access"
   | "timecode:access"
-  | "lowerthird:view" | "lowerthird:trigger" | "lowerthird:configure"
-  | "dashboard:pm" | "dashboard:tm"
+  | "lowerthird:view"
+  | "lowerthird:trigger"
+  | "lowerthird:configure"
+  | "dashboard:pm"
+  | "dashboard:tm"
   | "devices:access"
   | "streaming_suite:access"
-  | "stream_health:view" | "stream_health:manage"
-  | "assets:view" | "assets:manage"
+  | "stream_health:view"
+  | "stream_health:manage"
+  | "assets:view"
+  | "assets:manage"
   | "settings:organization"
   | "settings:members"
   | "settings:billing"
@@ -39,22 +63,37 @@ export type Permission =
   | "org:delete";
 
 const ALL_PERMISSIONS = [
-  "show:view", "show:edit",
-  "showboard:view", "showboard:edit",
-  "rundown:view", "rundown:edit", "rundown:pin_required",
-  "cuesheet:view", "cuesheet:edit", "cuesheet:add_notes",
+  "show:view",
+  "show:edit",
+  "showboard:view",
+  "showboard:edit",
+  "rundown:view",
+  "rundown:edit",
+  "rundown:pin_required",
+  "schedule:view",
+  "schedule:manage",
+  "cuesheet:view",
+  "cuesheet:edit",
+  "cuesheet:add_notes",
   "cuesheet:push_to_checklist", // PLANNED
   "chat:access",
-  "checklist:view", "checklist:access",
-  "incidents:report", "incidents:access",
+  "checklist:view",
+  "checklist:access",
+  "incidents:report",
+  "incidents:access",
   "checkin:access",
   "timecode:access",
-  "lowerthird:view", "lowerthird:trigger", "lowerthird:configure",
-  "dashboard:pm", "dashboard:tm",
+  "lowerthird:view",
+  "lowerthird:trigger",
+  "lowerthird:configure",
+  "dashboard:pm",
+  "dashboard:tm",
   "devices:access",
   "streaming_suite:access",
-  "stream_health:view", "stream_health:manage",
-  "assets:view", "assets:manage",
+  "stream_health:view",
+  "stream_health:manage",
+  "assets:view",
+  "assets:manage",
   "settings:organization",
   "settings:members",
   "settings:billing",
@@ -82,16 +121,23 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   cd: ADMIN_TIER_PERMISSIONS,
   pd: ADMIN_TIER_PERMISSIONS,
   pm: [
-    "show:view", "show:edit",
-    "showboard:view", "showboard:edit",
-    "rundown:view", "rundown:edit",
-    "cuesheet:view", "cuesheet:edit",
+    "show:view",
+    "show:edit",
+    "showboard:view",
+    "showboard:edit",
+    "rundown:view",
+    "rundown:edit",
+    "schedule:view",
+    "schedule:manage",
+    "cuesheet:view",
+    "cuesheet:edit",
     "chat:access",
     "checklist:access",
     "incidents:access",
     "checkin:access",
     "timecode:access",
-    "lowerthird:view", "lowerthird:trigger",
+    "lowerthird:view",
+    "lowerthird:trigger",
     "dashboard:pm",
     "stream_health:view",
     "assets:view",
@@ -99,19 +145,25 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   tm: [
     "show:view",
     "showboard:view",
-    "rundown:view", "rundown:pin_required",
-    "cuesheet:view", "cuesheet:add_notes",
+    "rundown:view",
+    "rundown:pin_required",
+    "cuesheet:view",
+    "cuesheet:add_notes",
     "cuesheet:push_to_checklist", // PLANNED
     "chat:access",
     "checklist:access",
     "incidents:access",
     "timecode:access",
-    "lowerthird:view", "lowerthird:trigger", "lowerthird:configure",
+    "lowerthird:view",
+    "lowerthird:trigger",
+    "lowerthird:configure",
     "dashboard:tm",
     "devices:access",
     "streaming_suite:access",
-    "stream_health:view", "stream_health:manage",
-    "assets:view", "assets:manage",
+    "stream_health:view",
+    "stream_health:manage",
+    "assets:view",
+    "assets:manage",
     "settings:organization",
     "settings:integrations",
     "settings:production_defaults",
@@ -119,10 +171,16 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "settings:notifications",
   ],
   sm: [
-    "show:view", "show:edit",
-    "showboard:view", "showboard:edit",
-    "rundown:view", "rundown:edit",
-    "cuesheet:view", "cuesheet:edit",
+    "show:view",
+    "show:edit",
+    "showboard:view",
+    "showboard:edit",
+    "rundown:view",
+    "rundown:edit",
+    "schedule:view",
+    "schedule:manage",
+    "cuesheet:view",
+    "cuesheet:edit",
     "chat:access",
     "checklist:access",
     "incidents:access",
@@ -150,21 +208,32 @@ export function normalizeRole(role: string | null | undefined): Role | null {
   if (!role) return null;
   if (role === "stageManager") return "sm";
   if (
-    role === "owner" || role === "admin" ||
-    role === "td" || role === "cd" || role === "pd" ||
-    role === "pm" || role === "tm" || role === "sm" || role === "member"
+    role === "owner" ||
+    role === "admin" ||
+    role === "td" ||
+    role === "cd" ||
+    role === "pd" ||
+    role === "pm" ||
+    role === "tm" ||
+    role === "sm" ||
+    role === "member"
   ) {
     return role;
   }
   return null;
 }
 
-export function getPermissions(role: string | null | undefined): readonly Permission[] {
+export function getPermissions(
+  role: string | null | undefined,
+): readonly Permission[] {
   const normalized = normalizeRole(role);
   return normalized ? ROLE_PERMISSIONS[normalized] : [];
 }
 
-export function hasPermission(role: string | null | undefined, permission: Permission): boolean {
+export function hasPermission(
+  role: string | null | undefined,
+  permission: Permission,
+): boolean {
   return getPermissions(role).includes(permission);
 }
 
@@ -175,7 +244,9 @@ export function hasAnyPermission(
   return permissions.some((permission) => hasPermission(role, permission));
 }
 
-export function roleRequiresRundownPin(role: string | null | undefined): boolean {
+export function roleRequiresRundownPin(
+  role: string | null | undefined,
+): boolean {
   return hasPermission(role, "rundown:pin_required");
 }
 
@@ -318,7 +389,10 @@ export const roles = {
   stageManager: sm,
 };
 
-export const ROLE_META: Record<LegacyRole, { label: string; description: string; tier: "owner" | "admin" | "crew" }> = {
+export const ROLE_META: Record<
+  LegacyRole,
+  { label: string; description: string; tier: "owner" | "admin" | "crew" }
+> = {
   owner: {
     label: "Owner",
     description: "Full access including billing and organization deletion",
@@ -331,17 +405,20 @@ export const ROLE_META: Record<LegacyRole, { label: string; description: string;
   },
   td: {
     label: "Technical Director",
-    description: "Admin-level access — runs the booth and owns the technical show",
+    description:
+      "Admin-level access — runs the booth and owns the technical show",
     tier: "admin",
   },
   cd: {
     label: "Creative Director",
-    description: "Admin-level access — owns content, graphics, and the creative show",
+    description:
+      "Admin-level access — owns content, graphics, and the creative show",
     tier: "admin",
   },
   pd: {
     label: "Production Director",
-    description: "Admin-level access — owns planning and the overall production",
+    description:
+      "Admin-level access — owns planning and the overall production",
     tier: "admin",
   },
   pm: {
@@ -356,7 +433,8 @@ export const ROLE_META: Record<LegacyRole, { label: string; description: string;
   },
   sm: {
     label: "Stage Manager",
-    description: "Show and rundown control without lower thirds or streaming management",
+    description:
+      "Show and rundown control without lower thirds or streaming management",
     tier: "crew",
   },
   stageManager: {
@@ -366,9 +444,19 @@ export const ROLE_META: Record<LegacyRole, { label: string; description: string;
   },
   member: {
     label: "Member",
-    description: "Limited operator visibility with chat, checklist view, and incident reporting",
+    description:
+      "Limited operator visibility with chat, checklist view, and incident reporting",
     tier: "crew",
   },
 };
 
-export const ASSIGNABLE_ROLES = ["td", "cd", "pd", "pm", "tm", "sm", "admin", "member"] as const;
+export const ASSIGNABLE_ROLES = [
+  "td",
+  "cd",
+  "pd",
+  "pm",
+  "tm",
+  "sm",
+  "admin",
+  "member",
+] as const;

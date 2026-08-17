@@ -1,5 +1,10 @@
 import { useEffect } from "react";
-import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
+import {
+  Link,
+  useLocation,
+  useParams,
+  useRouteContext,
+} from "@tanstack/react-router";
 import { OrgSwitcher } from "./OrgSwitcher";
 import {
   ListMusic,
@@ -66,7 +71,11 @@ const streamingNav: NavItem[] = [
 ];
 
 const dashboardNav: NavItem[] = [
-  { icon: LayoutDashboard, label: "Prod Manager", path: "dashboard/prod-manager" },
+  {
+    icon: LayoutDashboard,
+    label: "Prod Manager",
+    path: "dashboard/prod-manager",
+  },
   { icon: FileBarChart, label: "Reports", path: "reports" },
   { icon: Wrench, label: "Tech Manager", path: "dashboard/tech-manager" },
   { icon: Mic, label: "Audio", path: "dashboard/audio" },
@@ -85,7 +94,9 @@ function NavLink({
   active: boolean;
 }) {
   const Icon = item.icon;
-  const resolvedTo = `/${slug}/${item.path}` as unknown as Parameters<typeof Link>[0]["to"];
+  const resolvedTo = `/${slug}/${item.path}` as unknown as Parameters<
+    typeof Link
+  >[0]["to"];
   return (
     <Link
       to={resolvedTo}
@@ -116,7 +127,9 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <div className={`flex items-center ${collapsed ? "flex-col gap-1" : "gap-1"}`}>
+    <div
+      className={`flex items-center ${collapsed ? "flex-col gap-1" : "gap-1"}`}
+    >
       <button
         onClick={toggleTheme}
         type="button"
@@ -157,14 +170,24 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-
 export function Sidebar() {
-  const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } = useSidebar();
+  const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } =
+    useSidebar();
   const { pathname } = useLocation();
   const { slug } = useParams({ strict: false });
-  let org: { id: string; name: string; slug: string; logo: string | null } | null = null;
+  let org: {
+    id: string;
+    name: string;
+    slug: string;
+    logo: string | null;
+  } | null = null;
   let role: string | null = null;
-  let user: { id: string; name: string; email: string; image?: string | null } | null = null;
+  let user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string | null;
+  } | null = null;
   try {
     const ctx = useRouteContext({ from: "/$slug" });
     org = ctx.org;
@@ -184,7 +207,8 @@ export function Sidebar() {
 
   const isActive = (path: string) => {
     const fullPath = `/${slug}/${path}`;
-    if (path === "show") return pathname === `/${slug}/show` || pathname === `/${slug}`;
+    if (path === "show")
+      return pathname === `/${slug}/show` || pathname === `/${slug}`;
     return pathname.startsWith(fullPath);
   };
 
@@ -207,13 +231,20 @@ export function Sidebar() {
           />
         )}
         {/* Slide-in drawer */}
-          <aside
-            className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
-              mobileOpen ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
+        <aside
+          className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
           {/* Drawer uses expanded layout (collapsed=false) */}
-           {renderSidebarContent({ collapsed: false, org, slug: slug!, isActive, role, user })}
+          {renderSidebarContent({
+            collapsed: false,
+            org,
+            slug: slug!,
+            isActive,
+            role,
+            user,
+          })}
         </aside>
       </>
     );
@@ -228,7 +259,14 @@ export function Sidebar() {
           hidden ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        {renderSidebarContent({ collapsed, org, slug: slug!, isActive, role, user })}
+        {renderSidebarContent({
+          collapsed,
+          org,
+          slug: slug!,
+          isActive,
+          role,
+          user,
+        })}
       </aside>
 
       {/* Spacer div to push main content right */}
@@ -258,42 +296,59 @@ function renderSidebarContent({
   slug: string;
   isActive: (path: string) => boolean;
   role: string | null;
-  user: { id: string; name: string; email: string; image?: string | null } | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string | null;
+  } | null;
 }) {
   const visibleMainNav = mainNav.filter((item) => {
     if (item.path === "show") return hasPermission(role, "show:view");
-    if (item.path === "schedule") return hasPermission(role, "rundown:view");
+    if (item.path === "schedule") return hasPermission(role, "schedule:view");
     if (item.path === "board") return hasPermission(role, "showboard:view");
     if (item.path === "rundown") return hasPermission(role, "rundown:view");
     if (item.path === "timecode") return hasPermission(role, "timecode:access");
     if (item.path === "chat") return hasPermission(role, "chat:access");
     if (item.path === "checkin") return hasPermission(role, "checkin:access");
-    if (item.path === "team") return hasAnyPermission(role, ["settings:members", "checkin:access"]);
+    if (item.path === "team")
+      return hasAnyPermission(role, ["settings:members", "checkin:access"]);
     return true;
   });
 
   const visibleProductionNav = productionNav.filter((item) => {
-    if (item.path === "production/checklist") return hasAnyPermission(role, ["checklist:view", "checklist:access"]);
+    if (item.path === "production/checklist")
+      return hasAnyPermission(role, ["checklist:view", "checklist:access"]);
     if (item.path === "production/incidents") {
       return hasAnyPermission(role, ["incidents:report", "incidents:access"]);
     }
     if (item.path === "production/cue-sheets") {
-      return hasAnyPermission(role, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
+      return hasAnyPermission(role, [
+        "cuesheet:view",
+        "cuesheet:edit",
+        "cuesheet:add_notes",
+      ]);
     }
-    if (item.path === "production/assets") return hasPermission(role, "assets:view");
+    if (item.path === "production/assets")
+      return hasPermission(role, "assets:view");
     return true;
   });
 
   const visibleStreamingNav = streamingNav.filter((item) => {
-    if (item.path === "streaming/health") return hasPermission(role, "stream_health:view");
-    if (item.path === "streaming/platforms") return hasPermission(role, "streaming_suite:access");
-    if (item.path === "streaming/graphics") return hasPermission(role, "lowerthird:view");
+    if (item.path === "streaming/health")
+      return hasPermission(role, "stream_health:view");
+    if (item.path === "streaming/platforms")
+      return hasPermission(role, "streaming_suite:access");
+    if (item.path === "streaming/graphics")
+      return hasPermission(role, "lowerthird:view");
     return true;
   });
 
   const visibleDashboardNav = dashboardNav.filter((item) => {
-    if (item.path === "dashboard/devices") return hasPermission(role, "devices:access");
-    if (item.path === "dashboard/prod-manager") return hasPermission(role, "dashboard:pm");
+    if (item.path === "dashboard/devices")
+      return hasPermission(role, "devices:access");
+    if (item.path === "dashboard/prod-manager")
+      return hasPermission(role, "dashboard:pm");
     if (item.path === "reports") return hasPermission(role, "dashboard:pm");
     return hasPermission(role, "dashboard:tm");
   });
@@ -328,7 +383,9 @@ function renderSidebarContent({
 
       {/* Org Switcher */}
       {org && (
-        <div className={`border-b border-board-border ${collapsed ? "px-1.5 py-2" : "px-2.5 py-2"}`}>
+        <div
+          className={`border-b border-board-border ${collapsed ? "px-1.5 py-2" : "px-2.5 py-2"}`}
+        >
           <OrgSwitcher currentOrg={org} collapsed={collapsed} />
         </div>
       )}
@@ -441,17 +498,17 @@ function renderSidebarContent({
             orgId={org.id}
             slug={slug}
             canAccessSettings={hasAnyPermission(role, [
-          "settings:organization",
-          "settings:members",
-          "settings:billing",
-          "settings:integrations",
-          "settings:production_defaults",
-          "settings:lowerthird_config",
-          "settings:notifications",
-          "settings:api_keys",
-          "settings:webhooks",
-          "settings:danger_zone",
-          "org:delete",
+              "settings:organization",
+              "settings:members",
+              "settings:billing",
+              "settings:integrations",
+              "settings:production_defaults",
+              "settings:lowerthird_config",
+              "settings:notifications",
+              "settings:api_keys",
+              "settings:webhooks",
+              "settings:danger_zone",
+              "org:delete",
             ])}
           />
         )}
