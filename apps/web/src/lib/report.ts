@@ -62,6 +62,7 @@ type ShowReport = {
     cameraAssignments: string;
     notes: string;
   }>;
+  crew: Array<{ role: string; name: string; status: string; notes: string }>;
 };
 
 export const exportShowReport = createServerFn({ method: "POST" })
@@ -78,7 +79,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
     });
     if (!org) throw new Error("Organization not found");
 
-    const [state, messageSetting, incidents, entries, templates, cueSheets] = await Promise.all([
+    const [state, messageSetting, incidents, entries, templates, cueSheets, crew] = await Promise.all([
       getRundownStateForOrg({ orgId: data.orgId, serviceDate: data.serviceDate }),
       prisma.appSetting.findUnique({
         where: { orgId_key: { orgId: data.orgId, key: `rundown-message:${data.serviceDate}` } },
@@ -98,6 +99,11 @@ export const exportShowReport = createServerFn({ method: "POST" })
       prisma.cueSheet.findMany({
         where: { orgId: data.orgId, serviceDate: data.serviceDate },
         orderBy: { cueNumber: "asc" },
+      }),
+      prisma.serviceAssignment.findMany({
+        where: { orgId: data.orgId, serviceDate: data.serviceDate },
+        include: { crewMember: { select: { name: true } } },
+        orderBy: { role: "asc" },
       }),
     ]);
 
@@ -154,5 +160,6 @@ export const exportShowReport = createServerFn({ method: "POST" })
         cameraAssignments: cueSheet.cameraAssignments,
         notes: cueSheet.notes,
       })),
+      crew: crew.map((assignment) => ({ role: assignment.role, name: assignment.crewMember?.name ?? "Open position", status: assignment.status, notes: assignment.notes })),
     };
   });

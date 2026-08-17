@@ -33,6 +33,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
   const initialUsesCustomRole = Boolean(initialRole) && !BUILT_IN_ROLE_SET.has(initialRole);
   const [memberId, setMemberId] = useState(member?.memberId || "");
   const [name, setName] = useState(member?.name || "");
+  const [email, setEmail] = useState(member?.email || "");
   const [role, setRole] = useState(initialRole);
   const [selectedRole, setSelectedRole] = useState(
     initialUsesCustomRole ? CUSTOM_ROLE_VALUE : initialRole
@@ -72,6 +73,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
               memberId: normalizedId,
               name: name.trim(),
               role: role.trim(),
+              email: email.trim().toLowerCase(),
               photoUrl,
             },
           },
@@ -83,6 +85,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
             memberId: normalizedId,
             name: name.trim(),
             role: role.trim(),
+            email: email.trim().toLowerCase(),
             photoUrl,
           },
         });
@@ -163,6 +166,23 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
                 placeholder="e.g. Sarah Johnson"
                 className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20"
               />
+            </div>
+
+            {/* Email */}
+            <div className="group">
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500">
+                Email address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="crew@example.com"
+                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20"
+              />
+              <p className="mt-1 text-[11px] text-board-muted/70">
+                Used for accountless schedule requests and reminders
+              </p>
             </div>
 
             {/* Role */}

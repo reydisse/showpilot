@@ -213,7 +213,7 @@ function PlatformsPage() {
                 onClick={handleGoLive}
                 disabled={goingLive || !hasInputs || activeCount === 0}
                 className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
-                title={!hasInputs ? "Create a live input on Stream Health first" : activeCount === 0 ? "Enable at least one destination" : ""}
+                title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}
               >
                 {goingLive ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -270,7 +270,7 @@ function PlatformsPage() {
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
             <Link className="w-4 h-4 text-yellow-400 shrink-0" />
             <p className="text-xs text-yellow-400">
-              No live input configured. Create one on the Stream Health page to enable simulcasting.
+              No live input configured. Create one on the Stream page to enable simulcasting.
             </p>
           </div>
         )}
@@ -479,7 +479,7 @@ function PlatformsPage() {
               <strong className="text-board-text">3.</strong> Hit <strong className="text-fire-500">Go Live</strong> to start simulcasting via Cloudflare Stream Connect.
             </p>
             <p className="text-board-muted/50 mt-2">
-              Make sure you have a live input configured on the Stream Health page and your encoder is sending to it.
+              Make sure you have a live input configured on the Stream page and your encoder is sending to it.
             </p>
           </div>
         </div>

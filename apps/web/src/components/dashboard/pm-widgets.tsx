@@ -625,7 +625,7 @@ const crewWidget: PmWidget = {
       <WidgetCard
         title="Crew"
         action={
-          <Link to={orgLink(slug, "team")}>
+          <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }}>
             <WidgetAction>Manage</WidgetAction>
           </Link>
         }
@@ -727,6 +727,35 @@ const openItemsWidget: PmWidget = {
             <Link to={orgLink(slug, "production/incidents")} className="shrink-0">
               <WidgetAction>Resolve</WidgetAction>
             </Link>
+          </li>
+        ))}
+      </ul>
+    </WidgetCard>
+  ),
+};
+
+// ─── Current service incidents ──────────────────────────────
+
+const incidentsWidget: PmWidget = {
+  id: "incidents",
+  title: "Incidents",
+  phases: "all",
+  region: "main",
+  isRelevant: ({ model }) => model.incidents.length > 0,
+  render: ({ model, slug }) => (
+    <WidgetCard
+      title="Active incidents"
+      action={<Link to="/$slug/production/incidents-history" params={{ slug }} search={{ query: "", status: "all", severity: "all", category: "", assignee: "", from: "", to: "", sort: "newest", page: 1 }}><WidgetAction>History</WidgetAction></Link>}
+    >
+      <ul>
+        {model.incidents.slice(0, 6).map((incident) => (
+          <li key={incident.id} className="flex items-center gap-3 border-t border-board-border/60 py-2 first:border-t-0">
+            <SeverityDot severity={incident.severity === "critical" || incident.severity === "high" ? "critical" : incident.severity === "medium" ? "warning" : "info"} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] text-board-text">{incident.description}</p>
+              <p className="text-[11px] text-board-muted">{incident.category} · reported by {incident.reportedBy || "unknown"}</p>
+            </div>
+            <Link to="/$slug/production/incidents" params={{ slug }} search={{ incident: incident.id, date: model.serviceDate }}><WidgetAction>Open</WidgetAction></Link>
           </li>
         ))}
       </ul>
@@ -912,6 +941,7 @@ export const PM_WIDGETS: PmWidget[] = [
   attentionWidget,
   rundownHealthWidget,
   crewWidget,
+  incidentsWidget,
   openItemsWidget,
   debriefWidget,
   readinessWidget,

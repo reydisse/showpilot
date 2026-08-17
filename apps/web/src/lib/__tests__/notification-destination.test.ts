@@ -12,6 +12,14 @@ describe("notification destinations", () => {
     expect(getNotificationDestination("chat?room=dm%3Aalice%3Abob")).toEqual({ kind: "chat", room: "dm:alice:bob" });
   });
 
+  it("routes service assignments to the selected schedule", () => {
+    expect(getNotificationDestination("schedule?date=2026-08-23&assignment=assignment-12")).toEqual({
+      kind: "schedule",
+      date: "2026-08-23",
+      assignment: "assignment-12",
+    });
+  });
+
   it("rejects malformed, external, and non-canonical destinations", () => {
     expect(getNotificationDestination("https://example.com")).toBeNull();
     expect(getNotificationDestination("chat?room=dm%3Abob%3Aalice")).toBeNull();

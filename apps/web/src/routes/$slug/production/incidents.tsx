@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, AlertTriangle, ShieldCheck, Trash2, X, MessageCircle, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, AlertTriangle, ShieldCheck, Trash2, X, MessageCircle, Send, History } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
@@ -11,6 +11,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { addIncidentComment, getIncidentComments, type IncidentComment } from "@/lib/incident-comments";
+import { getIncidentHistory } from "@/lib/incident-history";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -50,7 +51,7 @@ function normalizeIncident(incident: {
 }): IncidentItem {
   return {
     id: incident.id,
-    category: incident.category,
+    category: CATEGORIES.find((category) => category.toLowerCase() === incident.category.trim().toLowerCase()) ?? incident.category,
     severity: incident.severity,
     description: incident.description,
     reportedBy: incident.reportedBy,
@@ -72,23 +73,38 @@ const SEVERITY_COLORS: Record<string, string> = {
 const CATEGORIES = ["Audio", "Video", "Lighting", "Network", "Power", "Software", "Hardware", "Other"];
 
 export const Route = createFileRoute("/$slug/production/incidents")({
-  validateSearch: (search: Record<string, unknown>) => ({ incident: typeof search.incident === "string" ? search.incident : undefined }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    incident: typeof search.incident === "string" ? search.incident : undefined,
+    date: typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? search.date : undefined,
+  }),
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  loaderDeps: ({ search }) => ({ date: search.date }),
+  loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["incidents:report", "incidents:access"], context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
-    const today = getTodayDateString(settings["org-timezone"]);
-    const [incidents, comments] = await Promise.all([
-      getIncidents({ data: { orgId: context.orgId, serviceDate: today } }),
-      getIncidentComments({ data: { orgId: context.orgId, serviceDate: today } }),
+    const serviceDate = deps.date ?? getTodayDateString(settings["org-timezone"]);
+    const [incidents, comments, recentHistory] = await Promise.all([
+      getIncidents({ data: { orgId: context.orgId, serviceDate } }),
+      getIncidentComments({ data: { orgId: context.orgId, serviceDate } }),
+      getIncidentHistory({ data: {
+        orgId: context.orgId,
+        status: "all",
+        severity: "all",
+        sort: "newest",
+        to: shiftDate(getTodayDateString(settings["org-timezone"]), -1),
+        page: 1,
+        pageSize: 10,
+      } }),
     ]);
     return {
       incidents: incidents.map(normalizeIncident),
       orgId: context.orgId,
       role: context.role,
       orgTimezone: settings["org-timezone"],
+      initialServiceDate: serviceDate,
       comments,
+      recentHistory,
     };
   },
   component: IncidentsPage,
@@ -96,19 +112,22 @@ export const Route = createFileRoute("/$slug/production/incidents")({
 
 function IncidentsPage() {
   const { incident: focusedIncidentId } = Route.useSearch();
-  const { incidents: initialIncidents, comments: initialComments, orgId, role, orgTimezone } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const { slug } = Route.useParams();
+  const { incidents: initialIncidents, comments: initialComments, recentHistory, orgId, role, orgTimezone, initialServiceDate } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [incidents, setIncidents] = useState(initialIncidents);
   const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [comments, setComments] = useState<IncidentComment[]>(initialComments);
   const [openComments, setOpenComments] = useState<Set<string>>(() => focusedIncidentId ? new Set([focusedIncidentId]) : new Set());
+  const [openHistoryIncident, setOpenHistoryIncident] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [commentBusy, setCommentBusy] = useState<string | null>(null);
   const [form, setForm] = useState({ category: "Audio", severity: "medium", description: "", reportedBy: "" });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const canReportIncidents = hasAnyPermission(role, ["incidents:report", "incidents:access"]);
   const canManageIncidents = hasPermission(role, "incidents:access");
+  const today = getTodayDateString(orgTimezone);
 
   const loadIncidents = useCallback(async (date: string) => {
     setLoadingIncidents(true);
@@ -129,8 +148,24 @@ function IncidentsPage() {
   });
 
   useEffect(() => {
+    setServiceDate(initialServiceDate);
     setIncidents(initialIncidents);
-  }, [initialIncidents]);
+    setComments(initialComments);
+  }, [initialIncidents, initialComments, initialServiceDate]);
+
+  useEffect(() => {
+    if (!focusedIncidentId) return;
+    setOpenComments((current) => new Set(current).add(focusedIncidentId));
+  }, [focusedIncidentId]);
+
+  useEffect(() => {
+    if (!showForm) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowForm(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showForm]);
 
   useEffect(() => {
     void loadIncidents(serviceDate);
@@ -190,6 +225,7 @@ function IncidentsPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold text-board-text">Incident Log</h1>
           <div className="flex items-center gap-3">
+            <Link to="/$slug/production/incidents-history" params={{ slug }} search={{ query: "", status: "all", severity: "all", category: "", assignee: "", from: "", to: "", sort: "newest", page: 1 }} className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"><History className="h-3.5 w-3.5" />History</Link>
             <div className="flex items-center gap-2">
               <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"><ChevronLeft className="w-4 h-4" /></button>
               <button
@@ -214,7 +250,11 @@ function IncidentsPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-2xl mx-auto">
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fire-400">{serviceDate === today ? "Today" : "Selected date"}</p><h2 className="mt-1 text-sm font-semibold text-board-text">{serviceDate === today ? "Current incidents" : "Incident details"}</h2></div>
+          <span className="text-[11px] text-board-muted">{formatDisplayDate(serviceDate)}</span>
+        </div>
         {loadingIncidents && (
           <p className="mb-3 text-xs text-board-muted">Loading incidents for {formatDisplayDate(serviceDate)}...</p>
         )}
@@ -222,7 +262,7 @@ function IncidentsPage() {
           <div className="space-y-3">
             {incidents.map((incident) => (
               <div id={`incident-${incident.id}`} key={incident.id} ref={(node) => { if (node && incident.id === focusedIncidentId) window.setTimeout(() => node.scrollIntoView({ behavior: "smooth", block: "center" }), 80); }} className={`group p-4 rounded-xl bg-board-card border transition-all ${incident.id === focusedIncidentId ? "border-fire-500/70 ring-2 ring-fire-500/15" : "border-board-border hover:border-fire-500/20"}`}>
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex cursor-pointer items-start justify-between gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50" role="button" tabIndex={0} aria-expanded={openComments.has(incident.id)} onClick={() => setOpenComments((current) => { const next = new Set(current); next.has(incident.id) ? next.delete(incident.id) : next.add(incident.id); return next; })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpenComments((current) => { const next = new Set(current); next.has(incident.id) ? next.delete(incident.id) : next.add(incident.id); return next; }); } }}>
                   <div className="flex items-start gap-3">
                     <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${incident.severity === "critical" ? "text-red-400" : incident.severity === "high" ? "text-orange-400" : "text-yellow-400"}`} />
                     <div>
@@ -242,7 +282,7 @@ function IncidentsPage() {
                     </div>
                   </div>
                   {canManageIncidents && (
-                    <button onClick={() => handleDelete(incident.id)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <button onClick={(event) => { event.stopPropagation(); void handleDelete(incident.id); }} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"><Trash2 className="w-3.5 h-3.5" /></button>
                   )}
                 </div>
                 <div className="mt-3 border-t border-board-border/60 pt-3">
@@ -267,20 +307,41 @@ function IncidentsPage() {
           />
         )}
 
-        {showForm && canReportIncidents && (
-          <form onSubmit={handleAdd} className="mt-4 p-4 rounded-xl bg-board-card border border-board-border space-y-3">
+        <section className="mt-10 border-t border-board-border pt-6">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-board-muted">History</p><h2 className="mt-1 text-sm font-semibold text-board-text">Previous incidents</h2></div>
+            <Link to="/$slug/production/incidents-history" params={{ slug }} search={{ query: "", status: "all", severity: "all", category: "", assignee: "", from: "", to: "", sort: "newest", page: 1 }} className="text-[11px] font-medium text-fire-400 hover:text-fire-300">View and filter all</Link>
+          </div>
+          {recentHistory.incidents.length > 0 ? <div className="overflow-hidden rounded-xl border border-board-border bg-board-card">
+            {recentHistory.incidents.map((incident) => <div key={incident.id} className="border-t border-board-border/70 first:border-t-0">
+              <button type="button" aria-expanded={openHistoryIncident === incident.id} onClick={() => setOpenHistoryIncident((current) => current === incident.id ? null : incident.id)} className="grid w-full gap-2 p-4 text-left hover:bg-board-bg/55 sm:grid-cols-[100px_minmax(0,1fr)_auto]">
+                <div><p className="text-xs font-medium text-board-text">{incident.serviceDate}</p><p className="mt-1 text-[10px] text-board-muted">{incident.category}</p></div>
+                <div className="min-w-0"><p className="truncate text-sm text-board-text">{incident.description}</p><p className="mt-1 text-[10px] text-board-muted">{incident.assignedName || "Unassigned"} · {incident.commentCount} comment{incident.commentCount === 1 ? "" : "s"}</p></div>
+                <span className={`self-start text-[9px] font-semibold uppercase ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}>{incident.status}</span>
+              </button>
+              {openHistoryIncident === incident.id && <div className="border-t border-board-border/50 bg-board-bg/35 px-4 py-3 text-xs text-board-muted sm:pl-[120px]"><p>Reported by <span className="text-board-text">{incident.reportedBy || "Unknown"}</span></p><p className="mt-1">Severity <span className="capitalize text-board-text">{incident.severity}</span>{incident.resolvedBy ? <> · Resolved by <span className="text-board-text">{incident.resolvedBy}</span></> : null}</p><Link to="/$slug/production/incidents" params={{ slug }} search={{ incident: incident.id, date: incident.serviceDate }} className="mt-3 inline-flex text-[11px] font-semibold text-fire-400 hover:text-fire-300">Open full incident and comments</Link></div>}
+            </div>)}
+          </div> : <div className="rounded-xl border border-dashed border-board-border px-4 py-8 text-center"><p className="text-xs text-board-muted">No previous incidents yet.</p></div>}
+        </section>
+
+      </div>
+
+      {showForm && canReportIncidents && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowForm(false); }}>
+          <form onSubmit={handleAdd} role="dialog" aria-modal="true" aria-labelledby="report-incident-title" className="w-full max-w-lg space-y-4 rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl sm:p-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-board-text">Report Incident</h3>
-              <button type="button" onClick={() => setShowForm(false)} className="text-board-muted hover:text-board-text"><X className="w-4 h-4" /></button>
+              <div><h3 id="report-incident-title" className="text-base font-semibold text-board-text">Report incident</h3><p className="mt-1 text-xs text-board-muted">Log an issue for {formatDisplayDate(serviceDate)}.</p></div>
+              <button type="button" onClick={() => setShowForm(false)} className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Close report incident"><X className="w-4 h-4" /></button>
             </div>
             <textarea
+              autoFocus
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="What happened?"
               rows={3}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
             />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50">
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -292,12 +353,10 @@ function IncidentsPage() {
               </select>
               <input value={form.reportedBy} onChange={(e) => setForm({ ...form, reportedBy: e.target.value })} placeholder="Reported by..." className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50" />
             </div>
-            <button type="submit" disabled={!form.description.trim()} className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]" style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}>
-              Submit
-            </button>
+            <div className="flex justify-end gap-2 border-t border-board-border pt-4"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl border border-board-border px-4 py-2.5 text-sm font-medium text-board-muted hover:text-board-text">Cancel</button><button type="submit" disabled={!form.description.trim()} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50" style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}>Submit report</button></div>
           </form>
-        )}
-      </div>
+        </div>
+      )}
       {ConfirmDialogEl}
     </div>
   );

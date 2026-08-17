@@ -23,6 +23,8 @@ export interface ExportReport {
     reportedBy: string;
     timestamp: string;
   }>;
+  checklist?: Array<{ label: string; category: string; checked: boolean; checkedBy: string | null }>;
+  crew?: Array<{ role: string; name: string; status: string; notes: string }>;
 }
 
 /** Download a string as a file in the browser. */
@@ -109,9 +111,12 @@ export function exportRundownCsv(report: ExportReport) {
         ].join("\n")
       : "";
 
+  const checklistSection = report.checklist?.length ? ["", "# CHECKLIST", "Category,Item,Status,Checked By", ...report.checklist.map((item) => [csvEscape(item.category), csvEscape(item.label), item.checked ? "Complete" : "Incomplete", csvEscape(item.checkedBy ?? "")].join(","))].join("\n") : "";
+  const crewSection = report.crew?.length ? ["", "# CREW", "Position,Crew Member,Status,Notes", ...report.crew.map((item) => [csvEscape(item.role), csvEscape(item.name), item.status, csvEscape(item.notes)].join(","))].join("\n") : "";
+
   downloadFile(
     `${report.organization.slug}-${report.serviceDate}-report.csv`,
-    `${header}\n${body}${incidentSection}`,
+    `${header}\n${body}${incidentSection}${checklistSection}${crewSection}`,
     "text/csv",
   );
 }
@@ -200,6 +205,8 @@ export async function exportRundownPdf(report: ExportReport) {
           },
         ]
       : [];
+  const checklistSection = report.checklist?.length ? [{ text: "Checklist", style: "sectionHeader" }, { table: { headerRows: 1, widths: ["auto", "*", "auto", "auto"], body: [[{ text: "Category", style: "tableHeader" }, { text: "Item", style: "tableHeader" }, { text: "Status", style: "tableHeader" }, { text: "Checked By", style: "tableHeader" }], ...report.checklist.map((item) => [item.category, item.label, item.checked ? "Complete" : "Incomplete", item.checkedBy ?? "—"])] }, layout: "lightHorizontalLines" }] : [];
+  const crewSection = report.crew?.length ? [{ text: "Crew", style: "sectionHeader" }, { table: { headerRows: 1, widths: ["*", "*", "auto"], body: [[{ text: "Position", style: "tableHeader" }, { text: "Crew Member", style: "tableHeader" }, { text: "Status", style: "tableHeader" }], ...report.crew.map((item) => [item.role, item.name, item.status])] }, layout: "lightHorizontalLines" }] : [];
 
   const docDefinition = {
     pageMargins: [36, 48, 36, 36] as [number, number, number, number],
@@ -228,6 +235,8 @@ export async function exportRundownPdf(report: ExportReport) {
         layout: "lightHorizontalLines",
       },
       ...incidentsSection,
+      ...checklistSection,
+      ...crewSection,
     ],
     styles: {
       orgName: { fontSize: 16, bold: true, color: "#f0f0f0" },

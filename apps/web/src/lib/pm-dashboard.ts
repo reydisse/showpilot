@@ -351,7 +351,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         prisma.incident.findMany({
           where: { orgId, serviceDate },
           orderBy: { timestamp: "desc" },
-          select: { id: true, category: true, severity: true, description: true, reportedBy: true },
+          select: { id: true, category: true, severity: true, description: true, reportedBy: true, status: true },
         }),
         prisma.equipment.findMany({
           where: { orgId },

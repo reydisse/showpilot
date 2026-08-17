@@ -12,6 +12,7 @@ const shortTextSchema = z.string().max(500);
 const longTextSchema = z.string().max(10_000);
 // Photos arrive as data URLs; the public flow re-checks decoded byte size.
 const photoUrlSchema = z.string().max(2_100_000);
+const optionalCrewEmailSchema = z.union([z.literal(""), z.email("Enter a valid email address").max(254)]);
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -61,6 +62,7 @@ export const addCrewMember = createServerFn({ method: "POST" })
         memberId: idSchema,
         name: nameSchema,
         role: z.string().max(100),
+        email: optionalCrewEmailSchema.optional(),
         photoUrl: photoUrlSchema.optional(),
       }),
       data,
@@ -75,6 +77,7 @@ export const addCrewMember = createServerFn({ method: "POST" })
         memberId: data.memberId,
         name: data.name,
         role: data.role,
+        email: data.email?.trim().toLowerCase() ?? "",
         photoUrl: data.photoUrl ?? "",
       },
     });
@@ -91,6 +94,7 @@ export const updateCrewMember = createServerFn({ method: "POST" })
             memberId: idSchema,
             name: nameSchema,
             role: z.string().max(100),
+            email: optionalCrewEmailSchema,
             photoUrl: photoUrlSchema,
             isOnline: z.boolean(),
           })
@@ -109,7 +113,12 @@ export const updateCrewMember = createServerFn({ method: "POST" })
     if (!existing) throw new Error("Crew member not found");
     return await prisma.crewMember.update({
       where: { id: data.id },
-      data: data.updates,
+      data: {
+        ...data.updates,
+        ...(data.updates.email !== undefined
+          ? { email: data.updates.email.trim().toLowerCase() }
+          : {}),
+      },
     });
   });
 
