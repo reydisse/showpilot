@@ -64,7 +64,7 @@ export const Route = createFileRoute("/$slug/reports")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
-      ["dashboard:pm", "rundown:view"],
+      "schedule:view",
       context.slug,
       context.orgId,
     );

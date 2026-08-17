@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
-import { hasAnyPermission } from "@/lib/app-permissions";
+import { hasPermission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 
@@ -127,11 +127,9 @@ async function assertAccess(orgId: string, manage = false) {
   });
   if (
     !member ||
-    !hasAnyPermission(
+    !hasPermission(
       member.role ?? "member",
-      manage
-        ? ["settings:members", "rundown:edit"]
-        : ["rundown:view", "dashboard:pm"],
+      manage ? "schedule:manage" : "schedule:view",
     )
   )
     throw new Error("Forbidden");

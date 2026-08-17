@@ -69,7 +69,7 @@ export const createNextService = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "rundown:edit");
+    await assertOrgPermission(data.orgId, "schedule:manage");
 
     const existingRundown = await getPrisma().rundown.findUnique({
       where: {
@@ -214,7 +214,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:members");
+    await assertOrgPermission(data.orgId, "schedule:manage");
 
     const prisma = getPrisma() as unknown as {
       serviceAssignment?: {

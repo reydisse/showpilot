@@ -38,6 +38,7 @@ import {
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
+import { hasPermission } from "@/lib/app-permissions";
 
 function shiftDate(date: string, days: number) {
   const value = new Date(`${date}T12:00:00`);
@@ -106,7 +107,7 @@ export const Route = createFileRoute("/$slug/schedule")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
-      ["rundown:view", "dashboard:pm"],
+      "schedule:view",
       context.slug,
       context.orgId,
     );
@@ -129,7 +130,7 @@ export const Route = createFileRoute("/$slug/schedule")({
       defaultSelectedDate,
       today,
       orgId: context.orgId,
-      canManage: ["owner", "admin", "pm"].includes(context.role ?? ""),
+      canManage: hasPermission(context.role, "schedule:manage"),
     };
   },
   component: SchedulePage,
