@@ -11,26 +11,59 @@
  * during a service.
  */
 
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, Clock3, GripVertical, LayoutDashboard, Radio, RefreshCw, RotateCcw, Search, ShieldCheck, UserRoundCheck } from "lucide-react";
+import {
+  createFileRoute,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  GripVertical,
+  LayoutDashboard,
+  Radio,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  UserRoundCheck,
+} from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getTmDashboard } from "@/lib/tm-dashboard";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
-import { TM_WIDGETS, type TmWidget, type TmWidgetModel } from "@/components/dashboard/tm-widgets";
+import {
+  TM_WIDGETS,
+  type TmWidget,
+  type TmWidgetModel,
+} from "@/components/dashboard/tm-widgets";
 import { TmOperations } from "@/components/dashboard/tm-operations";
 import { selectWidgets, widgetsInRegion } from "@/components/dashboard/widget";
-import { saveTmDashboardLayout, TM_LAYOUT_SECTION_IDS, TM_LAYOUT_WIDGET_IDS, type TmDashboardLayout } from "@/lib/dashboard-layout";
+import {
+  saveTmDashboardLayout,
+  TM_LAYOUT_SECTION_IDS,
+  TM_LAYOUT_WIDGET_IDS,
+  type TmDashboardLayout,
+} from "@/lib/dashboard-layout";
 import { hasPermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 
 /** How often the page re-reads. A live service needs a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
-  planning: 300_000,
-  prep: 120_000,
-  call: 30_000,
-  live: 20_000,
-  debrief: 120_000,
+  planning: 15_000,
+  prep: 15_000,
+  call: 10_000,
+  live: 10_000,
+  debrief: 30_000,
 };
 
 const PHASE_CHIP: Record<ServicePhase, string> = {
@@ -46,13 +79,22 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
     date: typeof search.date === "string" ? search.date : undefined,
   }),
   loaderDeps: ({ search }) => ({ date: search.date }),
+  pendingMs: 800,
+  pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
+    await withPermission(
+      context.role,
+      "dashboard:tm",
+      context.slug,
+      context.orgId,
+    );
     const { getTmDashboardLayout } = await import("@/lib/dashboard-layout");
     const [dashboard, dashboardLayout] = await Promise.all([
-      getTmDashboard({ data: { orgId: context.orgId, serviceDate: deps.date } }),
+      getTmDashboard({
+        data: { orgId: context.orgId, serviceDate: deps.date },
+      }),
       getTmDashboardLayout({ data: { orgId: context.orgId } }),
     ]);
     return { ...dashboard, dashboardLayout };
@@ -61,7 +103,19 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
 });
 
 function TechManagerPage() {
-  const { model, orgId, serviceDate, serviceDates, viewerId, viewerRole, canAssignPeople, members, liveInputs, streamDestinations, dashboardLayout } = Route.useLoaderData();
+  const {
+    model,
+    orgId,
+    serviceDate,
+    serviceDates,
+    viewerId,
+    viewerRole,
+    canAssignPeople,
+    members,
+    liveInputs,
+    streamDestinations,
+    dashboardLayout,
+  } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -69,7 +123,9 @@ function TechManagerPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [faultView, setFaultView] = useState<"all" | "unowned" | "mine" | "critical">("all");
+  const [faultView, setFaultView] = useState<
+    "all" | "unowned" | "mine" | "critical"
+  >("all");
   const [lastRefresh, setLastRefresh] = useState(() => Date.now());
   const [editingLayout, setEditingLayout] = useState(false);
   const [layout, setLayout] = useState<TmDashboardLayout>(dashboardLayout);
@@ -78,7 +134,8 @@ function TechManagerPage() {
     orgId,
     onNote: () => {},
     onColumns: () => {},
-    onIncident: () => void router.invalidate().then(() => setLastRefresh(Date.now())),
+    onIncident: () =>
+      void router.invalidate().then(() => setLastRefresh(Date.now())),
   });
 
   // Faults arrive from other people — someone reporting from the floor,
@@ -97,7 +154,12 @@ function TechManagerPage() {
       setError(null);
       try {
         await run();
-        publishIncident({ type: "incident", incidentId: faultId, action: "updated", at: Date.now() });
+        publishIncident({
+          type: "incident",
+          incidentId: faultId,
+          action: "updated",
+          at: Date.now(),
+        });
         await router.invalidate();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "That did not save");
@@ -120,7 +182,9 @@ function TechManagerPage() {
           (faultView === "critical" && fault.severity === "critical");
         const needle = query.trim().toLowerCase();
         const searchable = `${fault.description} ${fault.departmentLabel} ${fault.assignedName}`;
-        return viewMatches && (!needle || searchable.toLowerCase().includes(needle));
+        return (
+          viewMatches && (!needle || searchable.toLowerCase().includes(needle))
+        );
       }),
     }),
     [faultView, model, query],
@@ -138,7 +202,9 @@ function TechManagerPage() {
     onClaim: (faultId) =>
       void act(faultId, async () => {
         const { assignFault } = await import("@/lib/tm-dashboard");
-        return assignFault({ data: { orgId, id: faultId, assignedTo: viewerId } });
+        return assignFault({
+          data: { orgId, id: faultId, assignedTo: viewerId },
+        });
       }),
     onAssign: (faultId, userId, name) =>
       void act(faultId, async () => {
@@ -160,7 +226,9 @@ function TechManagerPage() {
     onRelease: (faultId) =>
       void act(faultId, async () => {
         const { assignFault } = await import("@/lib/tm-dashboard");
-        return assignFault({ data: { orgId, id: faultId, assignedTo: null, assignedName: "" } });
+        return assignFault({
+          data: { orgId, id: faultId, assignedTo: null, assignedName: "" },
+        });
       }),
   };
 
@@ -170,22 +238,65 @@ function TechManagerPage() {
   const rail = widgetsInRegion(widgets, "rail");
   const orderedMain = orderMainWidgets(main, layout.main);
 
-  const persistLayout = useCallback(async (next: TmDashboardLayout) => {
-    setLayout(next);
-    setLayoutSaving(true);
-    setError(null);
-    try { setLayout(await saveTmDashboardLayout({ data: { orgId, layout: next } })); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save dashboard layout"); }
-    finally { setLayoutSaving(false); }
-  }, [orgId]);
+  const persistLayout = useCallback(
+    async (next: TmDashboardLayout) => {
+      setLayout(next);
+      setLayoutSaving(true);
+      setError(null);
+      try {
+        setLayout(
+          await saveTmDashboardLayout({ data: { orgId, layout: next } }),
+        );
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not save dashboard layout",
+        );
+      } finally {
+        setLayoutSaving(false);
+      }
+    },
+    [orgId],
+  );
 
-  const workspaceContent = <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
-    <div className="space-y-4 min-w-0">
-      <FaultToolbar query={query} onQueryChange={setQuery} value={faultView} onChange={setFaultView} counts={{ all: model.openCount, unowned: model.unownedCount, mine: model.mineCount, critical: model.faults.filter((fault) => fault.severity === "critical").length }} />
-      <ReorderableMainWidgets widgets={orderedMain} widgetModel={widgetModel} editing={editingLayout} saving={layoutSaving} onReorder={(mainOrder) => void persistLayout({ ...layout, main: mainOrder as TmDashboardLayout["main"] })} />
+  const workspaceContent = (
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
+      <div className="space-y-4 min-w-0">
+        <FaultToolbar
+          query={query}
+          onQueryChange={setQuery}
+          value={faultView}
+          onChange={setFaultView}
+          counts={{
+            all: model.openCount,
+            unowned: model.unownedCount,
+            mine: model.mineCount,
+            critical: model.faults.filter(
+              (fault) => fault.severity === "critical",
+            ).length,
+          }}
+        />
+        <ReorderableMainWidgets
+          widgets={orderedMain}
+          widgetModel={widgetModel}
+          editing={editingLayout}
+          saving={layoutSaving}
+          onReorder={(mainOrder) =>
+            void persistLayout({
+              ...layout,
+              main: mainOrder as TmDashboardLayout["main"],
+            })
+          }
+        />
+      </div>
+      <div className="space-y-4 min-w-0">
+        {rail.map((widget) => (
+          <div key={widget.id}>{widget.render(widgetModel)}</div>
+        ))}
+      </div>
     </div>
-    <div className="space-y-4 min-w-0">{rail.map((widget) => <div key={widget.id}>{widget.render(widgetModel)}</div>)}</div>
-  </div>;
+  );
   return (
     <div className="h-full overflow-auto">
       <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
@@ -195,8 +306,12 @@ function TechManagerPage() {
               <Radio className="w-4 h-4 text-fire-400" aria-hidden="true" />
             </span>
             <div>
-              <h1 className="text-[15px] leading-none font-semibold text-board-text font-[family-name:var(--font-display)]">Technical Control</h1>
-              <p className="text-[10px] text-board-muted mt-1">Signal, systems & response</p>
+              <h1 className="text-[15px] leading-none font-semibold text-board-text font-[family-name:var(--font-display)]">
+                Technical Control
+              </h1>
+              <p className="text-[10px] text-board-muted mt-1">
+                Signal, systems & response
+              </p>
             </div>
           </div>
           <span
@@ -207,16 +322,34 @@ function TechManagerPage() {
           <select
             aria-label="Service date"
             value={serviceDate}
-            onChange={(event) => void navigate({ search: { date: event.target.value } })}
+            onChange={(event) =>
+              void navigate({ search: { date: event.target.value } })
+            }
             className="text-xs bg-board-card border border-board-border rounded-lg px-2.5 py-1.5 text-board-text outline-none focus:border-fire-500/50"
           >
-            {(serviceDates.includes(serviceDate) ? serviceDates : [serviceDate, ...serviceDates]).map((date) => (
-              <option key={date} value={date}>{new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</option>
+            {(serviceDates.includes(serviceDate)
+              ? serviceDates
+              : [serviceDate, ...serviceDates]
+            ).map((date) => (
+              <option key={date} value={date}>
+                {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </option>
             ))}
           </select>
 
           <div className="ml-auto flex items-center gap-4">
-            <button type="button" onClick={() => setEditingLayout((value) => !value)} className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11px] transition-colors ${editingLayout ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border text-board-muted hover:text-board-text"}`}><LayoutDashboard className="w-3.5 h-3.5" />{editingLayout ? "Done arranging" : "Arrange widgets"}</button>
+            <button
+              type="button"
+              onClick={() => setEditingLayout((value) => !value)}
+              className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border text-[11px] transition-colors ${editingLayout ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border text-board-muted hover:text-board-text"}`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              {editingLayout ? "Done arranging" : "Arrange widgets"}
+            </button>
             <div className="hidden md:flex items-center gap-1.5 text-[10px] text-board-muted">
               <Clock3 className="w-3 h-3" />
               updated {formatFreshness(lastRefresh)}
@@ -224,10 +357,19 @@ function TechManagerPage() {
             <button
               type="button"
               aria-label="Refresh dashboard"
-              onClick={() => startRefresh(() => void router.invalidate().then(() => setLastRefresh(Date.now())))}
+              onClick={() =>
+                startRefresh(
+                  () =>
+                    void router
+                      .invalidate()
+                      .then(() => setLastRefresh(Date.now())),
+                )
+              }
               className="w-8 h-8 rounded-lg border border-board-border text-board-muted hover:text-board-text hover:bg-board-card flex items-center justify-center"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+              />
             </button>
             <div className="text-right leading-none">
               <p
@@ -242,7 +384,9 @@ function TechManagerPage() {
                 {model.openCount}
               </p>
               <p className="text-[10px] text-board-muted mt-1">
-                {model.unownedCount > 0 ? `${model.unownedCount} unowned` : "open faults"}
+                {model.unownedCount > 0
+                  ? `${model.unownedCount} unowned`
+                  : "open faults"}
               </p>
             </div>
             {model.prep.length > 0 && (
@@ -250,7 +394,9 @@ function TechManagerPage() {
                 <p className="text-[22px] font-semibold tabular-nums text-yellow-400">
                   {model.prep.length}
                 </p>
-                <p className="text-[10px] text-board-muted mt-1">to fix first</p>
+                <p className="text-[10px] text-board-muted mt-1">
+                  to fix first
+                </p>
               </div>
             )}
           </div>
@@ -258,7 +404,10 @@ function TechManagerPage() {
       </header>
 
       {error && (
-        <div role="alert" className="px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300">
+        <div
+          role="alert"
+          className="px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
+        >
           {error}
         </div>
       )}
@@ -268,50 +417,131 @@ function TechManagerPage() {
           editing={editingLayout}
           saving={layoutSaving}
           order={layout.sections}
-          onReorder={(sections) => void persistLayout({ ...layout, sections: sections as TmDashboardLayout["sections"] })}
+          onReorder={(sections) =>
+            void persistLayout({
+              ...layout,
+              sections: sections as TmDashboardLayout["sections"],
+            })
+          }
           sections={{
-            overview: { title: "System overview", content: <HealthOverview model={model} /> },
-            operations: { title: "Live operations", content: <TmOperations orgId={orgId} slug={slug} inputs={liveInputs} destinations={streamDestinations} /> },
-            "signal-path": { title: "Signal path", content: <>{banners.map((widget) => <div key={widget.id}>{widget.render(widgetModel)}</div>)}</> },
+            overview: {
+              title: "System overview",
+              content: <HealthOverview model={model} />,
+            },
+            operations: {
+              title: "Live operations",
+              content: (
+                <TmOperations
+                  orgId={orgId}
+                  slug={slug}
+                  inputs={liveInputs}
+                  destinations={streamDestinations}
+                />
+              ),
+            },
+            "signal-path": {
+              title: "Signal path",
+              content: (
+                <>
+                  {banners.map((widget) => (
+                    <div key={widget.id}>{widget.render(widgetModel)}</div>
+                  ))}
+                </>
+              ),
+            },
             workspace: { title: "Fault workspace", content: workspaceContent },
           }}
         />
       </div>
     </div>
   );
-
 }
 
 function HealthOverview({ model }: { model: TmWidgetModel["model"] }) {
-  const critical = model.faults.filter((fault) => fault.severity === "critical").length;
-  const checksLeft = model.checks.reduce((total, check) => total + check.outstanding, 0);
+  const critical = model.faults.filter(
+    (fault) => fault.severity === "critical",
+  ).length;
+  const checksLeft = model.checks.reduce(
+    (total, check) => total + check.outstanding,
+    0,
+  );
   const signalBad = model.signalPath.status === "fail";
-  const overall = critical > 0 || signalBad || model.unownedCount > 0 ? "Critical" : model.openCount > 0 || checksLeft > 0 ? "Degraded" : "Nominal";
-  const tone = overall === "Critical" ? "text-red-400" : overall === "Degraded" ? "text-yellow-400" : "text-green-400";
+  const overall =
+    critical > 0 || signalBad || model.unownedCount > 0
+      ? "Critical"
+      : model.openCount > 0 || checksLeft > 0
+        ? "Degraded"
+        : "Nominal";
+  const tone =
+    overall === "Critical"
+      ? "text-red-400"
+      : overall === "Degraded"
+        ? "text-yellow-400"
+        : "text-green-400";
   const metrics = [
     { label: "System state", value: overall, icon: ShieldCheck, tone },
-    { label: "Critical faults", value: String(critical), icon: AlertTriangle, tone: critical ? "text-red-400" : "text-board-text" },
-    { label: "My queue", value: String(model.mineCount), icon: UserRoundCheck, tone: model.mineCount ? "text-fire-400" : "text-board-text" },
-    { label: "Checks left", value: String(checksLeft), icon: Clock3, tone: checksLeft ? "text-yellow-400" : "text-board-text" },
+    {
+      label: "Critical faults",
+      value: String(critical),
+      icon: AlertTriangle,
+      tone: critical ? "text-red-400" : "text-board-text",
+    },
+    {
+      label: "My queue",
+      value: String(model.mineCount),
+      icon: UserRoundCheck,
+      tone: model.mineCount ? "text-fire-400" : "text-board-text",
+    },
+    {
+      label: "Checks left",
+      value: String(checksLeft),
+      icon: Clock3,
+      tone: checksLeft ? "text-yellow-400" : "text-board-text",
+    },
   ];
   return (
     <section className="grid grid-cols-2 lg:grid-cols-4 rounded-xl border border-board-border bg-board-card overflow-hidden">
       {metrics.map((metric, index) => (
-        <div key={metric.label} className={`px-4 py-3.5 flex items-center gap-3 ${index ? "border-l border-board-border" : ""} ${index > 1 ? "border-t lg:border-t-0" : ""}`}>
+        <div
+          key={metric.label}
+          className={`px-4 py-3.5 flex items-center gap-3 ${index ? "border-l border-board-border" : ""} ${index > 1 ? "border-t lg:border-t-0" : ""}`}
+        >
           <metric.icon className={`w-4 h-4 shrink-0 ${metric.tone}`} />
-          <div className="min-w-0"><p className={`text-lg leading-none font-semibold tabular-nums ${metric.tone}`}>{metric.value}</p><p className="text-[10px] uppercase tracking-[0.1em] text-board-muted mt-1.5">{metric.label}</p></div>
+          <div className="min-w-0">
+            <p
+              className={`text-lg leading-none font-semibold tabular-nums ${metric.tone}`}
+            >
+              {metric.value}
+            </p>
+            <p className="text-[10px] uppercase tracking-[0.1em] text-board-muted mt-1.5">
+              {metric.label}
+            </p>
+          </div>
         </div>
       ))}
     </section>
   );
 }
 
-function orderMainWidgets(widgets: TmWidget[], order: readonly string[]): TmWidget[] {
+function orderMainWidgets(
+  widgets: TmWidget[],
+  order: readonly string[],
+): TmWidget[] {
   const rank = new Map(order.map((id, index) => [id, index]));
-  return [...widgets].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  return [...widgets].sort(
+    (a, b) =>
+      (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+      (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+  );
 }
 
-function ReorderableSections({ order, sections, editing, saving, onReorder }: {
+function ReorderableSections({
+  order,
+  sections,
+  editing,
+  saving,
+  onReorder,
+}: {
   order: readonly string[];
   sections: Record<string, { title: string; content: ReactNode }>;
   editing: boolean;
@@ -335,16 +565,86 @@ function ReorderableSections({ order, sections, editing, saving, onReorder }: {
     setDragging(null);
     onReorder(next);
   };
-  return <div className="space-y-4">
-    {editing ? <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted"><GripVertical className="w-3.5 h-3.5 text-fire-400" /><span>Arrange the major dashboard zones. Operational controls are locked while arranging.</span>{saving ? <span className="ml-auto text-fire-400">Saving…</span> : <button type="button" onClick={() => onReorder([...TM_LAYOUT_SECTION_IDS])} className="ml-auto inline-flex items-center gap-1 hover:text-board-text"><RotateCcw className="w-3 h-3" />Reset all</button>}</div> : null}
-    {visible.map((id, index) => { const section = sections[id]; return <div key={id} draggable={editing && !saving} onDragStart={() => setDragging(id)} onDragEnd={() => setDragging(null)} onDragOver={(event) => { if (editing && !saving) event.preventDefault(); }} onDrop={() => dropOn(id)} className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === id ? "opacity-45 scale-[.99]" : ""}`}>
-      {editing ? <div className="absolute z-20 right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg"><span className="px-2 text-[10px] text-board-muted">{section.title}</span><button type="button" aria-label={`Move ${section.title} up`} disabled={index === 0 || saving} onClick={() => move(id, -1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronUp className="w-3.5 h-3.5" /></button><button type="button" aria-label={`Move ${section.title} down`} disabled={index === visible.length - 1 || saving} onClick={() => move(id, 1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronDown className="w-3.5 h-3.5" /></button><GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" /></div> : null}
-      <div className={editing ? "pointer-events-none select-none" : ""}>{section.content}</div>
-    </div>; })}
-  </div>;
+  return (
+    <div className="space-y-4">
+      {editing ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted">
+          <GripVertical className="w-3.5 h-3.5 text-fire-400" />
+          <span>
+            Arrange the major dashboard zones. Operational controls are locked
+            while arranging.
+          </span>
+          {saving ? (
+            <span className="ml-auto text-fire-400">Saving…</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onReorder([...TM_LAYOUT_SECTION_IDS])}
+              className="ml-auto inline-flex items-center gap-1 hover:text-board-text"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset all
+            </button>
+          )}
+        </div>
+      ) : null}
+      {visible.map((id, index) => {
+        const section = sections[id];
+        return (
+          <div
+            key={id}
+            draggable={editing && !saving}
+            onDragStart={() => setDragging(id)}
+            onDragEnd={() => setDragging(null)}
+            onDragOver={(event) => {
+              if (editing && !saving) event.preventDefault();
+            }}
+            onDrop={() => dropOn(id)}
+            className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === id ? "opacity-45 scale-[.99]" : ""}`}
+          >
+            {editing ? (
+              <div className="absolute z-20 right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg">
+                <span className="px-2 text-[10px] text-board-muted">
+                  {section.title}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Move ${section.title} up`}
+                  disabled={index === 0 || saving}
+                  onClick={() => move(id, -1)}
+                  className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
+                >
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Move ${section.title} down`}
+                  disabled={index === visible.length - 1 || saving}
+                  onClick={() => move(id, 1)}
+                  className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                <GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" />
+              </div>
+            ) : null}
+            <div className={editing ? "pointer-events-none select-none" : ""}>
+              {section.content}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
-function ReorderableMainWidgets({ widgets, widgetModel, editing, saving, onReorder }: {
+function ReorderableMainWidgets({
+  widgets,
+  widgetModel,
+  editing,
+  saving,
+  onReorder,
+}: {
   widgets: TmWidget[];
   widgetModel: TmWidgetModel;
   editing: boolean;
@@ -369,25 +669,113 @@ function ReorderableMainWidgets({ widgets, widgetModel, editing, saving, onReord
     onReorder(next);
   };
   if (!widgets.length) return null;
-  return <div className="space-y-4">
-    {editing ? <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted"><GripVertical className="w-3.5 h-3.5 text-fire-400" /><span>Drag widgets or use the arrow buttons. Changes save to your account.</span>{saving ? <span className="ml-auto text-fire-400">Saving…</span> : <button type="button" onClick={() => onReorder([...TM_LAYOUT_WIDGET_IDS])} className="ml-auto inline-flex items-center gap-1 text-board-muted hover:text-board-text"><RotateCcw className="w-3 h-3" />Reset</button>}</div> : null}
-    {widgets.map((widget, index) => <div key={widget.id} draggable={editing && !saving} onDragStart={() => setDragging(widget.id)} onDragEnd={() => setDragging(null)} onDragOver={(event) => { if (editing && !saving) event.preventDefault(); }} onDrop={() => dropOn(widget.id)} className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === widget.id ? "opacity-45 scale-[.99]" : ""}`}>
-      {editing ? <div className="absolute z-[2] right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg"><span className="px-2 text-[10px] text-board-muted max-w-28 truncate">{widget.title}</span><button type="button" aria-label={`Move ${widget.title} up`} disabled={index === 0 || saving} onClick={() => move(widget.id, -1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronUp className="w-3.5 h-3.5" /></button><button type="button" aria-label={`Move ${widget.title} down`} disabled={index === widgets.length - 1 || saving} onClick={() => move(widget.id, 1)} className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"><ChevronDown className="w-3.5 h-3.5" /></button><GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" /></div> : null}
-      <div className={editing ? "pointer-events-none select-none" : ""}>{widget.render(widgetModel)}</div>
-    </div>)}
-  </div>;
+  return (
+    <div className="space-y-4">
+      {editing ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-fire-500/35 bg-fire-500/5 text-[11px] text-board-muted">
+          <GripVertical className="w-3.5 h-3.5 text-fire-400" />
+          <span>
+            Drag widgets or use the arrow buttons. Changes save to your account.
+          </span>
+          {saving ? (
+            <span className="ml-auto text-fire-400">Saving…</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onReorder([...TM_LAYOUT_WIDGET_IDS])}
+              className="ml-auto inline-flex items-center gap-1 text-board-muted hover:text-board-text"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          )}
+        </div>
+      ) : null}
+      {widgets.map((widget, index) => (
+        <div
+          key={widget.id}
+          draggable={editing && !saving}
+          onDragStart={() => setDragging(widget.id)}
+          onDragEnd={() => setDragging(null)}
+          onDragOver={(event) => {
+            if (editing && !saving) event.preventDefault();
+          }}
+          onDrop={() => dropOn(widget.id)}
+          className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === widget.id ? "opacity-45 scale-[.99]" : ""}`}
+        >
+          {editing ? (
+            <div className="absolute z-[2] right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg">
+              <span className="px-2 text-[10px] text-board-muted max-w-28 truncate">
+                {widget.title}
+              </span>
+              <button
+                type="button"
+                aria-label={`Move ${widget.title} up`}
+                disabled={index === 0 || saving}
+                onClick={() => move(widget.id, -1)}
+                className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Move ${widget.title} down`}
+                disabled={index === widgets.length - 1 || saving}
+                onClick={() => move(widget.id, 1)}
+                className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+              <GripVertical className="w-3.5 h-3.5 mr-2 text-fire-400" />
+            </div>
+          ) : null}
+          <div className={editing ? "pointer-events-none select-none" : ""}>
+            {widget.render(widgetModel)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function FaultToolbar({ query, onQueryChange, value, onChange, counts }: { query: string; onQueryChange(value: string): void; value: "all" | "unowned" | "mine" | "critical"; onChange(value: "all" | "unowned" | "mine" | "critical"): void; counts: Record<"all" | "unowned" | "mine" | "critical", number> }) {
+function FaultToolbar({
+  query,
+  onQueryChange,
+  value,
+  onChange,
+  counts,
+}: {
+  query: string;
+  onQueryChange(value: string): void;
+  value: "all" | "unowned" | "mine" | "critical";
+  onChange(value: "all" | "unowned" | "mine" | "critical"): void;
+  counts: Record<"all" | "unowned" | "mine" | "critical", number>;
+}) {
   const views = ["all", "unowned", "mine", "critical"] as const;
   return (
     <div className="flex flex-col md:flex-row md:items-center gap-2 p-1.5 rounded-xl border border-board-border bg-board-card/70">
       <div className="flex items-center gap-1 overflow-x-auto">
-        {views.map((view) => <button key={view} onClick={() => onChange(view)} className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] capitalize transition-colors ${value === view ? "bg-board-text text-board-bg font-medium" : "text-board-muted hover:text-board-text"}`}>{view}<span className="ml-1.5 opacity-60 tabular-nums">{counts[view]}</span></button>)}
+        {views.map((view) => (
+          <button
+            key={view}
+            onClick={() => onChange(view)}
+            className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] capitalize transition-colors ${value === view ? "bg-board-text text-board-bg font-medium" : "text-board-muted hover:text-board-text"}`}
+          >
+            {view}
+            <span className="ml-1.5 opacity-60 tabular-nums">
+              {counts[view]}
+            </span>
+          </button>
+        ))}
       </div>
       <label className="md:ml-auto flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-board-bg border border-board-border focus-within:border-fire-500/50">
         <Search className="w-3.5 h-3.5 text-board-muted" />
-        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search faults" className="w-full md:w-44 bg-transparent text-xs text-board-text placeholder:text-board-muted outline-none" />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Search faults"
+          className="w-full md:w-44 bg-transparent text-xs text-board-text placeholder:text-board-muted outline-none"
+        />
       </label>
     </div>
   );

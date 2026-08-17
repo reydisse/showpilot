@@ -4,6 +4,7 @@ import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { parseOrThrow } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
+import { getTodayDateString } from "@/lib/utils";
 
 const publicTokenSchema = z
   .string()
@@ -221,7 +222,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const access = await resolvePortal(data.token);
     const prisma = getPrisma();
-    const [crew, org, assignments, terminologySetting] = await Promise.all([
+    const [crew, org, settings] = await Promise.all([
       prisma.crewMember.findFirst({
         where: { id: access.crewMemberId, orgId: access.orgId },
         select: { name: true },
@@ -230,19 +231,31 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         where: { id: access.orgId },
         select: { name: true },
       }),
-      getD1()
-        .prepare(
-          "SELECT id, serviceDate, role, status, notes, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= date('now', '-1 day') ORDER BY serviceDate ASC LIMIT 20",
-        )
-        .bind(access.orgId, access.crewMemberId)
-        .all<PortalAssignmentRow>(),
-      prisma.appSetting.findUnique({
+      prisma.appSetting.findMany({
         where: {
-          orgId_key: { orgId: access.orgId, key: "terminology-profile" },
+          orgId: access.orgId,
+          key: { in: ["terminology-profile", "org-timezone"] },
         },
-        select: { value: true },
+        select: { key: true, value: true },
       }),
     ]);
+    const settingMap = Object.fromEntries(
+      settings.map((setting) => [setting.key, setting.value]),
+    );
+    const today = getTodayDateString(settingMap["org-timezone"]);
+    const threshold = new Date(`${today}T12:00:00`);
+    threshold.setDate(threshold.getDate() - 1);
+    const assignments = await getD1()
+      .prepare(
+        "SELECT id, serviceDate, role, status, notes, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
+      )
+      .bind(
+        access.orgId,
+        access.crewMemberId,
+        threshold.toISOString().slice(0, 10),
+        today,
+      )
+      .all<PortalAssignmentRow>();
     const rows = assignments.results ?? [];
     const dates = [...new Set(rows.map((row) => row.serviceDate))];
     const rundowns = dates.length
@@ -260,11 +273,12 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       rundowns.map((rundown) => [rundown.serviceDate, rundown]),
     );
     const parsedTerminology = orgTerminologyProfileSchema.safeParse(
-      terminologySetting?.value,
+      settingMap["terminology-profile"],
     );
     return {
       crewName: crew?.name ?? "Crew member",
       orgName: org?.name ?? "Organization",
+      today,
       terminologyProfile: parsedTerminology.success
         ? parsedTerminology.data
         : "general",

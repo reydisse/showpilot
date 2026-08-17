@@ -1,11 +1,22 @@
-import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
-import { PM_WIDGETS, type PmWidgetModel } from "@/components/dashboard/pm-widgets";
-import { PlanServiceButton, PlanServicePanel } from "@/components/dashboard/plan-service";
+import {
+  PM_WIDGETS,
+  type PmWidgetModel,
+} from "@/components/dashboard/pm-widgets";
+import {
+  PlanServiceButton,
+  PlanServicePanel,
+} from "@/components/dashboard/plan-service";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import {
   healthTextClass,
@@ -18,11 +29,11 @@ import { Download } from "lucide-react";
 
 /** How often the loader re-reads. Live services need a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
-  planning: 300_000,
-  prep: 120_000,
-  call: 30_000,
-  live: 20_000,
-  debrief: 120_000,
+  planning: 15_000,
+  prep: 15_000,
+  call: 10_000,
+  live: 10_000,
+  debrief: 30_000,
 };
 
 const PHASE_CHIP: Record<ServicePhase, string> = {
@@ -38,10 +49,17 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
     date: typeof search.date === "string" ? search.date : undefined,
   }),
   loaderDeps: ({ search }) => ({ date: search.date }),
+  pendingMs: 800,
+  pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "dashboard:pm", context.slug, context.orgId);
+    await withPermission(
+      context.role,
+      "dashboard:pm",
+      context.slug,
+      context.orgId,
+    );
     return await getPmDashboard({
       data: { orgId: context.orgId, serviceDate: deps.date },
     });
@@ -98,89 +116,109 @@ function ProdManagerPage() {
         {/* Same treatment as the rundown toolbar: one row that scrolls
             sideways rather than wrapping or hiding controls. */}
         <div className="relative">
-          <div ref={headerScroll.ref} className="overflow-x-auto hide-scrollbar">
-        <div className="flex items-center gap-x-4 w-max min-w-full px-6 py-3">
-          <h1 className="text-[15px] font-semibold text-board-text font-[family-name:var(--font-display)] shrink-0 whitespace-nowrap">
-            Production Manager
-          </h1>
-          <span
-            className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
+          <div
+            ref={headerScroll.ref}
+            className="overflow-x-auto hide-scrollbar"
           >
-            {phaseLabel(model.phase)}
-          </span>
+            <div className="flex items-center gap-x-4 w-max min-w-full px-6 py-3">
+              <h1 className="text-[15px] font-semibold text-board-text font-[family-name:var(--font-display)] shrink-0 whitespace-nowrap">
+                Production Manager
+              </h1>
+              <span
+                className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
+              >
+                {phaseLabel(model.phase)}
+              </span>
 
-          <span className="w-px h-5 bg-board-border shrink-0" aria-hidden="true" />
+              <span
+                className="w-px h-5 bg-board-border shrink-0"
+                aria-hidden="true"
+              />
 
-          {model.serviceName && (
-            <span className="text-xs text-board-text shrink-0 whitespace-nowrap">{model.serviceName}</span>
-          )}
+              {model.serviceName && (
+                <span className="text-xs text-board-text shrink-0 whitespace-nowrap">
+                  {model.serviceName}
+                </span>
+              )}
 
-          <label htmlFor="pm-service-date" className="sr-only">
-            Service date
-          </label>
-          <select
-            id="pm-service-date"
-            value={model.serviceDate}
-            onChange={(event) => {
-              void navigate({ search: { date: event.target.value } });
-            }}
-            className="shrink-0 text-xs bg-transparent border border-board-border/70 rounded px-2 py-1 text-board-text hover:border-board-border transition-colors"
-          >
-            {(serviceDates.includes(model.serviceDate)
-              ? serviceDates
-              : [model.serviceDate, ...serviceDates]
-            ).map((date) => (
-              <option key={date} value={date}>
-                {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
-                  weekday: "long",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </option>
-            ))}
-          </select>
+              <label htmlFor="pm-service-date" className="sr-only">
+                Service date
+              </label>
+              <select
+                id="pm-service-date"
+                value={model.serviceDate}
+                onChange={(event) => {
+                  void navigate({ search: { date: event.target.value } });
+                }}
+                className="shrink-0 text-xs bg-transparent border border-board-border/70 rounded px-2 py-1 text-board-text hover:border-board-border transition-colors"
+              >
+                {(serviceDates.includes(model.serviceDate)
+                  ? serviceDates
+                  : [model.serviceDate, ...serviceDates]
+                ).map((date) => (
+                  <option key={date} value={date}>
+                    {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                      weekday: "long",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </option>
+                ))}
+              </select>
 
-          {model.timing.scheduledStartMs !== null && (
-            <span className="text-[11px] text-board-muted tabular-nums shrink-0 whitespace-nowrap">
-              call {formatClock(model.timing.callTimeMs)} · start{" "}
-              {formatClock(model.timing.scheduledStartMs)}
-            </span>
-          )}
+              {model.timing.scheduledStartMs !== null && (
+                <span className="text-[11px] text-board-muted tabular-nums shrink-0 whitespace-nowrap">
+                  call {formatClock(model.timing.callTimeMs)} · start{" "}
+                  {formatClock(model.timing.scheduledStartMs)}
+                </span>
+              )}
 
-          <PlanServiceButton open={planOpen} onToggle={() => setPlanOpen((v) => !v)} />
-          <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} />
+              <PlanServiceButton
+                open={planOpen}
+                onToggle={() => setPlanOpen((v) => !v)}
+              />
+              <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} />
 
-          <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
-            {/* A countdown with nothing to count toward is dead space in
+              <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
+                {/* A countdown with nothing to count toward is dead space in
                 the most prominent slot on the page. Offer the fix. */}
-            {displayMs === null ? (
-              <Link
-                to={`/${slug}/rundown` as unknown as Parameters<typeof Link>[0]["to"]}
-                className="shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
-              >
-                Set a start time
-              </Link>
-            ) : (
-              <div className="text-right leading-none">
-                <p className="text-[22px] font-semibold tabular-nums text-board-text">
-                  {formatCountdown(displayMs)}
-                </p>
-                <p className="text-[10px] text-board-muted mt-1">{model.countdown.label}</p>
+                {displayMs === null ? (
+                  <Link
+                    to={
+                      `/${slug}/rundown` as unknown as Parameters<
+                        typeof Link
+                      >[0]["to"]
+                    }
+                    className="shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
+                  >
+                    Set a start time
+                  </Link>
+                ) : (
+                  <div className="text-right leading-none">
+                    <p className="text-[22px] font-semibold tabular-nums text-board-text">
+                      {formatCountdown(displayMs)}
+                    </p>
+                    <p className="text-[10px] text-board-muted mt-1">
+                      {model.countdown.label}
+                    </p>
+                  </div>
+                )}
+                <span className="w-px h-8 bg-board-border" aria-hidden="true" />
+                <div className="text-right leading-none">
+                  <p
+                    className={`text-[22px] font-semibold tabular-nums ${healthTextClass(model.readiness.status)}`}
+                  >
+                    {model.readiness.score}%
+                  </p>
+                  <p className="text-[10px] text-board-muted mt-1">ready</p>
+                </div>
               </div>
-            )}
-            <span className="w-px h-8 bg-board-border" aria-hidden="true" />
-            <div className="text-right leading-none">
-              <p
-                className={`text-[22px] font-semibold tabular-nums ${healthTextClass(model.readiness.status)}`}
-              >
-                {model.readiness.score}%
-              </p>
-              <p className="text-[10px] text-board-muted mt-1">ready</p>
             </div>
           </div>
-        </div>
-          </div>
-          <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
+          <ScrollEdges
+            edges={headerScroll.edges}
+            scrollBy={headerScroll.scrollBy}
+          />
         </div>
 
         {planOpen && (
@@ -221,7 +259,13 @@ function ProdManagerPage() {
   );
 }
 
-function ShowReportButton({ orgId, serviceDate }: { orgId: string; serviceDate: string }) {
+function ShowReportButton({
+  orgId,
+  serviceDate,
+}: {
+  orgId: string;
+  serviceDate: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function generate() {
@@ -235,21 +279,46 @@ function ShowReportButton({ orgId, serviceDate }: { orgId: string; serviceDate: 
       const report = await exportShowReport({ data: { orgId, serviceDate } });
       await exportRundownPdf({
         ...report,
-        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage },
+        rundown: {
+          items: report.rundown.items,
+          stageMessage: report.rundown.stageMessage,
+        },
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Report generation failed");
+      setError(
+        cause instanceof Error ? cause.message : "Report generation failed",
+      );
     } finally {
       setBusy(false);
     }
   }
-  return <div className="flex shrink-0 items-center gap-2">
-    <button type="button" onClick={() => void generate()} disabled={busy} className="inline-flex items-center gap-1.5 rounded border border-board-border/70 px-2.5 py-1.5 text-xs text-board-muted transition-colors hover:border-board-border hover:text-board-text disabled:opacity-50"><Download className="h-3.5 w-3.5" />{busy ? "Generating…" : "Show report"}</button>
-    {error ? <span className="max-w-40 truncate text-[10px] text-red-400" title={error}>{error}</span> : null}
-  </div>;
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <button
+        type="button"
+        onClick={() => void generate()}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded border border-board-border/70 px-2.5 py-1.5 text-xs text-board-muted transition-colors hover:border-board-border hover:text-board-text disabled:opacity-50"
+      >
+        <Download className="h-3.5 w-3.5" />
+        {busy ? "Generating…" : "Show report"}
+      </button>
+      {error ? (
+        <span
+          className="max-w-40 truncate text-[10px] text-red-400"
+          title={error}
+        >
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function formatClock(ms: number | null): string {
   if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

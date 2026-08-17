@@ -48,7 +48,10 @@ function orgLink(slug: string, path: string) {
 
 function timeOfDay(ms: number | null): string {
   if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function longDate(date: string): string {
@@ -65,13 +68,19 @@ function AttentionRow({ item, slug }: { item: AttentionItem; slug: string }) {
   return (
     <li
       className={`flex items-center gap-3 py-2 border-t border-board-border/60 first:border-t-0 ${
-        item.severity === "critical" ? "-ml-4 pl-[13px] border-l-2 border-l-red-500/70" : ""
+        item.severity === "critical"
+          ? "-ml-4 pl-[13px] border-l-2 border-l-red-500/70"
+          : ""
       }`}
     >
       <SeverityDot severity={item.severity} />
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] leading-snug text-board-text truncate">{item.title}</p>
-        <p className="text-[11px] leading-snug text-board-muted truncate">{item.detail}</p>
+        <p className="text-[13px] leading-snug text-board-text truncate">
+          {item.title}
+        </p>
+        <p className="text-[11px] leading-snug text-board-muted truncate">
+          {item.detail}
+        </p>
       </div>
       {item.actionPath && (
         <Link to={orgLink(slug, item.actionPath)} className="shrink-0">
@@ -159,10 +168,27 @@ const rundownHealthWidget: PmWidget = {
           </div>
 
           <dl className="flex items-start gap-8">
-            <HealthStat label="No duration" value={health.missingDuration} tone="fail" />
-            <HealthStat label="No owner" value={health.missingOwner} tone="warn" />
-            <HealthStat label="Hard stops" value={health.hardStopConflicts} tone="fail" />
-            <HealthStat label="Items" value={health.itemCount} tone="ok" neutral />
+            <HealthStat
+              label="No duration"
+              value={health.missingDuration}
+              tone="fail"
+            />
+            <HealthStat
+              label="No owner"
+              value={health.missingOwner}
+              tone="warn"
+            />
+            <HealthStat
+              label="Hard stops"
+              value={health.hardStopConflicts}
+              tone="fail"
+            />
+            <HealthStat
+              label="Items"
+              value={health.itemCount}
+              tone="ok"
+              neutral
+            />
           </dl>
         </div>
       </WidgetCard>
@@ -191,7 +217,9 @@ function HealthStat({
       >
         {value}
       </dd>
-      <dt className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">{label}</dt>
+      <dt className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">
+        {label}
+      </dt>
     </div>
   );
 }
@@ -207,7 +235,9 @@ const readinessWidget: PmWidget = {
     <WidgetCard
       title="Readiness"
       action={
-        <span className={`text-[11px] tabular-nums ${healthTextClass(model.readiness.status)}`}>
+        <span
+          className={`text-[11px] tabular-nums ${healthTextClass(model.readiness.status)}`}
+        >
           {model.readiness.score}%
         </span>
       }
@@ -216,8 +246,12 @@ const readinessWidget: PmWidget = {
         {model.readiness.factors.map((factor) => (
           <li key={factor.id} className="flex items-baseline gap-2.5">
             <StatusDot status={factor.status} className="translate-y-[-1px]" />
-            <span className="text-xs text-board-text w-[70px] shrink-0">{factor.label}</span>
-            <span className="text-[11px] text-board-muted truncate">{factor.detail}</span>
+            <span className="text-xs text-board-text w-[70px] shrink-0">
+              {factor.label}
+            </span>
+            <span className="text-[11px] text-board-muted truncate">
+              {factor.detail}
+            </span>
           </li>
         ))}
       </ul>
@@ -269,7 +303,11 @@ const arrivalsWidget: PmWidget = {
     >
       <WidgetMetric
         value={`${model.arrivals.present}`}
-        unit={model.arrivals.expectedKnown ? `of ${model.arrivals.total} expected` : "on site"}
+        unit={
+          model.arrivals.expectedKnown
+            ? `of ${model.arrivals.total} expected`
+            : "on site"
+        }
       />
       {!model.arrivals.expectedKnown && (
         <p className="text-[11px] text-board-muted mt-1.5">
@@ -281,11 +319,17 @@ const arrivalsWidget: PmWidget = {
         {model.arrivals.departments.map((dept) => (
           <li key={dept.key} className="flex items-center gap-2 text-xs">
             <StatusDot
-              status={dept.alarm ? "fail" : dept.present < dept.total ? "warn" : "ok"}
+              status={
+                dept.alarm ? "fail" : dept.present < dept.total ? "warn" : "ok"
+              }
             />
-            <span className="text-board-text flex-1 truncate">{dept.label}</span>
+            <span className="text-board-text flex-1 truncate">
+              {dept.label}
+            </span>
             {dept.alarm && (
-              <span className="text-[10px] uppercase tracking-wide text-red-400">No-show</span>
+              <span className="text-[10px] uppercase tracking-wide text-red-400">
+                No-show
+              </span>
             )}
             <span className="tabular-nums text-board-muted">
               {dept.present}/{dept.total}
@@ -309,14 +353,20 @@ const weekAheadWidget: PmWidget = {
     <WidgetCard title="Week ahead">
       <ul className="space-y-2">
         {model.upcoming.map((service) => (
-          <li key={service.serviceDate} className="flex items-center justify-between gap-2">
+          <li
+            key={service.serviceDate}
+            className="flex items-center justify-between gap-2"
+          >
             <div className="min-w-0">
               <p className="text-xs text-board-text">
-                {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
+                {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString(
+                  "en-US",
+                  {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  },
+                )}
               </p>
               <p className="text-[10px] text-board-muted truncate">
                 {service.name ? `${service.name} · ` : ""}
@@ -324,7 +374,10 @@ const weekAheadWidget: PmWidget = {
                 {service.scheduledStartTime ? "" : " · no start time"}
               </p>
             </div>
-            <HealthChip status={service.status} label={`${service.readiness}%`} />
+            <HealthChip
+              status={service.status}
+              label={`${service.readiness}%`}
+            />
           </li>
         ))}
       </ul>
@@ -349,7 +402,9 @@ const liveStripWidget: PmWidget = {
           <WidgetLabel>On air</WidgetLabel>
         </span>
         <div>
-          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">Drift</p>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+            Drift
+          </p>
           <p
             className={`text-lg leading-none font-semibold tabular-nums mt-1 ${
               behind ? "text-red-400" : "text-green-400"
@@ -361,7 +416,9 @@ const liveStripWidget: PmWidget = {
           </p>
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">Projected end</p>
+          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+            Projected end
+          </p>
           <p className="text-lg leading-none font-semibold tabular-nums text-board-text mt-1">
             {timeOfDay(health.projectedEndMs)}
           </p>
@@ -396,10 +453,17 @@ const debriefWidget: PmWidget = {
         }
       >
         <div className="flex flex-wrap gap-x-10 gap-y-3">
-          <DebriefStat label="Planned" value={formatDuration(debrief.plannedMs, true)} />
+          <DebriefStat
+            label="Planned"
+            value={formatDuration(debrief.plannedMs, true)}
+          />
           <DebriefStat
             label="Actual"
-            value={debrief.actualMs === null ? "--:--" : formatDuration(debrief.actualMs, true)}
+            value={
+              debrief.actualMs === null
+                ? "--:--"
+                : formatDuration(debrief.actualMs, true)
+            }
           />
           <DebriefStat
             label="Delta"
@@ -416,7 +480,10 @@ const debriefWidget: PmWidget = {
         {debrief.worstOverruns.length > 0 && (
           <ul className="mt-4 pt-3 border-t border-board-border/60 space-y-1.5">
             {debrief.worstOverruns.map((item) => (
-              <li key={item.id} className="flex items-center justify-between text-xs">
+              <li
+                key={item.id}
+                className="flex items-center justify-between text-xs"
+              >
                 <span className="text-board-text truncate">{item.title}</span>
                 <span className="tabular-nums text-red-400 shrink-0 ml-3">
                   +{formatDuration(item.overrunMs)}
@@ -441,7 +508,9 @@ function DebriefStat({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">{label}</p>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+        {label}
+      </p>
       <p
         className={`text-lg leading-none font-semibold tabular-nums mt-1 ${
           tone ? healthTextClass(tone) : "text-board-text"
@@ -493,7 +562,9 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
       });
       await router.invalidate();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create the service");
+      setError(
+        cause instanceof Error ? cause.message : "Could not create the service",
+      );
       setBusy(false);
     }
   }
@@ -563,7 +634,9 @@ const onFloorWidget: PmWidget = {
             <span
               key={member.id}
               title={`${member.name} — ${member.role}${
-                member.sinceMinutes === null ? "" : ` · in ${member.sinceMinutes}m`
+                member.sinceMinutes === null
+                  ? ""
+                  : ` · in ${member.sinceMinutes}m`
               }`}
               className="relative w-7 h-7 rounded-full overflow-hidden bg-board-bg ring-2 ring-board-card shrink-0"
             >
@@ -608,66 +681,103 @@ const CREW_STATUS: Record<
   { label: string; dot: Health; className: string }
 > = {
   confirmed: { label: "Confirmed", dot: "ok", className: "text-green-400" },
-  assigned: { label: "Not confirmed", dot: "warn", className: "text-yellow-300" },
+  assigned: {
+    label: "Not confirmed",
+    dot: "warn",
+    className: "text-yellow-300",
+  },
   declined: { label: "Declined", dot: "fail", className: "text-red-400" },
   open: { label: "Open", dot: "fail", className: "text-red-400" },
 };
 
 const crewWidget: PmWidget = {
   id: "crew",
-  title: "Crew",
+  title: "Service assignments",
   phases: ["planning", "prep", "call", "live"],
   region: "main",
-  isRelevant: ({ model }) => model.crew.scheduled,
   render: ({ model, slug }) => {
     const crew = model.crew;
     return (
       <WidgetCard
-        title="Crew"
+        title="Service assignments"
         action={
-          <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }}>
+          <Link
+            to="/$slug/schedule"
+            params={{ slug }}
+            search={{ date: model.serviceDate, assignment: undefined }}
+          >
             <WidgetAction>Manage</WidgetAction>
           </Link>
         }
       >
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3 mb-4">
           <WidgetMetric
-            value={`${crew.confirmed}/${crew.total}`}
-            unit="confirmed"
-            tone={crew.open > 0 || crew.declined > 0 ? "fail" : crew.unconfirmed > 0 ? "warn" : "ok"}
+            value={crew.total === 0 ? "0" : `${crew.confirmed}/${crew.total}`}
+            unit={crew.total === 0 ? "positions" : "confirmed"}
+            tone={
+              crew.open > 0 || crew.declined > 0
+                ? "fail"
+                : crew.unconfirmed > 0
+                  ? "warn"
+                  : "ok"
+            }
           />
           {crew.open > 0 && (
-            <CrewCount label="Open" value={crew.open} className="text-red-400" />
+            <CrewCount
+              label="Open"
+              value={crew.open}
+              className="text-red-400"
+            />
           )}
           {crew.unconfirmed > 0 && (
-            <CrewCount label="Awaiting" value={crew.unconfirmed} className="text-yellow-300" />
+            <CrewCount
+              label="Awaiting"
+              value={crew.unconfirmed}
+              className="text-yellow-300"
+            />
           )}
           {crew.declined > 0 && (
-            <CrewCount label="Declined" value={crew.declined} className="text-red-400" />
+            <CrewCount
+              label="Declined"
+              value={crew.declined}
+              className="text-red-400"
+            />
           )}
         </div>
 
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5">
-          {crew.positions.map((position) => {
-            const config = CREW_STATUS[position.status];
-            return (
-              <li key={position.id} className="flex items-center gap-2 text-xs min-w-0">
-                <StatusDot status={config.dot} />
-                <span className="text-board-muted w-[92px] shrink-0 truncate">
-                  {position.role}
-                </span>
-                <span className="text-board-text truncate flex-1">
-                  {position.name ?? <span className={config.className}>Unfilled</span>}
-                </span>
-                {position.status !== "confirmed" && position.name && (
+        {crew.positions.length === 0 ? (
+          <WidgetEmpty>
+            No one is assigned yet. Open the schedule to add positions or assign
+            crew.
+          </WidgetEmpty>
+        ) : (
+          <ul className="divide-y divide-board-border/60">
+            {crew.positions.map((position) => {
+              const config = CREW_STATUS[position.status];
+              return (
+                <li
+                  key={position.id}
+                  className="flex items-center gap-3 py-2.5 text-xs min-w-0"
+                >
+                  <StatusDot status={config.dot} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] text-board-text truncate">
+                      {position.name ?? (
+                        <span className={config.className}>Open position</span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-board-muted truncate">
+                      {position.department} · {position.role}
+                    </p>
+                  </div>
                   <span className={`text-[10px] shrink-0 ${config.className}`}>
                     {config.label}
                   </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </WidgetCard>
     );
   },
@@ -684,8 +794,14 @@ function CrewCount({
 }) {
   return (
     <div>
-      <p className={`text-lg leading-none font-semibold tabular-nums ${className}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">{label}</p>
+      <p
+        className={`text-lg leading-none font-semibold tabular-nums ${className}`}
+      >
+        {value}
+      </p>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">
+        {label}
+      </p>
     </div>
   );
 }
@@ -714,17 +830,27 @@ const openItemsWidget: PmWidget = {
             className="flex items-center gap-3 py-2 border-t border-board-border/60 first:border-t-0"
           >
             <StatusDot
-              status={entry.severity === "high" ? "fail" : entry.severity === "medium" ? "warn" : "ok"}
+              status={
+                entry.severity === "high"
+                  ? "fail"
+                  : entry.severity === "medium"
+                    ? "warn"
+                    : "ok"
+              }
             />
             <div className="flex-1 min-w-0">
               <p className="text-[13px] leading-snug text-board-text truncate">
                 {entry.description}
               </p>
               <p className="text-[11px] leading-snug text-board-muted">
-                {entry.category} · {entry.ageDays === 0 ? "today" : `${entry.ageDays}d ago`}
+                {entry.category} ·{" "}
+                {entry.ageDays === 0 ? "today" : `${entry.ageDays}d ago`}
               </p>
             </div>
-            <Link to={orgLink(slug, "production/incidents")} className="shrink-0">
+            <Link
+              to={orgLink(slug, "production/incidents")}
+              className="shrink-0"
+            >
               <WidgetAction>Resolve</WidgetAction>
             </Link>
           </li>
@@ -745,17 +871,57 @@ const incidentsWidget: PmWidget = {
   render: ({ model, slug }) => (
     <WidgetCard
       title="Active incidents"
-      action={<Link to="/$slug/production/incidents-history" params={{ slug }} search={{ query: "", status: "all", severity: "all", category: "", assignee: "", from: "", to: "", sort: "newest", page: 1 }}><WidgetAction>History</WidgetAction></Link>}
+      action={
+        <Link
+          to="/$slug/production/incidents-history"
+          params={{ slug }}
+          search={{
+            query: "",
+            status: "all",
+            severity: "all",
+            category: "",
+            assignee: "",
+            from: "",
+            to: "",
+            sort: "newest",
+            page: 1,
+          }}
+        >
+          <WidgetAction>History</WidgetAction>
+        </Link>
+      }
     >
       <ul>
         {model.incidents.slice(0, 6).map((incident) => (
-          <li key={incident.id} className="flex items-center gap-3 border-t border-board-border/60 py-2 first:border-t-0">
-            <SeverityDot severity={incident.severity === "critical" || incident.severity === "high" ? "critical" : incident.severity === "medium" ? "warning" : "info"} />
+          <li
+            key={incident.id}
+            className="flex items-center gap-3 border-t border-board-border/60 py-2 first:border-t-0"
+          >
+            <SeverityDot
+              severity={
+                incident.severity === "critical" || incident.severity === "high"
+                  ? "critical"
+                  : incident.severity === "medium"
+                    ? "warning"
+                    : "info"
+              }
+            />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] text-board-text">{incident.description}</p>
-              <p className="text-[11px] text-board-muted">{incident.category} · reported by {incident.reportedBy || "unknown"}</p>
+              <p className="truncate text-[13px] text-board-text">
+                {incident.description}
+              </p>
+              <p className="text-[11px] text-board-muted">
+                {incident.category} · reported by{" "}
+                {incident.reportedBy || "unknown"}
+              </p>
             </div>
-            <Link to="/$slug/production/incidents" params={{ slug }} search={{ incident: incident.id, date: model.serviceDate }}><WidgetAction>Open</WidgetAction></Link>
+            <Link
+              to="/$slug/production/incidents"
+              params={{ slug }}
+              search={{ incident: incident.id, date: model.serviceDate }}
+            >
+              <WidgetAction>Open</WidgetAction>
+            </Link>
           </li>
         ))}
       </ul>
@@ -782,16 +948,23 @@ const recentWidget: PmWidget = {
           {model.recent.map((service) => {
             const over = (service.deltaMs ?? 0) > 0;
             const facts = [
-              service.plannedMs > 0 ? `${formatDuration(service.plannedMs, true)} planned` : null,
+              service.plannedMs > 0
+                ? `${formatDuration(service.plannedMs, true)} planned`
+                : null,
               service.incidentCount > 0
                 ? `${service.incidentCount} incident${service.incidentCount === 1 ? "" : "s"}`
                 : null,
             ].filter(Boolean);
             return (
-              <li key={service.serviceDate} className="flex items-center justify-between gap-2">
+              <li
+                key={service.serviceDate}
+                className="flex items-center justify-between gap-2"
+              >
                 <div className="min-w-0">
                   <p className="text-xs text-board-text">
-                    {new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
+                    {new Date(
+                      `${service.serviceDate}T12:00:00`,
+                    ).toLocaleDateString("en-US", {
                       weekday: "short",
                       month: "short",
                       day: "numeric",
@@ -897,7 +1070,9 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
                     id={`duty-${officer.key}`}
                     value={selected}
                     disabled={busy !== null}
-                    onChange={(event) => void assign(officer.key, event.target.value)}
+                    onChange={(event) =>
+                      void assign(officer.key, event.target.value)
+                    }
                     className="mt-0.5 w-full text-xs bg-transparent border border-board-border/60 rounded px-1.5 py-1 text-board-text hover:border-board-border disabled:opacity-50 transition-colors"
                   >
                     <option value="">Not assigned</option>
@@ -909,7 +1084,9 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
                   </select>
                 </div>
                 {officer.name && officer.status !== "confirmed" && (
-                  <span className={`text-[10px] shrink-0 self-end pb-1.5 ${config.className}`}>
+                  <span
+                    className={`text-[10px] shrink-0 self-end pb-1.5 ${config.className}`}
+                  >
                     {config.label}
                   </span>
                 )}
@@ -921,10 +1098,13 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
       {error && <p className="text-[10px] text-red-400 mt-2">{error}</p>}
       <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
         Week of{" "}
-        {new Date(`${model.dutyWeekStart}T12:00:00`).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        })}
+        {new Date(`${model.dutyWeekStart}T12:00:00`).toLocaleDateString(
+          "en-US",
+          {
+            month: "short",
+            day: "numeric",
+          },
+        )}
         , from the org roster.
       </p>
     </WidgetCard>

@@ -71,12 +71,25 @@ export const createNextService = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "rundown:edit");
 
+    const existingRundown = await getPrisma().rundown.findUnique({
+      where: {
+        orgId_serviceDate: {
+          orgId: data.orgId,
+          serviceDate: data.serviceDate,
+        },
+      },
+      select: { id: true },
+    });
+    if (existingRundown) {
+      throw new Error("A show already exists on that date");
+    }
+
     const existing = await getRundownStateForOrg({
       orgId: data.orgId,
       serviceDate: data.serviceDate,
     });
     if (existing.items.length > 0) {
-      throw new Error("That service already has a rundown");
+      throw new Error("A show already exists on that date");
     }
 
     if (data.copyFrom) {
