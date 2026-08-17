@@ -43,25 +43,58 @@ export async function sendEmail({ to, subject, html }: SendEmailOptions) {
 
 function emailWrapper(content: string, opts: { unsubscribeNote?: string } = {}) {
   return `
-    <div style="background-color: #0a0a0a; padding: 0; margin: 0;">
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background-color: #0a0a0a; color: #e5e5e5;">
-        <h2 style="color: #f5f5f5; font-size: 24px; margin: 0 0 8px 0;">
-          <span style="color: #FFC107;">Show</span>Pilot
-        </h2>
-        ${content}
-        <hr style="border: none; border-top: 1px solid #2a2a2a; margin: 32px 0;" />
-        <p style="color: #666; font-size: 12px; margin: 0 0 4px 0;">ShowPilot — run your show, not your software.</p>
-        <p style="color: #666; font-size: 12px; margin: 0;">
-          Questions? <a href="mailto:support@showpilot.tech" style="color: #888;">support@showpilot.tech</a>
-        </p>
-        ${
-          opts.unsubscribeNote
-            ? `<p style="color: #555; font-size: 11px; margin: 12px 0 0 0;">${opts.unsubscribeNote}</p>`
-            : ""
-        }
-      </div>
+    <div style="background-color:#0a0a0a;margin:0;padding:0;width:100%;">
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">ShowPilot production operations</div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#0a0a0a;border-collapse:collapse;">
+        <tr><td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;border-collapse:separate;background-color:#141414;border:1px solid #2a2a2a;border-radius:16px;overflow:hidden;">
+            <tr><td style="height:4px;background-color:#ffc107;font-size:0;line-height:0;">&nbsp;</td></tr>
+            <tr><td style="padding:28px 32px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+              <div style="color:#f5f5f5;font-size:25px;font-weight:800;letter-spacing:-0.7px;line-height:1;">
+                <span style="color:#ffc107;">Show</span>Pilot
+              </div>
+              <div style="color:#888888;font-size:11px;font-weight:600;letter-spacing:1.4px;margin-top:8px;text-transform:uppercase;">Live production operations</div>
+            </td></tr>
+            <tr><td style="padding:4px 32px 32px;color:#e5e5e5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+              ${content}
+            </td></tr>
+            <tr><td style="border-top:1px solid #2a2a2a;padding:22px 32px 26px;color:#777777;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+              <p style="font-size:12px;line-height:1.5;margin:0 0 5px;">ShowPilot — run your show, not your software.</p>
+              <p style="font-size:12px;line-height:1.5;margin:0;">Questions? <a href="mailto:support@showpilot.tech" style="color:#ffc107;text-decoration:none;">support@showpilot.tech</a></p>
+              ${opts.unsubscribeNote ? `<p style="color:#666666;font-size:11px;line-height:1.5;margin:14px 0 0;">${opts.unsubscribeNote}</p>` : ""}
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
     </div>
   `;
+}
+
+export function crewScheduleEmail(input: {
+  orgName: string;
+  serviceName: string;
+  serviceDate: string;
+  start: string;
+  role: string;
+  link: string;
+  reminder?: boolean;
+}) {
+  const escape = (value: string) =>
+    value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]!);
+  return {
+    subject: `${input.reminder ? "Response needed" : "You're scheduled"}: ${input.serviceName}`,
+    html: emailWrapper(`
+      <p style="color:#ffc107;font-size:12px;font-weight:700;letter-spacing:1.2px;margin:0 0 12px;text-transform:uppercase;">${escape(input.orgName)}</p>
+      <h1 style="color:#f5f5f5;font-size:27px;line-height:1.2;letter-spacing:-0.5px;margin:0 0 12px;">${input.reminder ? "Can you serve?" : "You've been scheduled"}</h1>
+      <p style="color:#a3a3a3;font-size:14px;line-height:1.6;margin:0 0 24px;">Review this assignment and let your production team know if you're available.</p>
+      <div style="background-color:#0a0a0a;border:1px solid #2a2a2a;border-left:3px solid #ffc107;border-radius:10px;margin:0 0 24px;padding:18px 20px;">
+        <p style="color:#f5f5f5;font-size:16px;font-weight:700;line-height:1.4;margin:0 0 9px;">${escape(input.serviceName)}</p>
+        <p style="color:#a3a3a3;font-size:14px;line-height:1.7;margin:0;">${escape(input.serviceDate)} · ${escape(input.start)}<br><span style="color:#e5e5e5;">${escape(input.role)}</span></p>
+      </div>
+      <a href="${escape(input.link)}" style="background-color:#ffc107;border-radius:9px;color:#0a0a0a;display:inline-block;font-size:14px;font-weight:700;padding:13px 22px;text-decoration:none;">Accept or decline</a>
+      <p style="color:#777777;font-size:12px;line-height:1.6;margin:24px 0 0;">No account is needed. This secure link is unique to you and expires in 90 days.</p>
+    `),
+  };
 }
 
 // ─── Email Templates ────────────────────────────────────────

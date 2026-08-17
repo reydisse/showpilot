@@ -17,10 +17,6 @@ async function tokenHash(token: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]!);
-}
-
 export async function sendCrewScheduleInvite(input: { orgId: string; assignmentId: string; crewMemberId: string; serviceDate: string; role: string; origin: string; reminder?: boolean }) {
   const prisma = getPrisma();
   const [crew, org, rundown] = await Promise.all([
@@ -44,11 +40,19 @@ export async function sendCrewScheduleInvite(input: { orgId: string; assignmentI
   const link = `${input.origin}/crew/schedule/${token}?assignment=${encodeURIComponent(input.assignmentId)}`;
   const serviceName = rundown?.name || "Service";
   const start = rundown?.scheduledStartTime ? new Date(rundown.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Time to be confirmed";
-  const { sendEmail } = await import("@/lib/email");
+  const { crewScheduleEmail, sendEmail } = await import("@/lib/email");
+  const email = crewScheduleEmail({
+    orgName: org.name,
+    serviceName,
+    serviceDate: input.serviceDate,
+    start,
+    role: input.role,
+    link,
+    reminder: input.reminder,
+  });
   await sendEmail({
     to: crew.email,
-    subject: `${input.reminder ? "Response needed" : "You're scheduled"}: ${serviceName}`,
-    html: `<div style="background:#090b0d;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:40px 20px"><div style="max-width:520px;margin:auto"><h2 style="margin:0 0 28px"><span style="color:#ff6a2a">Show</span>Pilot</h2><p style="color:#9ca3af;margin:0 0 8px">${escapeHtml(org.name)}</p><h1 style="font-size:26px;margin:0 0 18px">${input.reminder ? "Can you serve?" : "You've been scheduled"}</h1><div style="border-top:1px solid #292d32;border-bottom:1px solid #292d32;padding:20px 0;margin-bottom:24px"><strong>${escapeHtml(serviceName)}</strong><p style="color:#aeb4bc;line-height:1.7;margin:8px 0 0">${escapeHtml(input.serviceDate)} · ${escapeHtml(start)}<br>${escapeHtml(input.role)}</p></div><a href="${link}" style="display:inline-block;background:#ff6a2a;color:#090b0d;font-weight:700;padding:14px 22px;border-radius:8px;text-decoration:none">Accept or decline</a><p style="color:#6b7280;font-size:12px;line-height:1.6;margin-top:28px">No account is needed. This secure link is unique to you and expires in 90 days.</p></div></div>`,
+    ...email,
   });
   return { delivered: true, reason: null };
 }
