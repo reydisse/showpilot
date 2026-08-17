@@ -81,6 +81,7 @@ import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/a
 import { Route as ApiV1CompanionLowerThirdTriggerRouteImport } from './routes/api/v1/companion/lower-third/trigger'
 import { Route as ApiV1CompanionLowerThirdClearRouteImport } from './routes/api/v1/companion/lower-third/clear'
 import { Route as ApiV1CompanionKioskBlankRouteImport } from './routes/api/v1/companion/kiosk/blank'
+import { Route as ApiCrewScheduleTokenCalendarRouteImport } from './routes/api/crew/schedule/$token/calendar'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -457,6 +458,12 @@ const ApiV1CompanionKioskBlankRoute =
     path: '/api/v1/companion/kiosk/blank',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiCrewScheduleTokenCalendarRoute =
+  ApiCrewScheduleTokenCalendarRouteImport.update({
+    id: '/api/crew/schedule/$token/calendar',
+    path: '/api/crew/schedule/$token/calendar',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -518,6 +525,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
@@ -590,6 +598,7 @@ export interface FileRoutesByTo {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
@@ -665,6 +674,7 @@ export interface FileRoutesById {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
   '/api/v1/companion/lower-third/trigger': typeof ApiV1CompanionLowerThirdTriggerRoute
@@ -740,6 +750,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
@@ -812,6 +823,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
@@ -886,6 +898,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
     | '/api/v1/companion/lower-third/trigger'
@@ -925,6 +938,7 @@ export interface RootRouteChildren {
   ApiV1KioskDisplayRoute: typeof ApiV1KioskDisplayRoute
   ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
   ApiV1KioskRosterRoute: typeof ApiV1KioskRosterRoute
+  ApiCrewScheduleTokenCalendarRoute: typeof ApiCrewScheduleTokenCalendarRoute
   ApiV1CompanionKioskBlankRoute: typeof ApiV1CompanionKioskBlankRoute
   ApiV1CompanionLowerThirdClearRoute: typeof ApiV1CompanionLowerThirdClearRoute
   ApiV1CompanionLowerThirdTriggerRoute: typeof ApiV1CompanionLowerThirdTriggerRoute
@@ -1445,6 +1459,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1CompanionKioskBlankRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/crew/schedule/$token/calendar': {
+      id: '/api/crew/schedule/$token/calendar'
+      path: '/api/crew/schedule/$token/calendar'
+      fullPath: '/api/crew/schedule/$token/calendar'
+      preLoaderRoute: typeof ApiCrewScheduleTokenCalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -1581,6 +1602,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1KioskDisplayRoute: ApiV1KioskDisplayRoute,
   ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,
   ApiV1KioskRosterRoute: ApiV1KioskRosterRoute,
+  ApiCrewScheduleTokenCalendarRoute: ApiCrewScheduleTokenCalendarRoute,
   ApiV1CompanionKioskBlankRoute: ApiV1CompanionKioskBlankRoute,
   ApiV1CompanionLowerThirdClearRoute: ApiV1CompanionLowerThirdClearRoute,
   ApiV1CompanionLowerThirdTriggerRoute: ApiV1CompanionLowerThirdTriggerRoute,
