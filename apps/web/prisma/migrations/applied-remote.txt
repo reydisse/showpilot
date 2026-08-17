@@ -25,3 +25,4 @@
 0018_personal_notifications.sql
 0019_web_push_subscriptions.sql
 0020_incident_comments.sql
+0021_crew_schedule_access.sql
