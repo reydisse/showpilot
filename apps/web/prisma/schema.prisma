@@ -364,6 +364,7 @@ model ServiceAssignment {
   crewMemberId String?
   crewMember   CrewMember?  @relation(fields: [crewMemberId], references: [id], onDelete: SetNull)
   role         String
+  department   String       @default("Production")
   status       String       @default("assigned") // assigned | confirmed | declined
   notes        String       @default("")
   invitedAt    DateTime?
@@ -504,6 +505,7 @@ model Rundown {
   /// Optional label, e.g. "Christmas Eve 7pm". Empty for a regular service.
   name               String       @default("")
   scheduledStartTime DateTime?
+  location           String   @default("")
   status             String       @default("stopped")
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt

@@ -13,7 +13,10 @@ import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-import { getRundownStateForOrg, persistRundownItemsForOrg } from "@/lib/rundown";
+import {
+  getRundownStateForOrg,
+  persistRundownItemsForOrg,
+} from "@/lib/rundown";
 import type { RundownItem } from "@/types/rundown";
 
 async function getSessionUser() {
@@ -32,7 +35,8 @@ async function assertOrgPermission(orgId: string, permission: Permission) {
     select: { role: true },
   });
   if (!member) throw new Error("Forbidden");
-  if (!hasAnyPermission(member.role ?? "member", [permission])) throw new Error("Forbidden");
+  if (!hasAnyPermission(member.role ?? "member", [permission]))
+    throw new Error("Forbidden");
   return { user, role: member.role ?? "member" };
 }
 
@@ -59,6 +63,7 @@ export const createNextService = createServerFn({ method: "POST" })
           .string()
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Start time must be HH:MM")
           .optional(),
+        location: z.string().trim().max(240).optional(),
       }),
       data,
     ),
@@ -95,7 +100,11 @@ export const createNextService = createServerFn({ method: "POST" })
       }
     }
 
-    if (data.startTime || data.name !== undefined) {
+    if (
+      data.startTime ||
+      data.name !== undefined ||
+      data.location !== undefined
+    ) {
       // Anchored to the service date, not to today — the same mistake
       // the rundown editor was making with its start-time field.
       const scheduled = data.startTime
@@ -109,10 +118,16 @@ export const createNextService = createServerFn({ method: "POST" })
       };
       if (prisma.rundown) {
         await prisma.rundown.upsert({
-          where: { orgId_serviceDate: { orgId: data.orgId, serviceDate: data.serviceDate } },
+          where: {
+            orgId_serviceDate: {
+              orgId: data.orgId,
+              serviceDate: data.serviceDate,
+            },
+          },
           update: {
             ...(scheduled ? { scheduledStartTime: scheduled } : {}),
             ...(name !== undefined ? { name } : {}),
+            ...(data.location !== undefined ? { location: data.location } : {}),
           },
           create: {
             orgId: data.orgId,
@@ -120,6 +135,7 @@ export const createNextService = createServerFn({ method: "POST" })
             scheduledStartTime: scheduled ?? null,
             status: "stopped",
             ...(name !== undefined ? { name } : {}),
+            location: data.location ?? "",
           },
         });
       }
@@ -148,7 +164,10 @@ export const resolveIncident = createServerFn({ method: "POST" })
     });
     if (!incident) throw new Error("Not found");
 
-    const { user } = await assertOrgPermission(incident.orgId, "incidents:access");
+    const { user } = await assertOrgPermission(
+      incident.orgId,
+      "incidents:access",
+    );
 
     await prisma.incident.update({
       where: { id: data.incidentId },
@@ -186,31 +205,40 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
 
     const prisma = getPrisma() as unknown as {
       serviceAssignment?: {
-        findMany(args: unknown): Promise<{ role: string; crewMemberId: string | null }[]>;
+        findMany(
+          args: unknown,
+        ): Promise<
+          { role: string; department: string; crewMemberId: string | null }[]
+        >;
         count(args: unknown): Promise<number>;
         createMany(args: unknown): Promise<unknown>;
       };
     };
     if (!prisma.serviceAssignment) {
-      throw new Error("Crew scheduling is not available — run pnpm db:generate");
+      throw new Error(
+        "Crew scheduling is not available — run pnpm db:generate",
+      );
     }
 
     const already = await prisma.serviceAssignment.count({
       where: { orgId: data.orgId, serviceDate: data.serviceDate },
     });
-    if (already > 0) throw new Error("This service already has a crew assigned");
+    if (already > 0)
+      throw new Error("This service already has a crew assigned");
 
     const source = await prisma.serviceAssignment.findMany({
       where: { orgId: data.orgId, serviceDate: data.copyFrom },
-      select: { role: true, crewMemberId: true },
+      select: { role: true, department: true, crewMemberId: true },
     });
-    if (source.length === 0) throw new Error("That service has no crew to copy");
+    if (source.length === 0)
+      throw new Error("That service has no crew to copy");
 
     await prisma.serviceAssignment.createMany({
       data: source.map((row) => ({
         orgId: data.orgId,
         serviceDate: data.serviceDate,
         role: row.role,
+        department: row.department,
         crewMemberId: row.crewMemberId,
         // Never inherit a confirmation. Last week's yes is not this
         // week's yes, and pretending otherwise is how a PM ends up
@@ -242,7 +270,9 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
-        weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+        weekStart: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
         duty: z.enum(["pm", "tm"]),
         /** Null clears the slot. */
         userId: idSchema.nullable(),
@@ -267,7 +297,9 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
 
     if (data.duty === "pm") {
       await db
-        .prepare("DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND kind = 'pm'")
+        .prepare(
+          "DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND kind = 'pm'",
+        )
         .bind(data.orgId, data.weekStart)
         .run();
       if (data.userId) {
@@ -283,7 +315,9 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
 
     // The technical manager is a tech row pointing at the "tm" roster role.
     const role = await db
-      .prepare("SELECT id FROM roster_role WHERE orgId = ? AND lower(code) = 'tm' LIMIT 1")
+      .prepare(
+        "SELECT id FROM roster_role WHERE orgId = ? AND lower(code) = 'tm' LIMIT 1",
+      )
       .bind(data.orgId)
       .first<{ id: string }>();
     if (!role) {
@@ -293,7 +327,9 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
     }
 
     await db
-      .prepare("DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND roleId = ?")
+      .prepare(
+        "DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND roleId = ?",
+      )
       .bind(data.orgId, data.weekStart, role.id)
       .run();
     if (data.userId) {
@@ -301,7 +337,13 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
         .prepare(
           "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'tech', ?, ?)",
         )
-        .bind(crypto.randomUUID(), data.orgId, data.weekStart, role.id, data.userId)
+        .bind(
+          crypto.randomUUID(),
+          data.orgId,
+          data.weekStart,
+          role.id,
+          data.userId,
+        )
         .run();
     }
     return { ok: true };
