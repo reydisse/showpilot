@@ -19,6 +19,7 @@ interface UseDeviceModuleReturn {
   feedbacks: Map<string, unknown>;
   definition: ReturnType<typeof moduleRegistry.get>;
   bridgeOnline: boolean;
+  error: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
 }
@@ -30,6 +31,7 @@ export function useDeviceModule(
   const [status, setStatus] = useState<DeviceConnectionStatus>("disconnected");
   const [feedbacks, setFeedbacks] = useState<Map<string, unknown>>(new Map());
   const [bridgeOnline, setBridgeOnline] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const moduleRef = useRef<DeviceModule | null>(null);
   const definitionRef = useRef<ReturnType<typeof moduleRegistry.get>>(undefined);
 
@@ -91,8 +93,9 @@ export function useDeviceModule(
     moduleRef.current = mod;
 
     // Wire listeners
-    const unsubStatus = mod.onStatusChange((s) => {
+    const unsubStatus = mod.onStatusChange((s, message) => {
       setStatus(s);
+      setError(s === "error" ? message ?? "Connection failed" : null);
     });
 
     const unsubFeedback = mod.onFeedbackChange((id, value) => {
@@ -131,6 +134,7 @@ export function useDeviceModule(
     feedbacks,
     definition: definitionRef.current,
     bridgeOnline,
+    error,
     connect,
     disconnect,
   };

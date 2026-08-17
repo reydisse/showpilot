@@ -184,14 +184,20 @@ export class HomeAssistantModule extends BaseDeviceModule {
       return JSON.parse(raw);
     }
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch {
+      const origin = typeof window !== "undefined" ? window.location.origin : "the ShowPilot origin";
+      throw new Error(`Home Assistant blocked or could not receive the browser request. Allow ${origin} in Home Assistant cors_allowed_origins, or use a connected bridge.`);
+    }
 
     if (!response.ok) {
       throw new Error(`Home Assistant request failed: ${response.status}`);

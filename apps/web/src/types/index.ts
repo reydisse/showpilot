@@ -4,6 +4,7 @@ export interface Member {
   memberId: string;
   name: string;
   role: string;
+  email: string;
   photoUrl: string;
   isOnline: boolean;
   lastCheckIn: Date | string | null;
@@ -15,6 +16,7 @@ export type MemberFormData = {
   memberId: string;
   name: string;
   role: string;
+  email?: string;
   photoFile?: File | null;
   photoUrl?: string;
 };

@@ -125,7 +125,7 @@ function StreamHealthPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
-              Stream Health
+              Stream
             </h1>
             <p className="text-xs text-board-muted mt-0.5">
               Live inputs, encoder setup, and health monitoring

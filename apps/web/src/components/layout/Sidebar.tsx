@@ -26,6 +26,8 @@ import {
   MessageSquare,
   Timer,
   Clock4,
+  CalendarDays,
+  FileBarChart,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
@@ -41,6 +43,7 @@ interface NavItem {
 
 const mainNav: NavItem[] = [
   { icon: ListMusic, label: "Show", path: "show" },
+  { icon: CalendarDays, label: "Schedule", path: "schedule" },
   { icon: MonitorPlay, label: "Show Board", path: "board" },
   { icon: Timer, label: "Rundown", path: "rundown" },
   { icon: Clock4, label: "Timecode", path: "timecode" },
@@ -57,13 +60,14 @@ const productionNav: NavItem[] = [
 ];
 
 const streamingNav: NavItem[] = [
-  { icon: Activity, label: "Stream Health", path: "streaming/health" },
+  { icon: Activity, label: "Stream", path: "streaming/health" },
   { icon: Radio, label: "Multi-Platform", path: "streaming/platforms" },
   { icon: Type, label: "Lower Thirds", path: "streaming/graphics" },
 ];
 
 const dashboardNav: NavItem[] = [
   { icon: LayoutDashboard, label: "Prod Manager", path: "dashboard/prod-manager" },
+  { icon: FileBarChart, label: "Reports", path: "reports" },
   { icon: Wrench, label: "Tech Manager", path: "dashboard/tech-manager" },
   { icon: Mic, label: "Audio", path: "dashboard/audio" },
   { icon: Monitor, label: "Devices", path: "dashboard/devices" },
@@ -258,6 +262,7 @@ function renderSidebarContent({
 }) {
   const visibleMainNav = mainNav.filter((item) => {
     if (item.path === "show") return hasPermission(role, "show:view");
+    if (item.path === "schedule") return hasPermission(role, "rundown:view");
     if (item.path === "board") return hasPermission(role, "showboard:view");
     if (item.path === "rundown") return hasPermission(role, "rundown:view");
     if (item.path === "timecode") return hasPermission(role, "timecode:access");
@@ -289,6 +294,7 @@ function renderSidebarContent({
   const visibleDashboardNav = dashboardNav.filter((item) => {
     if (item.path === "dashboard/devices") return hasPermission(role, "devices:access");
     if (item.path === "dashboard/prod-manager") return hasPermission(role, "dashboard:pm");
+    if (item.path === "reports") return hasPermission(role, "dashboard:pm");
     return hasPermission(role, "dashboard:tm");
   });
 

@@ -56,6 +56,8 @@ export interface SnapshotIncident {
   severity: string;
   description: string;
   reportedBy: string;
+  status?: string;
+  assignedName?: string;
 }
 
 export interface SnapshotEquipment {
@@ -373,6 +375,7 @@ export interface PmDashboardModel {
   roster: RosterMember[];
   schedulingInUse: boolean;
   openItems: OpenItem[];
+  incidents: SnapshotIncident[];
   recent: RecentService[];
   onFloor: OnFloor;
 }
@@ -732,7 +735,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Fill",
-        actionPath: "team",
+        actionPath: `schedule?date=${snapshot.serviceDate}`,
       });
     }
     if (crew.declined > 0) {
@@ -747,7 +750,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Replace",
-        actionPath: "team",
+        actionPath: `schedule?date=${snapshot.serviceDate}`,
       });
     }
     // Unconfirmed only matters once the service is close enough that
@@ -764,7 +767,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Chase",
-        actionPath: "team",
+        actionPath: `schedule?date=${snapshot.serviceDate}`,
       });
     }
   }
@@ -794,7 +797,7 @@ export function deriveAttentionQueue(
         detail: `${plural(snapshot.crew.length, "person")} on the roster and no positions assigned yet`,
         source: "crew",
         actionLabel: "Schedule",
-        actionPath: "team",
+        actionPath: `schedule?date=${snapshot.serviceDate}`,
       });
     }
     if (streamDestinations.length === 0) {
@@ -1441,6 +1444,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
     roster: snapshot.crew.map((m) => ({ id: m.id, name: m.name, role: m.role })),
     schedulingInUse: snapshot.schedulingInUse,
     openItems: deriveOpenItems(snapshot),
+    incidents: snapshot.incidents.filter((incident) => incident.status !== "resolved"),
     recent: deriveRecent(snapshot),
     onFloor: deriveOnFloor(snapshot),
   };

@@ -31,8 +31,10 @@ import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
 import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
+import { Route as SlugScheduleRouteImport } from './routes/$slug/schedule'
 import { Route as SlugRundownPinRouteImport } from './routes/$slug/rundown-pin'
 import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
+import { Route as SlugReportsRouteImport } from './routes/$slug/reports'
 import { Route as SlugCrewChatRouteImport } from './routes/$slug/crew-chat'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
@@ -40,6 +42,7 @@ import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
 import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
 import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
+import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$token'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
@@ -49,6 +52,7 @@ import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/strea
 import { Route as SlugStreamingLowerThirdsDisabledRouteImport } from './routes/$slug/streaming/lower-thirds-disabled'
 import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
 import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
+import { Route as SlugProductionIncidentsHistoryRouteImport } from './routes/$slug/production/incidents-history'
 import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
 import { Route as SlugProductionCueSheetsRouteImport } from './routes/$slug/production/cue-sheets'
 import { Route as SlugProductionChecklistRouteImport } from './routes/$slug/production/checklist'
@@ -187,6 +191,11 @@ const SlugSettingsRoute = SlugSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugScheduleRoute = SlugScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => SlugRoute,
+} as any)
 const SlugRundownPinRoute = SlugRundownPinRouteImport.update({
   id: '/rundown-pin',
   path: '/rundown-pin',
@@ -195,6 +204,11 @@ const SlugRundownPinRoute = SlugRundownPinRouteImport.update({
 const SlugRundownRoute = SlugRundownRouteImport.update({
   id: '/rundown',
   path: '/rundown',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugReportsRoute = SlugReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugCrewChatRoute = SlugCrewChatRouteImport.update({
@@ -230,6 +244,11 @@ const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
 const JoinChatTokenRoute = JoinChatTokenRouteImport.update({
   id: '/join/chat/$token',
   path: '/join/chat/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CrewScheduleTokenRoute = CrewScheduleTokenRouteImport.update({
+  id: '/crew/schedule/$token',
+  path: '/crew/schedule/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
@@ -278,6 +297,12 @@ const SlugStreamingGraphicsRoute = SlugStreamingGraphicsRouteImport.update({
   path: '/streaming/graphics',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugProductionIncidentsHistoryRoute =
+  SlugProductionIncidentsHistoryRouteImport.update({
+    id: '/production/incidents-history',
+    path: '/production/incidents-history',
+    getParentRoute: () => SlugRoute,
+  } as any)
 const SlugProductionIncidentsRoute = SlugProductionIncidentsRouteImport.update({
   id: '/production/incidents',
   path: '/production/incidents',
@@ -445,8 +470,10 @@ export interface FileRoutesByFullPath {
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
+  '/$slug/reports': typeof SlugReportsRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/rundown-pin': typeof SlugRundownPinRoute
+  '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -470,6 +497,7 @@ export interface FileRoutesByFullPath {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
+  '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -479,6 +507,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/crew/schedule/$token': typeof CrewScheduleTokenRoute
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -513,8 +542,10 @@ export interface FileRoutesByTo {
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
+  '/$slug/reports': typeof SlugReportsRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/rundown-pin': typeof SlugRundownPinRoute
+  '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -538,6 +569,7 @@ export interface FileRoutesByTo {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
+  '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -547,6 +579,7 @@ export interface FileRoutesByTo {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/crew/schedule/$token': typeof CrewScheduleTokenRoute
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -584,8 +617,10 @@ export interface FileRoutesById {
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
   '/$slug/crew-chat': typeof SlugCrewChatRoute
+  '/$slug/reports': typeof SlugReportsRoute
   '/$slug/rundown': typeof SlugRundownRoute
   '/$slug/rundown-pin': typeof SlugRundownPinRoute
+  '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
   '/$slug/team': typeof SlugTeamRoute
@@ -609,6 +644,7 @@ export interface FileRoutesById {
   '/$slug/production/checklist': typeof SlugProductionChecklistRoute
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
+  '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -618,6 +654,7 @@ export interface FileRoutesById {
   '/api/auth/session': typeof ApiAuthSessionRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/crew/schedule/$token': typeof CrewScheduleTokenRoute
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
@@ -655,8 +692,10 @@ export interface FileRouteTypes {
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/crew-chat'
+    | '/$slug/reports'
     | '/$slug/rundown'
     | '/$slug/rundown-pin'
+    | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -680,6 +719,7 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
+    | '/$slug/production/incidents-history'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -689,6 +729,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/crew/schedule/$token'
     | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
@@ -723,8 +764,10 @@ export interface FileRouteTypes {
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/crew-chat'
+    | '/$slug/reports'
     | '/$slug/rundown'
     | '/$slug/rundown-pin'
+    | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -748,6 +791,7 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
+    | '/$slug/production/incidents-history'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -757,6 +801,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/crew/schedule/$token'
     | '/join/chat/$token'
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
@@ -793,8 +838,10 @@ export interface FileRouteTypes {
     | '/$slug/chat'
     | '/$slug/checkin'
     | '/$slug/crew-chat'
+    | '/$slug/reports'
     | '/$slug/rundown'
     | '/$slug/rundown-pin'
+    | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
     | '/$slug/team'
@@ -818,6 +865,7 @@ export interface FileRouteTypes {
     | '/$slug/production/checklist'
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
+    | '/$slug/production/incidents-history'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -827,6 +875,7 @@ export interface FileRouteTypes {
     | '/api/auth/session'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
+    | '/crew/schedule/$token'
     | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
@@ -867,6 +916,7 @@ export interface RootRouteChildren {
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  CrewScheduleTokenRoute: typeof CrewScheduleTokenRoute
   JoinChatTokenRoute: typeof JoinChatTokenRoute
   ApiWaitlistIndexRoute: typeof ApiWaitlistIndexRoute
   ApiV1CompanionStateRoute: typeof ApiV1CompanionStateRoute
@@ -1045,6 +1095,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugSettingsRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/schedule': {
+      id: '/$slug/schedule'
+      path: '/schedule'
+      fullPath: '/$slug/schedule'
+      preLoaderRoute: typeof SlugScheduleRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/rundown-pin': {
       id: '/$slug/rundown-pin'
       path: '/rundown-pin'
@@ -1057,6 +1114,13 @@ declare module '@tanstack/react-router' {
       path: '/rundown'
       fullPath: '/$slug/rundown'
       preLoaderRoute: typeof SlugRundownRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/reports': {
+      id: '/$slug/reports'
+      path: '/reports'
+      fullPath: '/$slug/reports'
+      preLoaderRoute: typeof SlugReportsRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/crew-chat': {
@@ -1106,6 +1170,13 @@ declare module '@tanstack/react-router' {
       path: '/join/chat/$token'
       fullPath: '/join/chat/$token'
       preLoaderRoute: typeof JoinChatTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/crew/schedule/$token': {
+      id: '/crew/schedule/$token'
+      path: '/crew/schedule/$token'
+      fullPath: '/crew/schedule/$token'
+      preLoaderRoute: typeof CrewScheduleTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/stripe/webhook': {
@@ -1169,6 +1240,13 @@ declare module '@tanstack/react-router' {
       path: '/streaming/graphics'
       fullPath: '/$slug/streaming/graphics'
       preLoaderRoute: typeof SlugStreamingGraphicsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/incidents-history': {
+      id: '/$slug/production/incidents-history'
+      path: '/production/incidents-history'
+      fullPath: '/$slug/production/incidents-history'
+      preLoaderRoute: typeof SlugProductionIncidentsHistoryRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/production/incidents': {
@@ -1400,8 +1478,10 @@ interface SlugRouteChildren {
   SlugChatRoute: typeof SlugChatRoute
   SlugCheckinRoute: typeof SlugCheckinRoute
   SlugCrewChatRoute: typeof SlugCrewChatRoute
+  SlugReportsRoute: typeof SlugReportsRoute
   SlugRundownRoute: typeof SlugRundownRoute
   SlugRundownPinRoute: typeof SlugRundownPinRoute
+  SlugScheduleRoute: typeof SlugScheduleRoute
   SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRoute
   SlugTeamRoute: typeof SlugTeamRoute
@@ -1415,6 +1495,7 @@ interface SlugRouteChildren {
   SlugProductionChecklistRoute: typeof SlugProductionChecklistRoute
   SlugProductionCueSheetsRoute: typeof SlugProductionCueSheetsRoute
   SlugProductionIncidentsRoute: typeof SlugProductionIncidentsRoute
+  SlugProductionIncidentsHistoryRoute: typeof SlugProductionIncidentsHistoryRoute
   SlugStreamingGraphicsRoute: typeof SlugStreamingGraphicsRouteWithChildren
   SlugStreamingHealthRoute: typeof SlugStreamingHealthRoute
   SlugStreamingLowerThirdsDisabledRoute: typeof SlugStreamingLowerThirdsDisabledRoute
@@ -1428,8 +1509,10 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugChatRoute: SlugChatRoute,
   SlugCheckinRoute: SlugCheckinRoute,
   SlugCrewChatRoute: SlugCrewChatRoute,
+  SlugReportsRoute: SlugReportsRoute,
   SlugRundownRoute: SlugRundownRoute,
   SlugRundownPinRoute: SlugRundownPinRoute,
+  SlugScheduleRoute: SlugScheduleRoute,
   SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRoute,
   SlugTeamRoute: SlugTeamRoute,
@@ -1443,6 +1526,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugProductionChecklistRoute: SlugProductionChecklistRoute,
   SlugProductionCueSheetsRoute: SlugProductionCueSheetsRoute,
   SlugProductionIncidentsRoute: SlugProductionIncidentsRoute,
+  SlugProductionIncidentsHistoryRoute: SlugProductionIncidentsHistoryRoute,
   SlugStreamingGraphicsRoute: SlugStreamingGraphicsRouteWithChildren,
   SlugStreamingHealthRoute: SlugStreamingHealthRoute,
   SlugStreamingLowerThirdsDisabledRoute: SlugStreamingLowerThirdsDisabledRoute,
@@ -1488,6 +1572,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSessionRoute: ApiAuthSessionRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  CrewScheduleTokenRoute: CrewScheduleTokenRoute,
   JoinChatTokenRoute: JoinChatTokenRoute,
   ApiWaitlistIndexRoute: ApiWaitlistIndexRoute,
   ApiV1CompanionStateRoute: ApiV1CompanionStateRoute,

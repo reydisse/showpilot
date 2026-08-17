@@ -14,6 +14,7 @@ import {
   widgetsInRegion,
 } from "@/components/dashboard/widget";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
+import { Download } from "lucide-react";
 
 /** How often the loader re-reads. Live services need a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
@@ -147,6 +148,7 @@ function ProdManagerPage() {
           )}
 
           <PlanServiceButton open={planOpen} onToggle={() => setPlanOpen((v) => !v)} />
+          <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} />
 
           <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
             {/* A countdown with nothing to count toward is dead space in
@@ -217,6 +219,34 @@ function ProdManagerPage() {
       </div>
     </div>
   );
+}
+
+function ShowReportButton({ orgId, serviceDate }: { orgId: string; serviceDate: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function generate() {
+    setBusy(true);
+    setError(null);
+    try {
+      const [{ exportShowReport }, { exportRundownPdf }] = await Promise.all([
+        import("@/lib/report"),
+        import("@/lib/rundown-export"),
+      ]);
+      const report = await exportShowReport({ data: { orgId, serviceDate } });
+      await exportRundownPdf({
+        ...report,
+        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage },
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Report generation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <div className="flex shrink-0 items-center gap-2">
+    <button type="button" onClick={() => void generate()} disabled={busy} className="inline-flex items-center gap-1.5 rounded border border-board-border/70 px-2.5 py-1.5 text-xs text-board-muted transition-colors hover:border-board-border hover:text-board-text disabled:opacity-50"><Download className="h-3.5 w-3.5" />{busy ? "Generating…" : "Show report"}</button>
+    {error ? <span className="max-w-40 truncate text-[10px] text-red-400" title={error}>{error}</span> : null}
+  </div>;
 }
 
 function formatClock(ms: number | null): string {

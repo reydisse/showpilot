@@ -191,7 +191,8 @@ function permissionForSettingKey(key: string): Permission {
     key.startsWith("discord-") ||
     key.startsWith("ontime-") ||
     key.startsWith("propresenter-") ||
-    key.startsWith("pco-")
+    key.startsWith("pco-") ||
+    key.startsWith("schedule-")
   ) {
     return "settings:integrations";
   }
