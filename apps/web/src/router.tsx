@@ -7,7 +7,11 @@ export function getRouter() {
 
     scrollRestoration: true,
     defaultPreload: 'intent',
-    defaultPreloadStaleTime: 0,
+    // A zero window made intent preloading self-defeating: hover fetched the
+    // route, then click immediately fetched it again. Dashboards own their
+    // live refresh cadence, so a short navigation cache is safe.
+    defaultPreloadStaleTime: 30_000,
+    defaultStaleTime: 15_000,
   })
 
   return router

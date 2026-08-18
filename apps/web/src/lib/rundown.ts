@@ -1085,9 +1085,11 @@ export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
 
 // ─── Saved Rundown Templates ──────────────────────────────────
 
-interface SavedRundown {
+export interface SavedRundown {
   id: string;
   name: string;
+  serviceName: string;
+  scheduledStartTime: string;
   items: RundownItem[];
   createdAt: string;
   updatedAt: string;
@@ -1127,7 +1129,7 @@ export const listSavedRundowns = createServerFn({ method: "GET" })
  */
 export const saveRundownTemplate = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema, items: rawItemsSchema }), data),
+    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema, serviceName: z.string().max(120).default(""), scheduledStartTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal("")), items: rawItemsSchema }), data),
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
@@ -1143,6 +1145,8 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
     const saved: SavedRundown = {
       id,
       name: data.name,
+      serviceName: data.serviceName,
+      scheduledStartTime: data.scheduledStartTime,
       items: cleanItems,
       createdAt: now,
       updatedAt: now,
@@ -1176,15 +1180,19 @@ export const loadSavedRundown = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema, rundownId: idSchema }), data),
   )
-  .handler(async ({ data }): Promise<RundownItem[] | null> => {
+  .handler(async ({ data }): Promise<SavedRundown | null> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: savedRundownKey(data.rundownId) } },
     });
     if (!setting) return null;
-    const saved: SavedRundown = JSON.parse(setting.value);
-    return saved.items;
+    const saved = JSON.parse(setting.value) as SavedRundown;
+    return {
+      ...saved,
+      serviceName: saved.serviceName ?? "",
+      scheduledStartTime: saved.scheduledStartTime ?? "",
+    };
   });
 
 /**

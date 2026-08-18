@@ -2,6 +2,8 @@ import { redirect } from "@tanstack/react-router";
 import {
   hasAnyPermission,
   hasPermission,
+  isLowerThirdPermission,
+  roleRequiresRundownPin,
   type Permission,
 } from "@/lib/app-permissions";
 import { checkRoutePermission } from "@/lib/rbac";
@@ -22,6 +24,17 @@ export async function withPermission(
       params: { slug },
     });
   }
+
+  const permissions = Array.isArray(permission) ? permission : [permission];
+  const needsServerPolicyCheck =
+    permissions.some(isLowerThirdPermission) ||
+    (roleRequiresRundownPin(role) &&
+      permissions.some((entry) => entry === "rundown:view" || entry === "rundown:edit"));
+
+  // Membership and role were already resolved by the parent organization
+  // route. Most pages have no additional server-side policy, so another
+  // auth + D1 round trip here only makes every navigation wait twice.
+  if (!needsServerPolicyCheck) return;
 
   const result = await checkRoutePermission({
     data: {

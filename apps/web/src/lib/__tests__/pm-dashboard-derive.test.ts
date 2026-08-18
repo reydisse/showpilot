@@ -635,8 +635,9 @@ describe("service window is only judged when the org configured one", () => {
 
     const queue = deriveAttentionQueue(snap, health, "prep");
     expect(queue.some((q) => q.id === "rundown:overrun")).toBe(false);
-    // ...and prompts for the missing setting instead of inventing a verdict.
-    expect(queue.some((q) => q.id === "setup:service-window")).toBe(true);
+    // Rundown durations calculate service length automatically; an optional
+    // comparison target must not become a setup blocker.
+    expect(queue.some((q) => q.id === "setup:service-window")).toBe(false);
   });
 
   it("judges runtime once a window exists", () => {

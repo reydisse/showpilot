@@ -4,7 +4,7 @@ import {
   redirect,
   useMatchRoute,
 } from "@tanstack/react-router";
-import { getSession, getOrgBySlug, setActiveOrg } from "@/lib/session";
+import { getOrgRouteContext, setActiveOrg } from "@/lib/session";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -12,28 +12,20 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
   beforeLoad: async ({ params }) => {
-    let session;
+    let routeContext;
     try {
-      session = await getSession();
+      routeContext = await getOrgRouteContext({ data: params.slug });
     } catch {
       throw redirect({ to: "/login" });
     }
-    if (!session) {
+    if (!routeContext) {
       throw redirect({ to: "/login" });
     }
-
-    // getOrgBySlug resolves the caller's role for THE ORG IN THE URL — never
-    // session.activeOrganizationId. Non-members get null (redirected); a
-    // lookup error propagates instead of quietly downgrading permissions.
-    const orgWithRole = await getOrgBySlug({ data: params.slug });
-    if (!orgWithRole) {
-      throw redirect({ to: "/login" });
-    }
-    const { memberRole, ...org } = orgWithRole;
+    const { user, activeOrganizationId, org, memberRole } = routeContext;
 
     // Side effect: keep Better Auth's active org in sync with the visited
     // org so its other flows (invitations, etc.) stay consistent.
-    if (session.session.activeOrganizationId !== org.id) {
+    if (activeOrganizationId !== org.id) {
       try {
         await setActiveOrg({ data: org.id });
       } catch {
@@ -42,7 +34,7 @@ export const Route = createFileRoute("/$slug")({
     }
 
     return {
-      user: session.user,
+      user,
       org,
       orgId: org.id,
       slug: params.slug,

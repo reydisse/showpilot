@@ -62,6 +62,33 @@ export const getSession = createServerFn({ method: "GET" }).handler(
   }
 );
 
+/**
+ * One request for the organization route shell. Keeping session, membership,
+ * and organization lookup together removes a full client/server waterfall
+ * from every in-app navigation.
+ */
+export const getOrgRouteContext = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.string().min(1).max(100), data))
+  .handler(async ({ data }) => {
+    const session = await getSessionOrThrow().catch(() => null);
+    if (!session) return null;
+    const membership = await getPrisma().member.findFirst({
+      where: { userId: session.user.id, organization: { slug: data } },
+      select: {
+        role: true,
+        organization: true,
+      },
+    });
+    const memberRole = normalizeRole(membership?.role ?? null);
+    if (!membership || !memberRole) return null;
+    return {
+      user: session.user,
+      activeOrganizationId: session.session.activeOrganizationId,
+      org: membership.organization,
+      memberRole,
+    };
+  });
+
 export const getSessionWithOrg = createServerFn({ method: "GET" }).handler(
   async () => {
     const session = await getSessionOrThrow().catch(() => null);

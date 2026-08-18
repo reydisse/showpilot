@@ -8,6 +8,7 @@ import { useChat } from "@/hooks/useChat";
 import { getActiveAdapters } from "@/lib/settings";
 import { createCrewChatPass } from "@/lib/crew-chat-pass";
 import { getChatMembers } from "@/lib/chat-collaboration";
+import { useRundownSync } from "@/hooks/useRundownSync";
 
 export const Route = createFileRoute("/$slug/chat")({
   validateSearch: (search: Record<string, unknown>) => ({ room: typeof search.room === "string" ? search.room : "production" }),
@@ -34,6 +35,10 @@ function ChatPage() {
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
   const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
+  const rundown = useRundownSync(orgId);
+  const liveItem = rundown.timer.playback === "play"
+    ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
+    : null;
   const [shareOpen, setShareOpen] = useState(false);
   const [hours, setHours] = useState(8);
   const [joinUrl, setJoinUrl] = useState("");
@@ -85,6 +90,7 @@ function ChatPage() {
           onTypingChange={roomId !== "production" || chatAdapter === "native" ? setTyping : undefined}
           seenThrough={dmMember ? readReceipts[dmMember.userId] : undefined}
           className="h-full"
+          liveStatus={liveItem}
           headerActions={<div className="flex items-center gap-2 lg:hidden">
             <select value={roomId} onChange={(event) => openRoom(event.target.value)} aria-label="Switch chat room" className="max-w-36 rounded-lg border border-board-border bg-board-bg px-2 py-2 text-[10px] font-medium text-board-text outline-none">
               <option value="production">Production Chat</option>

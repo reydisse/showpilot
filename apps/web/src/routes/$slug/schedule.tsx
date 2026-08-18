@@ -118,7 +118,7 @@ export const Route = createFileRoute("/$slug/schedule")({
       data: {
         orgId: context.orgId,
         from: shiftDate(today, -30),
-        to: shiftDate(today, 90),
+        to: shiftDate(today, 31),
       },
     });
     const defaultSelectedDate =
@@ -186,6 +186,7 @@ function SchedulePage() {
     if (!selected?.serviceDate) return;
     let active = true;
     const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
       try {
         const rows = await getServiceAssignments({
           data: { orgId: data.orgId, serviceDate: selected.serviceDate },
@@ -202,7 +203,7 @@ function SchedulePage() {
       }
     };
     void refresh();
-    const timer = window.setInterval(refresh, 5_000);
+    const timer = window.setInterval(refresh, 15_000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -967,6 +968,8 @@ function CreateServiceModal({
             <input
               type="date"
               value={date}
+              min={today}
+              max={shiftDate(today, 31)}
               onChange={(event) => setDate(event.target.value)}
               className={FORM_CONTROL}
             />

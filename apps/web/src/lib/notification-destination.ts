@@ -1,6 +1,6 @@
 export type NotificationDestination =
   | { kind: "tech-manager" }
-  | { kind: "incident"; incident?: string }
+  | { kind: "incident"; incident?: string; date?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
   | { kind: "chat"; room: string };
 
@@ -9,10 +9,14 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
   if (actionUrl === "dashboard/tech-manager") return { kind: "tech-manager" };
 
   if (actionUrl === "production/incidents" || actionUrl.startsWith("production/incidents?")) {
-    const incident = actionUrl.includes("?")
-      ? new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("incident")?.trim()
-      : undefined;
-    return { kind: "incident", incident: incident || undefined };
+    const search = actionUrl.includes("?")
+      ? new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1))
+      : null;
+    return {
+      kind: "incident",
+      incident: search?.get("incident")?.trim() || undefined,
+      date: search?.get("date")?.trim() || undefined,
+    };
   }
 
   if (actionUrl === "schedule" || actionUrl.startsWith("schedule?")) {
