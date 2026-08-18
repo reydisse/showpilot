@@ -14,6 +14,8 @@ export interface ExportReport {
   rundown: {
     items: RundownItem[];
     stageMessage: string;
+    name?: string;
+    scheduledStartTime?: string | null;
   };
   incidents: Array<{
     id: string;
@@ -133,10 +135,11 @@ function csvEscape(value: string): string {
 /** Export rundown as a formatted PDF using pdfmake. */
 export async function exportRundownPdf(report: ExportReport) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfMake = (await import("pdfmake/build/pdfmake")) as any;
+  const pdfMakeModule = (await import("pdfmake/build/pdfmake.js")) as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfFonts = (await import("pdfmake/build/vfs_fonts")) as any;
-  pdfMake.vfs = pdfFonts?.pdfMake?.vfs ?? pdfFonts?.default?.pdfMake?.vfs;
+  const pdfFonts = (await import("pdfmake/build/vfs_fonts.js")) as any;
+  const pdfMake = pdfMakeModule.default ?? pdfMakeModule;
+  pdfMake.vfs = pdfFonts.default ?? pdfFonts["module.exports"] ?? pdfFonts;
 
   const completedCount = report.summary.completedItems;
   const totalPlanned = formatDuration(report.summary.plannedDurationMs);
@@ -220,6 +223,7 @@ export async function exportRundownPdf(report: ExportReport) {
         ],
       },
       { text: "Post-Show Report", style: "reportTitle" },
+      { text: report.rundown.name || "Service rundown", style: "serviceName" },
       {
         columns: [
           { text: `Generated: ${new Date(report.generatedAt).toLocaleString()}`, style: "meta" },
@@ -241,23 +245,25 @@ export async function exportRundownPdf(report: ExportReport) {
       ...crewSection,
     ],
     styles: {
-      orgName: { fontSize: 16, bold: true, color: "#f0f0f0" },
-      serviceDate: { fontSize: 10, color: "#999" },
-      reportTitle: { fontSize: 11, color: "#aaa", marginBottom: 4 },
-      meta: { fontSize: 9, color: "#888", marginBottom: 12 },
-      sectionHeader: { fontSize: 12, bold: true, color: "#f0f0f0", margin: [0, 12, 0, 4] },
-      tableHeader: { bold: true, fontSize: 8, color: "#aaa", fillColor: "#1a1a1a" },
-      rowNormal: { fontSize: 8, color: "#e0e0e0" },
-      rowComplete: { fontSize: 8, color: "#666" },
+      orgName: { fontSize: 16, bold: true, color: "#111827" },
+      serviceDate: { fontSize: 10, color: "#4b5563" },
+      reportTitle: { fontSize: 9, bold: true, color: "#b45309", marginBottom: 2 },
+      serviceName: { fontSize: 13, bold: true, color: "#111827", marginBottom: 6 },
+      meta: { fontSize: 9, color: "#4b5563", marginBottom: 12 },
+      sectionHeader: { fontSize: 12, bold: true, color: "#111827", margin: [0, 12, 0, 4] },
+      tableHeader: { bold: true, fontSize: 8, color: "#ffffff", fillColor: "#1f2937" },
+      rowNormal: { fontSize: 8, color: "#111827" },
+      rowComplete: { fontSize: 8, color: "#6b7280" },
       mono: { font: "Courier" },
       late: { color: "#ff6b6b" },
     },
     defaultStyle: { font: "Helvetica", fontSize: 9 },
     pageSize: "A4",
+    pageOrientation: "landscape",
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  pdfMake.createPdf(docDefinition as any).download(
+  await pdfMake.createPdf(docDefinition as any).download(
     `${report.organization.slug}-${report.serviceDate}-report.pdf`,
   );
 }

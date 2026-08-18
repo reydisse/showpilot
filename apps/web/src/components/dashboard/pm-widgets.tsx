@@ -227,9 +227,8 @@ const rundownHealthWidget: PmWidget = {
   isRelevant: ({ model }) => model.rundownHealth.itemCount > 0,
   render: ({ model, slug }) => {
     const health = model.rundownHealth;
-    // No configured window means no verdict. Show the runtime and let
-    // the PM judge it; inventing a target and grading against it is
-    // worse than saying nothing.
+    // The rundown durations are the source of truth for service length.
+    // A separately configured window is only an optional comparison target.
     const judged = health.windowMs !== null && health.deltaMs !== null;
     const delta = health.deltaMs ?? 0;
     const over = judged && delta > 0;
@@ -260,7 +259,7 @@ const rundownHealthWidget: PmWidget = {
             <p className="text-[11px] text-board-muted mt-1.5">
               {judged
                 ? `Planned ${formatDuration(health.plannedMs, true)} · window ${formatDuration(health.windowMs as number, true)}`
-                : "No service length set, so nothing to compare against"}
+                : "Calculated automatically from rundown item durations"}
             </p>
           </div>
 

@@ -37,7 +37,7 @@ export const addIncidentComment = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, incidentId: idSchema, parentId: idSchema.nullable().optional(), body: z.string().trim().min(1).max(2000) }), value))
   .handler(async ({ data }): Promise<IncidentComment> => {
     const user = await assertAccess(data.orgId);
-    const incident = await getD1().prepare("SELECT id, description, reportedBy FROM incident WHERE id = ? AND orgId = ?").bind(data.incidentId, data.orgId).first<{ id: string; description: string; reportedBy: string }>();
+    const incident = await getD1().prepare("SELECT id, description, reportedBy, serviceDate FROM incident WHERE id = ? AND orgId = ?").bind(data.incidentId, data.orgId).first<{ id: string; description: string; reportedBy: string; serviceDate: string }>();
     if (!incident) throw new Error("Issue not found");
     let parentAuthorId: string | null = null;
     if (data.parentId) {
@@ -57,7 +57,7 @@ export const addIncidentComment = createServerFn({ method: "POST" })
       severity: "warning",
       title: data.parentId ? `${user.name} replied to an issue comment` : `${user.name} commented on an issue`,
       message: comment.body.slice(0, 240),
-      actionUrl: `production/incidents?incident=${encodeURIComponent(data.incidentId)}`,
+      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}&incident=${encodeURIComponent(data.incidentId)}`,
       source: data.incidentId,
       pushTag: `incident-comment-${data.incidentId}`,
     });

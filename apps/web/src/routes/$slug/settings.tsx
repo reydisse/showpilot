@@ -1191,7 +1191,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="ProPresenter"
             icon={<SlidersHorizontal className="w-4 h-4" />}
-            description="Stream slides from ProPresenter via the ShowPilot Gateway Bridge"
+            description="Connect directly on the same network, or use the ShowPilot Gateway Bridge remotely"
             connected={rundownAdapter === "propresenter"}
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
@@ -1256,11 +1256,10 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
               <div className="mt-3 pt-3 border-t border-board-border">
                 <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Gateway Bridge</p>
                 <div className="px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10 mb-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 mb-1">Required for Production</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 mb-1">Only required across networks</p>
                   <p className="text-xs text-board-muted">
-                    ProPresenter runs on your local network and ShowPilot runs in the cloud — they can't talk directly.
-                    The <strong className="text-board-text">ShowPilot Gateway Bridge</strong> runs on a computer on the same network as PP
-                    and relays slide data to ShowPilot automatically. Set it up at <code className="text-amber-400/80">http://localhost:9450</code> on the bridge machine.
+                    When this browser and ProPresenter are on the same network, ShowPilot connects directly using the host and ports above.
+                    Use the <strong className="text-board-text">ShowPilot Gateway Bridge</strong> only when the browser cannot reach that local address or when operators are remote. Set it up at <code className="text-amber-400/80">http://localhost:9450</code> on the bridge machine.
                   </p>
                 </div>
                 <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Stage Display</p>

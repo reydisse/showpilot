@@ -38,6 +38,8 @@ export type ShowReport = {
     items: RundownItem[];
     timer: NativeTimerState;
     stageMessage: string;
+    name: string;
+    scheduledStartTime: string | null;
   };
   incidents: Array<{
     id: string;
@@ -158,6 +160,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
         items,
         timer,
         stageMessage: messageSetting?.value ?? "",
+        name: state.meta?.name ?? "",
+        scheduledStartTime: state.meta?.scheduledStartTime ?? null,
       },
       incidents: incidents.map((incident) => ({
         id: incident.id,

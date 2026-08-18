@@ -212,6 +212,16 @@ function IncidentsPage() {
   const canManageIncidents = hasPermission(role, "incidents:access");
   const today = getTodayDateString(orgTimezone);
 
+  useEffect(() => {
+    if (!focusedIncidentId) return;
+    setOpenComments((current) => {
+      if (current.has(focusedIncidentId)) return current;
+      const next = new Set(current);
+      next.add(focusedIncidentId);
+      return next;
+    });
+  }, [focusedIncidentId]);
+
   const loadIncidents = useCallback(
     async (date: string) => {
       setLoadingIncidents(true);
@@ -241,11 +251,6 @@ function IncidentsPage() {
     setIncidents(initialIncidents);
     setComments(initialComments);
   }, [initialIncidents, initialComments, initialServiceDate]);
-
-  useEffect(() => {
-    if (!focusedIncidentId) return;
-    setOpenComments((current) => new Set(current).add(focusedIncidentId));
-  }, [focusedIncidentId]);
 
   useEffect(() => {
     if (!showForm) return;

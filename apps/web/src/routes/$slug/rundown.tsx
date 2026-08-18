@@ -58,7 +58,7 @@ import {
   deleteSavedRundown,
   listRundownDates,
 } from "@/lib/rundown";
-import type { SavedRundownMeta, PPSlidePayload } from "@/lib/rundown";
+import type { SavedRundownMeta, SavedRundown, PPSlidePayload } from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
 import { rundownItemNumbers, type NativeTimerState } from "@/types/rundown";
 import { hasPermission } from "@/lib/app-permissions";
@@ -363,7 +363,7 @@ function RundownPage() {
       const report = await exportShowReport({ data: { orgId, serviceDate } });
       const exportReport: ExportReport = {
         ...report,
-        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage },
+        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage, name: report.rundown.name, scheduledStartTime: report.rundown.scheduledStartTime },
       };
       if (format === "csv") {
         exportRundownCsv(exportReport);
@@ -1060,9 +1060,9 @@ function RundownPage() {
   };
 
   // Load items into current date (from a previous date or saved template)
-  const handleLoadItems = useCallback((loadedItems: RundownItem[]) => {
+  const handleLoadItems = useCallback((loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => {
     if (!canEditRundown) return;
-    const fresh = loadedItems.map((item, idx) => ({
+    const fresh = loaded.items.map((item, idx) => ({
       ...item,
       id: crypto.randomUUID(),
       status: "upcoming" as ItemStatus,
@@ -1075,14 +1075,26 @@ function RundownPage() {
     sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
     persistItems(fresh);
     persistTimer("stop", null, 0, null);
+    if (loaded.serviceName !== undefined) {
+      setServiceName(loaded.serviceName);
+    }
+    if (loaded.scheduledStartTime !== undefined) {
+      setScheduledStartTime(loaded.scheduledStartTime);
+    }
+    if (loaded.serviceName !== undefined || loaded.scheduledStartTime !== undefined) {
+      const scheduled = loaded.scheduledStartTime
+        ? new Date(`${serviceDate}T${loaded.scheduledStartTime}:00`).toISOString()
+        : null;
+      void saveRundownMeta({ data: { orgId, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
+    }
     setShowLoadModal(false);
-  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode]);
+  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode, orgId, serviceDate]);
 
   const handleSaveTemplate = useCallback(async (name: string) => {
     if (!canEditRundown) return;
-    await saveRundownTemplate({ data: { orgId, name, items } });
+    await saveRundownTemplate({ data: { orgId, name, serviceName, scheduledStartTime, items } });
     setShowSaveModal(false);
-  }, [canEditRundown, orgId, items]);
+  }, [canEditRundown, orgId, items, serviceName, scheduledStartTime]);
 
   const handleSendMessage = () => {
     if (!canEditRundown) return;
@@ -2289,7 +2301,7 @@ function LoadRundownModal({
   onClose,
 }: {
   orgId: string;
-  onLoad: (items: RundownItem[]) => void;
+  onLoad: (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"dates" | "saved">("dates");
@@ -2313,7 +2325,7 @@ function LoadRundownModal({
     setLoadingItems(true);
     try {
       const state = await getRundownState({ data: { orgId, serviceDate: date } });
-      onLoad(state.items as RundownItem[]);
+      onLoad({ items: state.items as RundownItem[], serviceName: state.meta?.name ?? "", scheduledStartTime: state.meta?.scheduledStartTime ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5) : "" });
     } catch {
       // keep modal open
     }
@@ -2323,8 +2335,8 @@ function LoadRundownModal({
   const handleLoadFromSaved = async (rundownId: string) => {
     setLoadingItems(true);
     try {
-      const items = await loadSavedRundown({ data: { orgId, rundownId } });
-      if (items) onLoad(items as RundownItem[]);
+      const saved = await loadSavedRundown({ data: { orgId, rundownId } });
+      if (saved) onLoad(saved as SavedRundown);
     } catch {
       // keep modal open
     }

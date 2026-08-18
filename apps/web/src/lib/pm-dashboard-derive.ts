@@ -856,17 +856,6 @@ export function deriveAttentionQueue(
         actionPath: "streaming/platforms",
       });
     }
-    if (health.itemCount > 0 && health.windowMs === null) {
-      out.push({
-        id: "setup:service-window",
-        severity: "info",
-        title: "No service length set",
-        detail: `Planned runtime is ${formatMinutes(health.plannedMs)}. Set a target and the dashboard will flag overruns.`,
-        source: "rundown",
-        actionLabel: "Settings",
-        actionPath: "settings",
-      });
-    }
   }
 
   return out.sort(
