@@ -341,7 +341,8 @@ export class RundownRelay extends DurableObject {
       case "timer-start": {
         const itemId =
           (payload?.itemId as string) ?? this.state.timer.currentItemId;
-        if (itemId) {
+        const requestedItem = this.state.items.find((item) => item.id === itemId);
+        if (itemId && requestedItem?.type !== "header") {
           const now = Date.now();
           const nowIso = new Date(now).toISOString();
 

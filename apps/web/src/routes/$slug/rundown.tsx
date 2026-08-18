@@ -60,7 +60,7 @@ import {
 } from "@/lib/rundown";
 import type { SavedRundownMeta, PPSlidePayload } from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
-import type { NativeTimerState } from "@/types/rundown";
+import { rundownItemNumbers, type NativeTimerState } from "@/types/rundown";
 import { hasPermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
@@ -217,6 +217,7 @@ export const Route = createFileRoute("/$slug/rundown")({
 function RundownPage() {
   const { orgId, slug, openOn, initialState, settings, role } = Route.useLoaderData();
   const canEditRundown = hasPermission(role, "rundown:edit");
+  const canControlRundown = hasPermission(role, "rundown:control");
   const [serviceDate, setServiceDate] = useState(openOn);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
@@ -756,7 +757,9 @@ function RundownPage() {
   }, [timer.currentItemId]);
 
   const handleStart = useCallback((itemId: string) => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
+    const target = items.find((item) => item.id === itemId);
+    if (!target || target.type === "header") return;
     // Optimistic local update
     setItems((prev) =>
       prev.map((i) =>
@@ -769,30 +772,30 @@ function RundownPage() {
     // Sync to DO + persist to DB
     sendRundownCommand("timer-start", { itemId });
     persistTimer("play", itemId, 0, startNow);
-  }, [canEditRundown, sendRundownCommand, persistTimer, timer.mode]);
+  }, [canControlRundown, items, sendRundownCommand, persistTimer, timer.mode]);
 
   const handlePause = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
        setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
       sendRundownCommand("timer-pause");
       persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [canEditRundown, timer, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer, sendRundownCommand, persistTimer]);
 
   const handleResume = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
        setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendRundownCommand("timer-resume");
       persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
-  }, [canEditRundown, timer, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer, sendRundownCommand, persistTimer]);
 
   const handleStop = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     setItems((prev) =>
       prev.map((i) =>
         i.id === timer.currentItemId ? { ...i, status: "complete" as ItemStatus } : i
@@ -801,10 +804,10 @@ function RundownPage() {
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendRundownCommand("timer-stop");
     persistTimer("stop", null, 0, null, timer.mode);
-  }, [canEditRundown, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handleNext = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     // Local optimistic update
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx >= 0) {
@@ -832,10 +835,10 @@ function RundownPage() {
     }
     // Single DO command — DO handles the advance logic
     sendRundownCommand("timer-next");
-  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handlePrev = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
       const prevItem = [...items.slice(0, currentIdx)]
@@ -854,7 +857,7 @@ function RundownPage() {
       sendRundownCommand("timer-prev");
       persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [canEditRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
 
   const handleReset = useCallback(() => {
     if (!canEditRundown) return;
@@ -907,7 +910,7 @@ function RundownPage() {
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
   // Negative deltaMs = subtract time (increase elapsed, giving less remaining)
   const handleAdjustTime = useCallback((deltaMs: number) => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     if (timer.playback === "stop") return;
 
     if (timer.playback === "play" && timer.startedAt) {
@@ -923,7 +926,7 @@ function RundownPage() {
     }
     // Sync to DO → broadcasts to all clients and kiosk
     sendRundownCommand("timer-adjust", { deltaMs });
-  }, [canEditRundown, timer, persistTimer, sendRundownCommand]);
+  }, [canControlRundown, timer, persistTimer, sendRundownCommand]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
@@ -1104,7 +1107,7 @@ function RundownPage() {
 
   // Keyboard shortcuts
   useEffect(() => {
-    if (!canEditRundown) return;
+    if (!canControlRundown) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
       if (e.key === " ") {
@@ -1124,7 +1127,7 @@ function RundownPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canEditRundown, timer, items, handlePause, handleResume, handleStart, handleNext, handlePrev, handleStop, handleAdjustTime]);
+  }, [canControlRundown, timer, items, handlePause, handleResume, handleStart, handleNext, handlePrev, handleStop, handleAdjustTime]);
 
   const nextItem = items.find((i) => {
     const currentIdx = items.findIndex((item) => item.id === timer.currentItemId);
@@ -1157,6 +1160,7 @@ function RundownPage() {
       }
     : undefined;
   const timedItems = computeCascadedTimes(items, rundownMeta);
+  const itemNumbers = rundownItemNumbers(items);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -1472,7 +1476,7 @@ function RundownPage() {
             </div>
 
             {/* Timer controls */}
-            {canEditRundown && (
+            {canControlRundown && (
               <div className="flex gap-2">
                 {timer.playback === "play" ? (
                   <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
@@ -1485,7 +1489,7 @@ function RundownPage() {
                 ) : (
                   <button
                     onClick={() => {
-                      const first = items.find((i) => i.status !== "complete");
+                      const first = items.find((i) => i.status !== "complete" && i.type !== "header");
                       if (first) handleStart(first.id);
                     }}
                     disabled={items.length === 0}
@@ -1522,7 +1526,7 @@ function RundownPage() {
             )}
 
             {/* Add / Subtract time (OnTime-style) */}
-            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card p-3">
+            {canControlRundown && <div className="rounded-xl border border-board-border bg-board-card p-3">
               <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
                 Adjust Time
               </p>
@@ -1929,7 +1933,7 @@ function RundownPage() {
                           isCurrent ? "text-white" : "text-white/70"
                         }`}
                       >
-                        <span className="text-[10px] font-bold">{idx + 1}</span>
+                        <span className="text-[10px] font-bold tabular-nums">{itemNumbers.get(item.id) ?? idx + 1}</span>
                         {item.status === "live" && (
                           <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                         )}

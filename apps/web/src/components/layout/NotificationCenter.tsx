@@ -19,7 +19,18 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
     catch { /* Navigation must remain usable if inbox retrieval fails. */ }
   }, [orgId, onUnreadChange]);
 
-  useEffect(() => { void refresh(); const timer = window.setInterval(refresh, 20_000); return () => window.clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 60_000);
+    const onFocus = () => void refresh();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh]);
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMessage = (event: MessageEvent) => { if (event.data?.type === "showpilot-notification") void refresh(); };

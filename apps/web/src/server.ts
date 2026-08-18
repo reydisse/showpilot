@@ -291,7 +291,7 @@ export default {
       const [, slugOrId, subpath] = rundownMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
-      const canControl = canUse(access, "rundown:edit");
+      const canControl = canUse(access, "rundown:control");
       const canObserveRundown = canUse(access, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
       const isMutation = subpath === "command" || (subpath === "ws" && canControl);
       if (subpath === "command" && !canControl) {

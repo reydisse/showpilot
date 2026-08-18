@@ -29,6 +29,7 @@ interface UseChatReturn {
   editMessage: (messageId: string, text: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   votePoll: (messageId: string, optionId: string) => Promise<void>;
+  toggleReaction: (messageId: string, emoji: string) => Promise<void>;
   connectionStatus: ConnectionStatus;
   unreadCount: number;
   resetUnread: () => void;
@@ -231,6 +232,17 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     await (pollAdapterRef.current ?? adapterRef.current)?.votePoll?.(messageId, optionId);
   }, []);
 
+  const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
+    const adapter = adapterRef.current;
+    if (!adapter?.toggleReaction) throw new Error("Reactions are available in ShowPilot chat");
+    await adapter.toggleReaction(messageId, emoji);
+    const target = messages.find((message) => message.id === messageId);
+    if (target?.senderId) {
+      const { notifyChatReaction } = await import("@/lib/chat-collaboration");
+      await notifyChatReaction({ data: { orgId, roomId, messageId, targetUserId: target.senderId, emoji } });
+    }
+  }, [messages, orgId, roomId]);
+
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
     const formData = new FormData();
     formData.set("file", file);
@@ -263,6 +275,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     editMessage,
     deleteMessage,
     votePoll,
+    toggleReaction,
     connectionStatus,
     unreadCount,
     resetUnread,

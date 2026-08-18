@@ -18,6 +18,7 @@ import {
   AtSign,
   BarChart3,
   Plus,
+  SmilePlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -52,6 +53,7 @@ const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode 
   { value: "cue", label: "Cue", icon: <Radio className="w-3 h-3" /> },
   { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
 ];
+const MESSAGE_REACTIONS = ["👍", "❤️", "🎉", "👀", "🙏"] as const;
 
 function MessageTypeSelector({
   value,
@@ -156,6 +158,7 @@ function ChatMessageRow({
   isSeen = false,
   currentUserId,
   onVotePoll,
+  onToggleReaction,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -168,7 +171,9 @@ function ChatMessageRow({
   isSeen?: boolean;
   currentUserId?: string;
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
+  onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
 }) {
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const isEvent = message.type === "cue" || message.type === "alert";
   const attachmentUrl = (url: string) => attachmentAccessToken
     ? `${url}${url.includes("?") ? "&" : "?"}guestToken=${encodeURIComponent(attachmentAccessToken)}`
@@ -286,11 +291,22 @@ function ChatMessageRow({
           </div>
         ) : null}
         {isSeen ? <span className="mt-1 block text-[9px] font-medium text-sky-300/75">Seen</span> : null}
+        {!message.deletedAt && onToggleReaction ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {(message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
+              const emoji = reaction.emoji;
+              const active = Boolean(currentUserId && reaction?.userIds.includes(currentUserId));
+              return <button key={emoji} type="button" onClick={() => void onToggleReaction(message.id, emoji)} className={cn("rounded-full border px-1.5 py-0.5 text-[10px] transition", active ? "border-fire-500/40 bg-fire-500/10 text-board-text" : "border-board-border text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
+            })}
+          </div>
+        ) : null}
       </div>
-      {!message.deletedAt && <div className="mt-1 flex shrink-0 self-start overflow-hidden rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
+      {!message.deletedAt && <div className="relative mt-1 flex shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
+        {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Add reaction" title="Add reaction"><SmilePlus className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
+        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 flex gap-1 rounded-lg border border-board-border bg-board-card p-1.5 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-sm hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
       </div>}
     </div>
   );
@@ -348,6 +364,7 @@ interface ChatPanelProps {
   onTypingChange?: (typing: boolean) => void;
   seenThrough?: number;
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
+  onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -373,6 +390,7 @@ export function ChatPanel({
   onTypingChange,
   seenThrough,
   onVotePoll,
+  onToggleReaction,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -737,7 +755,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} />
             </div>
           );
         })}

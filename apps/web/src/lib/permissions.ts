@@ -25,6 +25,7 @@ export type Permission =
   | "showboard:edit"
   | "rundown:view"
   | "rundown:edit"
+  | "rundown:control"
   | "rundown:pin_required"
   | "schedule:view"
   | "schedule:manage"
@@ -69,6 +70,7 @@ const ALL_PERMISSIONS = [
   "showboard:edit",
   "rundown:view",
   "rundown:edit",
+  "rundown:control",
   "rundown:pin_required",
   "schedule:view",
   "schedule:manage",
@@ -126,7 +128,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "showboard:view",
     "showboard:edit",
     "rundown:view",
-    "rundown:edit",
+    "rundown:control",
     "schedule:view",
     "schedule:manage",
     "cuesheet:view",
@@ -176,7 +178,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "showboard:view",
     "showboard:edit",
     "rundown:view",
-    "rundown:edit",
+    "rundown:control",
     "schedule:view",
     "schedule:manage",
     "cuesheet:view",

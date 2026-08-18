@@ -41,7 +41,7 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, uploadAttachment, votePoll, connectionStatus, typingUsers, setTyping } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
     isVisible: true,
     chatAdapter,
@@ -165,6 +165,7 @@ function CrewChatPage() {
             typingUsers={typingUsers}
             onTypingChange={chatAdapter === "native" ? setTyping : undefined}
             onVotePoll={votePoll}
+            onToggleReaction={toggleReaction}
             title="Production Chat"
             subtitle={chatAdapter === "native" ? "ShowPilot native" : `Connected via ${chatAdapter}`}
             currentUserName={senderName}

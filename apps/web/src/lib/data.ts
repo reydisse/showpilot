@@ -688,7 +688,7 @@ export const addIncident = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
     const prisma = getPrisma();
-    return await prisma.incident.create({
+    const incident = await prisma.incident.create({
       data: {
         orgId: data.orgId,
         category: data.category,
@@ -698,6 +698,22 @@ export const addIncident = createServerFn({ method: "POST" })
         serviceDate: data.serviceDate,
       },
     });
+    const { getAuth } = await import("@/lib/auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: data.orgId,
+      actorId: session?.user.id,
+      includeLeadership: true,
+      type: "incident-created",
+      severity: data.severity === "critical" || data.severity === "high" ? "critical" : "warning",
+      title: `New ${data.severity} ${data.category} issue`,
+      message: data.description.slice(0, 240),
+      actionUrl: `production/incidents?incident=${encodeURIComponent(incident.id)}`,
+      source: incident.id,
+      pushTag: `incident-${incident.id}`,
+    });
+    return incident;
   });
 
 export const updateIncident = createServerFn({ method: "POST" })
@@ -725,10 +741,26 @@ export const updateIncident = createServerFn({ method: "POST" })
       select: { id: true },
     });
     if (!existing) throw new Error("Incident not found");
-    return await prisma.incident.update({
+    const incident = await prisma.incident.update({
       where: { id: data.id },
       data: data.updates,
     });
+    const { getAuth } = await import("@/lib/auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: data.orgId,
+      actorId: session?.user.id,
+      includeLeadership: true,
+      type: "incident-updated",
+      severity: incident.severity === "critical" || incident.severity === "high" ? "critical" : "warning",
+      title: "Operational issue updated",
+      message: incident.description.slice(0, 240),
+      actionUrl: `production/incidents?incident=${encodeURIComponent(incident.id)}`,
+      source: incident.id,
+      pushTag: `incident-${incident.id}`,
+    });
+    return incident;
   });
 
 export const deleteIncident = createServerFn({ method: "POST" })

@@ -417,6 +417,13 @@ async function assertRundownEditAccess(orgId: string) {
   }
 }
 
+async function assertRundownControlAccess(orgId: string) {
+  const role = await getOrgMemberRole(orgId);
+  if (!hasPermission(role, "rundown:control")) {
+    throw new Error("Forbidden");
+  }
+}
+
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
 
 function rundownItemsKey(serviceDate: string) {
@@ -562,7 +569,7 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
     parseOrThrow(orgServiceDateSchema.extend({ timer: timerStateSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertRundownEditAccess(data.orgId);
+    await assertRundownControlAccess(data.orgId);
     const prisma = getPrisma();
     const key = rundownTimerKey(data.serviceDate);
     await prisma.appSetting.upsert({

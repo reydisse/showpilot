@@ -28,3 +28,4 @@
 0021_crew_schedule_access.sql
 0022_rundown_location.sql
 0023_service_assignment_department.sql
+0024_collaboration_and_assignment_responses.sql

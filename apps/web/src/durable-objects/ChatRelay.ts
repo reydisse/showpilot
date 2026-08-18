@@ -13,6 +13,7 @@ interface ChatMessage {
   replyTo?: { messageId: string; senderName: string; text: string };
   attachments?: Array<{ id: string; name: string; url: string; mimeType: string; size: number }>;
   poll?: { question: string; options: Array<{ id: string; text: string; voterIds: string[] }> };
+  reactions?: Array<{ emoji: string; userIds: string[] }>;
   editedAt?: number;
   deletedAt?: number;
 }
@@ -160,6 +161,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         messageId?: string;
         requestId?: string;
         optionId?: string;
+        emoji?: string;
         typing?: boolean;
         readAt?: number;
       };
@@ -237,6 +239,32 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           })),
         };
         const updated = { ...current, poll };
+        const nextMessages = [...this.recentMessages];
+        nextMessages[index] = updated;
+        this.persistMessages(nextMessages);
+        this.recentMessages = nextMessages;
+        this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
+        respond(true);
+        return;
+      }
+
+      if (parsed.type === "reaction") {
+        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
+        const allowed = ["👍", "❤️", "🎉", "👀", "🙏"];
+        if (!session.userId || !parsed.messageId || !parsed.requestId || !parsed.emoji || !allowed.includes(parsed.emoji)) { respond(false, "Invalid reaction"); return; }
+        const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
+        const current = this.recentMessages[index];
+        if (!current || current.deletedAt) { respond(false, "Message no longer exists"); return; }
+        const reactions = [...(current.reactions ?? [])];
+        const reactionIndex = reactions.findIndex((reaction) => reaction.emoji === parsed.emoji);
+        if (reactionIndex < 0) reactions.push({ emoji: parsed.emoji, userIds: [session.userId] });
+        else {
+          const active = reactions[reactionIndex].userIds.includes(session.userId);
+          const userIds = active ? reactions[reactionIndex].userIds.filter((id) => id !== session.userId) : [...reactions[reactionIndex].userIds, session.userId];
+          if (userIds.length) reactions[reactionIndex] = { ...reactions[reactionIndex], userIds };
+          else reactions.splice(reactionIndex, 1);
+        }
+        const updated = { ...current, reactions };
         const nextMessages = [...this.recentMessages];
         nextMessages[index] = updated;
         this.persistMessages(nextMessages);

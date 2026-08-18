@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { computeCascadedTimes } from "@/lib/rundown-timing";
 import { deriveRundownHealth, type PmSnapshot } from "@/lib/pm-dashboard-derive";
-import { isHeaderItem, type ItemType, type RundownItem } from "@/types/rundown";
+import { isHeaderItem, rundownItemNumbers, type ItemType, type RundownItem } from "@/types/rundown";
 
 const MINUTE = 60_000;
 const START = new Date("2026-08-09T10:00:00.000Z").getTime();
@@ -72,6 +72,21 @@ describe("isHeaderItem", () => {
     for (const type of ["segment", "song", "prayer", "announcement", "offering", "custom"]) {
       expect(isHeaderItem({ type })).toBe(false);
     }
+  });
+});
+
+describe("rundownItemNumbers", () => {
+  it("numbers sections and their playable children hierarchically", () => {
+    const numbers = rundownItemNumbers([
+      header("h1", "Pre-service"), item({ id: "a" }), item({ id: "b" }),
+      header("h2", "Main service"), item({ id: "c" }),
+    ]);
+    expect([...numbers.values()]).toEqual(["1", "1.1", "1.2", "2", "2.1"]);
+  });
+
+  it("keeps flat numbering when a rundown has no sections", () => {
+    const numbers = rundownItemNumbers([item({ id: "a" }), item({ id: "b" })]);
+    expect([...numbers.values()]).toEqual(["1", "2"]);
   });
 });
 

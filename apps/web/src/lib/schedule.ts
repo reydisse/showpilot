@@ -363,7 +363,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
           crewMemberId: data.crewMemberId,
           notes: data.notes,
           ...(personChanged
-            ? { status: "assigned", respondedAt: null, invitedAt: null }
+            ? { status: "assigned", responseNote: "", respondedAt: null, invitedAt: null }
             : {}),
         },
       });
