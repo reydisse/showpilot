@@ -1,5 +1,5 @@
 import { formatTime, formatDuration, itemOverrunMs } from "@/lib/rundown-timing";
-import type { RundownItem } from "@/types/rundown";
+import { rundownItemNumbers, type RundownItem } from "@/types/rundown";
 
 export interface ExportReport {
   generatedAt: string;
@@ -55,7 +55,8 @@ export function exportRundownCsv(report: ExportReport) {
     "Cue",
   ];
 
-  const rows = report.rundown.items.map((item, idx) => {
+  const itemNumbers = rundownItemNumbers(report.rundown.items);
+  const rows = report.rundown.items.map((item) => {
     const overrun = itemOverrunMs(item);
     const overrunStr = overrun === null
       ? ""
@@ -64,7 +65,7 @@ export function exportRundownCsv(report: ExportReport) {
         : `${Math.round(overrun / 1000)}s`;
 
     return [
-      idx + 1,
+      itemNumbers.get(item.id) ?? "",
       csvEscape(item.title),
       item.type,
       formatDuration(item.duration),
@@ -139,6 +140,7 @@ export async function exportRundownPdf(report: ExportReport) {
 
   const completedCount = report.summary.completedItems;
   const totalPlanned = formatDuration(report.summary.plannedDurationMs);
+  const itemNumbers = rundownItemNumbers(report.rundown.items);
 
   const tableBody: unknown[][] = [
     [
@@ -152,7 +154,7 @@ export async function exportRundownPdf(report: ExportReport) {
       { text: "Overrun", style: "tableHeader" },
       { text: "Status", style: "tableHeader" },
     ],
-    ...report.rundown.items.map((item, idx) => {
+    ...report.rundown.items.map((item) => {
       const overrun = itemOverrunMs(item);
       const overrunStr =
         overrun === null
@@ -164,7 +166,7 @@ export async function exportRundownPdf(report: ExportReport) {
       const rowStyle = item.status === "complete" ? "rowComplete" : "rowNormal";
 
       return [
-        { text: String(idx + 1), style: rowStyle },
+        { text: itemNumbers.get(item.id) ?? "", style: rowStyle },
         { text: item.title || "Untitled", style: rowStyle },
         { text: item.type, style: rowStyle },
         { text: formatDuration(item.duration), style: [rowStyle, "mono"] },

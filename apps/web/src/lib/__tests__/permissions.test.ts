@@ -121,7 +121,7 @@ describe("manager scoping regression (unchanged by director roles)", () => {
       "showboard:view",
       "showboard:edit",
       "rundown:view",
-      "rundown:edit",
+      "rundown:control",
       "schedule:view",
       "schedule:manage",
       "cuesheet:view",

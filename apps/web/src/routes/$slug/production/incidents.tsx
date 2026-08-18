@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Send,
   History,
+  SmilePlus,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
@@ -27,6 +28,12 @@ import {
   type IncidentComment,
 } from "@/lib/incident-comments";
 import { getIncidentHistory } from "@/lib/incident-history";
+import {
+  getContentReactions,
+  REACTION_EMOJIS,
+  toggleContentReaction,
+  type ContentReaction,
+} from "@/lib/content-reactions";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -189,6 +196,8 @@ function IncidentsPage() {
     {},
   );
   const [commentBusy, setCommentBusy] = useState<string | null>(null);
+  const [replyTargets, setReplyTargets] = useState<Record<string, string | null>>({});
+  const [reactions, setReactions] = useState<ContentReaction[]>([]);
   const [form, setForm] = useState({
     category: "Audio",
     severity: "medium",
@@ -251,6 +260,17 @@ function IncidentsPage() {
     void loadIncidents(serviceDate);
   }, [loadIncidents, serviceDate]);
 
+  useEffect(() => {
+    const targetIds = comments.map((comment) => comment.id);
+    if (targetIds.length === 0) {
+      setReactions([]);
+      return;
+    }
+    void getContentReactions({ data: { orgId, targetType: "incident-comment", targetIds } })
+      .then(setReactions)
+      .catch(() => setReactions([]));
+  }, [comments, orgId]);
+
   useServiceDateRollover({
     serviceDate,
     timeZone: orgTimezone,
@@ -308,10 +328,11 @@ function IncidentsPage() {
     setCommentBusy(incidentId);
     try {
       const comment = await addIncidentComment({
-        data: { orgId, incidentId, body },
+        data: { orgId, incidentId, parentId: replyTargets[incidentId] ?? null, body },
       });
       setComments((current) => [...current, comment]);
       setCommentDrafts((current) => ({ ...current, [incidentId]: "" }));
+      setReplyTargets((current) => ({ ...current, [incidentId]: null }));
       publishIncident({
         type: "incident",
         incidentId,
@@ -321,6 +342,12 @@ function IncidentsPage() {
     } finally {
       setCommentBusy(null);
     }
+  };
+
+  const reactToComment = async (commentId: string, emoji: (typeof REACTION_EMOJIS)[number]) => {
+    await toggleContentReaction({ data: { orgId, targetType: "incident-comment", targetId: commentId, emoji } });
+    const targetIds = comments.map((comment) => comment.id);
+    setReactions(await getContentReactions({ data: { orgId, targetType: "incident-comment", targetIds } }));
   };
 
   return (
@@ -539,25 +566,23 @@ function IncidentsPage() {
                   {openComments.has(incident.id) && (
                     <div className="mt-3 space-y-3">
                       {comments
-                        .filter((comment) => comment.incidentId === incident.id)
+                        .filter((comment) => comment.incidentId === incident.id && !comment.parentId)
                         .map((comment) => (
-                          <div
+                          <CommentThread
                             key={comment.id}
-                            className="rounded-lg bg-board-bg/55 px-3 py-2"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-semibold text-board-text">
-                                {comment.authorName}
-                              </span>
-                              <span className="text-[9px] text-board-muted">
-                                {formatTime(new Date(comment.createdAt))}
-                              </span>
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">
-                              {comment.body}
-                            </p>
-                          </div>
+                            comment={comment}
+                            replies={comments.filter((reply) => reply.parentId === comment.id)}
+                            reactions={reactions}
+                            onReply={() => setReplyTargets((current) => ({ ...current, [incident.id]: comment.id }))}
+                            onReact={reactToComment}
+                          />
                         ))}
+                      {replyTargets[incident.id] ? (
+                        <div className="flex items-center justify-between rounded-lg border border-fire-500/20 bg-fire-500/[0.04] px-3 py-2 text-[10px] text-board-muted">
+                          <span>Replying in thread</span>
+                          <button type="button" onClick={() => setReplyTargets((current) => ({ ...current, [incident.id]: null }))} className="text-fire-400">Cancel reply</button>
+                        </div>
+                      ) : null}
                       <div className="flex items-end gap-2">
                         <textarea
                           value={commentDrafts[incident.id] ?? ""}
@@ -570,7 +595,9 @@ function IncidentsPage() {
                           placeholder={
                             incident.status === "resolved"
                               ? "Add a resolution note or follow-up…"
-                              : "Add an update…"
+                              : replyTargets[incident.id]
+                                ? "Write a reply…"
+                                : "Add an update…"
                           }
                           rows={2}
                           maxLength={2000}
@@ -827,6 +854,55 @@ function IncidentsPage() {
         </div>
       )}
       {ConfirmDialogEl}
+    </div>
+  );
+}
+
+function CommentThread({
+  comment,
+  replies,
+  reactions,
+  onReply,
+  onReact,
+}: {
+  comment: IncidentComment;
+  replies: IncidentComment[];
+  reactions: ContentReaction[];
+  onReply: () => void;
+  onReact: (commentId: string, emoji: (typeof REACTION_EMOJIS)[number]) => Promise<void>;
+}) {
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const renderComment = (item: IncidentComment, reply = false) => {
+    const itemReactions = reactions.filter((reaction) => reaction.targetId === item.id);
+    return (
+      <div key={item.id} className={`${reply ? "ml-5 border-l-2 border-board-border pl-3" : ""} rounded-lg bg-board-bg/55 px-3 py-2`}>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-board-text">{item.authorName}</span>
+          <span className="text-[9px] text-board-muted">{formatTime(new Date(item.createdAt))}</span>
+        </div>
+        <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">{item.body}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {REACTION_EMOJIS.filter((emoji) => itemReactions.some((reaction) => reaction.emoji === emoji)).map((emoji) => {
+            const count = itemReactions.filter((reaction) => reaction.emoji === emoji).length;
+            return (
+              <button key={emoji} type="button" onClick={() => void onReact(item.id, emoji)} aria-label={`React ${emoji}`} className="rounded-full border border-board-border px-1.5 py-0.5 text-[10px] text-board-muted hover:border-fire-500/30 hover:text-board-text">
+                {emoji}{count ? ` ${count}` : ""}
+              </button>
+            );
+          })}
+          <span className="relative">
+            <button type="button" onClick={() => setReactionPickerFor((current) => current === item.id ? null : item.id)} aria-label="Add reaction" className="rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"><SmilePlus className="h-3.5 w-3.5" /></button>
+            {reactionPickerFor === item.id ? <span className="absolute left-0 top-full z-20 mt-1 flex gap-1 rounded-lg border border-board-border bg-board-card p-1.5 shadow-xl">{REACTION_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerFor(null); void onReact(item.id, emoji); }} className="rounded-md p-1.5 text-sm hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</span> : null}
+          </span>
+          {!reply ? <button type="button" onClick={onReply} className="ml-1 text-[10px] font-medium text-board-muted hover:text-fire-400">Reply</button> : null}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {renderComment(comment)}
+      {replies.map((reply) => renderComment(reply, true))}
     </div>
   );
 }

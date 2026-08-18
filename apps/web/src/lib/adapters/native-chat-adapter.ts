@@ -147,6 +147,10 @@ export class NativeChatAdapter implements ChatAdapter {
     return this.sendMutation({ type: "vote", messageId, optionId });
   }
 
+  async toggleReaction(messageId: string, emoji: string): Promise<void> {
+    return this.sendMutation({ type: "reaction", messageId, emoji });
+  }
+
   setTyping(typing: boolean): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
   }
@@ -245,7 +249,7 @@ export class NativeChatAdapter implements ChatAdapter {
 
   // -- Private helpers --
 
-  private sendMutation(payload: { type: "edit" | "delete" | "vote"; messageId: string; text?: string; optionId?: string }): Promise<void> {
+  private sendMutation(payload: { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: string }): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is offline. Reconnect and try again."));
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {

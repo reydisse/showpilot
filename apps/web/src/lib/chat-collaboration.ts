@@ -93,3 +93,34 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     }));
     return { notified: validMembers.length };
   });
+
+export const notifyChatReaction = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    roomId: roomIdSchema,
+    messageId: idSchema,
+    targetUserId: idSchema,
+    emoji: z.enum(["👍", "❤️", "🎉", "👀", "🙏"]),
+  }), data))
+  .handler(async ({ data }) => {
+    const sender = await assertChatMember(data.orgId);
+    if (sender.id === data.targetUserId) return { notified: 0 };
+    const target = await getPrisma().member.findFirst({
+      where: { organizationId: data.orgId, userId: data.targetUserId },
+      select: { userId: true },
+    });
+    if (!target) return { notified: 0 };
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: data.orgId,
+      actorId: sender.id,
+      recipientIds: [target.userId],
+      type: "chat-reaction",
+      title: `${sender.name} reacted ${data.emoji} to your message`,
+      message: "Open the conversation to view the reaction.",
+      actionUrl: `chat?room=${encodeURIComponent(data.roomId)}`,
+      source: data.messageId,
+      pushTag: `chat-reaction-${data.messageId}`,
+    });
+    return { notified: 1 };
+  });

@@ -29,11 +29,11 @@ import { Download } from "lucide-react";
 
 /** How often the loader re-reads. Live services need a tighter loop. */
 const REFRESH_MS: Record<ServicePhase, number> = {
-  planning: 15_000,
-  prep: 15_000,
-  call: 10_000,
-  live: 10_000,
-  debrief: 30_000,
+  planning: 60_000,
+  prep: 45_000,
+  call: 30_000,
+  live: 20_000,
+  debrief: 90_000,
 };
 
 const PHASE_CHIP: Record<ServicePhase, string> = {
@@ -68,11 +68,10 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
 });
 
 function ProdManagerPage() {
-  const { model, serviceDates, orgId } = Route.useLoaderData();
+  const { model, rundownState, serviceDates, orgId } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
-  const now = useNow(1000);
   const headerScroll = useEdgeScroll();
   const [planOpen, setPlanOpen] = useState(false);
   useCueSheetSync({
@@ -87,28 +86,19 @@ function ProdManagerPage() {
   useEffect(() => {
     const interval = REFRESH_MS[model.phase];
     const id = setInterval(() => {
-      void router.invalidate();
+      if (document.visibilityState === "visible") void router.invalidate();
     }, interval);
     return () => clearInterval(id);
   }, [model.phase, router]);
 
-  const widgetModel: PmWidgetModel = { model, slug, orgId };
+  const widgetModel: PmWidgetModel = { model, rundownState, slug, orgId };
   const widgets = selectWidgets(PM_WIDGETS, model.phase, widgetModel);
   const banners = widgetsInRegion(widgets, "banner");
   const main = widgetsInRegion(widgets, "main");
   const rail = widgetsInRegion(widgets, "rail");
 
-  const remaining = model.countdown.remainingMs;
-  const liveRemaining =
-    model.countdown.targetMs === null
-      ? null
-      : model.countdown.direction === "up"
-        ? now - model.countdown.targetMs
-        : model.countdown.targetMs - now;
-  const displayMs = liveRemaining ?? remaining;
-
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full overflow-auto overscroll-y-none bg-board-bg">
       {/* One toolbar row. Identity and context on the left, live numbers
           right-aligned against the edge so the eye always lands in the
           same place regardless of how wide the window is. */}
@@ -182,7 +172,7 @@ function ProdManagerPage() {
               <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
                 {/* A countdown with nothing to count toward is dead space in
                 the most prominent slot on the page. Offer the fix. */}
-                {displayMs === null ? (
+                {model.countdown.targetMs === null && model.countdown.remainingMs === null ? (
                   <Link
                     to={
                       `/${slug}/rundown` as unknown as Parameters<
@@ -194,14 +184,7 @@ function ProdManagerPage() {
                     Set a start time
                   </Link>
                 ) : (
-                  <div className="text-right leading-none">
-                    <p className="text-[22px] font-semibold tabular-nums text-board-text">
-                      {formatCountdown(displayMs)}
-                    </p>
-                    <p className="text-[10px] text-board-muted mt-1">
-                      {model.countdown.label}
-                    </p>
-                  </div>
+                  <LiveCountdown countdown={model.countdown} />
                 )}
                 <span className="w-px h-8 bg-board-border" aria-hidden="true" />
                 <div className="text-right leading-none">
@@ -255,6 +238,21 @@ function ProdManagerPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LiveCountdown({ countdown }: { countdown: PmWidgetModel["model"]["countdown"] }) {
+  const now = useNow(1000);
+  const displayMs = countdown.targetMs === null
+    ? countdown.remainingMs
+    : countdown.direction === "up"
+      ? now - countdown.targetMs
+      : countdown.targetMs - now;
+  return (
+    <div className="text-right leading-none">
+      <p className="text-[22px] font-semibold tabular-nums text-board-text">{formatCountdown(displayMs ?? 0)}</p>
+      <p className="mt-1 text-[10px] text-board-muted">{countdown.label}</p>
     </div>
   );
 }

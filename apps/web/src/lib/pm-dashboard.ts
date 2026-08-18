@@ -32,7 +32,7 @@ import {
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
 import { isHeaderItem } from "@/types/rundown";
-import type { RundownItem } from "@/types/rundown";
+import type { RundownItem, RundownState } from "@/types/rundown";
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
 const UPCOMING_LIMIT = 3;
@@ -115,6 +115,9 @@ interface AssignmentRow {
   role: string;
   department: string;
   status: string;
+  notes: string;
+  responseNote: string;
+  respondedAt: Date | null;
   crewMember: { name: string } | null;
 }
 
@@ -189,6 +192,9 @@ async function loadAssignments(
       role: true,
       department: true,
       status: true,
+      notes: true,
+      responseNote: true,
+      respondedAt: true,
       crewMember: { select: { name: true } },
     },
   });
@@ -296,6 +302,8 @@ export function resolveLastServiceDate(
 
 export interface PmDashboardResult {
   model: PmDashboardModel;
+  /** Initial relay seed for the PM's transport controls. */
+  rundownState: RundownState;
   orgId: string;
   /** Every service date the org has, newest first — powers the picker. */
   serviceDates: string[];
@@ -602,6 +610,9 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         department: a.department,
         crewMemberName: a.crewMember?.name ?? null,
         status: a.status,
+        notes: a.notes,
+        responseNote: a.responseNote,
+        respondedAt: a.respondedAt?.toISOString() ?? null,
       })),
       openItems: openItems.map<SnapshotOpenItem>((i) => ({
         id: i.id,
@@ -628,6 +639,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
 
     return {
       model: derivePmDashboard(snapshot),
+      rundownState,
       orgId,
       serviceDates: [...allDates].reverse(),
       orgTimezone,

@@ -121,6 +121,9 @@ export interface SnapshotAssignment {
   department?: string;
   crewMemberName: string | null;
   status: string;
+  notes?: string;
+  responseNote?: string;
+  respondedAt?: string | null;
 }
 
 /** An incident still open from a service before this one. */
@@ -320,6 +323,9 @@ export interface CrewPosition {
   department: string;
   name: string | null;
   status: "confirmed" | "assigned" | "declined" | "open";
+  notes: string;
+  responseNote: string;
+  respondedAt: string | null;
 }
 
 export interface RosterMember {
@@ -1144,6 +1150,9 @@ export function deriveCrewBoard(snapshot: PmSnapshot): CrewBoard {
       department: a.department || "Production",
       name: a.crewMemberName,
       status,
+      notes: a.notes ?? "",
+      responseNote: a.responseNote ?? "",
+      respondedAt: a.respondedAt ?? null,
     };
   });
 

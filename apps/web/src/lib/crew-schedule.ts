@@ -118,6 +118,7 @@ type PortalAssignmentRow = {
   role: string;
   status: string;
   notes: string;
+  responseNote: string;
   invitedAt: string | null;
   respondedAt: string | null;
 };
@@ -247,7 +248,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     threshold.setDate(threshold.getDate() - 1);
     const assignments = await getD1()
       .prepare(
-        "SELECT id, serviceDate, role, status, notes, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
+        "SELECT id, serviceDate, role, status, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
       )
       .bind(
         access.orgId,
@@ -309,13 +310,22 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const access = await resolvePortal(data.token);
+    const assignment = await getD1()
+      .prepare(
+        `SELECT a.id, a.role, a.serviceDate, c.name AS crewName
+         FROM service_assignment a
+         LEFT JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
+         WHERE a.id = ? AND a.orgId = ? AND a.crewMemberId = ?`,
+      )
+      .bind(data.assignmentId, access.orgId, access.crewMemberId)
+      .first<{ id: string; role: string; serviceDate: string; crewName: string | null }>();
+    if (!assignment) throw new Error("Assignment not found");
     const result = await getD1()
       .prepare(
-        "UPDATE service_assignment SET status = ?, notes = CASE WHEN ? = '' THEN notes ELSE ? END, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND crewMemberId = ?",
+        "UPDATE service_assignment SET status = ?, responseNote = ?, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND crewMemberId = ?",
       )
       .bind(
         data.response,
-        data.reason,
         data.reason,
         data.assignmentId,
         access.orgId,
@@ -324,5 +334,18 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       .run();
     if (!result.success || result.meta.changes !== 1)
       throw new Error("Assignment not found");
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    const responseLabel = data.response === "confirmed" ? "accepted" : "declined";
+    await notifyOperationalEvent({
+      orgId: access.orgId,
+      includeLeadership: true,
+      type: `assignment-${data.response}`,
+      severity: data.response === "declined" ? "warning" : "info",
+      title: `${assignment.crewName || "Crew member"} ${responseLabel} an assignment`,
+      message: `${assignment.role} · ${assignment.serviceDate}${data.reason ? ` · ${data.reason}` : ""}`,
+      actionUrl: `schedule?date=${encodeURIComponent(assignment.serviceDate)}&assignment=${encodeURIComponent(assignment.id)}`,
+      source: assignment.id,
+      pushTag: `assignment-response-${assignment.id}`,
+    });
     return { ok: true as const };
   });

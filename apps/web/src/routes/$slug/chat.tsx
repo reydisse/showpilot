@@ -33,7 +33,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
+  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
   const [shareOpen, setShareOpen] = useState(false);
   const [hours, setHours] = useState(8);
   const [joinUrl, setJoinUrl] = useState("");
@@ -75,6 +75,7 @@ function ChatPage() {
           onEditMessage={roomId === "production" && chatAdapter !== "native" ? undefined : editMessage}
           onDeleteMessage={roomId === "production" && chatAdapter !== "native" ? undefined : deleteMessage}
           onVotePoll={votePoll}
+          onToggleReaction={toggleReaction}
           mentionMembers={members.filter((member) => member.userId !== userId)}
           currentUserName={userName}
           currentUserId={userId}

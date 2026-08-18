@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import type { CueColumnRow, CueRow } from "@/lib/cue-sheet-derive";
+import { rundownItemNumbers } from "@/types/rundown";
 
 /**
  * Column header tints. Deliberately a fixed palette rather than free hex:
@@ -191,7 +192,7 @@ export function CueTable({
             number — a sheet that reads 2, 4, 5 has an operator hunting
             for the missing ones mid-service. */}
         {(() => {
-          let itemNumber = 0;
+          const itemNumbers = rundownItemNumbers(rows.map((row) => ({ id: row.itemId, type: row.type })));
           return rows.map((row) => {
           // A section band spans the table. Giving it cells would invite
           // notes against a heading, which belong on an item.
@@ -203,13 +204,12 @@ export function CueTable({
                   className="sticky left-0 px-3 py-1.5 bg-board-border/40 text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted border-y border-board-border"
                   style={{ maxWidth: pinnedWidth }}
                 >
-                  {row.title || "Section"}
+                  <span className="mr-2 tabular-nums text-board-muted/70">{itemNumbers.get(row.itemId)}</span>{row.title || "Section"}
                 </td>
               </tr>
             );
           }
 
-          itemNumber += 1;
           const isLive = row.itemId === currentItemId;
           const isDone = row.status === "complete";
           // Pinned cells need their own background or the scrolling
@@ -229,7 +229,7 @@ export function CueTable({
                 bg={rowBg}
                 className="text-right text-board-muted/60 tabular-nums"
               >
-                {itemNumber}
+                {itemNumbers.get(row.itemId)}
               </Pinned>
               {bases.map((column, i) => (
                 <Pinned key={column.key} left={baseOffsets[i]} width={column.width} bg={rowBg}>

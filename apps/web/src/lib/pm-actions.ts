@@ -191,6 +191,19 @@ export const resolveIncident = createServerFn({ method: "POST" })
       } as never,
     });
 
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: incident.orgId,
+      actorId: user.id,
+      includeLeadership: true,
+      type: "incident-resolved",
+      title: "Operational issue resolved",
+      message: `${user.name || user.email} marked the issue as resolved.`,
+      actionUrl: `production/incidents?incident=${encodeURIComponent(data.incidentId)}`,
+      source: data.incidentId,
+      pushTag: `incident-${data.incidentId}`,
+    });
+
     return { ok: true };
   });
 

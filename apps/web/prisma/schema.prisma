@@ -348,10 +348,29 @@ model IncidentComment {
   userId     String
   authorName String
   body       String
+  parentId   String?
+  parent     IncidentComment?  @relation("IncidentCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    IncidentComment[] @relation("IncidentCommentReplies")
   createdAt  DateTime @default(now())
 
   @@index([orgId, incidentId, createdAt])
+  @@index([parentId, createdAt])
   @@map("incident_comment")
+}
+
+model ContentReaction {
+  id         String   @id @default(cuid())
+  orgId      String
+  targetType String
+  targetId   String
+  userId     String
+  authorName String
+  emoji      String
+  createdAt  DateTime @default(now())
+
+  @@unique([orgId, targetType, targetId, userId, emoji])
+  @@index([orgId, targetType, targetId])
+  @@map("content_reaction")
 }
 
 /// One position on one service. A null crewMemberId is an open slot —
@@ -367,6 +386,7 @@ model ServiceAssignment {
   department   String       @default("Production")
   status       String       @default("assigned") // assigned | confirmed | declined
   notes        String       @default("")
+  responseNote String       @default("")
   invitedAt    DateTime?
   respondedAt  DateTime?
   createdAt    DateTime     @default(now())

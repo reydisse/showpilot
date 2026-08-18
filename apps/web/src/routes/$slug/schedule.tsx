@@ -39,6 +39,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasPermission } from "@/lib/app-permissions";
+import { StatusMetric } from "@/components/ui/status-metric";
 
 function shiftDate(date: string, days: number) {
   const value = new Date(`${date}T12:00:00`);
@@ -436,27 +437,11 @@ function SchedulePage() {
                   ) : null}
                 </div>
               </section>
-              <section className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-board-border bg-board-card px-4 py-3 md:px-6">
-                <Summary
-                  label="Filled"
-                  value={stats.filled}
-                  color="text-green-400"
-                />
-                <Summary
-                  label="Open"
-                  value={stats.open}
-                  color="text-fire-400"
-                />
-                <Summary
-                  label="Awaiting"
-                  value={stats.awaiting}
-                  color="text-yellow-300"
-                />
-                <Summary
-                  label="Declined"
-                  value={stats.declined}
-                  color="text-red-400"
-                />
+              <section className="grid grid-cols-2 gap-2 border-b border-board-border bg-board-card px-4 py-3 sm:grid-cols-4 md:px-6 lg:grid-cols-[repeat(4,minmax(100px,150px))_1fr]">
+                <StatusMetric label="Filled" value={stats.filled} tone="success" compact />
+                <StatusMetric label="Open" value={stats.open} tone="danger" compact />
+                <StatusMetric label="Awaiting" value={stats.awaiting} tone="warning" compact />
+                <StatusMetric label="Declined" value={stats.declined} tone="danger" compact />
                 <div className="ml-auto flex items-center gap-2">
                   <select
                     value={filter}
@@ -601,22 +586,6 @@ function SchedulePage() {
   );
 }
 
-function Summary({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div className="flex items-baseline gap-2 border-r border-board-border pr-6 last:border-r-0">
-      <span className="text-[11px] text-board-muted">{label}</span>
-      <strong className={`text-sm ${color}`}>{value}</strong>
-    </div>
-  );
-}
 function MonthCalendar({
   selectedDate,
   today,
@@ -823,7 +792,7 @@ function RosterRow({
         ? "text-red-400"
         : "text-yellow-300";
   return (
-    <div className="grid grid-cols-[1.2fr_1fr_.9fr_.8fr_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
+    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[1.2fr_1fr_.9fr_.8fr_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
       <button
         disabled={!canManage}
         onClick={onEdit}
@@ -868,6 +837,11 @@ function RosterRow({
             ? "Awaiting"
             : assignment.status
           : "Open"}
+        {assignment.responseNote ? (
+          <p className="mt-1 max-w-[220px] normal-case leading-4 text-board-muted" title={assignment.responseNote}>
+            “{assignment.responseNote}”
+          </p>
+        ) : null}
         {pending && canManage ? (
           <button
             disabled={busy}
@@ -1502,6 +1476,13 @@ function EditAssignmentModal({
                 : assignment.status
               : "Open position"}
           </p>
+          {assignment.responseNote ? (
+            <div className="mt-2 border-t border-board-border pt-2">
+              <p className="text-[10px] uppercase tracking-wider text-board-muted">Crew response note</p>
+              <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-board-text">{assignment.responseNote}</p>
+              {assignment.respondedAt ? <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(assignment.respondedAt).toLocaleString()}</p> : null}
+            </div>
+          ) : null}
         </div>
         <Field label="Position">
           <input

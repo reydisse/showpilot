@@ -10,8 +10,8 @@
  */
 
 import { Link, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
-import { Clapperboard, Copy, Radio } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleStop, Clapperboard, Clock3, Copy, Expand, Pause, Play, Radio, RadioTower, RotateCcw, TimerReset } from "lucide-react";
 import {
   HealthChip,
   SeverityDot,
@@ -22,6 +22,7 @@ import {
   WidgetLabel,
   WidgetMetric,
   healthTextClass,
+  useNow,
   type WidgetDefinition,
 } from "./widget";
 import { formatDuration } from "@/lib/rundown-timing";
@@ -32,14 +33,110 @@ import type {
   Health,
   PmDashboardModel,
 } from "@/lib/pm-dashboard-derive";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { StatusMetric } from "@/components/ui/status-metric";
+import { useRundownSync } from "@/hooks/useRundownSync";
+import type { RundownState } from "@/types/rundown";
+import { isHeaderItem } from "@/types/rundown";
 
 export interface PmWidgetModel {
   model: PmDashboardModel;
+  rundownState: RundownState;
   slug: string;
   orgId: string;
 }
 
 type PmWidget = WidgetDefinition<PmWidgetModel>;
+
+const controlPadWidget: PmWidget = {
+  id: "control-pad",
+  title: "Rundown control",
+  phases: "all",
+  region: "banner",
+  isRelevant: ({ rundownState }) => rundownState.items.some((item) => !isHeaderItem(item)),
+  render: ({ model, rundownState, orgId }) => (
+    <PmControlPad orgId={orgId} serviceDate={model.serviceDate} initialState={rundownState} />
+  ),
+};
+
+function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; serviceDate: string; initialState: RundownState }) {
+  const { items, timer, hydrated, stateServiceDate, sendCommand, seedState } = useRundownSync(orgId, serviceDate);
+  const seededRef = useRef(false);
+
+  useEffect(() => {
+    seededRef.current = false;
+  }, [serviceDate]);
+
+  useEffect(() => {
+    if (!hydrated || seededRef.current) return;
+    const initialIds = initialState.items.map((item) => item.id).sort().join("|");
+    const relayIds = items.map((item) => item.id).sort().join("|");
+    const wrongService = stateServiceDate === serviceDate && initialIds !== relayIds;
+    if ((items.length === 0 && initialState.items.length > 0) || wrongService) {
+      seedState(initialState.items, initialState.timer, wrongService);
+    }
+    seededRef.current = true;
+  }, [hydrated, initialState, items, seedState, serviceDate, stateServiceDate]);
+
+  const playable = items.filter((item) => !isHeaderItem(item));
+  const current = playable.find((item) => item.id === timer.currentItemId) ?? null;
+  const first = playable.find((item) => item.status !== "complete") ?? playable[0];
+  const command = (action: string, payload?: Record<string, unknown>) => {
+    sendCommand(action, payload);
+  };
+  const start = () => {
+    if (!first) return;
+    command("timer-start", { itemId: first.id });
+  };
+  const pause = () => {
+    command("timer-pause");
+  };
+  const resume = () => {
+    command("timer-resume");
+  };
+  const stop = () => command("timer-stop");
+  const adjust = (deltaMs: number) => command("timer-adjust", { deltaMs });
+  const now = useNow(1_000);
+  const elapsedMs = timer.elapsed + (timer.playback === "play" && timer.startedAt ? now - timer.startedAt : 0);
+  const safeElapsed = Math.max(0, elapsedMs);
+  const elapsed = `${String(Math.floor(safeElapsed / 60_000)).padStart(2, "0")}:${String(Math.floor(safeElapsed / 1_000) % 60).padStart(2, "0")}`;
+  const controlClass = "min-h-[72px] rounded-lg border border-board-border bg-board-bg/40 p-3 text-left text-board-text transition-colors hover:border-fire-500/35 hover:bg-board-bg disabled:opacity-40";
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
+      <header className="flex items-center gap-3 border-b border-board-border px-4 py-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><RadioTower className="h-4 w-4" /></span>
+        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {elapsed}</p></div>
+        <span className={`ml-auto text-[10px] uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
+      </header>
+      <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 lg:grid-cols-7">
+          {timer.playback === "play" ? (
+            <ControlButton icon={Pause} label="Pause" detail="Hold timer" onClick={pause} active />
+          ) : timer.playback === "pause" ? (
+            <ControlButton icon={Play} label="Resume" detail="Continue timer" onClick={resume} active />
+          ) : (
+            <ControlButton icon={Play} label="Start" detail="First playable item" onClick={start} disabled={!first} />
+          )}
+          <ControlButton icon={CircleStop} label="Stop" detail="Stop transport" onClick={stop} disabled={timer.playback === "stop"} />
+          <ControlButton icon={ChevronLeft} label="Previous" detail="Previous item" onClick={() => command("timer-prev")} disabled={timer.playback === "stop"} />
+          <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={timer.playback === "stop"} />
+          <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={timer.playback === "stop"} />
+          <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={timer.playback === "stop"} />
+          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{elapsed}</span><span className="mt-0.5 block text-[9px] text-board-muted">Elapsed</span></span></div>
+      </div>
+    </section>
+  );
+}
+
+function ControlButton({ icon: Icon, label, detail, onClick, disabled = false, active = false }: { icon: typeof Play; label: string; detail: string; onClick: () => void; disabled?: boolean; active?: boolean }) {
+  return <button type="button" disabled={disabled} onClick={onClick} className={`min-h-[72px] rounded-lg border p-3 text-left transition-colors disabled:opacity-40 ${active ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}><span className="flex items-center justify-between"><Icon className="h-4 w-4" />{active ? <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> : null}</span><span className="mt-2 block text-[11px] font-medium">{label}</span><span className="mt-0.5 block text-[9px] text-board-muted">{detail}</span></button>;
+}
 
 /** Sidebar's pattern for building an org-relative typed link target. */
 function orgLink(slug: string, path: string) {
@@ -695,54 +792,34 @@ const crewWidget: PmWidget = {
   title: "Service assignments",
   phases: ["planning", "prep", "call", "live"],
   region: "main",
-  render: ({ model, slug }) => {
-    const crew = model.crew;
-    return (
+  render: ({ model, slug }) => <CrewAssignments model={model} slug={slug} />,
+};
+
+function CrewAssignments({ model, slug }: { model: PmDashboardModel; slug: string }) {
+  const [expanded, setExpanded] = useState(model.crew.positions.length <= 6);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const crew = model.crew;
+  const visiblePositions = expanded ? crew.positions : crew.positions.slice(0, 4);
+  return (
+    <>
       <WidgetCard
         title="Service assignments"
         action={
-          <Link
-            to="/$slug/schedule"
-            params={{ slug }}
-            search={{ date: model.serviceDate, assignment: undefined }}
-          >
-            <WidgetAction>Manage</WidgetAction>
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <button type="button" onClick={() => setDetailsOpen(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-board-border/80 px-2.5 py-1.5 text-[11px] font-medium text-board-muted transition hover:border-board-border hover:text-board-text">
+              <Expand data-icon="inline-start" /> View details
+            </button>
+            <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="inline-flex items-center whitespace-nowrap rounded-md bg-fire-500/15 px-2.5 py-1.5 text-[11px] font-medium text-fire-300 transition hover:bg-fire-500/25">
+              Open schedule
+            </Link>
+          </div>
         }
       >
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 mb-4">
-          <WidgetMetric
-            value={crew.total === 0 ? "0" : `${crew.confirmed}/${crew.total}`}
-            unit={crew.total === 0 ? "positions" : "confirmed"}
-            tone={
-              crew.open > 0 || crew.declined > 0
-                ? "fail"
-                : crew.unconfirmed > 0
-                  ? "warn"
-                  : "ok"
-            }
-          />
-          {crew.open > 0 && (
-            <CrewCount
-              label="Open"
-              value={crew.open}
-              className="text-red-400"
-            />
-          )}
-          {crew.unconfirmed > 0 && (
-            <CrewCount
-              label="Awaiting"
-              value={crew.unconfirmed}
-              className="text-yellow-300"
-            />
-          )}
-          {crew.declined > 0 && (
-            <CrewCount
-              label="Declined"
-              value={crew.declined}
-              className="text-red-400"
-            />
-          )}
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <StatusMetric label="Confirmed" value={`${crew.confirmed}/${crew.total}`} tone="success" />
+          <StatusMetric label="Awaiting" value={crew.unconfirmed} tone="warning" />
+          <StatusMetric label="Open" value={crew.open} tone="danger" />
+          <StatusMetric label="Declined" value={crew.declined} tone="danger" />
         </div>
 
         {crew.positions.length === 0 ? (
@@ -752,7 +829,7 @@ const crewWidget: PmWidget = {
           </WidgetEmpty>
         ) : (
           <ul className="divide-y divide-board-border/60">
-            {crew.positions.map((position) => {
+            {visiblePositions.map((position) => {
               const config = CREW_STATUS[position.status];
               return (
                 <li
@@ -778,31 +855,43 @@ const crewWidget: PmWidget = {
             })}
           </ul>
         )}
+        {crew.positions.length > 4 ? (
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="mt-3 flex w-full items-center justify-center gap-1.5 border-t border-board-border/60 pt-3 text-[11px] font-medium text-board-muted hover:text-board-text">
+            {expanded ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+            {expanded ? "Collapse assignments" : `Show all ${crew.positions.length} assignments`}
+          </button>
+        ) : null}
       </WidgetCard>
-    );
-  },
-};
-
-function CrewCount({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: number;
-  className: string;
-}) {
-  return (
-    <div>
-      <p
-        className={`text-lg leading-none font-semibold tabular-nums ${className}`}
-      >
-        {value}
-      </p>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">
-        {label}
-      </p>
-    </div>
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-board-text">Service assignments</DialogTitle>
+            <DialogDescription>{longDate(model.serviceDate)} · response details and notes</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            {crew.positions.map((position) => {
+              const config = CREW_STATUS[position.status];
+              return <div key={position.id} className="rounded-lg border border-board-border bg-board-bg p-3">
+                <div className="flex items-start gap-3">
+                  <StatusDot status={config.dot} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-medium text-board-text">{position.name ?? "Open position"}</p>
+                      <span className={`text-[10px] font-medium uppercase tracking-[0.12em] ${config.className}`}>{config.label}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-board-muted">{position.department} · {position.role}</p>
+                    {position.notes ? <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Instructions:</span> {position.notes}</p> : null}
+                    {position.responseNote ? <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Crew note:</span> {position.responseNote}</p> : null}
+                    {position.respondedAt ? <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(position.respondedAt).toLocaleString()}</p> : null}
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+          <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="text-xs font-medium text-fire-400">Open full scheduling system</Link>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1116,6 +1205,7 @@ function DutyCard({ model, orgId }: PmWidgetModel) {
 export const PM_WIDGETS: PmWidget[] = [
   liveStripWidget,
   onFloorWidget,
+  controlPadWidget,
   departmentsWidget,
   planNextWidget,
   attentionWidget,
