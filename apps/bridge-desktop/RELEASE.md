@@ -32,8 +32,8 @@ GitHub Actions secret before publishing.
 5. Create and push a tag, for example:
 
    ```bash
-   git tag bridge-v0.1.0
-   git push origin bridge-v0.1.0
+   git tag bridge-v0.1.1
+   git push origin bridge-v0.1.1
    ```
 
 The workflow builds macOS Intel/Apple Silicon, Windows, and Linux installers,

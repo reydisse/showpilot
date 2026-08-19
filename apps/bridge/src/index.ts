@@ -103,7 +103,7 @@ if (!directUrl && !site && !org) {
   };
   console.log(`
   ┌─────────────────────────────────┐
-  │   ShowPilot Bridge v0.1.0       │
+  │   ShowPilot Bridge v0.1.1       │
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);

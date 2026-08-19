@@ -112,29 +112,37 @@ fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Comma
         .into_iter()
         .find(|candidate| candidate.exists())
     });
-    if let Some(path) = resource_binary.filter(|path| path.exists()) {
-        let mut command = Command::new(path);
-        command.args(["--no-open"]);
-        return Ok(command);
-    }
 
-    let bridge_script = std::env::current_dir()
-        .map_err(|error| error.to_string())?
-        .join("../bridge/dist/index.js");
-    if !bridge_script.exists() {
-        return Err("ShowPilot Bridge is not installed with this desktop build".to_string());
-    }
-
-    let mut command = Command::new("node");
-    command.arg(&bridge_script).arg("--no-open");
-    command.current_dir(
-        bridge_script
-            .parent()
-            .ok_or_else(|| "Invalid bridge installation path".to_string())?,
-    );
-    if config.site.is_empty() || config.org.is_empty() || config.key.is_empty() {
+    if config.site.trim().is_empty() || config.org.trim().is_empty() || config.key.trim().is_empty()
+    {
         return Err("Site, organization, and bridge key are required".to_string());
     }
+
+    // Both the packaged sidecar and the development Node process need the
+    // same configuration. Keep this setup after command selection so a
+    // packaged install does not start briefly and then exit in configure mode.
+    let mut command = if let Some(path) = resource_binary.filter(|path| path.exists()) {
+        let mut command = Command::new(path);
+        command.args(["--no-open"]);
+        command
+    } else {
+        let bridge_script = std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join("../bridge/dist/index.js");
+        if !bridge_script.exists() {
+            return Err("ShowPilot Bridge is not installed with this desktop build".to_string());
+        }
+
+        let mut command = Command::new("node");
+        command.arg(&bridge_script).arg("--no-open");
+        command.current_dir(
+            bridge_script
+                .parent()
+                .ok_or_else(|| "Invalid bridge installation path".to_string())?,
+        );
+        command
+    };
+
     command
         .env("SHOWPILOT_SITE_URL", &config.site)
         .env("SHOWPILOT_ORG", &config.org)
