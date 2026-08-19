@@ -1,6 +1,6 @@
 [package]
 name = "showpilot-bridge-desktop"
-version = "0.1.6"
+version = "0.1.7"
 description = "ShowPilot local bridge configuration and supervisor"
 authors = ["ShowPilot"]
 edition = "2021"

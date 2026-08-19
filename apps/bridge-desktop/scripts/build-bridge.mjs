@@ -18,12 +18,15 @@ const target = process.platform === "win32"
     : process.arch === "arm64"
       ? "bun-darwin-arm64"
       : "bun-darwin-x64-baseline";
-const args = ["build", "--compile", `--target=${target}`];
-if (process.env.SHOWPILOT_BUN_EXECUTABLE_PATH) {
-  args.push(`--compile-executable-path=${process.env.SHOWPILOT_BUN_EXECUTABLE_PATH}`);
-}
+const executablePath = process.env.SHOWPILOT_BUN_EXECUTABLE_PATH;
+// On Windows, run the extracted baseline Bun directly. This avoids Bun's
+// cross-target cache move (which fails with EPERM on hosted runners) while
+// still embedding the baseline runtime into the output executable.
+const bunCommand = executablePath && process.platform === "win32" ? executablePath : "bun";
+const args = ["build", "--compile"];
+if (!executablePath || process.platform !== "win32") args.push(`--target=${target}`);
 args.push(source, "--outfile", output);
-const result = spawnSync("bun", args, {
+const result = spawnSync(bunCommand, args, {
   cwd: root,
   stdio: "inherit",
 });
