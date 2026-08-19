@@ -11,7 +11,11 @@ function getArg(name: string): string | undefined {
   return idx >= 0 && idx + 1 < args.length ? args[idx + 1] : undefined;
 }
 
-const config = loadConfigFile();
+const desktopMode = args.includes("--desktop");
+// The native desktop app passes configuration through the supervised process
+// environment. Never let a stale standalone config file in the working
+// directory override those values.
+const config = desktopMode ? null : loadConfigFile();
 const site = getArg("site") ?? process.env.SHOWPILOT_SITE_URL ?? config?.site;
 const org = getArg("org") ?? process.env.SHOWPILOT_ORG ?? config?.org;
 const key = getArg("key") ?? process.env.SHOWPILOT_BRIDGE_KEY ?? config?.key;
@@ -67,16 +71,21 @@ function startBridge(nextConfig: BridgeConfig) {
   bridge.start();
 }
 
-startSetupServer(9450, () => ({
-  config: currentConfig,
-  bridgeRunning: Boolean(bridge),
-  bridgeStatus: bridge ? "running" : "waiting",
-  debug: bridge?.getStatus(),
-}), async (nextConfig) => {
-  nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
-  currentConfig = nextConfig;
-  startBridge(nextConfig);
-});
+// The native desktop supervisor owns configuration and does not need the
+// standalone setup server. Avoid binding port 9450 so an older bridge process
+// cannot make the packaged sidecar exit with EADDRINUSE.
+if (!desktopMode) {
+  startSetupServer(9450, () => ({
+    config: currentConfig,
+    bridgeRunning: Boolean(bridge),
+    bridgeStatus: bridge ? "running" : "waiting",
+    debug: bridge?.getStatus(),
+  }), async (nextConfig) => {
+    nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
+    currentConfig = nextConfig;
+    startBridge(nextConfig);
+  });
+}
 
 const directUrl = getArg("url") ?? process.env.SHOWPILOT_BRIDGE_URL ?? config?.url;
 
@@ -103,7 +112,7 @@ if (!directUrl && !site && !org) {
   };
   console.log(`
   ┌─────────────────────────────────┐
-  │   ShowPilot Bridge v0.1.2       │
+  │   ShowPilot Bridge v0.1.3       │
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);

@@ -45,6 +45,7 @@ struct BridgeProcess {
 struct BridgeRuntime {
     process: Mutex<Option<BridgeProcess>>,
     auto_restart: AtomicBool,
+    last_logs: Mutex<VecDeque<String>>,
 }
 
 #[derive(Serialize)]
@@ -123,7 +124,7 @@ fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Comma
     // packaged install does not start briefly and then exit in configure mode.
     let mut command = if let Some(path) = resource_binary.filter(|path| path.exists()) {
         let mut command = Command::new(path);
-        command.args(["--no-open"]);
+        command.args(["--no-open", "--desktop"]);
         command
     } else {
         let bridge_script = std::env::current_dir()
@@ -134,7 +135,7 @@ fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Comma
         }
 
         let mut command = Command::new("node");
-        command.arg(&bridge_script).arg("--no-open");
+        command.arg(&bridge_script).args(["--no-open", "--desktop"]);
         command.current_dir(
             bridge_script
                 .parent()
@@ -295,8 +296,22 @@ fn bridge_status(
                 .collect();
         }
         if !running {
+            if let Ok(mut previous_logs) = runtime.last_logs.lock() {
+                previous_logs.clear();
+                previous_logs.extend(logs.iter().cloned());
+            }
             *process = None;
         }
+    }
+
+    if logs.is_empty() {
+        logs = runtime
+            .last_logs
+            .lock()
+            .map_err(|_| "Bridge logs unavailable".to_string())?
+            .iter()
+            .cloned()
+            .collect();
     }
 
     Ok(BridgeStatus {
@@ -381,6 +396,7 @@ pub fn run() {
         .manage(BridgeRuntime {
             process: Mutex::new(None),
             auto_restart: AtomicBool::new(false),
+            last_logs: Mutex::new(VecDeque::new()),
         })
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Open ShowPilot Bridge", true, None::<&str>)?;
