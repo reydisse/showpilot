@@ -18,7 +18,12 @@ const target = process.platform === "win32"
     : process.arch === "arm64"
       ? "bun-darwin-arm64"
       : "bun-darwin-x64-baseline";
-const result = spawnSync("bun", ["build", "--compile", `--target=${target}`, source, "--outfile", output], {
+const args = ["build", "--compile", `--target=${target}`];
+if (process.env.SHOWPILOT_BUN_EXECUTABLE_PATH) {
+  args.push(`--compile-executable-path=${process.env.SHOWPILOT_BUN_EXECUTABLE_PATH}`);
+}
+args.push(source, "--outfile", output);
+const result = spawnSync("bun", args, {
   cwd: root,
   stdio: "inherit",
 });

@@ -46,6 +46,20 @@ jobs:
           # upstream issue is resolved.
           bun-version: 1.1.21
 
+      - name: Prepare Windows baseline Bun runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline.tgz'
+          $extract = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline'
+          Invoke-WebRequest `
+            -Uri 'https://registry.npmjs.org/@oven/bun-windows-x64-baseline/-/bun-windows-x64-baseline-1.1.21.tgz' `
+            -OutFile $archive
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar -xzf $archive -C $extract
+          $runtime = Join-Path $extract 'package/bin/bun.exe'
+          "SHOWPILOT_BUN_EXECUTABLE_PATH=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux build dependencies
