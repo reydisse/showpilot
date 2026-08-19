@@ -32,8 +32,8 @@ GitHub Actions secret before publishing.
 5. Create and push a tag, for example:
 
    ```bash
-   git tag bridge-v0.1.1
-   git push origin bridge-v0.1.1
+   git tag bridge-v0.1.2
+   git push origin bridge-v0.1.2
    ```
 
 The workflow builds macOS Intel/Apple Silicon, Windows, and Linux installers,
@@ -52,6 +52,6 @@ menu. Closing the setup window hides it; it does not stop the bridge. Use the
 tray menu to reopen the setup, restart the bridge, or quit it. Existing site,
 organization, ProPresenter, and key settings are preserved across updates.
 
-The in-app **Check for updates** action reads the signed `latest.json` published
-with the latest GitHub release. Users should restart the app after an update is
-installed.
+The app checks for signed updates shortly after launch and the **Check for
+updates** action can also be used manually. Users should restart the app after
+an update is installed.

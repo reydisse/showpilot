@@ -23,7 +23,11 @@ export function App() {
     void getBridgeConfig().then((saved) => saved && setConfig(saved));
     void refresh();
     const timer = window.setInterval(() => void refresh(), 3000);
-    return () => window.clearInterval(timer);
+    const updateTimer = window.setTimeout(() => void checkForUpdates({ automatic: true }), 2500);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(updateTimer);
+    };
   }, []);
 
   async function saveAndStart() {
@@ -45,23 +49,27 @@ export function App() {
     await refresh();
   }
 
-  async function checkForUpdates() {
+  async function checkForUpdates(options: { automatic?: boolean } = {}) {
+    const automatic = options.automatic === true;
     setCheckingUpdate(true);
-    setUpdateMessage("");
+    if (!automatic) setUpdateMessage("");
     try {
       const update = await check();
       if (!update) {
-        setUpdateMessage("You are up to date.");
+        if (!automatic) setUpdateMessage("You are up to date.");
         return;
       }
-      if (window.confirm(`ShowPilot Bridge ${update.version} is available. Download and install it now?`)) {
+      if (automatic || window.confirm(`ShowPilot Bridge ${update.version} is available. Download and install it now?`)) {
+        setUpdateMessage(`Downloading ShowPilot Bridge ${update.version}…`);
         await update.downloadAndInstall();
-        setUpdateMessage("Update installed. Quit and reopen ShowPilot Bridge to finish.");
+        setUpdateMessage(`Update ${update.version} installed. Quit and reopen ShowPilot Bridge to finish.`);
       } else {
         setUpdateMessage(`Update ${update.version} is available.`);
       }
     } catch (reason) {
-      setUpdateMessage(`Update check failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      if (!automatic) {
+        setUpdateMessage(`Update check failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      }
     } finally {
       setCheckingUpdate(false);
     }

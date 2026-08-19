@@ -143,10 +143,19 @@ fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Comma
         command
     };
 
+    // The compiled Bun sidecar is a console executable on Windows. Keep it
+    // attached to the desktop supervisor without opening a second terminal
+    // window for operators.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
     command
-        .env("SHOWPILOT_SITE_URL", &config.site)
-        .env("SHOWPILOT_ORG", &config.org)
-        .env("SHOWPILOT_BRIDGE_KEY", &config.key);
+        .env("SHOWPILOT_SITE_URL", config.site.trim())
+        .env("SHOWPILOT_ORG", config.org.trim())
+        .env("SHOWPILOT_BRIDGE_KEY", config.key.trim());
     if let Some(host) = &config.propresenter_host {
         command.env("SHOWPILOT_PROPRESENTER_HOST", host);
     }
