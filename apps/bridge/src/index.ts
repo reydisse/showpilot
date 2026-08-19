@@ -16,6 +16,18 @@ const site = getArg("site") ?? process.env.SHOWPILOT_SITE_URL ?? config?.site;
 const org = getArg("org") ?? process.env.SHOWPILOT_ORG ?? config?.org;
 const key = getArg("key") ?? process.env.SHOWPILOT_BRIDGE_KEY ?? config?.key;
 const noOpen = args.includes("--no-open");
+const propresenterHost =
+  getArg("propresenter-host") ?? process.env.SHOWPILOT_PROPRESENTER_HOST ?? config?.propresenterHost;
+const propresenterPort = Number.parseInt(
+  getArg("propresenter-port") ?? process.env.SHOWPILOT_PROPRESENTER_PORT ?? "",
+  10,
+);
+const propresenterApiPort = Number.parseInt(
+  getArg("propresenter-api-port") ?? process.env.SHOWPILOT_PROPRESENTER_API_PORT ?? "",
+  10,
+);
+const propresenterPassword =
+  getArg("propresenter-password") ?? process.env.SHOWPILOT_PROPRESENTER_PASSWORD ?? config?.propresenterPassword;
 
 let bridge: Bridge | null = null;
 let currentConfig: BridgeConfig | null = config ?? null;
@@ -79,14 +91,23 @@ if (!directUrl && !site && !org) {
   if (!resolvedUrl) {
     throw new Error("Unable to determine bridge URL");
   }
-  currentConfig = currentConfig ?? { site: site ?? "", org: org ?? "", key, url: resolvedUrl };
+  currentConfig = currentConfig ?? {
+    site: site ?? "",
+    org: org ?? "",
+    key,
+    url: resolvedUrl,
+    propresenterHost,
+    propresenterPort: Number.isFinite(propresenterPort) && propresenterPort > 0 ? propresenterPort : undefined,
+    propresenterApiPort: Number.isFinite(propresenterApiPort) && propresenterApiPort > 0 ? propresenterApiPort : undefined,
+    propresenterPassword,
+  };
   console.log(`
   ┌─────────────────────────────────┐
   │   ShowPilot Bridge v0.1.0       │
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);
-  startBridge({ site: site ?? "", org: org ?? "", key, url: resolvedUrl });
+  startBridge(currentConfig);
 }
 
 process.on("SIGINT", () => {

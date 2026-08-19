@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ShowPilot Bridge",
+  "version": "0.1.0",
+  "identifier": "tech.showpilot.bridge",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "pnpm build && pnpm bridge:build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ShowPilot Bridge",
+        "width": 680,
+        "height": 790,
+        "minWidth": 560,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#0b0b0b"
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "resources": ["binaries"],
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGNjgyQUY5NUU2QTQwOTkKUldTWlFHcGUrU3BvLzY5cUdieDNhdk9MeWhVcjhybU1BRURVbUNuZmhkbG1ZRTFHVlZjS3Z6NkIK",
+      "endpoints": [
+        "https://github.com/reydisse/showpilot/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

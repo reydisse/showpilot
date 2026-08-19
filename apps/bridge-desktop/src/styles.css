@@ -1,0 +1,32 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #f5f5f5; background: #0b0b0b; font-synthesis: none; --fire: #ffc107; --card: #151515; --border: #2c2c2c; --muted: #929292; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 560px; min-height: 100vh; background: #0b0b0b; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.shell { width: min(620px, 100%); margin: 0 auto; padding: 28px 24px 30px; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand-mark { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 10px; background: rgba(255,193,7,.14); color: var(--fire); font-size: 11px; font-weight: 800; }
+.brand strong, .brand small { display: block; }
+.brand strong { font-size: 16px; }
+.brand small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.refresh { display: grid; place-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); }
+.refresh:hover { color: var(--fire); border-color: #555; }
+.refresh svg { width: 15px; }
+.status { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: #111; }
+.status.online { border-color: rgba(34,197,94,.35); }.status.offline { border-color: rgba(239,68,68,.3); }
+.status > svg { width: 20px; }.status.online > svg { color: #22c55e; }.status.offline > svg { color: #ef4444; }
+.status strong, .status small { display: block; }.status strong { font-size: 12px; }.status small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.card { margin-top: 14px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+.card-title, .logs-title { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 17px; }.card-title > svg, .logs-title > svg { width: 18px; color: var(--fire); }
+h1 { margin: 0; font-size: 13px; }.card-title p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+label { display: grid; gap: 6px; margin-top: 13px; color: #c9c9c9; font-size: 10px; }
+input { width: 100%; padding: 10px 11px; border: 1px solid #353535; border-radius: 8px; outline: none; background: #0d0d0d; color: #f5f5f5; font-size: 12px; }
+input:focus { border-color: var(--fire); }.input-with-action { position: relative; }.input-with-action input { padding-right: 38px; }.input-with-action button { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; padding: 5px; border: 0; background: transparent; color: var(--muted); }.input-with-action svg { width: 15px; }
+.two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.two-fields label { margin-top: 13px; }
+.error { margin-top: 14px; padding: 10px; border: 1px solid rgba(239,68,68,.35); border-radius: 8px; background: rgba(239,68,68,.08); color: #fca5a5; font-size: 10px; }
+.actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 16px; }.actions button { display: inline-flex; align-items: center; gap: 6px; padding: 10px 13px; border-radius: 8px; font-size: 11px; font-weight: 700; }.actions svg { width: 14px; }.primary { border: 0; background: var(--fire); color: #171717; }.secondary { border: 1px solid var(--border); background: var(--card); color: #ddd; }
+.logs-card { background: #101010; }.logs-title { align-items: center; margin-bottom: 10px; color: #ddd; font-size: 11px; }.logs-title svg { width: 15px; }.logs-card p { margin: 0; color: var(--muted); font-size: 10px; }.logs-card pre { max-height: 125px; overflow: auto; margin: 0; color: #a8a8a8; font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.update-card { display: grid; gap: 10px; }.update-card h1 { margin: 0; }.update-card p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }.update-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; }.update-button svg { width: 14px; }.update-message { color: #c9c9c9 !important; }
+footer { margin-top: 18px; color: #666; font-size: 10px; text-align: center; }
+@media (max-width: 600px) { body { min-width: 0; }.shell { padding: 20px 16px; }.two-fields { grid-template-columns: 1fr; } }
