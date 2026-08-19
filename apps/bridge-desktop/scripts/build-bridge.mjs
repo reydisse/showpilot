@@ -8,7 +8,17 @@ const source = resolve(root, "../bridge/src/index.ts");
 const output = resolve(root, "src-tauri/binaries/showpilot-bridge");
 
 mkdirSync(dirname(output), { recursive: true });
-const result = spawnSync("bun", ["build", "--compile", source, "--outfile", output], {
+// The default x64 Bun executable uses AVX2 instructions. Bridge machines are
+// often older production PCs, so compile x64 builds against Bun's baseline
+// target to avoid an illegal-instruction crash before the agent can connect.
+const target = process.platform === "win32"
+  ? "bun-windows-x64-baseline"
+  : process.platform === "linux"
+    ? "bun-linux-x64-baseline"
+    : process.arch === "arm64"
+      ? "bun-darwin-arm64"
+      : "bun-darwin-x64-baseline";
+const result = spawnSync("bun", ["build", "--compile", `--target=${target}`, source, "--outfile", output], {
   cwd: root,
   stdio: "inherit",
 });
