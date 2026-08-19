@@ -40,6 +40,11 @@ The workflow builds macOS Intel/Apple Silicon, Windows, and Linux installers,
 signs updater artifacts, and creates a draft GitHub release. Review the assets
 and publish the draft when the release notes and signing checks are complete.
 
+Until Apple Developer enrollment is complete, the macOS jobs intentionally
+produce unsigned builds. They are suitable for internal testing only; users
+must manually approve them in Gatekeeper. Add the Apple secrets above later and
+rerun the release to produce trusted macOS downloads.
+
 ## Operator behavior
 
 The app starts the local bridge, keeps it supervised, and adds a tray/status-bar
