@@ -7,6 +7,7 @@
 /* ── Dynamic board tokens (swap with .dark / .light on <html>) ── */
 
 :root {
+  color-scheme: dark;
   --board-bg: #0a0a0a;
   --board-card: #1a1a1a;
   --board-border: #2a2a2a;
@@ -47,11 +48,23 @@
 }
 
 .light {
-  --board-bg: #f5f5f4;
-  --board-card: #ffffff;
-  --board-border: #e7e5e4;
-  --board-text: #1c1917;
-  --board-muted: #78716c;
+  color-scheme: light;
+  --board-bg: #f2f0eb;
+  --board-card: #faf8f3;
+  --board-border: #ddd8ce;
+  --board-text: #292524;
+  --board-muted: #6b655e;
+  --background: #f2f0eb;
+  --card: #faf8f3;
+  --popover: #faf8f3;
+  --secondary: #f0ede7;
+  --muted: #f0ede7;
+  --accent: #f0ede7;
+  --border: #ddd8ce;
+  --input: #ddd8ce;
+  --sidebar: #faf8f3;
+  --sidebar-accent: #f0ede7;
+  --sidebar-border: #ddd8ce;
 }
 
 @theme {
