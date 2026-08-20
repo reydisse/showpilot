@@ -68,6 +68,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
+      - name: Require Apple signing and notarization credentials
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Refusing to publish an unsigned macOS Bridge. Missing secrets: ${missing[*]}"
+            exit 1
+          fi
+
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
@@ -77,11 +96,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/bridge-desktop
           args: --ci
           tagName: bridge-v__VERSION__
           releaseName: ShowPilot Bridge v__VERSION__
-          releaseBody: See apps/bridge-desktop/RELEASE.md for installation and update details.
+          releaseBody: |
+            Choose the installer that matches the production computer:
+
+            - **Apple Silicon Mac (M1/M2/M3/M4/M5):** download the `aarch64.dmg` file.
+            - **Intel Mac:** download the `x64.dmg` file.
+            - **Windows:** download the `.exe` installer (or `.msi` for managed deployment).
+
+            macOS downloads are Developer ID signed and Apple-notarized. Do not install the Intel (`x64`) Mac build on an Apple Silicon Mac. See `apps/bridge-desktop/RELEASE.md` for installation and update details.
           releaseDraft: true
           prerelease: false

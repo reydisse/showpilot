@@ -40,10 +40,19 @@ The workflow builds macOS Intel/Apple Silicon, Windows, and Linux installers,
 signs updater artifacts, and creates a draft GitHub release. Review the assets
 and publish the draft when the release notes and signing checks are complete.
 
-Until Apple Developer enrollment is complete, the macOS jobs intentionally
-produce unsigned builds. They are suitable for internal testing only; users
-must manually approve them in Gatekeeper. Add the Apple secrets above later and
-rerun the release to produce trusted macOS downloads.
+Label the download choices prominently in every published release:
+
+- Apple Silicon Macs (M1 and newer): `aarch64.dmg`
+- Intel Macs: `x64.dmg`
+- Windows: `.exe`, or `.msi` for managed deployment
+
+The Apple Silicon installer must be the first Mac option in the release notes.
+Do not describe the Intel build as the generic macOS download.
+
+The workflow refuses to publish macOS artifacts when Apple signing or
+notarization credentials are missing. Never publish an unsigned macOS DMG or ask
+operators to bypass Gatekeeper. Before publishing, install both Mac builds on
+fresh machines and verify them with `spctl --assess --type execute --verbose`.
 
 ## Operator behavior
 

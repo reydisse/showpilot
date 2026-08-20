@@ -1,4 +1,4 @@
-import WebSocket from "ws";
+import WebSocket, { type ClientOptions } from "ws";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
@@ -33,6 +33,21 @@ interface ConnectDeviceMessage {
 }
 
 type IncomingMessage = CommandMessage | ConnectDeviceMessage | { type: string; [k: string]: unknown };
+
+export function bridgeWebSocketOptions(
+  url: string,
+  key?: string,
+): { url: string; options?: ClientOptions } {
+  const wsUrlObject = new URL(url);
+  wsUrlObject.searchParams.set("role", "bridge");
+  wsUrlObject.searchParams.delete("key");
+  return {
+    url: wsUrlObject.toString(),
+    options: key
+      ? { headers: { "x-showpilot-api-key": key } }
+      : undefined,
+  };
+}
 
 /**
  * ShowPilot Bridge — connects to ShowPilot cloud via WebSocket
@@ -92,14 +107,10 @@ export class Bridge {
   }
 
   private connect(): void {
-    const wsUrlObject = new URL(this.url);
-    wsUrlObject.searchParams.set("role", "bridge");
-    if (this.key) wsUrlObject.searchParams.set("key", this.key);
-    else wsUrlObject.searchParams.delete("key");
-    const wsUrl = wsUrlObject.toString();
+    const connection = bridgeWebSocketOptions(this.url, this.key);
     console.log(`[bridge] Connecting to ${this.url}...`);
 
-    this.ws = new WebSocket(wsUrl);
+    this.ws = new WebSocket(connection.url, connection.options);
 
     this.ws.on("open", () => {
       console.log("[bridge] Connected to ShowPilot");
@@ -119,8 +130,16 @@ export class Bridge {
       }
     });
 
-    this.ws.on("close", () => {
-      console.log("[bridge] Disconnected");
+    this.ws.on("close", (code, reason) => {
+      const detail = reason.toString().trim();
+      if (code === 1002 && detail.toLowerCase().includes("expected 101")) {
+        console.error(
+          "[bridge] Connection rejected before WebSocket upgrade. Check the organization slug and Bridge API key.",
+        );
+      }
+      console.log(
+        `[bridge] Disconnected (code ${code}${detail ? `: ${detail}` : ""})`,
+      );
       if (this.reconnect) {
         console.log("[bridge] Reconnecting in 5s...");
         this.reconnectTimer = setTimeout(() => this.connect(), 5000);
@@ -128,6 +147,19 @@ export class Bridge {
     });
 
     this.ws.on("error", (err) => {
+      if (err.message.includes("Unexpected server response: 401")) {
+        console.error(
+          "[bridge] Authentication failed (HTTP 401). Check the organization slug and Bridge API key.",
+        );
+        return;
+      }
+      const responseMatch = err.message.match(/Unexpected server response: (\d+)/);
+      if (responseMatch) {
+        console.error(
+          `[bridge] Connection rejected (HTTP ${responseMatch[1]}). Check the ShowPilot site URL and organization slug.`,
+        );
+        return;
+      }
       console.error("[bridge] WebSocket error:", err.message);
     });
   }

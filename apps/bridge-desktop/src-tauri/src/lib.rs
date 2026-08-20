@@ -40,6 +40,7 @@ struct BridgeConfig {
 struct BridgeProcess {
     child: Child,
     logs: Arc<Mutex<VecDeque<String>>>,
+    connection: Arc<Mutex<BridgeConnection>>,
 }
 
 struct BridgeRuntime {
@@ -53,8 +54,47 @@ struct BridgeRuntime {
 struct BridgeStatus {
     configured: bool,
     running: bool,
+    connection: BridgeConnection,
     pid: Option<u32>,
     logs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum BridgeConnection {
+    Offline,
+    Connecting,
+    Connected,
+    Disconnected,
+    Unauthorized,
+    Error,
+}
+
+fn child_has_exited<T, E>(result: &Result<Option<T>, E>) -> bool {
+    matches!(result, Ok(Some(_)))
+}
+
+fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnection {
+    let normalized = line.to_ascii_lowercase();
+    if normalized.contains("connecting to") {
+        BridgeConnection::Connecting
+    } else if normalized.contains("connected to showpilot") {
+        BridgeConnection::Connected
+    } else if normalized.contains("authentication failed")
+        || normalized.contains("unexpected server response: 401")
+    {
+        BridgeConnection::Unauthorized
+    } else if normalized.contains("websocket error") || normalized.contains("connection rejected") {
+        BridgeConnection::Error
+    } else if normalized.contains("disconnected") {
+        if current == BridgeConnection::Unauthorized || current == BridgeConnection::Error {
+            current
+        } else {
+            BridgeConnection::Disconnected
+        }
+    } else {
+        current
+    }
 }
 
 fn bridge_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -86,11 +126,20 @@ fn append_log(logs: &Arc<Mutex<VecDeque<String>>>, line: String) {
     }
 }
 
-fn capture_output<R: Read + Send + 'static>(reader: R, logs: Arc<Mutex<VecDeque<String>>>) {
+fn capture_output<R: Read + Send + 'static>(
+    reader: R,
+    logs: Arc<Mutex<VecDeque<String>>>,
+    connection: Arc<Mutex<BridgeConnection>>,
+) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             match line {
-                Ok(line) => append_log(&logs, line),
+                Ok(line) => {
+                    if let Ok(mut state) = connection.lock() {
+                        *state = connection_from_log(*state, &line);
+                    }
+                    append_log(&logs, line);
+                }
                 Err(error) => {
                     append_log(&logs, format!("Bridge output error: {error}"));
                     break;
@@ -220,18 +269,23 @@ fn spawn_bridge_process(
     config: &BridgeConfig,
 ) -> Result<BridgeProcess, String> {
     let logs = Arc::new(Mutex::new(VecDeque::new()));
+    let connection = Arc::new(Mutex::new(BridgeConnection::Connecting));
     let mut command = bridge_command(app, config)?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| format!("Unable to start bridge: {error}"))?;
     if let Some(stdout) = child.stdout.take() {
-        capture_output(stdout, Arc::clone(&logs));
+        capture_output(stdout, Arc::clone(&logs), Arc::clone(&connection));
     }
     if let Some(stderr) = child.stderr.take() {
-        capture_output(stderr, Arc::clone(&logs));
+        capture_output(stderr, Arc::clone(&logs), Arc::clone(&connection));
     }
-    Ok(BridgeProcess { child, logs })
+    Ok(BridgeProcess {
+        child,
+        logs,
+        connection,
+    })
 }
 
 fn restart_configured_bridge(
@@ -272,6 +326,7 @@ fn bridge_status(
         .lock()
         .map_err(|_| "Bridge state unavailable".to_string())?;
     let mut running = false;
+    let mut connection = BridgeConnection::Offline;
     let mut pid = None;
     let mut logs = Vec::new();
 
@@ -287,6 +342,10 @@ fn bridge_status(
             Err(error) => append_log(&active.logs, format!("Bridge status error: {error}")),
         }
         if let Some(active) = process.as_ref() {
+            connection = *active
+                .connection
+                .lock()
+                .map_err(|_| "Bridge connection state unavailable".to_string())?;
             logs = active
                 .logs
                 .lock()
@@ -317,6 +376,7 @@ fn bridge_status(
     Ok(BridgeStatus {
         configured,
         running,
+        connection,
         pid,
         logs,
     })
@@ -352,6 +412,7 @@ fn start_bridge(
     Ok(BridgeStatus {
         configured: true,
         running: true,
+        connection: BridgeConnection::Connecting,
         pid: Some(pid),
         logs: current_logs,
     })
@@ -450,9 +511,6 @@ pub fn run() {
                         if let Ok(mut process) = runtime.process.lock() {
                             *process = Some(active);
                         }
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.hide();
-                        }
                     }
                     Err(error) => eprintln!("[desktop] Unable to restore bridge: {error}"),
                 }
@@ -467,10 +525,13 @@ pub fn run() {
                     Ok(process) => process,
                     Err(_) => continue,
                 };
-                let exited = process
-                    .as_mut()
-                    .and_then(|active| active.child.try_wait().ok())
-                    .is_some();
+                let exited = process.as_mut().is_some_and(|active| {
+                    let status = active.child.try_wait();
+                    if let Err(error) = &status {
+                        append_log(&active.logs, format!("Bridge status error: {error}"));
+                    }
+                    child_has_exited(&status)
+                });
                 if !exited || !should_restart {
                     continue;
                 }
@@ -499,5 +560,56 @@ pub fn run() {
             stop_bridge
         ])
         .run(tauri::generate_context!())
-        .expect("error while running ShowPilot Desktop");
+        .expect("error while running ShowPilot Bridge");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{child_has_exited, connection_from_log, BridgeConnection};
+
+    #[test]
+    fn running_child_is_not_mistaken_for_an_exited_child() {
+        let running: Result<Option<()>, ()> = Ok(None);
+        let exited: Result<Option<()>, ()> = Ok(Some(()));
+        let status_error: Result<Option<()>, ()> = Err(());
+
+        assert!(!child_has_exited(&running));
+        assert!(child_has_exited(&exited));
+        assert!(!child_has_exited(&status_error));
+    }
+
+    #[test]
+    fn classifies_connection_lifecycle() {
+        let state = connection_from_log(
+            BridgeConnection::Offline,
+            "[bridge] Connecting to wss://showpilot.tech",
+        );
+        assert_eq!(state, BridgeConnection::Connecting);
+        let state = connection_from_log(state, "[bridge] Connected to ShowPilot");
+        assert_eq!(state, BridgeConnection::Connected);
+        let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
+        assert_eq!(state, BridgeConnection::Disconnected);
+    }
+
+    #[test]
+    fn preserves_unauthorized_diagnosis_through_socket_close() {
+        let state = connection_from_log(
+            BridgeConnection::Connecting,
+            "[bridge] Authentication failed (HTTP 401). Check the organization slug and Bridge API key.",
+        );
+        assert_eq!(state, BridgeConnection::Unauthorized);
+        let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
+        assert_eq!(state, BridgeConnection::Unauthorized);
+    }
+
+    #[test]
+    fn preserves_connection_error_through_socket_close() {
+        let state = connection_from_log(
+            BridgeConnection::Connecting,
+            "[bridge] WebSocket error: getaddrinfo ENOTFOUND invalid.example",
+        );
+        assert_eq!(state, BridgeConnection::Error);
+        let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
+        assert_eq!(state, BridgeConnection::Error);
+    }
 }

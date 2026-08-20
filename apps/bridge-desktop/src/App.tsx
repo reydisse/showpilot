@@ -8,7 +8,7 @@ const emptyConfig: BridgeConfig = { site: "", org: "", key: "" };
 
 export function App() {
   const [config, setConfig] = useState<BridgeConfig>(emptyConfig);
-  const [status, setStatus] = useState<BridgeStatus>({ configured: false, running: false, pid: null, logs: [] });
+  const [status, setStatus] = useState<BridgeStatus>({ configured: false, running: false, connection: "offline", pid: null, logs: [] });
   const [error, setError] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
@@ -76,6 +76,35 @@ export function App() {
   }
 
   const update = (next: Partial<BridgeConfig>) => setConfig((current) => ({ ...current, ...next }));
+  const connectionCopy = {
+    offline: {
+      title: "Bridge is offline",
+      detail: "Configure the connection below to start the local connector.",
+    },
+    connecting: {
+      title: "Connecting to ShowPilot",
+      detail: "The Bridge process is running and negotiating the cloud connection.",
+    },
+    connected: {
+      title: "Connected to ShowPilot",
+      detail: `Process ${status.pid ?? "—"} · cloud connection active`,
+    },
+    disconnected: {
+      title: "Disconnected from ShowPilot",
+      detail: "The Bridge process is running but the cloud connection closed. See the output below.",
+    },
+    unauthorized: {
+      title: "ShowPilot rejected this connection",
+      detail: "Check the organization slug and replace the Bridge API key with the current key from Settings.",
+    },
+    error: {
+      title: "Could not connect to ShowPilot",
+      detail: "Check the site URL, organization slug, API key, and network, then review the output below.",
+    },
+  } satisfies Record<BridgeStatus["connection"], { title: string; detail: string }>;
+  const connection = status.running ? status.connection : "offline";
+  const connectionStatus = connectionCopy[connection];
+  const isConnected = connection === "connected";
 
   return (
     <main className="shell">
@@ -84,9 +113,9 @@ export function App() {
         <button className="refresh" onClick={() => void refresh()} aria-label="Refresh bridge status"><RefreshCw /></button>
       </header>
 
-      <section className={`status ${status.running ? "online" : "offline"}`}>
-        {status.running ? <CheckCircle2 /> : <XCircle />}
-        <div><strong>{status.running ? "Bridge is running" : "Bridge is offline"}</strong><small>{status.running ? `Process ${status.pid ?? "—"} · automatic recovery enabled` : "Configure the connection below to start the local connector."}</small></div>
+      <section className={`status ${isConnected ? "online" : connection === "connecting" ? "connecting" : "offline"}`}>
+        {isConnected ? <CheckCircle2 /> : connection === "connecting" ? <RefreshCw className="spin" /> : <XCircle />}
+        <div><strong>{connectionStatus.title}</strong><small>{connectionStatus.detail}</small></div>
       </section>
 
       <section className="card">

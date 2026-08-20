@@ -13,6 +13,7 @@ export type BridgeConfig = {
 export type BridgeStatus = {
   configured: boolean;
   running: boolean;
+  connection: "offline" | "connecting" | "connected" | "disconnected" | "unauthorized" | "error";
   pid: number | null;
   logs: string[];
 };
@@ -29,7 +30,7 @@ export async function getBridgeStatus(): Promise<BridgeStatus> {
   try {
     return await invoke<BridgeStatus>("bridge_status");
   } catch {
-    return { configured: false, running: false, pid: null, logs: [] };
+    return { configured: false, running: false, connection: "offline", pid: null, logs: [] };
   }
 }
 
