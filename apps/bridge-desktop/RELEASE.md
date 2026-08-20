@@ -1,6 +1,8 @@
 # ShowPilot Bridge release checklist
 
-ShowPilot Bridge is released independently from the unfinished operator desktop.
+ShowPilot Bridge is released independently from the complete ShowPilot Desktop
+operator product. It serves remote devices, browser-only operators, and
+headless production computers; ShowPilot Desktop embeds the same local engine.
 Only tags matching `bridge-v*` publish this bundle.
 
 ## One-time GitHub setup

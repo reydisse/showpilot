@@ -1,8 +1,11 @@
 # ShowPilot Bridge
 
-Small installable desktop connector for ShowPilot production equipment. This
-app is intentionally separate from the unfinished operator desktop: it only
-configures, supervises, and displays health for the local bridge runtime.
+Small installable connector for ShowPilot production equipment. This app is
+intentionally separate from the complete ShowPilot Desktop operator product:
+it only configures, supervises, and displays health for the local bridge
+runtime used by remote devices, browser-only operators, and headless production
+computers. ShowPilot Desktop already embeds this engine for its own local
+devices, so those users do not install both applications on the same machine.
 
 ## Development
 
