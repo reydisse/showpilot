@@ -305,9 +305,12 @@ export default {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
+      const showId = url.searchParams.get("showId");
       const timezone = await e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
         .bind(orgId).first<{ value: string }>();
-      const id = e.RUNDOWN_RELAY.idFromName(rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value)));
+      const id = e.RUNDOWN_RELAY.idFromName(
+        rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value), showId),
+      );
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;

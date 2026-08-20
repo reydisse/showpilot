@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useCallback, useRef, type DragEvent, type TouchEvent } from "react";
 import {
@@ -187,8 +187,19 @@ function buildNativeTimer(
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
+  validateSearch: (search: Record<string, unknown>): {
+    show?: string;
+    date?: string;
+  } => ({
+    show: typeof search.show === "string" ? search.show : undefined,
+    date: typeof search.date === "string" ? search.date : undefined,
+  }),
+  loaderDeps: ({ search }) => ({
+    showId: search.show,
+    serviceDate: search.date,
+  }),
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "rundown:view", context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
@@ -197,10 +208,18 @@ export const Route = createFileRoute("/$slug/rundown")({
     // church has no service most days, so "today" meant the editor
     // opened empty six days a week — and once the cue sheet started
     // following the editor, that emptiness spread to it as well.
-    const { serviceDate: openOn } = await getRundownOpeningDate({
+    const opening = await getRundownOpeningDate({
       data: { orgId: context.orgId, today },
     });
-    const state = await getRundownState({ data: { orgId: context.orgId, serviceDate: openOn } });
+    const openOn = deps.serviceDate ?? opening.serviceDate;
+    const openShowId = deps.showId ?? (deps.serviceDate ? undefined : opening.showId);
+    const state = await getRundownState({
+      data: {
+        orgId: context.orgId,
+        serviceDate: openOn,
+        showId: openShowId,
+      },
+    });
     return {
       orgId: context.orgId,
       slug: context.slug,
@@ -216,9 +235,11 @@ export const Route = createFileRoute("/$slug/rundown")({
 
 function RundownPage() {
   const { orgId, slug, openOn, initialState, settings, role } = Route.useLoaderData();
+  const navigate = useNavigate({ from: Route.fullPath });
   const canEditRundown = hasPermission(role, "rundown:edit");
   const canControlRundown = hasPermission(role, "rundown:control");
   const [serviceDate, setServiceDate] = useState(openOn);
+  const [showId, setShowId] = useState<string | undefined>(initialState.meta?.showId);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
@@ -273,18 +294,19 @@ function RundownPage() {
   // and the next date change tries again.
   useEffect(() => {
     if (!canEditRundown) return;
-    setActiveServiceDate({ data: { orgId, serviceDate } }).catch(() => {});
-  }, [canEditRundown, orgId, serviceDate]);
+    setActiveServiceDate({ data: { orgId, serviceDate, showId } }).catch(() => {});
+  }, [canEditRundown, orgId, serviceDate, showId]);
 
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes
-  const seededDateRef = useRef(serviceDate);
+  const seededDateRef = useRef(showId ?? serviceDate);
   useEffect(() => {
-    if (seededDateRef.current !== serviceDate) {
+    const identity = showId ?? serviceDate;
+    if (seededDateRef.current !== identity) {
       hasSeededRef.current = false;
-      seededDateRef.current = serviceDate;
+      seededDateRef.current = identity;
     }
-  }, [serviceDate]);
+  }, [serviceDate, showId]);
   useEffect(() => {
     if (!syncHydrated) return; // Wait for actual DO response
     if (hasSeededRef.current) return; // Only seed once per date
@@ -292,11 +314,17 @@ function RundownPage() {
     const databaseIds = databaseItems.map((item) => item.id).sort().join("|");
     const relayIds = syncedItems.map((item) => item.id).sort().join("|");
     const relayIsWrongService =
+      syncedItems.length > 0 && syncedServiceDate !== serviceDate;
+    const relayHasDifferentItems =
       syncedServiceDate === serviceDate && databaseIds !== relayIds;
     // Empty rooms and rooms retained with another service's rows are
     // repaired from D1. Matching rooms remain authoritative, preserving
     // active timer state and edits from other connected operators.
-    if ((syncedItems.length === 0 && databaseItems.length > 0) || relayIsWrongService) {
+    if (
+      (syncedItems.length === 0 && databaseItems.length > 0) ||
+      relayIsWrongService ||
+      relayHasDifferentItems
+    ) {
       hasSeededRef.current = true;
         seedState(databaseItems, {
           playback: timer.playback,
@@ -306,7 +334,7 @@ function RundownPage() {
           pausedAt: null,
           mode: timer.mode,
         }, relayIsWrongService);
-      } else if (syncedItems.length > 0) {
+      } else if (syncedServiceDate === serviceDate) {
       // DO already has items — no need to seed
       hasSeededRef.current = true;
     }
@@ -330,10 +358,10 @@ function RundownPage() {
       setServiceName(value);
       if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
       saveNameTimeoutRef.current = setTimeout(() => {
-        saveRundownMeta({ data: { orgId, serviceDate, name: value } }).catch(() => {});
+        saveRundownMeta({ data: { orgId, showId, serviceDate, name: value } }).catch(() => {});
       }, 800);
     },
-    [orgId, serviceDate],
+    [orgId, serviceDate, showId],
   );
 
   const handleScheduledStartChange = useCallback((timeStr: string) => {
@@ -350,9 +378,9 @@ function RundownPage() {
         d.setHours(h, m, 0, 0);
         isoTime = d.toISOString();
       }
-      saveRundownMeta({ data: { orgId, serviceDate, scheduledStartTime: isoTime } }).catch(() => {});
+      saveRundownMeta({ data: { orgId, showId, serviceDate, scheduledStartTime: isoTime } }).catch(() => {});
     }, 800);
-  }, [orgId, serviceDate]);
+  }, [orgId, serviceDate, showId]);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -519,12 +547,12 @@ function RundownPage() {
     }
 
     if (activePpSlide?.text) {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: activePpSlide } }).catch(() => {});
+      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: activePpSlide } }).catch(() => {});
       return;
     }
 
     ppKioskClearTimeoutRef.current = setTimeout(() => {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch(() => {});
+      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch(() => {});
       ppKioskClearTimeoutRef.current = null;
     }, 700);
 
@@ -534,7 +562,7 @@ function RundownPage() {
         ppKioskClearTimeoutRef.current = null;
       }
     };
-  }, [activePpSlide, orgId, ppEnabled, ppOnKiosk, serviceDate]);
+  }, [activePpSlide, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
   const ppIsConnected = ppSource !== null || pp.status === "connected";
@@ -544,11 +572,11 @@ function RundownPage() {
     if (ppEnabled) {
       setPpEnabled(false);
       setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
+      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
     } else {
       setPpEnabled(true);
     }
-  }, [canEditRundown, ppEnabled, orgId, serviceDate]);
+  }, [canEditRundown, ppEnabled, orgId, serviceDate, showId]);
 
   const togglePPOnKiosk = useCallback(() => {
     if (!canEditRundown) return;
@@ -561,7 +589,7 @@ function RundownPage() {
     });
 
     if (!next || !ppEnabled) {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide: null } }).catch((e) =>
+      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch((e) =>
         console.warn("[SP] PP slide clear failed:", e)
       );
       return;
@@ -569,11 +597,11 @@ function RundownPage() {
 
     const slide = activePpSlide;
     if (slide?.text) {
-      saveProPresenterSlide({ data: { orgId, serviceDate, slide } }).catch((e) =>
+      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide } }).catch((e) =>
         console.warn("[SP] PP slide persist failed:", e)
       );
     }
-  }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate]);
+  }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
 
   // Persist timer to DB immediately (not debounced — kiosk needs it fast)
   const persistTimer = useCallback((
@@ -584,8 +612,8 @@ function RundownPage() {
     mode?: "count-down" | "count-up" | "clock",
   ) => {
     const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt, mode ?? timerRef.current.mode);
-    saveRundownTimer({ data: { orgId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
-  }, [orgId, serviceDate]);
+    saveRundownTimer({ data: { orgId, showId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
+  }, [orgId, serviceDate, showId]);
 
   // Auto-save items on change (debounced).
   //
@@ -596,7 +624,7 @@ function RundownPage() {
   const persistItems = useCallback((newItems: RundownItem[]) => {
     if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
     saveItemsTimeoutRef.current = setTimeout(() => {
-      saveRundownItems({ data: { orgId, serviceDate, items: newItems } })
+      saveRundownItems({ data: { orgId, showId, serviceDate, items: newItems } })
         .then(() => setSaveError(null))
         .catch((e: unknown) => {
           console.warn("[SP] Items persist failed:", e);
@@ -605,7 +633,7 @@ function RundownPage() {
           );
         });
     }, 1000);
-  }, [orgId, serviceDate]);
+  }, [orgId, serviceDate, showId]);
 
   const updateItems = useCallback((updater: (prev: RundownItem[]) => RundownItem[]) => {
     setItems((prev) => {
@@ -620,8 +648,10 @@ function RundownPage() {
     setLoading(true);
     try {
       const state = await getRundownState({ data: { orgId, serviceDate: date } });
+      const nextShowId = state.meta?.showId;
       databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
+      setServiceName(state.meta?.name ?? "");
       setTimer({
         playback: state.timer.playback,
         currentItemId: state.timer.currentItemId,
@@ -634,24 +664,14 @@ function RundownPage() {
           ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5)
           : ""
       );
-
-      // The relay is scoped per org, not per service date, so switching dates
-      // must explicitly replace the shared relay state with the newly loaded
-      // date-specific state. Otherwise an old running timer can bleed across
-      // dates and overwrite the just-loaded rundown.
-      hasSeededRef.current = true;
-      sendCommand("seed", {
-        items: state.items as RundownItem[],
-        timer: {
-          playback: state.timer.playback,
-          currentItemId: state.timer.currentItemId,
-          elapsed: state.timer.elapsed,
-          startedAt: state.timer.startedAt,
-          pausedAt: state.timer.pausedAt ?? null,
-          mode: state.timer.mode,
-        },
-        force: true,
+      setShowId(nextShowId);
+      await navigate({
+        search: { show: nextShowId, date },
+        replace: true,
       });
+
+      // The date-aware sync effect seeds the relay after the new socket has
+      // hydrated. Sending here would target the previous date's socket.
     } catch {
       // Keep current
     }
@@ -900,11 +920,11 @@ function RundownPage() {
     const clearedTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode };
     setItems([]);
     setTimer(clearedTimer);
-    saveRundownItems({ data: { orgId, serviceDate, items: [] } }).catch(() => {});
+    saveRundownItems({ data: { orgId, showId, serviceDate, items: [] } }).catch(() => {});
     persistTimer("stop", null, 0, null);
     // Use clear-all command so DO unconditionally clears and broadcasts to all clients
     sendRundownCommand("clear-all");
-  }, [canEditRundown, clearPhase, setTimer, persistTimer, sendRundownCommand, orgId, serviceDate, timer.mode]);
+  }, [canEditRundown, clearPhase, setTimer, persistTimer, sendRundownCommand, orgId, serviceDate, showId, timer.mode]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
@@ -1085,16 +1105,16 @@ function RundownPage() {
       const scheduled = loaded.scheduledStartTime
         ? new Date(`${serviceDate}T${loaded.scheduledStartTime}:00`).toISOString()
         : null;
-      void saveRundownMeta({ data: { orgId, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
+      void saveRundownMeta({ data: { orgId, showId, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
     }
     setShowLoadModal(false);
-  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode, orgId, serviceDate]);
+  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode, orgId, serviceDate, showId]);
 
-  const handleSaveTemplate = useCallback(async (name: string) => {
+  const handleSaveTemplate = useCallback(async (name: string, templateServiceName: string, templateStartTime: string) => {
     if (!canEditRundown) return;
-    await saveRundownTemplate({ data: { orgId, name, serviceName, scheduledStartTime, items } });
+    await saveRundownTemplate({ data: { orgId, name, serviceName: templateServiceName, scheduledStartTime: templateStartTime, items } });
     setShowSaveModal(false);
-  }, [canEditRundown, orgId, items, serviceName, scheduledStartTime]);
+  }, [canEditRundown, orgId, items]);
 
   const handleSendMessage = () => {
     if (!canEditRundown) return;
@@ -1102,7 +1122,7 @@ function RundownPage() {
       setActiveMessage(message.trim());
       // Encode priority flag into message string for kiosk
       const encoded = messagePriority ? `!!PRIORITY!!${message.trim()}` : message.trim();
-      saveRundownMessage({ data: { orgId, serviceDate, message: encoded } }).catch((e) => console.warn("[SP] Message persist failed:", e));
+      saveRundownMessage({ data: { orgId, showId, serviceDate, message: encoded } }).catch((e) => console.warn("[SP] Message persist failed:", e));
       // Broadcast via DO so kiosk receives instantly over WebSocket
       sendRundownCommand("stage-message", { message: encoded });
     }
@@ -1112,7 +1132,7 @@ function RundownPage() {
     if (!canEditRundown) return;
     setActiveMessage("");
     setMessagePriority(false);
-    saveRundownMessage({ data: { orgId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
+    saveRundownMessage({ data: { orgId, showId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
     // Broadcast clear via DO
     sendRundownCommand("stage-clear");
   };
@@ -2111,7 +2131,12 @@ function RundownPage() {
         <LoadRundownModal orgId={orgId} onLoad={handleLoadItems} onClose={() => setShowLoadModal(false)} />
       )}
       {canEditRundown && showSaveModal && (
-        <SaveRundownModal onSave={handleSaveTemplate} onClose={() => setShowSaveModal(false)} />
+        <SaveRundownModal
+          onSave={handleSaveTemplate}
+          initialServiceName={serviceName}
+          initialStartTime={scheduledStartTime}
+          onClose={() => setShowSaveModal(false)}
+        />
       )}
       </div>
     </div>
@@ -2427,7 +2452,7 @@ function LoadRundownModal({
                     >
                       <p className="text-sm font-medium text-board-text">{s.name}</p>
                       <p className="text-[10px] text-board-muted mt-0.5">
-                        {s.itemCount} items · saved {new Date(s.createdAt).toLocaleDateString()}
+                        {s.itemCount} items{s.serviceName ? ` · ${s.serviceName}` : ""}{s.scheduledStartTime ? ` · ${s.scheduledStartTime}` : ""} · saved {new Date(s.createdAt).toLocaleDateString()}
                       </p>
                     </button>
                     <button
@@ -2453,18 +2478,24 @@ function LoadRundownModal({
 function SaveRundownModal({
   onSave,
   onClose,
+  initialServiceName,
+  initialStartTime,
 }: {
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string, serviceName: string, scheduledStartTime: string) => Promise<void>;
   onClose: () => void;
+  initialServiceName: string;
+  initialStartTime: string;
 }) {
   const [name, setName] = useState("");
+  const [serviceName, setServiceName] = useState(initialServiceName);
+  const [scheduledStartTime, setScheduledStartTime] = useState(initialStartTime);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-    await onSave(name.trim());
+    await onSave(name.trim(), serviceName.trim(), scheduledStartTime);
     setSaving(false);
   };
 
@@ -2482,6 +2513,25 @@ function SaveRundownModal({
               placeholder="e.g. Sunday Morning Service"
               autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm text-board-muted">Service title</label>
+            <input
+              type="text"
+              value={serviceName}
+              onChange={(e) => setServiceName(e.target.value)}
+              placeholder="Sunday Morning Service"
+              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text placeholder:text-board-muted/50 focus:border-fire-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm text-board-muted">Service start time</label>
+            <input
+              type="time"
+              value={scheduledStartTime}
+              onChange={(e) => setScheduledStartTime(e.target.value)}
+              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text focus:border-fire-500 focus:outline-none"
             />
           </div>
           <p className="text-[10px] text-board-muted">

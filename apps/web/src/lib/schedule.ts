@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
+import { getD1 } from "@/lib/d1";
 import { hasPermission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
@@ -11,6 +12,7 @@ const rangeInput = z.object({
   from: serviceDateSchema,
   to: serviceDateSchema,
   selectedDate: serviceDateSchema.optional(),
+  selectedShowId: idSchema.optional(),
 });
 
 export const scheduleProviderSchema = z.enum([
@@ -91,6 +93,7 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        showId: idSchema,
         serviceDate: serviceDateSchema,
         name: z.string().trim().max(120),
         startTime: z.union([
@@ -104,15 +107,101 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertAccess(data.orgId, true);
+    const show = await getPrisma().rundown.findFirst({
+      where: {
+        id: data.showId,
+        orgId: data.orgId,
+        serviceDate: data.serviceDate,
+      },
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
     const scheduledStartTime = data.startTime
       ? new Date(`${data.serviceDate}T${data.startTime}:00`)
       : null;
     return getPrisma().rundown.update({
-      where: {
-        orgId_serviceDate: { orgId: data.orgId, serviceDate: data.serviceDate },
-      },
+      where: { id: show.id },
       data: { name: data.name, scheduledStartTime, location: data.location },
     });
+  });
+
+/** Remove one stopped show and only the operational data owned by it. */
+export const deleteService = createServerFn({ method: "POST" })
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, showId: idSchema }), value),
+  )
+  .handler(async ({ data }) => {
+    await assertAccess(data.orgId, true);
+    const prisma = getPrisma();
+    const rundown = await prisma.rundown.findFirst({
+      where: { id: data.showId, orgId: data.orgId },
+      select: { id: true, serviceDate: true, status: true },
+    });
+    if (!rundown) throw new Error("Show not found");
+    if (rundown.status === "live") throw new Error("Stop the show before deleting it");
+
+    const timerSettings = await prisma.appSetting.findMany({
+      where: {
+        orgId: data.orgId,
+        key: { in: [`rundown-timer:${rundown.id}`, `rundown-timer:${rundown.serviceDate}`] },
+      },
+      select: { value: true },
+    });
+    for (const timerSetting of timerSettings) {
+      try {
+        const timer = JSON.parse(timerSetting.value) as { playback?: string } | null;
+        if (timer?.playback === "play" || timer?.playback === "pause") {
+          throw new Error("Stop the show before deleting it");
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "Stop the show before deleting it") throw error;
+      }
+    }
+
+    // Prisma and raw D1 use the same database, but separate calls are not one
+    // transaction. Keep the complete deletion in a single atomic D1 batch so
+    // a failed notification cleanup cannot leave half a show behind.
+    const db = getD1();
+    const showArgs = [data.orgId, rundown.id] as const;
+    await db.batch([
+      db.prepare("DELETE FROM content_reaction WHERE orgId = ? AND targetType = 'incident-comment' AND targetId IN (SELECT id FROM incident_comment WHERE orgId = ? AND incidentId IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?))").bind(data.orgId, data.orgId, ...showArgs),
+      db.prepare("DELETE FROM incident_comment WHERE orgId = ? AND incidentId IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
+      db.prepare("DELETE FROM notification WHERE orgId = ? AND source IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
+      db.prepare("DELETE FROM notification WHERE orgId = ? AND source IN (SELECT id FROM service_assignment WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
+      db.prepare("DELETE FROM cue_note WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM cue_sheet WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM checklist_entry WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM service_assignment WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM rundown_item WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM incident WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM mic_assignment WHERE orgId = ? AND showId = ?").bind(...showArgs),
+      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?)").bind(
+        data.orgId,
+        `rundown-items:${rundown.id}`,
+        `rundown-timer:${rundown.id}`,
+        `rundown-message:${rundown.id}`,
+        `rundown-ppslide:${rundown.id}`,
+      ),
+      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = 'active-show-id' AND value = ?").bind(data.orgId, rundown.id),
+      db.prepare("DELETE FROM rundown WHERE orgId = ? AND id = ?").bind(...showArgs),
+      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?) AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
+        data.orgId,
+        `rundown-items:${rundown.serviceDate}`,
+        `rundown-timer:${rundown.serviceDate}`,
+        `rundown-message:${rundown.serviceDate}`,
+        `rundown-ppslide:${rundown.serviceDate}`,
+        data.orgId,
+        rundown.serviceDate,
+      ),
+      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = 'active-service-date' AND value = ? AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
+        data.orgId,
+        rundown.serviceDate,
+        data.orgId,
+        rundown.serviceDate,
+      ),
+    ]);
+
+    return { ok: true as const };
   });
 
 async function assertAccess(orgId: string, manage = false) {
@@ -157,11 +246,16 @@ export const getSchedule = createServerFn({ method: "GET" })
     ] = await Promise.all([
       prisma.rundown.findMany({
         where: { orgId: data.orgId, serviceDate: dateWhere },
-        orderBy: { serviceDate: "asc" },
+        orderBy: [
+          { serviceDate: "asc" },
+          { scheduledStartTime: "asc" },
+          { createdAt: "asc" },
+        ],
       }),
       prisma.rundownItem.findMany({
         where: { orgId: data.orgId, serviceDate: dateWhere },
         select: {
+          showId: true,
           serviceDate: true,
           status: true,
           duration: true,
@@ -180,11 +274,11 @@ export const getSchedule = createServerFn({ method: "GET" })
       }),
       prisma.checklistEntry.findMany({
         where: { orgId: data.orgId, serviceDate: dateWhere },
-        select: { serviceDate: true, checked: true },
+        select: { showId: true, serviceDate: true, checked: true },
       }),
       prisma.incident.findMany({
         where: { orgId: data.orgId, serviceDate: dateWhere },
-        select: { serviceDate: true, status: true },
+        select: { showId: true, serviceDate: true, status: true },
       }),
       prisma.crewMember.findMany({
         where: { orgId: data.orgId },
@@ -219,16 +313,19 @@ export const getSchedule = createServerFn({ method: "GET" })
     const terminologyProfile = parsedTerminology.success
       ? parsedTerminology.data
       : "general";
-    const selectedDate = data.selectedDate ?? rundowns[0]?.serviceDate;
+    const selectedShow = data.selectedShowId
+      ? rundowns.find((rundown) => rundown.id === data.selectedShowId)
+      : undefined;
+    const selectedDate = selectedShow?.serviceDate ?? data.selectedDate ?? rundowns[0]?.serviceDate;
     const services = rundowns.map((rundown) => {
       const dayItems = items.filter(
-        (item) => item.serviceDate === rundown.serviceDate,
+        (item) => item.showId === rundown.id,
       );
       const dayCrew = assignments.filter(
-        (item) => item.serviceDate === rundown.serviceDate,
+        (item) => item.showId === rundown.id,
       );
       const dayChecklist = checklist.filter(
-        (item) => item.serviceDate === rundown.serviceDate,
+        (item) => item.showId === rundown.id,
       );
       const completed = dayItems.filter(
         (item) => item.status === "complete",
@@ -245,6 +342,7 @@ export const getSchedule = createServerFn({ method: "GET" })
         dayCrew.length ? confirmed / dayCrew.length : 0,
       ];
       return {
+        id: rundown.id,
         serviceDate: rundown.serviceDate,
         name: rundown.name || "Service",
         scheduledStartTime: rundown.scheduledStartTime?.toISOString() ?? null,
@@ -274,7 +372,7 @@ export const getSchedule = createServerFn({ method: "GET" })
         checklistTotal: dayChecklist.length,
         checklistComplete: dayChecklist.filter((item) => item.checked).length,
         incidentCount: incidents.filter(
-          (item) => item.serviceDate === rundown.serviceDate,
+          (item) => item.showId === rundown.id,
         ).length,
         readiness: Math.round(
           (readinessParts.reduce((sum, part) => sum + part, 0) /
@@ -305,14 +403,14 @@ export const getSchedule = createServerFn({ method: "GET" })
 export const getServiceAssignments = createServerFn({ method: "GET" })
   .inputValidator((value: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, serviceDate: serviceDateSchema }),
+      z.object({ orgId: idSchema, showId: idSchema }),
       value,
     ),
   )
   .handler(async ({ data }) => {
     const viewer = await assertAccess(data.orgId);
     const assignments = await getPrisma().serviceAssignment.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, showId: data.showId },
       include: {
         crewMember: {
           select: { id: true, name: true, role: true, email: true },
@@ -331,6 +429,7 @@ export const getServiceAssignments = createServerFn({ method: "GET" })
 const assignmentInput = z.object({
   orgId: idSchema,
   id: idSchema.optional(),
+  showId: idSchema,
   serviceDate: serviceDateSchema,
   role: z.string().trim().min(1).max(120),
   department: z.string().trim().min(1).max(80).default("Production"),
@@ -343,6 +442,11 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(assignmentInput, value))
   .handler(async ({ data }) => {
     await assertAccess(data.orgId, true);
+    const show = await getPrisma().rundown.findFirst({
+      where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
     if (data.crewMemberId) {
       const valid = await getPrisma().crewMember.count({
         where: { id: data.crewMemberId, orgId: data.orgId },
@@ -355,6 +459,40 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
       });
       if (!existing) throw new Error("Assignment not found");
       const personChanged = existing.crewMemberId !== data.crewMemberId;
+      // A decline is part of the service record. Reassigning that position
+      // creates a fresh invitation while leaving the declined response and
+      // note visible in the roster history.
+      if (personChanged && existing.status === "declined") {
+        const replacement = await getPrisma().serviceAssignment.create({
+          data: {
+            orgId: data.orgId,
+            showId: existing.showId ?? show.id,
+            serviceDate: existing.serviceDate,
+            role: data.role,
+            department: data.department,
+            crewMemberId: data.crewMemberId,
+            status: "assigned",
+            notes: data.notes,
+            invitedAt: null,
+          },
+        });
+        if (data.crewMemberId) {
+          const delivered = await notifyAssignment(
+            data.orgId,
+            replacement.id,
+            replacement.serviceDate,
+            replacement.role,
+            data.crewMemberId,
+          );
+          if (delivered) {
+            return getPrisma().serviceAssignment.update({
+              where: { id: replacement.id },
+              data: { invitedAt: new Date() },
+            });
+          }
+        }
+        return replacement;
+      }
       const updated = await getPrisma().serviceAssignment.update({
         where: { id: data.id },
         data: {
@@ -386,6 +524,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
     const assignment = await getPrisma().serviceAssignment.create({
       data: {
         orgId: data.orgId,
+        showId: show.id,
         serviceDate: data.serviceDate,
         role: data.role,
         department: data.department,
@@ -483,7 +622,7 @@ export const remindServiceAssignment = createServerFn({ method: "POST" })
 export const remindAllServiceAssignments = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, serviceDate: serviceDateSchema }),
+      z.object({ orgId: idSchema, showId: idSchema }),
       value,
     ),
   )
@@ -492,18 +631,18 @@ export const remindAllServiceAssignments = createServerFn({ method: "POST" })
     const assignments = await getPrisma().serviceAssignment.findMany({
       where: {
         orgId: data.orgId,
-        serviceDate: data.serviceDate,
+        showId: data.showId,
         status: "assigned",
         crewMemberId: { not: null },
       },
-      select: { id: true, role: true, crewMemberId: true },
+      select: { id: true, serviceDate: true, role: true, crewMemberId: true },
     });
     const results = await Promise.all(
       assignments.map(async (assignment) => {
         const delivered = await notifyAssignment(
           data.orgId,
           assignment.id,
-          data.serviceDate,
+          assignment.serviceDate,
           assignment.role,
           assignment.crewMemberId!,
           true,

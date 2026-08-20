@@ -18,6 +18,7 @@ import {
   persistRundownItemsForOrg,
 } from "@/lib/rundown";
 import type { RundownItem } from "@/types/rundown";
+import { readShowInventoryItem } from "@/lib/show-inventory";
 
 async function getSessionUser() {
   const { getAuth } = await import("@/lib/auth");
@@ -56,6 +57,7 @@ export const createNextService = createServerFn({ method: "POST" })
         serviceDate: serviceDateSchema,
         /** Service to clone the rundown from. Omit for an empty one. */
         copyFrom: serviceDateSchema.optional(),
+        copyFromShowId: idSchema.optional(),
         /** Optional label, e.g. "Christmas Eve 7pm". */
         name: z.string().max(120).optional(),
         /** Local wall-clock start, "HH:MM". */
@@ -64,97 +66,98 @@ export const createNextService = createServerFn({ method: "POST" })
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Start time must be HH:MM")
           .optional(),
         location: z.string().trim().max(240).optional(),
+        inventoryId: idSchema.optional(),
       }),
       data,
     ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "schedule:manage");
+    const prisma = getPrisma();
 
-    const existingRundown = await getPrisma().rundown.findUnique({
-      where: {
-        orgId_serviceDate: {
-          orgId: data.orgId,
-          serviceDate: data.serviceDate,
-        },
-      },
+    const { checkPlanLimit } = await import("@/lib/plan-limits");
+    const showCount = await prisma.rundown.count({ where: { orgId: data.orgId } });
+    await checkPlanLimit(data.orgId, "shows", showCount);
+
+    // Rollout gate: the database and schedule now use stable show IDs, but
+    // production surfaces that still write by date must be migrated before
+    // same-date creation is exposed. Remove this guard only with that final
+    // route migration.
+    const sameDateShow = await prisma.rundown.findFirst({
+      where: { orgId: data.orgId, serviceDate: data.serviceDate },
       select: { id: true },
     });
-    if (existingRundown) {
-      throw new Error("A show already exists on that date");
+    if (sameDateShow) throw new Error("A show already exists on that date");
+
+    const inventory = data.inventoryId
+      ? await readShowInventoryItem(data.orgId, data.inventoryId)
+      : null;
+    if (data.inventoryId && !inventory) {
+      throw new Error("Show inventory item not found");
     }
 
-    const existing = await getRundownStateForOrg({
-      orgId: data.orgId,
-      serviceDate: data.serviceDate,
-    });
-    if (existing.items.length > 0) {
-      throw new Error("A show already exists on that date");
-    }
-
-    if (data.copyFrom) {
+    let sourceItems: RundownItem[] = [];
+    if (inventory) {
+      try {
+        const parsed = JSON.parse(inventory.rundownJson) as unknown;
+        sourceItems = Array.isArray(parsed) ? parsed as RundownItem[] : [];
+      } catch {
+        sourceItems = [];
+      }
+    } else if (data.copyFrom) {
       const source = await getRundownStateForOrg({
         orgId: data.orgId,
         serviceDate: data.copyFrom,
+        showId: data.copyFromShowId,
       });
-      // Carry the shape of the service, not last week's execution:
-      // durations and owners yes, actual timings and live status no.
-      const cloned: RundownItem[] = source.items.map((item, index) => ({
-        ...item,
-        id: `${data.serviceDate}-${index}`,
-        status: "upcoming",
-        scheduledStart: null,
-        expectedEnd: null,
-        actualStart: null,
-        actualEnd: null,
-      }));
-      if (cloned.length > 0) {
-        await persistRundownItemsForOrg(data.orgId, data.serviceDate, cloned);
-      }
+      sourceItems = source.items;
     }
 
-    if (
-      data.startTime ||
-      data.name !== undefined ||
-      data.location !== undefined
-    ) {
-      // Anchored to the service date, not to today — the same mistake
-      // the rundown editor was making with its start-time field.
-      const scheduled = data.startTime
-        ? new Date(`${data.serviceDate}T${data.startTime}:00`)
-        : undefined;
-      const name = data.name?.trim();
-      const prisma = getPrisma() as unknown as {
-        rundown?: {
-          upsert(args: unknown): Promise<unknown>;
-        };
-      };
-      if (prisma.rundown) {
-        await prisma.rundown.upsert({
-          where: {
-            orgId_serviceDate: {
-              orgId: data.orgId,
-              serviceDate: data.serviceDate,
-            },
-          },
-          update: {
-            ...(scheduled ? { scheduledStartTime: scheduled } : {}),
-            ...(name !== undefined ? { name } : {}),
-            ...(data.location !== undefined ? { location: data.location } : {}),
-          },
-          create: {
-            orgId: data.orgId,
-            serviceDate: data.serviceDate,
-            scheduledStartTime: scheduled ?? null,
-            status: "stopped",
-            ...(name !== undefined ? { name } : {}),
-            location: data.location ?? "",
-          },
-        });
-      }
+    const startTime = data.startTime || inventory?.defaultStartTime || "";
+    const scheduledStartTime = startTime
+      ? new Date(`${data.serviceDate}T${startTime}:00`)
+      : null;
+    const rundown = await prisma.rundown.create({
+      data: {
+        orgId: data.orgId,
+        serviceDate: data.serviceDate,
+        scheduledStartTime,
+        status: "stopped",
+        name: data.name?.trim() || inventory?.name || "",
+        location: data.location || inventory?.location || "",
+      },
+      select: { id: true },
+    });
+
+    // Carry the shape of the source show, never its execution state. IDs are
+    // show-scoped so two shows on the same date cannot collide.
+    const cloned: RundownItem[] = sourceItems.map((item, index) => ({
+      ...item,
+      id: `${rundown.id}-${index}`,
+      status: "upcoming",
+      scheduledStart: null,
+      expectedEnd: null,
+      actualStart: null,
+      actualEnd: null,
+    }));
+    try {
+      await persistRundownItemsForOrg(
+        data.orgId,
+        data.serviceDate,
+        cloned,
+        rundown.id,
+      );
+    } catch (error) {
+      await prisma.$transaction([
+        prisma.rundown.deleteMany({ where: { id: rundown.id, orgId: data.orgId } }),
+        prisma.appSetting.deleteMany({
+          where: { orgId: data.orgId, key: `rundown-items:${rundown.id}` },
+        }),
+      ]);
+      throw error;
     }
 
-    return { ok: true, serviceDate: data.serviceDate };
+    return { ok: true, showId: rundown.id, serviceDate: data.serviceDate };
   });
 
 // ─── Resolve an incident ─────────────────────────────────────
@@ -220,7 +223,9 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        showId: idSchema,
         serviceDate: serviceDateSchema,
+        copyFromShowId: idSchema,
         copyFrom: serviceDateSchema,
       }),
       data,
@@ -247,13 +252,13 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     }
 
     const already = await prisma.serviceAssignment.count({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, showId: data.showId },
     });
     if (already > 0)
       throw new Error("This service already has a crew assigned");
 
     const source = await prisma.serviceAssignment.findMany({
-      where: { orgId: data.orgId, serviceDate: data.copyFrom },
+      where: { orgId: data.orgId, showId: data.copyFromShowId },
       select: { role: true, department: true, crewMemberId: true },
     });
     if (source.length === 0)
@@ -262,6 +267,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     await prisma.serviceAssignment.createMany({
       data: source.map((row) => ({
         orgId: data.orgId,
+        showId: data.showId,
         serviceDate: data.serviceDate,
         role: row.role,
         department: row.department,

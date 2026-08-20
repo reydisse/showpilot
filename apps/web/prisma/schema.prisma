@@ -122,6 +122,7 @@ model Organization {
   dashboardLayouts   DashboardLayout[]
   kioskTokens        KioskToken[]
   companionTokens    CompanionToken[]
+  showInventory      ShowInventoryItem[]
 
   organizationroles OrganizationRole[]
 
@@ -185,6 +186,27 @@ model Invitation {
 
 // ─── App Models ──────────────────────────────────────────────
 
+/// Reusable show definitions. A catalog item is a snapshot that can seed a
+/// future scheduled service; it is intentionally separate from a rundown's
+/// date-scoped operational records.
+model ShowInventoryItem {
+  id            String       @id @default(cuid())
+  orgId         String
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name          String
+  description   String       @default("")
+  location      String       @default("")
+  defaultStartTime String?
+  rundownJson   String       @default("[]")
+  sourceTemplateId String?
+  archivedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([orgId, archivedAt, name])
+  @@map("show_inventory_item")
+}
+
 model CrewMember {
   id           String       @id @default(cuid())
   orgId        String
@@ -226,12 +248,15 @@ model ChecklistEntry {
   organization Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   templateId   String
   template     ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  showId       String?
+  show         Rundown?          @relation(fields: [showId], references: [id], onDelete: Cascade)
   serviceDate  String
   checked      Boolean           @default(false)
   checkedBy    String?
   checkedAt    DateTime?
 
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@index([templateId])
   @@map("checklist_entry")
 }
@@ -240,6 +265,8 @@ model CueSheet {
   id                String       @id @default(cuid())
   orgId             String
   organization      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId             String?
+  show               Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
   cueNumber         Int
   rundownItem       String
   cameraAssignments String       @default("")
@@ -249,6 +276,7 @@ model CueSheet {
   updatedAt         DateTime     @updatedAt
 
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@map("cue_sheet")
 }
 
@@ -280,6 +308,8 @@ model CueColumn {
 model CueNote {
   id          String    @id @default(cuid())
   orgId       String
+  showId      String?
+  show        Rundown?  @relation(fields: [showId], references: [id], onDelete: Cascade)
   serviceDate String
   itemId      String
   columnId    String
@@ -288,8 +318,10 @@ model CueNote {
   updatedAt   DateTime  @updatedAt
   updatedBy   String    @default("")
 
+  @@unique([orgId, showId, itemId, columnId])
   @@unique([orgId, serviceDate, itemId, columnId])
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@map("cue_note")
 }
 
@@ -311,6 +343,8 @@ model Incident {
   id           String       @id @default(cuid())
   orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId       String?
+  show         Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
   category     String // audio | video | stream | lighting | other
   severity     String // low | medium | high
   description  String
@@ -335,6 +369,7 @@ model Incident {
   comments     IncidentComment[]
 
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@index([orgId, status])
   @@index([orgId, assignedTo])
   @@map("incident")
@@ -379,6 +414,8 @@ model ServiceAssignment {
   id           String       @id @default(cuid())
   orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId       String?
+  show         Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
   serviceDate  String
   crewMemberId String?
   crewMember   CrewMember?  @relation(fields: [crewMemberId], references: [id], onDelete: SetNull)
@@ -393,6 +430,7 @@ model ServiceAssignment {
   updatedAt    DateTime     @updatedAt
 
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@index([crewMemberId])
   @@map("service_assignment")
 }
@@ -401,6 +439,8 @@ model MicAssignment {
   id               String       @id @default(cuid())
   orgId            String
   organization     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId           String?
+  show             Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
   channel          Int
   label            String
   micType          String // wireless-handheld | wireless-lav | wired | headset | di-box | other
@@ -418,6 +458,7 @@ model MicAssignment {
   updatedAt        DateTime     @updatedAt
 
   @@index([orgId, serviceDate])
+  @@index([orgId, showId])
   @@map("mic_assignment")
 }
 
@@ -492,6 +533,8 @@ model RundownItem {
   id           String   @id @default(cuid())
   orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId       String?
+  show         Rundown? @relation(fields: [showId], references: [id], onDelete: Cascade)
   serviceDate  String
   itemId       String
   title        String
@@ -511,9 +554,11 @@ model RundownItem {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@unique([orgId, showId, itemId])
   @@unique([orgId, serviceDate, itemId])
   @@index([orgId, serviceDate, sortOrder])
   @@index([orgId, serviceDate])
+  @@index([orgId, showId, sortOrder])
   @@map("rundown_item")
 }
 
@@ -530,8 +575,17 @@ model Rundown {
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
+  checklistEntries   ChecklistEntry[]
+  cueSheets          CueSheet[]
+  cueNotes           CueNote[]
+  incidents          Incident[]
+  serviceAssignments ServiceAssignment[]
+  micAssignments     MicAssignment[]
+  items              RundownItem[]
+
   @@unique([orgId, serviceDate])
   @@index([orgId, serviceDate])
+  @@index([orgId, serviceDate, scheduledStartTime])
   @@map("rundown")
 }
 
