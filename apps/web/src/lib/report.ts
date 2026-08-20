@@ -70,7 +70,7 @@ export type ShowReport = {
 export const exportShowReport = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, serviceDate: serviceDateSchema }),
+      z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }),
       data,
     ),
   )
@@ -83,6 +83,14 @@ export const exportShowReport = createServerFn({ method: "POST" })
       select: { id: true, name: true, slug: true },
     });
     if (!org) throw new Error("Organization not found");
+    const show = await prisma.rundown.findFirst({
+      where: data.showId
+        ? { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate }
+        : { orgId: data.orgId, serviceDate: data.serviceDate },
+      orderBy: data.showId ? undefined : [{ scheduledStartTime: "asc" }, { createdAt: "asc" }],
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
 
     const [
       state,
@@ -96,21 +104,22 @@ export const exportShowReport = createServerFn({ method: "POST" })
       getRundownStateForOrg({
         orgId: data.orgId,
         serviceDate: data.serviceDate,
+        showId: show.id,
       }),
       prisma.appSetting.findUnique({
         where: {
           orgId_key: {
             orgId: data.orgId,
-            key: `rundown-message:${data.serviceDate}`,
+            key: `rundown-message:${show.id}`,
           },
         },
       }),
       prisma.incident.findMany({
-        where: { orgId: data.orgId, serviceDate: data.serviceDate },
+        where: { orgId: data.orgId, showId: show.id },
         orderBy: { timestamp: "asc" },
       }),
       prisma.checklistEntry.findMany({
-        where: { orgId: data.orgId, serviceDate: data.serviceDate },
+        where: { orgId: data.orgId, showId: show.id },
         orderBy: { checkedAt: "asc" },
       }),
       prisma.checklistTemplate.findMany({
@@ -118,11 +127,11 @@ export const exportShowReport = createServerFn({ method: "POST" })
         select: { id: true, label: true, category: true },
       }),
       prisma.cueSheet.findMany({
-        where: { orgId: data.orgId, serviceDate: data.serviceDate },
+        where: { orgId: data.orgId, showId: show.id },
         orderBy: { cueNumber: "asc" },
       }),
       prisma.serviceAssignment.findMany({
-        where: { orgId: data.orgId, serviceDate: data.serviceDate },
+        where: { orgId: data.orgId, showId: show.id },
         include: { crewMember: { select: { name: true } } },
         orderBy: { role: "asc" },
       }),

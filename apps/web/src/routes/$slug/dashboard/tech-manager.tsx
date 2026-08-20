@@ -77,8 +77,9 @@ const PHASE_CHIP: Record<ServicePhase, string> = {
 export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
   validateSearch: (search: Record<string, unknown>) => ({
     date: typeof search.date === "string" ? search.date : undefined,
+    show: typeof search.show === "string" ? search.show : undefined,
   }),
-  loaderDeps: ({ search }) => ({ date: search.date }),
+  loaderDeps: ({ search }) => ({ date: search.date, show: search.show }),
   pendingMs: 800,
   pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
@@ -93,7 +94,7 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
     const { getTmDashboardLayout } = await import("@/lib/dashboard-layout");
     const [dashboard, dashboardLayout] = await Promise.all([
       getTmDashboard({
-        data: { orgId: context.orgId, serviceDate: deps.date },
+        data: { orgId: context.orgId, serviceDate: deps.date, showId: deps.show },
       }),
       getTmDashboardLayout({ data: { orgId: context.orgId } }),
     ]);
@@ -106,8 +107,8 @@ function TechManagerPage() {
   const {
     model,
     orgId,
-    serviceDate,
-    serviceDates,
+    showId,
+    shows,
     viewerId,
     viewerRole,
     canAssignPeople,
@@ -156,6 +157,7 @@ function TechManagerPage() {
         await run();
         publishIncident({
           type: "incident",
+          showId,
           incidentId: faultId,
           action: "updated",
           at: Date.now(),
@@ -167,7 +169,7 @@ function TechManagerPage() {
         setBusyId(null);
       }
     },
-    [publishIncident, router],
+    [publishIncident, router, showId],
   );
 
   const filteredModel = useMemo(
@@ -320,23 +322,22 @@ function TechManagerPage() {
             {phaseLabel(model.phase)}
           </span>
           <select
-            aria-label="Service date"
-            value={serviceDate}
-            onChange={(event) =>
-              void navigate({ search: { date: event.target.value } })
-            }
+            aria-label="Show"
+            value={showId ?? ""}
+            onChange={(event) => {
+              const selected = shows.find((show) => show.id === event.target.value);
+              if (selected) void navigate({ search: { date: selected.serviceDate, show: selected.id } });
+            }}
             className="text-xs bg-board-card border border-board-border rounded-lg px-2.5 py-1.5 text-board-text outline-none focus:border-fire-500/50"
           >
-            {(serviceDates.includes(serviceDate)
-              ? serviceDates
-              : [serviceDate, ...serviceDates]
-            ).map((date) => (
-              <option key={date} value={date}>
-                {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+            {!showId && <option value="">No planned show</option>}
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.name || new Date(`${show.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
                   weekday: "short",
                   month: "short",
                   day: "numeric",
-                })}
+                })}{show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
               </option>
             ))}
           </select>

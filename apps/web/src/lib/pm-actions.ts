@@ -79,16 +79,6 @@ export const createNextService = createServerFn({ method: "POST" })
     const showCount = await prisma.rundown.count({ where: { orgId: data.orgId } });
     await checkPlanLimit(data.orgId, "shows", showCount);
 
-    // Rollout gate: the database and schedule now use stable show IDs, but
-    // production surfaces that still write by date must be migrated before
-    // same-date creation is exposed. Remove this guard only with that final
-    // route migration.
-    const sameDateShow = await prisma.rundown.findFirst({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
-      select: { id: true },
-    });
-    if (sameDateShow) throw new Error("A show already exists on that date");
-
     const inventory = data.inventoryId
       ? await readShowInventoryItem(data.orgId, data.inventoryId)
       : null;

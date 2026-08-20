@@ -41,6 +41,11 @@ export async function sendCrewScheduleInvite(input: {
   reminder?: boolean;
 }) {
   const prisma = getPrisma();
+  const assignment = await prisma.serviceAssignment.findFirst({
+    where: { id: input.assignmentId, orgId: input.orgId, crewMemberId: input.crewMemberId },
+    select: { showId: true, serviceDate: true, role: true },
+  });
+  if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
   const [crew, org, rundown, terminologySetting] = await Promise.all([
     prisma.crewMember.findFirst({
       where: { id: input.crewMemberId, orgId: input.orgId },
@@ -51,7 +56,9 @@ export async function sendCrewScheduleInvite(input: {
       select: { name: true },
     }),
     prisma.rundown.findFirst({
-      where: { orgId: input.orgId, serviceDate: input.serviceDate },
+      where: assignment.showId
+        ? { id: assignment.showId, orgId: input.orgId }
+        : { orgId: input.orgId, serviceDate: assignment.serviceDate },
       select: { name: true, scheduledStartTime: true, location: true },
     }),
     prisma.appSetting.findUnique({
@@ -95,9 +102,9 @@ export async function sendCrewScheduleInvite(input: {
   const email = crewScheduleEmail({
     orgName: org.name,
     serviceName,
-    serviceDate: input.serviceDate,
+    serviceDate: assignment.serviceDate,
     start,
-    role: input.role,
+    role: assignment.role,
     location: rundown?.location,
     link,
     reminder: input.reminder,
@@ -114,6 +121,7 @@ export async function sendCrewScheduleInvite(input: {
 
 type PortalAssignmentRow = {
   id: string;
+  showId: string | null;
   serviceDate: string;
   role: string;
   status: string;
@@ -175,11 +183,13 @@ export async function getCrewScheduleCalendar(
       orgId: access.orgId,
       crewMemberId: access.crewMemberId,
     },
-    select: { id: true, serviceDate: true, role: true, notes: true },
+    select: { id: true, showId: true, serviceDate: true, role: true, notes: true },
   });
   if (!assignment) throw new Error("Assignment not found");
   const rundown = await getPrisma().rundown.findFirst({
-    where: { orgId: access.orgId, serviceDate: assignment.serviceDate },
+    where: assignment.showId
+      ? { id: assignment.showId, orgId: access.orgId }
+      : { orgId: access.orgId, serviceDate: assignment.serviceDate },
     select: { name: true, scheduledStartTime: true, location: true },
   });
   const start =
@@ -248,7 +258,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     threshold.setDate(threshold.getDate() - 1);
     const assignments = await getD1()
       .prepare(
-        "SELECT id, serviceDate, role, status, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
+        "SELECT id, showId, serviceDate, role, status, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
       )
       .bind(
         access.orgId,
@@ -258,11 +268,12 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       )
       .all<PortalAssignmentRow>();
     const rows = assignments.results ?? [];
-    const dates = [...new Set(rows.map((row) => row.serviceDate))];
-    const rundowns = dates.length
+    const showIds = rows.map((row) => row.showId).filter((value): value is string => Boolean(value));
+    const rundowns = showIds.length
       ? await prisma.rundown.findMany({
-          where: { orgId: access.orgId, serviceDate: { in: dates } },
+          where: { orgId: access.orgId, id: { in: showIds } },
           select: {
+            id: true,
             serviceDate: true,
             name: true,
             scheduledStartTime: true,
@@ -271,7 +282,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         })
       : [];
     const rundownMap = new Map(
-      rundowns.map((rundown) => [rundown.serviceDate, rundown]),
+      rundowns.map((rundown) => [rundown.id, rundown]),
     );
     const parsedTerminology = orgTerminologyProfileSchema.safeParse(
       settingMap["terminology-profile"],
@@ -284,7 +295,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         ? parsedTerminology.data
         : "general",
       assignments: rows.map((assignment) => {
-        const rundown = rundownMap.get(assignment.serviceDate);
+        const rundown = assignment.showId ? rundownMap.get(assignment.showId) : undefined;
         return {
           ...assignment,
           serviceName: rundown?.name || "Show",

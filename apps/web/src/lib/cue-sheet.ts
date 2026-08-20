@@ -86,6 +86,7 @@ const BACKFILL_COLUMNS: { label: string; color: CueColumnColor }[] = [
 ];
 
 export interface CueSheetModel {
+  showId: string | null;
   serviceDate: string;
   serviceName: string;
   scheduledStartTime: string | null;
@@ -93,48 +94,41 @@ export interface CueSheetModel {
   currentItemId: string | null;
   columns: CueColumnRow[];
   rows: CueRow[];
-  /** Every date this org has a rundown for, newest first. */
-  serviceDates: string[];
+  /** Every show this org has a rundown for, newest first. */
+  shows: Array<{
+    id: string;
+    serviceDate: string;
+    name: string;
+    scheduledStartTime: string | null;
+  }>;
 }
 
-const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
-
-/**
- * Every date the org actually has a running order for.
- *
- * Items live under an appSetting key per date; the relational
- * rundown_item rows are the same set for orgs that have been through the
- * newer editor. Both are read so neither storage generation goes missing
- * from the picker.
- */
-async function loadServiceDates(orgId: string): Promise<string[]> {
+async function loadShows(orgId: string) {
   const prisma = getPrisma();
-  const [settingRows, itemRows] = await Promise.all([
-    prisma.appSetting.findMany({
-      where: { orgId, key: { startsWith: RUNDOWN_ITEMS_PREFIX } },
-      select: { key: true },
-    }),
-    getD1()
-      .prepare(`SELECT DISTINCT serviceDate FROM rundown_item WHERE orgId = ?`)
-      .bind(orgId)
-      .all<{ serviceDate: string }>()
-      .then((result) => result.results ?? [])
-      .catch(() => [] as { serviceDate: string }[]),
-  ]);
-
-  const dates = new Set<string>();
-  for (const row of settingRows) dates.add(row.key.slice(RUNDOWN_ITEMS_PREFIX.length));
-  for (const row of itemRows) dates.add(row.serviceDate);
-  return [...dates].sort();
-}
-
-async function readActiveServiceDate(orgId: string): Promise<string | null> {
-  const prisma = getPrisma();
-  const row = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId, key: ACTIVE_SERVICE_DATE_KEY } },
-    select: { value: true },
+  return prisma.rundown.findMany({
+    where: { orgId },
+    orderBy: [
+      { serviceDate: "asc" },
+      { scheduledStartTime: "asc" },
+      { createdAt: "asc" },
+    ],
+    select: { id: true, serviceDate: true, name: true, scheduledStartTime: true },
   });
-  return row?.value || null;
+}
+
+async function readActiveShow(orgId: string): Promise<{ serviceDate: string | null; showId: string | null }> {
+  const prisma = getPrisma();
+  const [dateRow, showRow] = await Promise.all([
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+      select: { value: true },
+    }),
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: "active-show-id" } },
+      select: { value: true },
+    }),
+  ]);
+  return { serviceDate: dateRow?.value || null, showId: showRow?.value || null };
 }
 
 async function getOrgMemberRole(orgId: string) {
@@ -261,6 +255,7 @@ export const getCueSheet = createServerFn({ method: "GET" })
         orgId: idSchema,
         /** Omitted on first load — the server picks the right service. */
         serviceDate: serviceDateSchema.optional(),
+        showId: idSchema.optional(),
         today: serviceDateSchema,
       }),
       data,
@@ -273,22 +268,32 @@ export const getCueSheet = createServerFn({ method: "GET" })
       "cuesheet:add_notes",
     ]);
 
-    const [serviceDates, activeServiceDate] = await Promise.all([
-      loadServiceDates(data.orgId),
-      readActiveServiceDate(data.orgId),
+    const [shows, active] = await Promise.all([
+      loadShows(data.orgId),
+      readActiveShow(data.orgId),
     ]);
-    const serviceDate =
-      data.serviceDate ?? resolveCueSheetDate(serviceDates, data.today, activeServiceDate);
+    const serviceDates = [...new Set(shows.map((show) => show.serviceDate))];
+    const target =
+      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
+      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
+      (active.showId ? shows.find((show) => show.id === active.showId) : undefined) ??
+      shows.find(
+        (show) =>
+          show.serviceDate === resolveCueSheetDate(serviceDates, data.today, active.serviceDate),
+      );
+    const serviceDate = target?.serviceDate ?? data.serviceDate ?? data.today;
+    const showId = target?.id;
 
     const [columns, state, noteRows] = await Promise.all([
       ensureColumns(data.orgId),
-      getRundownStateForOrg({ orgId: data.orgId, serviceDate }),
-      readNotes(data.orgId, serviceDate),
+      getRundownStateForOrg({ orgId: data.orgId, serviceDate, showId }),
+      readNotes(data.orgId, serviceDate, showId),
     ]);
 
     const rows = toCueRows(state.items ?? [], state.meta, noteRows);
 
     return {
+      showId: showId ?? null,
       serviceDate,
       serviceName: state.meta?.name ?? "",
       scheduledStartTime: state.meta?.scheduledStartTime ?? null,
@@ -296,15 +301,19 @@ export const getCueSheet = createServerFn({ method: "GET" })
       currentItemId: state.timer?.currentItemId ?? null,
       columns,
       rows,
-      // Newest first: the picker is nearly always used to reach a recent
-      // service, not one from six months ago.
-      serviceDates: [...serviceDates].reverse(),
+      shows: [...shows].reverse().map((show) => ({
+        id: show.id,
+        serviceDate: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+      })),
     };
   });
 
 async function readNotes(
   orgId: string,
   serviceDate: string,
+  showId?: string,
 ): Promise<{ itemId: string; columnId: string; text: string }[]> {
   return (
     (
@@ -312,9 +321,9 @@ async function readNotes(
         .prepare(
           `SELECT itemId, columnId, text
              FROM cue_note
-            WHERE orgId = ? AND serviceDate = ? AND text <> ''`,
+            WHERE orgId = ? AND ${showId ? "showId = ?" : "serviceDate = ?"} AND text <> ''`,
         )
-        .bind(orgId, serviceDate)
+        .bind(orgId, showId ?? serviceDate)
         .all<{ itemId: string; columnId: string; text: string }>()
     ).results ?? []
   );
@@ -327,6 +336,7 @@ export const setCueNote = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        showId: idSchema,
         serviceDate: serviceDateSchema,
         itemId: z.string().min(1).max(200),
         columnId: idSchema,
@@ -350,20 +360,26 @@ export const setCueNote = createServerFn({ method: "POST" })
       .bind(data.columnId, data.orgId)
       .first<{ id: string }>();
     if (!owns) throw new Error("Unknown column");
+    const show = await getD1()
+      .prepare(`SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ?`)
+      .bind(data.showId, data.orgId, data.serviceDate)
+      .first<{ id: string }>();
+    if (!show) throw new Error("Show not found");
 
     const now = new Date().toISOString();
     // ON CONFLICT against the unique cell index: two operators typing in
     // the same cell converge on one row rather than racing to insert two.
     await getD1()
       .prepare(
-        `INSERT INTO cue_note (id, orgId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (orgId, serviceDate, itemId, columnId)
+        `INSERT INTO cue_note (id, orgId, showId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (orgId, showId, itemId, columnId)
          DO UPDATE SET text = excluded.text, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy`,
       )
       .bind(
         crypto.randomUUID(),
         data.orgId,
+        data.showId,
         data.serviceDate,
         data.itemId,
         data.columnId,

@@ -25,6 +25,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
 import {
   Dialog,
   DialogContent,
@@ -33,12 +34,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function formatDisplayDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -52,9 +47,13 @@ export const Route = createFileRoute("/$slug/production/checklist")({
     await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } });
+    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today } });
+    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: opening.serviceDate, showId: opening.showId } });
     return {
       entries,
+      serviceDate: opening.serviceDate,
+      showId: opening.showId,
+      shows: opening.shows,
       orgId: context.orgId,
       role: context.role,
       orgTimezone: settings["org-timezone"],
@@ -64,8 +63,9 @@ export const Route = createFileRoute("/$slug/production/checklist")({
 });
 
 function ChecklistPage() {
-  const { entries: initialEntries, orgId, role, orgTimezone } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(initialServiceDate);
+  const [showId, setShowId] = useState<string | undefined>(initialShowId);
   const [entries, setEntries] = useState(initialEntries as Array<{
     id: string;
     templateId: string;
@@ -84,10 +84,13 @@ function ChecklistPage() {
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
   const [generatorError, setGeneratorError] = useState("");
 
-  const loadEntries = useCallback(async (date: string) => {
+  const loadEntries = useCallback(async (date: string, requestedShowId?: string) => {
     setLoadingEntries(true);
     try {
-      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date } });
+      const rundown = await getRundownState({ data: { orgId, serviceDate: date, showId: requestedShowId } });
+      const resolvedShowId = rundown.meta?.showId;
+      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date, showId: resolvedShowId } });
+      setShowId(resolvedShowId);
       setEntries(latest as typeof entries);
     } finally {
       setLoadingEntries(false);
@@ -99,13 +102,14 @@ function ChecklistPage() {
   }, [initialEntries]);
 
   useEffect(() => {
-    void loadEntries(serviceDate);
-  }, [loadEntries, serviceDate]);
+    void loadEntries(serviceDate, showId);
+  }, [loadEntries, serviceDate, showId]);
 
   useServiceDateRollover({
     serviceDate,
     timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
+      setShowId(undefined);
       setServiceDate(nextToday);
     },
   });
@@ -122,12 +126,12 @@ function ChecklistPage() {
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-  const canManageChecklist = hasPermission(role, "checklist:access");
+  const canManageChecklist = hasPermission(role, "checklist:access") && Boolean(showId);
 
   const handleToggle = async (entryId: string, checked: boolean) => {
     if (!canManageChecklist) return;
     await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
-    await loadEntries(serviceDate);
+    await loadEntries(serviceDate, showId);
   };
 
   const handleAddTemplate = async (e: React.FormEvent) => {
@@ -140,13 +144,13 @@ function ChecklistPage() {
         data: { orgId, label: newLabel.trim(), category: newCategory },
       });
       if (tpl) {
-        await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate } });
+        await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate, showId } });
       }
       setNewLabel("");
       // The department is deliberately sticky. Checks are written in
       // runs — five audio items, then four camera items — and resetting
       // to General after each one is how a list ends up uncategorised.
-      await loadEntries(serviceDate);
+      await loadEntries(serviceDate, showId);
     } finally {
       setAdding(false);
     }
@@ -180,11 +184,15 @@ function ChecklistPage() {
     });
     if (!ok) return;
     await deleteChecklistTemplate({ data: { orgId, id } });
-    await loadEntries(serviceDate);
+    await loadEntries(serviceDate, showId);
   };
 
-  const handleDateChange = (days: number) => {
-    setServiceDate((d) => shiftDate(d, days));
+  const handleDateChange = (direction: number) => {
+    const index = shows.findIndex((show) => show.id === showId);
+    const next = shows[index + direction];
+    if (!next) return;
+    setShowId(next.id);
+    setServiceDate(next.serviceDate);
   };
 
   const handleGenerateDraft = async () => {
@@ -193,7 +201,7 @@ function ChecklistPage() {
     setGenerating(true);
     setGeneratorError("");
     try {
-      const suggestions = await getSmartChecklistDraft({ data: { orgId, serviceDate } });
+      const suggestions = await getSmartChecklistDraft({ data: { orgId, serviceDate, showId } });
       setDraft(suggestions);
       setSelectedSuggestionIds(new Set(suggestions.map((suggestion) => suggestion.id)));
     } catch (error) {
@@ -210,9 +218,9 @@ function ChecklistPage() {
     setGeneratorError("");
     try {
       await applySmartChecklistDraft({
-        data: { orgId, serviceDate, suggestionIds: Array.from(selectedSuggestionIds) },
+        data: { orgId, serviceDate, showId, suggestionIds: Array.from(selectedSuggestionIds) },
       });
-      await loadEntries(serviceDate);
+      await loadEntries(serviceDate, showId);
       setGeneratorOpen(false);
     } catch (error) {
       setGeneratorError(error instanceof Error ? error.message : "Could not add the selected checks.");
@@ -242,12 +250,25 @@ function ChecklistPage() {
             <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
-              <button
-                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              <select
+                value={showId ?? ""}
+                onChange={(event) => {
+                  const selected = shows.find((show) => show.id === event.target.value);
+                  if (!selected) return;
+                  setShowId(selected.id);
+                  setServiceDate(selected.serviceDate);
+                }}
+                aria-label="Select show"
+                className="min-w-[210px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text"
               >
-                {formatDisplayDate(serviceDate)}
-              </button>
+                {!showId && <option value="">No planned show</option>}
+                {shows.map((show) => (
+                  <option key={show.id} value={show.id}>
+                    {show.name || formatDisplayDate(show.serviceDate)}
+                    {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                  </option>
+                ))}
+              </select>
             <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>

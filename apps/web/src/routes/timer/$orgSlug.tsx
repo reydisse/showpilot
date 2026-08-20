@@ -11,7 +11,7 @@ import { getRundownStateForOrg } from "@/lib/rundown";
 // ─── Server Functions ────────────────────────────────────────
 
 const getRundownStateBySlug = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgSlug: string; serviceDate: string }) => data)
+  .inputValidator((data: { orgSlug: string; serviceDate: string; showId?: string }) => data)
   .handler(async ({ data }): Promise<{ state: RundownState; message: string; ppSlide: PPSlidePayload | null } | null> => {
     const prisma = getPrisma();
 
@@ -21,15 +21,15 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
     if (!org) return null;
 
     const [state, messageSetting, ppSlideSetting, ppStageDisplaySetting] = await Promise.all([
-      getRundownStateForOrg({ orgId: org.id, serviceDate: data.serviceDate }),
+      getRundownStateForOrg({ orgId: org.id, serviceDate: data.serviceDate, showId: data.showId }),
       prisma.appSetting.findUnique({
         where: {
-          orgId_key: { orgId: org.id, key: `rundown-message:${data.serviceDate}` },
+          orgId_key: { orgId: org.id, key: `rundown-message:${data.showId ?? data.serviceDate}` },
         },
       }),
       prisma.appSetting.findUnique({
         where: {
-          orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.serviceDate}` },
+          orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.showId ?? data.serviceDate}` },
         },
       }),
       prisma.appSetting.findUnique({
@@ -262,6 +262,7 @@ function TimerKioskPage() {
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
   const [relayServiceDate, setRelayServiceDate] = useState(serviceDate.current);
+  const [relayShowId, setRelayShowId] = useState("");
   const hasActiveServiceDateRef = useRef(false);
   const lastTodayRef = useRef(serviceDate.current);
 
@@ -292,10 +293,14 @@ function TimerKioskPage() {
 
   const resolvedOrgTimezoneDate = useMemo(() => getTodayDateString(orgTimezone || undefined), [orgTimezone]);
 
-  // Fetch display defaults once
+  // Keep the display attached to the active show. A production manager can
+  // switch between two shows on the same date while this kiosk remains open.
   useEffect(() => {
-    getDisplaySettingsBySlug({ data: { orgSlug } })
-      .then((settings) => {
+    let active = true;
+    const refreshDisplayTarget = async () => {
+      try {
+        const settings = await getDisplaySettingsBySlug({ data: { orgSlug } });
+        if (!active) return;
         setClockFormat(settings.clockFormat);
         setTimezoneDisplay(settings.timezoneDisplay);
         setOrgTimezone(settings.orgTimezone);
@@ -306,8 +311,17 @@ function TimerKioskPage() {
         serviceDate.current = activeDate;
         lastTodayRef.current = orgToday;
         setRelayServiceDate(activeDate);
-      })
-      .catch(() => {});
+        setRelayShowId(settings.activeShowId);
+      } catch {
+        // Keep the last known display target during a temporary outage.
+      }
+    };
+    void refreshDisplayTarget();
+    const interval = window.setInterval(refreshDisplayTarget, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, [orgSlug]);
 
   // Track fullscreen state
@@ -335,7 +349,9 @@ function TimerKioskPage() {
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws?serviceDate=${encodeURIComponent(relayServiceDate)}`;
+    const query = new URLSearchParams({ serviceDate: relayServiceDate });
+    if (relayShowId) query.set("showId", relayShowId);
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws?${query.toString()}`;
 
     const clearPing = () => {
       if (pingRef.current) {
@@ -435,13 +451,13 @@ function TimerKioskPage() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [applyStageMessage, orgSlug, relayServiceDate]);
+  }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
     try {
       const result = await getRundownStateBySlug({
-        data: { orgSlug, serviceDate: serviceDate.current },
+        data: { orgSlug, serviceDate: serviceDate.current, showId: relayShowId || undefined },
       });
       if (result) {
         // The poll is strictly a fallback. Once the relay is connected it
@@ -459,7 +475,7 @@ function TimerKioskPage() {
     } catch {
       if (!wsConnectedRef.current) setConnected(false);
     }
-  }, [applyStageMessage, orgSlug]);
+  }, [applyStageMessage, orgSlug, relayShowId]);
 
   useEffect(() => {
     if (hasActiveServiceDateRef.current) return;

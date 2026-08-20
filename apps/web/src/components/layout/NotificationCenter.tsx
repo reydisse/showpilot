@@ -104,11 +104,11 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
   const destination = getNotificationDestination(actionUrl);
   if (!destination) return;
   if (destination.kind === "tech-manager") {
-    await navigate({ to: "/$slug/dashboard/tech-manager", params: { slug }, search: { date: undefined } });
+    await navigate({ to: "/$slug/dashboard/tech-manager", params: { slug }, search: { date: undefined, show: undefined } });
     return;
   }
   if (destination.kind === "incident") {
-    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: destination.incident, date: destination.date } });
+    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: destination.incident, date: destination.date, show: destination.show } });
     return;
   }
   if (destination.kind === "schedule") {

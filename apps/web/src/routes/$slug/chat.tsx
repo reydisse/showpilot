@@ -5,10 +5,12 @@ import { Copy, QrCode, X, Clock3, Check, Users, Link2, LockKeyhole, Wifi, Messag
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useChat } from "@/hooks/useChat";
-import { getActiveAdapters } from "@/lib/settings";
+import { getActiveAdapters, getOrgSettings } from "@/lib/settings";
 import { createCrewChatPass } from "@/lib/crew-chat-pass";
 import { getChatMembers } from "@/lib/chat-collaboration";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { getRundownOpeningDate } from "@/lib/rundown";
+import { getTodayDateString } from "@/lib/utils";
 
 export const Route = createFileRoute("/$slug/chat")({
   validateSearch: (search: Record<string, unknown>) => ({ room: typeof search.room === "string" ? search.room : "production" }),
@@ -16,17 +18,19 @@ export const Route = createFileRoute("/$slug/chat")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "chat:access", context.slug, context.orgId);
-    const [adapters, members] = await Promise.all([
+    const [adapters, members, settings] = await Promise.all([
       getActiveAdapters({ data: { orgId: context.orgId } }),
       getChatMembers({ data: { orgId: context.orgId } }),
+      getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
-    return { orgId: context.orgId, slug: context.slug, userId: context.user.id, userName: context.user.name, userRole: context.role, chatAdapter: adapters.chat, members };
+    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today: getTodayDateString(settings["org-timezone"]) } });
+    return { orgId: context.orgId, slug: context.slug, userId: context.user.id, userName: context.user.name, userRole: context.role, chatAdapter: adapters.chat, members, showId: opening.showId, serviceDate: opening.serviceDate };
   },
   component: ChatPage,
 });
 
 function ChatPage() {
-  const { orgId, slug, userId, userName, userRole, chatAdapter, members } = Route.useLoaderData();
+  const { orgId, slug, userId, userName, userRole, chatAdapter, members, showId, serviceDate } = Route.useLoaderData();
   const { room: requestedRoom } = Route.useSearch();
   const navigate = Route.useNavigate();
   const roomId = requestedRoom || "production";
@@ -35,7 +39,7 @@ function ChatPage() {
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
   const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
-  const rundown = useRundownSync(orgId);
+  const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
     : null;

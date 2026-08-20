@@ -60,8 +60,9 @@ async function assertTm(orgId: string, permissions: Permission[]) {
 export interface TmDashboardResult {
   model: TmDashboardModel;
   orgId: string;
+  showId: string | null;
   serviceDate: string;
-  serviceDates: string[];
+  shows: Array<{ id: string; serviceDate: string; name: string; scheduledStartTime: string | null }>;
   viewerId: string;
   viewerRole: string;
   canAssignPeople: boolean;
@@ -74,7 +75,7 @@ export interface TmDashboardResult {
 export const getTmDashboard = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, serviceDate: serviceDateSchema.optional() }),
+      z.object({ orgId: idSchema, serviceDate: serviceDateSchema.optional(), showId: idSchema.optional() }),
       data,
     ),
   )
@@ -95,7 +96,20 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     const today = getTodayDateString(orgTimezone);
     // The rundown decides which service is current — same rule the cue
     // sheet follows, so the two pages never disagree about the date.
-    const serviceDate = data.serviceDate ?? settingMap["active-service-date"] ?? today;
+    const shows = await prisma.rundown.findMany({
+      where: { orgId },
+      orderBy: [{ serviceDate: "asc" }, { scheduledStartTime: "asc" }, { createdAt: "asc" }],
+      select: { id: true, serviceDate: true, name: true, scheduledStartTime: true },
+    });
+    const targetShow =
+      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
+      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
+      (settingMap["active-show-id"] ? shows.find((show) => show.id === settingMap["active-show-id"]) : undefined) ??
+      (settingMap["active-service-date"] ? shows.find((show) => show.serviceDate === settingMap["active-service-date"]) : undefined) ??
+      shows.find((show) => show.serviceDate >= today) ??
+      shows.at(-1);
+    const serviceDate = targetShow?.serviceDate ?? data.serviceDate ?? today;
+    const showId = targetShow?.id;
 
     const [
       rundownRow,
@@ -108,18 +122,17 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       rosterDuty,
       checklistTemplateCount,
       rundownItemCount,
-      serviceDateRows,
       rosterInUse,
     ] =
       await Promise.all([
-        loadRundownMeta(orgId, serviceDate),
+        loadRundownMeta(orgId, serviceDate, showId),
         loadOpenFaults(orgId),
         prisma.equipment.findMany({
           where: { orgId },
           select: { id: true, name: true, category: true, status: true, nextService: true },
         }),
         prisma.checklistEntry.findMany({
-          where: { orgId, serviceDate },
+          where: { orgId, ...(showId ? { showId } : { serviceDate }) },
           select: {
             id: true,
             checked: true,
@@ -142,12 +155,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         // two pages can never name different people on duty.
         loadRosterDuty(orgId, serviceDate),
         prisma.checklistTemplate.count({ where: { orgId } }),
-        prisma.rundownItem.count({ where: { orgId, serviceDate } }),
-        prisma.rundown.findMany({
-          where: { orgId },
-          select: { serviceDate: true },
-          orderBy: { serviceDate: "desc" },
-        }),
+        prisma.rundownItem.count({ where: { orgId, ...(showId ? { showId } : { serviceDate }) } }),
         countRosterAssignments(orgId),
       ]);
 
@@ -231,8 +239,14 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     return {
       model: deriveTmDashboard(snapshot),
       orgId,
+      showId: showId ?? null,
       serviceDate,
-      serviceDates: serviceDateRows.map((row) => row.serviceDate),
+      shows: shows.map((show) => ({
+        id: show.id,
+        serviceDate: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+      })),
       viewerId: viewer.userId,
       viewerRole: viewer.role,
       canAssignPeople: isAdminTier(viewer.role),
@@ -339,13 +353,14 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
 async function loadRundownMeta(
   orgId: string,
   serviceDate: string,
+  showId?: string,
 ): Promise<{ scheduledStartTime: string | null; status: string } | null> {
   try {
     const row = await getD1()
       .prepare(
-        `SELECT scheduledStartTime, status FROM rundown WHERE orgId = ? AND serviceDate = ?`,
+        `SELECT scheduledStartTime, status FROM rundown WHERE orgId = ? AND ${showId ? "id = ?" : "serviceDate = ?"}`,
       )
-      .bind(orgId, serviceDate)
+      .bind(orgId, showId ?? serviceDate)
       .first<{ scheduledStartTime: string | null; status: string }>();
     if (!row) return null;
     return {

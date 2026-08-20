@@ -82,6 +82,7 @@ function CueSheetsPage() {
   const { model: initialModel, orgId, role, orgTimezone } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const today = getTodayDateString(orgTimezone);
+  const [showId, setShowId] = useState(initialModel.showId);
   const [serviceDate, setServiceDate] = useState(initialModel.serviceDate);
   const [model, setModel] = useState<CueSheetModel>(initialModel);
   // itemId → columnId → text. Held apart from the rows because the rows
@@ -126,11 +127,13 @@ function CueSheetsPage() {
   );
 
   const load = useCallback(
-    async (date: string) => {
+    async (nextShowId: string) => {
       setLoading(true);
       try {
-        const next = await getCueSheet({ data: { orgId, serviceDate: date, today } });
+        const next = await getCueSheet({ data: { orgId, showId: nextShowId, today } });
         setModel(next);
+        setShowId(next.showId);
+        setServiceDate(next.serviceDate);
         setNotes(notesFromRows(next.rows));
       } finally {
         setLoading(false);
@@ -141,31 +144,30 @@ function CueSheetsPage() {
 
   // The loader already fetched the opening date; re-reading it here would
   // be a wasted round trip on every mount.
-  const loadedRef = useRef(initialModel.serviceDate);
+  const loadedRef = useRef(initialModel.showId);
   useEffect(() => {
-    if (loadedRef.current === serviceDate) return;
-    loadedRef.current = serviceDate;
-    void load(serviceDate);
-  }, [load, serviceDate]);
+    if (!showId || loadedRef.current === showId) return;
+    loadedRef.current = showId;
+    void load(showId);
+  }, [load, showId]);
 
   // ── Live ──────────────────────────────────────────────────
 
   const applyRemoteNote = useCallback(
-    (event: { serviceDate: string; itemId: string; columnId: string; text: string }) => {
-      // Another date's edit is not ours to show.
-      if (event.serviceDate !== serviceDate) return;
+    (event: { showId: string; serviceDate: string; itemId: string; columnId: string; text: string }) => {
+      if (event.showId !== showId) return;
       setNotes((prev) => ({
         ...prev,
         [event.itemId]: { ...(prev[event.itemId] ?? {}), [event.columnId]: event.text },
       }));
     },
-    [serviceDate],
+    [showId],
   );
 
   const { connected, publish } = useCueSheetSync({
     orgId,
     onNote: applyRemoteNote,
-    onColumns: () => void load(serviceDate),
+    onColumns: () => showId ? void load(showId) : undefined,
   });
 
   // ── Continuity with the rundown ───────────────────────────
@@ -181,21 +183,15 @@ function CueSheetsPage() {
   // editor (the DO holds no state for it), so an unreachable socket
   // degrades to what the page did before rather than to a blank sheet.
   //
-  // Connected WITHOUT a service date on purpose. The relay is one room
-  // per org and takes `?serviceDate=` as an instruction — it rewrites
-  // the date its items are filed under, and its timing writes go to that
-  // date. A cue sheet opening on a different service would silently
-  // retarget the editor's room. Reading only, and checking the date the
-  // relay reports, keeps this a subscriber.
   const {
     items: liveItems,
     timer: liveTimer,
     hydrated,
-    stateServiceDate,
-  } = useRundownSync(orgId);
+    stateShowId,
+  } = useRundownSync(orgId, serviceDate, showId ?? undefined);
 
   /** Live items are this service's only if the relay says so. */
-  const liveMatches = hydrated && stateServiceDate === serviceDate && liveItems.length > 0;
+  const liveMatches = hydrated && stateShowId === showId && liveItems.length > 0;
 
   // Follow the editor. If the rundown moves to another service, the cue
   // sheet goes with it — that is what "the cue sheet follows the
@@ -208,9 +204,10 @@ function CueSheetsPage() {
   const pickedRef = useRef(false);
   useEffect(() => {
     if (pickedRef.current) return;
-    if (!hydrated || !stateServiceDate || stateServiceDate === serviceDate) return;
-    setServiceDate(stateServiceDate);
-  }, [hydrated, stateServiceDate, serviceDate]);
+    if (!hydrated || !stateShowId || stateShowId === showId) return;
+    const relayShow = model.shows.find((show) => show.id === stateShowId);
+    if (relayShow) setShowId(relayShow.id);
+  }, [hydrated, model.shows, showId, stateShowId]);
 
   const cells = useMemo(
     () =>
@@ -281,11 +278,12 @@ function CueSheetsPage() {
         ...prev,
         [itemId]: { ...(prev[itemId] ?? {}), [columnId]: text },
       }));
-      publish({ type: "note", serviceDate, itemId, columnId, text, by: "", at: Date.now() });
+      if (!showId) return;
+      publish({ type: "note", showId, serviceDate, itemId, columnId, text, by: "", at: Date.now() });
       const { setCueNote } = await import("@/lib/cue-sheet");
-      await setCueNote({ data: { orgId, serviceDate, itemId, columnId, text } });
+      await setCueNote({ data: { orgId, showId, serviceDate, itemId, columnId, text } });
     },
-    [orgId, serviceDate, publish],
+    [orgId, showId, serviceDate, publish],
   );
 
   const handleWidthChange = useCallback(
@@ -318,21 +316,15 @@ function CueSheetsPage() {
     [model.columns, orgId, publish],
   );
 
-  // Oldest first for stepping; the model hands them back newest first.
-  const pickerDates = useMemo(() => {
-    const dates = [...model.serviceDates].reverse();
-    // Always include whatever is on screen, even a date with no rundown,
-    // so the control never shows a value that isn't in its own list.
-    return dates.includes(serviceDate) ? dates : [...dates, serviceDate].sort();
-  }, [model.serviceDates, serviceDate]);
+  const pickerShows = useMemo(() => [...model.shows].reverse(), [model.shows]);
 
   const stepTo = useCallback(
     (delta: number) => {
-      const index = pickerDates.indexOf(serviceDate);
+      const index = pickerShows.findIndex((show) => show.id === showId);
       if (index < 0) return null;
-      return pickerDates[index + delta] ?? null;
+      return pickerShows[index + delta]?.id ?? null;
     },
-    [pickerDates, serviceDate],
+    [pickerShows, showId],
   );
   const canStep = useCallback((delta: number) => stepTo(delta) !== null, [stepTo]);
   const step = useCallback(
@@ -340,7 +332,7 @@ function CueSheetsPage() {
       const next = stepTo(delta);
       if (!next) return;
       pickedRef.current = true;
-      setServiceDate(next);
+      setShowId(next);
     },
     [stepTo],
   );
@@ -357,15 +349,15 @@ function CueSheetsPage() {
       <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="flex items-center gap-3 flex-wrap px-6 py-3">
           <h1 className="text-[15px] font-semibold text-board-text">Cue sheet</h1>
-          {pickedRef.current && stateServiceDate && stateServiceDate !== serviceDate && (
+          {pickedRef.current && stateShowId && stateShowId !== showId && (
             <button
               onClick={() => {
                 pickedRef.current = false;
-                setServiceDate(stateServiceDate);
+                setShowId(stateShowId);
               }}
               className="text-[11px] px-2 py-0.5 rounded-full border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
             >
-              Rundown is on {formatDisplayDate(stateServiceDate)} — follow it
+              Rundown changed — follow it
             </button>
           )}
           {model.serviceName && (
@@ -387,21 +379,22 @@ function CueSheetsPage() {
               <ChevronLeft className="w-4 h-4" />
             </button>
             <label htmlFor="cue-service-date" className="sr-only">
-              Service
+              Show
             </label>
             <select
               id="cue-service-date"
-              value={serviceDate}
+              value={showId ?? ""}
               onChange={(event) => {
                 pickedRef.current = true;
-                setServiceDate(event.target.value);
+                setShowId(event.target.value);
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[190px]"
             >
-              {pickerDates.map((date) => (
-                <option key={date} value={date}>
-                  {formatDisplayDate(date)}
-                  {date === today ? " · today" : ""}
+              {pickerShows.map((show) => (
+                <option key={show.id} value={show.id}>
+                  {show.name || formatDisplayDate(show.serviceDate)}
+                  {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                  {show.serviceDate === today ? " · today" : ""}
                 </option>
               ))}
             </select>
@@ -511,7 +504,7 @@ function CueSheetsPage() {
           orgId={orgId}
           columns={model.columns}
           onChanged={() => {
-            void load(serviceDate);
+            if (showId) void load(showId);
             publish({ type: "columns", at: Date.now() });
           }}
           onClose={() => setManaging(false)}

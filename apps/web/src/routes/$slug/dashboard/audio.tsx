@@ -30,6 +30,7 @@ import {
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { getRundownOpeningDate } from "@/lib/rundown";
 
 type MicType = "wireless-handheld" | "wireless-lav" | "wired" | "headset" | "di-box" | "other";
 type ChannelGroup = "vocals" | "band" | "playback" | "sfx" | "other";
@@ -51,12 +52,6 @@ const GROUP_CONFIG: Record<ChannelGroup, { label: string; icon: React.ElementTyp
   other: { label: "Other", icon: Cable, color: "text-board-muted" },
 };
 
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function formatDisplayDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -69,14 +64,17 @@ export const Route = createFileRoute("/$slug/dashboard/audio")({
     await withPermission(context.role, "dashboard:tm", context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
+    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today } });
     const [assignments, devices] = await Promise.all([
-      getMicAssignments({ data: { orgId: context.orgId, serviceDate: today } }),
+      getMicAssignments({ data: { orgId: context.orgId, serviceDate: opening.serviceDate, showId: opening.showId } }),
       getDevices({ data: { orgId: context.orgId } }),
     ]);
     return {
       assignments,
       orgId: context.orgId,
-      today,
+      initialServiceDate: opening.serviceDate,
+      initialShowId: opening.showId ?? null,
+      shows: opening.shows,
       orgTimezone: settings["org-timezone"],
       mixers: devices.filter((device) => device.category === "mixer"),
     };
@@ -85,9 +83,10 @@ export const Route = createFileRoute("/$slug/dashboard/audio")({
 });
 
 function AudioPage() {
-  const { assignments: initialAssignments, orgId, today, orgTimezone, mixers } = Route.useLoaderData();
+  const { assignments: initialAssignments, orgId, initialServiceDate, initialShowId, shows, orgTimezone, mixers } = Route.useLoaderData();
   const { slug } = Route.useParams();
-  const [serviceDate, setServiceDate] = useState(today);
+  const [serviceDate, setServiceDate] = useState(initialServiceDate);
+  const [showId, setShowId] = useState<string | null>(initialShowId);
   const [assignments, setAssignments] = useState(initialAssignments);
   const [showForm, setShowForm] = useState(false);
   const [editAssignment, setEditAssignment] = useState<typeof assignments[0] | null>(null);
@@ -95,9 +94,9 @@ function AudioPage() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => initialAssignments[0]?.id ?? null);
 
-  const loadAssignments = async (date: string) => {
+  const loadAssignments = async (date: string, targetShowId: string | null) => {
     setLoading(true);
-    const result = await getMicAssignments({ data: { orgId, serviceDate: date } });
+    const result = await getMicAssignments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } });
     setAssignments(result);
     setLoading(false);
   };
@@ -107,24 +106,30 @@ function AudioPage() {
     timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
       setServiceDate(nextToday);
-      void loadAssignments(nextToday);
+      const nextShow = shows.find((show) => show.serviceDate === nextToday);
+      setShowId(nextShow?.id ?? null);
+      void loadAssignments(nextToday, nextShow?.id ?? null);
     },
   });
 
-  const handleDateChange = (days: number) => {
-    const newDate = shiftDate(serviceDate, days);
-    setServiceDate(newDate);
-    loadAssignments(newDate);
+  const handleDateChange = (direction: number) => {
+    const ordered = [...shows].sort((a, b) => `${a.serviceDate}:${a.scheduledStartTime ?? ""}`.localeCompare(`${b.serviceDate}:${b.scheduledStartTime ?? ""}`));
+    const index = ordered.findIndex((show) => show.id === showId);
+    const next = ordered[index + direction];
+    if (!next) return;
+    setServiceDate(next.serviceDate);
+    setShowId(next.id);
+    void loadAssignments(next.serviceDate, next.id);
   };
 
   const handleToggleMute = async (id: string, currentMuted: boolean) => {
     await updateMicAssignment({ data: { id, updates: { muted: !currentMuted } } });
-    loadAssignments(serviceDate);
+    loadAssignments(serviceDate, showId);
   };
 
   const handleDelete = async (id: string) => {
     await deleteMicAssignment({ data: { id } });
-    loadAssignments(serviceDate);
+    loadAssignments(serviceDate, showId);
   };
 
   const phantomCount = assignments.filter((a) => a.phantom).length;
@@ -168,16 +173,21 @@ function AudioPage() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => {
-                  const nextToday = getTodayDateString(orgTimezone);
-                  setServiceDate(nextToday);
-                  loadAssignments(nextToday);
+              <select
+                value={showId ?? ""}
+                onChange={(event) => {
+                  const selected = shows.find((show) => show.id === event.target.value);
+                  if (!selected) return;
+                  setServiceDate(selected.serviceDate);
+                  setShowId(selected.id);
+                  void loadAssignments(selected.serviceDate, selected.id);
                 }}
-                className="px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors"
+                aria-label="Select show"
+                className="rounded-lg border border-board-border bg-board-card px-3 py-1 text-xs font-medium text-board-text"
               >
-                {formatDisplayDate(serviceDate)}
-              </button>
+                {!showId && <option value="">No planned show</option>}
+                {shows.map((show) => <option key={show.id} value={show.id}>{show.name || formatDisplayDate(show.serviceDate)}{show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</option>)}
+              </select>
               <button
                 onClick={() => handleDateChange(1)}
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
@@ -186,11 +196,12 @@ function AudioPage() {
               </button>
             </div>
             <button
+              disabled={!showId}
               onClick={() => {
                 setEditAssignment(null);
                 setShowForm(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-40 transition-colors"
             >
               <Plus className="w-3 h-3" />
               Add Channel
@@ -216,7 +227,7 @@ function AudioPage() {
             icon={Mic}
             title="No channels assigned"
             description="Map mics, instruments and playback inputs to mixer channels for this service."
-            action={
+            action={showId ? (
               <EmptyStateButton
                 onClick={() => {
                   setEditAssignment(null);
@@ -225,7 +236,7 @@ function AudioPage() {
               >
                 Add First Channel
               </EmptyStateButton>
-            }
+            ) : undefined}
           />
         ) : (
           <div className="grid overflow-hidden rounded-xl border border-board-border bg-board-card xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -238,6 +249,7 @@ function AudioPage() {
           <MicAssignmentForm
             existing={editAssignment}
             orgId={orgId}
+            showId={showId}
             serviceDate={serviceDate}
             nextChannel={nextChannel}
             onClose={() => {
@@ -247,7 +259,7 @@ function AudioPage() {
             onSaved={() => {
               setShowForm(false);
               setEditAssignment(null);
-              loadAssignments(serviceDate);
+              loadAssignments(serviceDate, showId);
             }}
           />
         )}
@@ -267,6 +279,7 @@ function ChannelDetail({ label, value }: { label: string; value: string }) {
 function MicAssignmentForm({
   existing,
   orgId,
+  showId,
   serviceDate,
   nextChannel,
   onClose,
@@ -274,6 +287,7 @@ function MicAssignmentForm({
 }: {
   existing: Awaited<ReturnType<typeof getMicAssignments>>[0] | null;
   orgId: string;
+  showId: string | null;
   serviceDate: string;
   nextChannel: number;
   onClose: () => void;
@@ -295,7 +309,7 @@ function MicAssignmentForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!label.trim()) return;
+    if (!label.trim() || (!existing && !showId)) return;
     setSaving(true);
 
     if (existing) {
@@ -318,6 +332,7 @@ function MicAssignmentForm({
       await addMicAssignment({
         data: {
           orgId,
+          showId,
           channel,
           label: label.trim(),
           micType,

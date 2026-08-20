@@ -1,6 +1,6 @@
 export type NotificationDestination =
   | { kind: "tech-manager" }
-  | { kind: "incident"; incident?: string; date?: string }
+  | { kind: "incident"; incident?: string; date?: string; show?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
   | { kind: "chat"; room: string };
 
@@ -16,6 +16,7 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
       kind: "incident",
       incident: search?.get("incident")?.trim() || undefined,
       date: search?.get("date")?.trim() || undefined,
+      show: search?.get("show")?.trim() || undefined,
     };
   }
 

@@ -100,7 +100,7 @@ function IncidentHistoryPage() {
           <Link
             to="/$slug/production/incidents"
             params={{ slug }}
-            search={{ incident: undefined, date: undefined }}
+            search={{ incident: undefined, date: undefined, show: undefined }}
             className="rounded-lg border border-board-border p-2 text-board-muted hover:text-board-text"
             aria-label="Back to current incidents"
           >
@@ -194,7 +194,7 @@ function IncidentHistoryPage() {
                 key={incident.id}
                 to="/$slug/production/incidents"
                 params={{ slug }}
-                search={{ incident: incident.id, date: incident.serviceDate }}
+                search={{ incident: incident.id, date: incident.serviceDate, show: incident.showId ?? undefined }}
                 className="grid gap-2 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55 md:grid-cols-[110px_minmax(0,1fr)_150px]"
               >
                 <div>

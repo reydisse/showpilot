@@ -51,6 +51,7 @@ function plannedDuration(milliseconds: number) {
 export const Route = createFileRoute("/$slug/reports")({
   validateSearch: (search: Record<string, unknown>) => ({
     date: typeof search.date === "string" ? search.date : undefined,
+    show: typeof search.show === "string" ? search.show : undefined,
     page:
       typeof search.page === "number" && search.page > 0
         ? Math.floor(search.page)
@@ -91,11 +92,10 @@ function ReportsPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<ShowReport | null>(null);
-  const [detailDate, setDetailDate] = useState<string | null>(() =>
-    search.date &&
-    data.services.some((item) => item.serviceDate === search.date)
-      ? search.date
-      : null,
+  const [detailShowId, setDetailShowId] = useState<string | null>(() =>
+    data.services.find((item) => item.id === search.show)?.id ??
+    data.services.find((item) => item.serviceDate === search.date)?.id ??
+    null,
   );
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -113,9 +113,8 @@ function ReportsPage() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const page = Math.min(search.page, pageCount);
   const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const selected = data.services.find(
-    (service) => service.serviceDate === detailDate,
-  );
+  const selected = data.services.find((service) => service.id === detailShowId);
+  const detailDate = selected?.serviceDate ?? null;
 
   useEffect(() => {
     if (search.page <= pageCount) return;
@@ -127,7 +126,7 @@ function ReportsPage() {
     let active = true;
     setDetailLoading(true);
     void exportShowReport({
-      data: { orgId: data.orgId, serviceDate: detailDate },
+      data: { orgId: data.orgId, serviceDate: detailDate, showId: detailShowId ?? undefined },
     })
       .then((result) => {
         if (active) setDetail(result);
@@ -141,17 +140,17 @@ function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [data.orgId, detail, detailDate, detailError]);
+  }, [data.orgId, detail, detailDate, detailError, detailShowId]);
 
-  const openReport = async (serviceDate: string) => {
-    setDetailDate(serviceDate);
+  const openReport = async (showId: string, serviceDate: string) => {
+    setDetailShowId(showId);
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
-    void navigate({ search: { date: serviceDate, page }, replace: true });
+    void navigate({ search: { date: serviceDate, show: showId, page }, replace: true });
     try {
       setDetail(
-        await exportShowReport({ data: { orgId: data.orgId, serviceDate } }),
+        await exportShowReport({ data: { orgId: data.orgId, serviceDate, showId } }),
       );
     } catch {
       setDetailError("The report details could not be loaded.");
@@ -161,10 +160,10 @@ function ReportsPage() {
   };
 
   const closeReport = () => {
-    setDetailDate(null);
+    setDetailShowId(null);
     setDetail(null);
     setDetailError(null);
-    void navigate({ search: { date: undefined, page }, replace: true });
+    void navigate({ search: { date: undefined, show: undefined, page }, replace: true });
   };
 
   const exportReport = async (format: "pdf" | "csv") => {
@@ -174,7 +173,7 @@ function ReportsPage() {
       const report =
         detail ??
         (await exportShowReport({
-          data: { orgId: data.orgId, serviceDate: detailDate },
+          data: { orgId: data.orgId, serviceDate: detailDate, showId: detailShowId ?? undefined },
         }));
       const exports = await import("@/lib/rundown-export");
       if (format === "pdf") exports.exportRundownPdf(report);
@@ -203,7 +202,7 @@ function ReportsPage() {
                 onChange={(event) => {
                   setQuery(event.target.value);
                   void navigate({
-                    search: { date: undefined, page: 1 },
+                    search: { date: undefined, show: undefined, page: 1 },
                     replace: true,
                   });
                 }}
@@ -233,8 +232,8 @@ function ReportsPage() {
               <tbody>
                 {rows.map((service) => (
                   <tr
-                    key={service.serviceDate}
-                    onClick={() => void openReport(service.serviceDate)}
+                    key={service.id}
+                    onClick={() => void openReport(service.id, service.serviceDate)}
                     className="cursor-pointer border-b border-board-border/60 text-xs last:border-0 hover:bg-fire-500/[0.04]"
                   >
                     <td className="px-4 py-3 text-board-text">
@@ -288,7 +287,7 @@ function ReportsPage() {
                   disabled={page === 1}
                   onClick={() =>
                     void navigate({
-                      search: { date: undefined, page: page - 1 },
+                      search: { date: undefined, show: undefined, page: page - 1 },
                     })
                   }
                 >
@@ -299,7 +298,7 @@ function ReportsPage() {
                   disabled={page === pageCount}
                   onClick={() =>
                     void navigate({
-                      search: { date: undefined, page: page + 1 },
+                      search: { date: undefined, show: undefined, page: page + 1 },
                     })
                   }
                 >
@@ -311,7 +310,7 @@ function ReportsPage() {
         </section>
       </div>
 
-      {detailDate ? (
+      {detailShowId && detailDate ? (
         <ReportDetailModal
           service={selected}
           report={detail}

@@ -50,6 +50,7 @@ export interface PmWidgetModel {
   rundownState: RundownState;
   slug: string;
   orgId: string;
+  showId: string | null;
 }
 
 type PmWidget = WidgetDefinition<PmWidgetModel>;
@@ -60,13 +61,13 @@ const controlPadWidget: PmWidget = {
   phases: "all",
   region: "banner",
   isRelevant: ({ rundownState }) => rundownState.items.some((item) => !isHeaderItem(item)),
-  render: ({ model, rundownState, orgId }) => (
-    <PmControlPad orgId={orgId} serviceDate={model.serviceDate} initialState={rundownState} />
+  render: ({ model, rundownState, orgId, showId }) => (
+    <PmControlPad orgId={orgId} serviceDate={model.serviceDate} showId={showId} initialState={rundownState} />
   ),
 };
 
-function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; serviceDate: string; initialState: RundownState }) {
-  const { items, timer, hydrated, stateServiceDate, sendCommand, seedState } = useRundownSync(orgId, serviceDate);
+function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: string; serviceDate: string; showId: string | null; initialState: RundownState }) {
+  const { items, timer, hydrated, stateServiceDate, stateShowId, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -77,12 +78,15 @@ function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; ser
     if (!hydrated || seededRef.current) return;
     const initialIds = initialState.items.map((item) => item.id).sort().join("|");
     const relayIds = items.map((item) => item.id).sort().join("|");
-    const wrongService = stateServiceDate === serviceDate && initialIds !== relayIds;
+    const sameShow = !showId || stateShowId === showId;
+    const wrongService = items.length > 0 && (
+      stateServiceDate !== serviceDate || !sameShow || initialIds !== relayIds
+    );
     if ((items.length === 0 && initialState.items.length > 0) || wrongService) {
       seedState(initialState.items, initialState.timer, wrongService);
     }
     seededRef.current = true;
-  }, [hydrated, initialState, items, seedState, serviceDate, stateServiceDate]);
+  }, [hydrated, initialState, items, seedState, serviceDate, showId, stateServiceDate, stateShowId]);
 
   const playable = items.filter((item) => !isHeaderItem(item));
   const current = playable.find((item) => item.id === timer.currentItemId) ?? null;
@@ -956,7 +960,7 @@ const incidentsWidget: PmWidget = {
   phases: "all",
   region: "main",
   isRelevant: ({ model }) => model.incidents.length > 0,
-  render: ({ model, slug }) => (
+  render: ({ model, slug, showId }) => (
     <WidgetCard
       title="Active incidents"
       action={
@@ -1006,7 +1010,7 @@ const incidentsWidget: PmWidget = {
             <Link
               to="/$slug/production/incidents"
               params={{ slug }}
-              search={{ incident: incident.id, date: model.serviceDate }}
+              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined }}
             >
               <WidgetAction>Open</WidgetAction>
             </Link>
