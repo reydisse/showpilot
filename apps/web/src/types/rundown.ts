@@ -65,6 +65,8 @@ export interface RundownItem {
 }
 
 export interface RundownMeta {
+  /** Stable identity for one scheduled show, including same-date shows. */
+  showId?: string;
   serviceDate: string;
   /** Optional label, e.g. "Christmas Eve 7pm". */
   name?: string;

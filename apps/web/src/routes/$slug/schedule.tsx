@@ -26,6 +26,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createNextService, copyCrewFromService } from "@/lib/pm-actions";
 import {
   deleteServiceAssignment,
+  deleteService,
   getSchedule,
   getServiceAssignments,
   remindAllServiceAssignments,
@@ -35,6 +36,14 @@ import {
   saveServiceDetails,
   type ScheduleProvider,
 } from "@/lib/schedule";
+import {
+  archiveShowInventoryItem,
+  createShowInventoryItem,
+  getShowInventoryData,
+  restoreShowInventoryItem,
+  type ShowInventorySummary,
+  type SavedRundownSource,
+} from "@/lib/show-inventory";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
@@ -97,7 +106,12 @@ const FORM_CONTROL =
   "w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none focus:border-fire-500/50";
 
 export const Route = createFileRoute("/$slug/schedule")({
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): {
+    show?: string;
+    date?: string;
+    assignment?: string;
+  } => ({
+    show: typeof search.show === "string" ? search.show : undefined,
     date: typeof search.date === "string" ? search.date : undefined,
     assignment:
       typeof search.assignment === "string" ? search.assignment : undefined,
@@ -121,17 +135,28 @@ export const Route = createFileRoute("/$slug/schedule")({
         to: shiftDate(today, 31),
       },
     });
+    // Keep these reads serialized: multiple Prisma D1 clients competing in
+    // one Workers request can leave Miniflare waiting indefinitely.
+    const { inventory, archivedInventory, savedTemplates } = await getShowInventoryData({ data: { orgId: context.orgId } });
     const defaultSelectedDate =
       schedule.services.find((service) => service.serviceDate >= today)
         ?.serviceDate ??
       schedule.services.at(-1)?.serviceDate ??
       null;
+    const defaultSelectedShowId =
+      schedule.services.find((service) => service.serviceDate >= today)?.id ??
+      schedule.services.at(-1)?.id ??
+      null;
     return {
       ...schedule,
       defaultSelectedDate,
+      defaultSelectedShowId,
       today,
       orgId: context.orgId,
       canManage: hasPermission(context.role, "schedule:manage"),
+      inventory,
+      archivedInventory,
+      savedTemplates,
     };
   },
   component: SchedulePage,
@@ -144,12 +169,14 @@ type ResponseFilter = "all" | "assigned" | "confirmed" | "declined" | "open";
 
 function SchedulePage() {
   const data = Route.useLoaderData();
-  const { date: requestedDate } = Route.useSearch();
+  const { show: requestedShowId, date: requestedDate } = Route.useSearch();
   const { slug } = Route.useParams();
   const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const [createOpen, setCreateOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [inventorySeedId, setInventorySeedId] = useState<string | undefined>();
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [assignmentDepartment, setAssignmentDepartment] = useState("");
   const [teamBuilderOpen, setTeamBuilderOpen] = useState(false);
@@ -167,34 +194,30 @@ function SchedulePage() {
         .filter(Boolean),
     ),
   ).sort((a, b) => a.localeCompare(b));
-  const selectedDate = data.services.some(
-    (service) => service.serviceDate === requestedDate,
-  )
-    ? requestedDate
-    : data.defaultSelectedDate;
   const selected =
-    data.services.find((service) => service.serviceDate === selectedDate) ??
+    data.services.find((service) => service.id === requestedShowId) ??
+    data.services.find((service) => service.serviceDate === requestedDate) ??
+    data.services.find((service) => service.id === data.defaultSelectedShowId) ??
     data.services[0] ??
     null;
-  const previous = selected
-    ? [...data.services]
-        .reverse()
-        .find((service) => service.serviceDate < selected.serviceDate)
-    : null;
+  const selectedIndex = selected
+    ? data.services.findIndex((service) => service.id === selected.id)
+    : -1;
+  const previous = selectedIndex > 0 ? data.services[selectedIndex - 1] : null;
   useEffect(() => setLiveAssignments(data.assignments), [data.assignments]);
   useEffect(() => {
-    if (!selected?.serviceDate) return;
+    if (!selected?.id) return;
     let active = true;
     const refresh = async () => {
       if (document.visibilityState !== "visible") return;
       try {
         const rows = await getServiceAssignments({
-          data: { orgId: data.orgId, serviceDate: selected.serviceDate },
+          data: { orgId: data.orgId, showId: selected.id },
         });
         if (!active) return;
         setLiveAssignments((current) => [
           ...current.filter(
-            (assignment) => assignment.serviceDate !== selected.serviceDate,
+            (assignment) => assignment.showId !== selected.id,
           ),
           ...rows,
         ]);
@@ -208,13 +231,13 @@ function SchedulePage() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [data.orgId, selected?.serviceDate]);
+  }, [data.orgId, selected?.id]);
   const selectedAssignments = useMemo(
     () =>
       liveAssignments.filter(
-        (assignment) => assignment.serviceDate === selected?.serviceDate,
+        (assignment) => assignment.showId === selected?.id,
       ),
-    [liveAssignments, selected?.serviceDate],
+    [liveAssignments, selected?.id],
   );
   const assignments = useMemo(
     () =>
@@ -236,8 +259,14 @@ function SchedulePage() {
     declined: selectedAssignments.filter((item) => item.status === "declined")
       .length,
   };
-  const chooseDate = (date: string) =>
-    void navigate({ search: { date, assignment: undefined } });
+  const chooseShow = (showId: string, date: string) =>
+    void navigate({ search: { show: showId, date, assignment: undefined } });
+  const chooseDate = (date: string) => {
+    const show = data.services.find((service) => service.serviceDate === date);
+    void navigate({
+      search: { show: show?.id, date, assignment: undefined },
+    });
+  };
 
   return (
     <div className="h-full overflow-auto bg-board-bg">
@@ -257,7 +286,18 @@ function SchedulePage() {
           ) : null}
           {data.canManage && data.provider.type === "native" ? (
             <button
-              onClick={() => setCreateOpen(true)}
+              onClick={() => setInventoryOpen(true)}
+              className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
+            >
+              Inventory
+            </button>
+          ) : null}
+          {data.canManage && data.provider.type === "native" ? (
+            <button
+              onClick={() => {
+                setInventorySeedId(undefined);
+                setCreateOpen(true);
+              }}
               className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -290,9 +330,9 @@ function SchedulePage() {
           <div className="flex snap-x overflow-x-auto lg:block lg:max-h-[calc(100vh-430px)] lg:overflow-y-auto">
             {data.services.map((service) => (
               <button
-                key={service.serviceDate}
-                onClick={() => chooseDate(service.serviceDate)}
-                className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-4 py-4 text-left lg:w-full ${service.serviceDate === selected?.serviceDate ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
+                key={service.id}
+                onClick={() => chooseShow(service.id, service.serviceDate)}
+                className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-4 py-4 text-left lg:w-full ${service.id === selected?.id ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
               >
                 <p
                   className={`text-[10px] font-semibold uppercase tracking-wider ${service.serviceDate === data.today ? "text-fire-400" : "text-board-muted"}`}
@@ -306,13 +346,13 @@ function SchedulePage() {
                 </p>
                 <p className="mt-1 text-[11px] text-board-muted">
                   {timeLabel(service.scheduledStartTime)} ·{" "}
-                  {service.serviceDate === selected?.serviceDate
+                  {service.id === selected?.id
                     ? selectedAssignments.filter(
                         (assignment) => assignment.status === "confirmed",
                       ).length
                     : service.crewConfirmed}
                   /
-                  {service.serviceDate === selected?.serviceDate
+                  {service.id === selected?.id
                     ? selectedAssignments.length
                     : service.crewTotal}{" "}
                   confirmed
@@ -366,7 +406,7 @@ function SchedulePage() {
                             await remindAllServiceAssignments({
                               data: {
                                 orgId: data.orgId,
-                                serviceDate: selected.serviceDate,
+                                showId: selected.id,
                               },
                             });
                           } finally {
@@ -408,7 +448,9 @@ function SchedulePage() {
                               await copyCrewFromService({
                                 data: {
                                   orgId: data.orgId,
+                                  showId: selected.id,
                                   serviceDate: selected.serviceDate,
+                                  copyFromShowId: previous.id,
                                   copyFrom: previous.serviceDate,
                                 },
                               });
@@ -460,7 +502,7 @@ function SchedulePage() {
                   <Link
                     to="/$slug/rundown"
                     params={{ slug }}
-                    search={{ date: selected.serviceDate }}
+                    search={{ show: selected.id, date: selected.serviceDate }}
                     className="hidden items-center gap-1 rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text sm:flex"
                   >
                     Rundown
@@ -508,18 +550,42 @@ function SchedulePage() {
           today={data.today}
           serviceDates={data.services.map((service) => service.serviceDate)}
           previousDate={data.services.at(-1)?.serviceDate}
+          previousShowId={data.services.at(-1)?.id}
+          inventory={data.inventory}
+          initialInventoryId={inventorySeedId}
           terminologyProfile={data.terminologyProfile}
           onClose={() => setCreateOpen(false)}
-          onCreated={async (date) => {
+          onCreated={async (showId, date) => {
             setCreateOpen(false);
+            setInventorySeedId(undefined);
             await router.invalidate();
-            chooseDate(date);
+            chooseShow(showId, date);
+          }}
+        />
+      ) : null}
+      {inventoryOpen ? (
+        <ShowInventoryModal
+          orgId={data.orgId}
+          inventory={data.inventory}
+          archivedInventory={data.archivedInventory}
+          savedTemplates={data.savedTemplates}
+          canManage={data.canManage}
+          onClose={() => setInventoryOpen(false)}
+          onUse={(item) => {
+            setInventoryOpen(false);
+            setInventorySeedId(item.id);
+            setCreateOpen(true);
+          }}
+          onChanged={async () => {
+            setInventoryOpen(false);
+            await router.invalidate();
           }}
         />
       ) : null}
       {assignmentOpen && selected ? (
         <AssignmentModal
           orgId={data.orgId}
+          showId={selected.id}
           serviceDate={selected.serviceDate}
           departments={departments}
           initialDepartment={assignmentDepartment}
@@ -534,6 +600,7 @@ function SchedulePage() {
       {teamBuilderOpen && selected ? (
         <TeamBuilderModal
           orgId={data.orgId}
+          showId={selected.id}
           serviceDate={selected.serviceDate}
           crew={data.crew}
           onClose={() => setTeamBuilderOpen(false)}
@@ -546,6 +613,7 @@ function SchedulePage() {
       {editing ? (
         <EditAssignmentModal
           orgId={data.orgId}
+          showId={selected?.id ?? editing.showId ?? ""}
           assignment={editing}
           departments={departments}
           crew={data.crew}
@@ -575,8 +643,13 @@ function SchedulePage() {
         <ServiceDetailsModal
           orgId={data.orgId}
           service={selected}
+          confirm={confirm}
           onClose={() => setServiceOpen(false)}
           onSaved={async () => {
+            setServiceOpen(false);
+            await router.invalidate();
+          }}
+          onDeleted={async () => {
             setServiceOpen(false);
             await router.invalidate();
           }}
@@ -902,6 +975,9 @@ function CreateServiceModal({
   today,
   serviceDates,
   previousDate,
+  previousShowId,
+  inventory,
+  initialInventoryId,
   terminologyProfile,
   onClose,
   onCreated,
@@ -910,9 +986,12 @@ function CreateServiceModal({
   today: string;
   serviceDates: string[];
   previousDate?: string;
+  previousShowId?: string;
+  inventory: ShowInventorySummary[];
+  initialInventoryId?: string;
   terminologyProfile: OrgTerminologyProfile;
   onClose: () => void;
-  onCreated: (date: string) => void | Promise<void>;
+  onCreated: (showId: string, date: string) => void | Promise<void>;
 }) {
   const [date, setDate] = useState(() =>
     nextAvailableServiceDate(today, serviceDates),
@@ -920,10 +999,26 @@ function CreateServiceModal({
   const [name, setName] = useState("");
   const [time, setTime] = useState("10:00");
   const [location, setLocation] = useState("");
+  const [inventoryId, setInventoryId] = useState(initialInventoryId ?? "");
   const [copy, setCopy] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const terms = orgTerms(terminologyProfile);
+  const selectedInventory = inventory.find((item) => item.id === inventoryId);
+  const applyInventory = (id: string) => {
+    setInventoryId(id);
+    const item = inventory.find((entry) => entry.id === id);
+    if (!item) return;
+    setName(item.name);
+    setLocation(item.location);
+    if (item.defaultStartTime) setTime(item.defaultStartTime);
+    setCopy(false);
+  };
+  useEffect(() => {
+    if (initialInventoryId) applyInventory(initialInventoryId);
+    // The modal is mounted for one selected inventory item at a time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialInventoryId]);
   return (
     <Modal title={`New ${terms.event}`} onClose={onClose}>
       <form
@@ -932,7 +1027,7 @@ function CreateServiceModal({
           setBusy(true);
           setError(null);
           try {
-            await createNextService({
+            const created = await createNextService({
               data: {
                 orgId,
                 serviceDate: date,
@@ -940,9 +1035,11 @@ function CreateServiceModal({
                 startTime: time,
                 location,
                 copyFrom: copy ? previousDate : undefined,
+                copyFromShowId: copy ? previousShowId : undefined,
+                inventoryId: inventoryId || undefined,
               },
             });
-            await onCreated(date);
+            await onCreated(created.showId, date);
           } catch (cause) {
             setError(
               cause instanceof Error
@@ -962,6 +1059,25 @@ function CreateServiceModal({
             placeholder="Sunday Morning, Conference Day 1…"
             className={FORM_CONTROL}
           />
+        </Field>
+        <Field label="Load from show inventory">
+          <select
+            value={inventoryId}
+            onChange={(event) => applyInventory(event.target.value)}
+            className={FORM_CONTROL}
+          >
+            <option value="">Start blank or copy a previous service</option>
+            {inventory.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} · {item.itemCount} rundown items
+              </option>
+            ))}
+          </select>
+          {selectedInventory ? (
+            <p className="mt-1.5 text-[10px] text-board-muted">
+              This loads the saved show structure, name, location, and default time.
+            </p>
+          ) : null}
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date">
@@ -998,6 +1114,7 @@ function CreateServiceModal({
               type="checkbox"
               checked={copy}
               onChange={(event) => setCopy(event.target.checked)}
+              disabled={Boolean(inventoryId)}
               className="accent-fire-500"
             />
             Copy rundown from {dayLabel(previousDate)}
@@ -1019,21 +1136,187 @@ function CreateServiceModal({
   );
 }
 
+function ShowInventoryModal({
+  orgId,
+  inventory,
+  archivedInventory,
+  savedTemplates,
+  canManage,
+  onClose,
+  onUse,
+  onChanged,
+}: {
+  orgId: string;
+  inventory: ShowInventorySummary[];
+  archivedInventory: ShowInventorySummary[];
+  savedTemplates: SavedRundownSource[];
+  canManage: boolean;
+  onClose: () => void;
+  onUse: (item: ShowInventorySummary) => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [defaultStartTime, setDefaultStartTime] = useState("");
+  const [sourceTemplateId, setSourceTemplateId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Modal title="Show inventory" onClose={onClose}>
+      <div className="space-y-5">
+        <div>
+          <p className="text-xs text-board-muted">
+            Reusable show definitions you can load into a future scheduled service. Each item is a snapshot, so changing a schedule never changes the inventory.
+          </p>
+          <div className="mt-3 max-h-44 space-y-2 overflow-auto">
+            {inventory.length ? inventory.map((item) => (
+              <div key={item.id} className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-board-text">{item.name}</p>
+                  <p className="text-[10px] text-board-muted">{item.itemCount} rundown items{item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}{item.location ? ` · ${item.location}` : ""}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onUse(item)}
+                  className="shrink-0 rounded-lg bg-fire-500/15 px-2.5 py-1.5 text-[10px] font-semibold text-fire-300 hover:bg-fire-500/25"
+                >
+                  Use
+                </button>
+                {canManage ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await archiveShowInventoryItem({ data: { orgId, id: item.id } });
+                        await onChanged();
+                      } catch (cause) {
+                        setError(cause instanceof Error ? cause.message : "Could not archive this show.");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                    className="text-[10px] text-board-muted hover:text-red-300"
+                  >
+                    Archive
+                  </button>
+                ) : null}
+              </div>
+            )) : <p className="rounded-xl border border-dashed border-board-border px-3 py-4 text-center text-xs text-board-muted">No reusable shows yet.</p>}
+          </div>
+          {archivedInventory.length ? (
+            <details className="mt-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
+              <summary className="cursor-pointer text-xs font-medium text-board-muted">
+                Archived ({archivedInventory.length})
+              </summary>
+              <div className="mt-2 space-y-2">
+                {archivedInventory.map((item) => (
+                  <div key={item.id} className="flex items-center gap-3 rounded-lg border border-board-border px-3 py-2">
+                    <p className="min-w-0 flex-1 truncate text-xs text-board-muted">{item.name}</p>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          await restoreShowInventoryItem({ data: { orgId, id: item.id } });
+                          await onChanged();
+                        } catch (cause) {
+                          setError(cause instanceof Error ? cause.message : "Could not restore this show.");
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      className="text-[10px] font-semibold text-fire-300 hover:text-fire-200 disabled:opacity-50"
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </div>
+        {canManage ? (
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!name.trim()) return;
+              setBusy(true);
+              setError(null);
+              try {
+                await createShowInventoryItem({
+                  data: {
+                    orgId,
+                    name,
+                    description,
+                    location,
+                    defaultStartTime,
+                    sourceTemplateId,
+                  },
+                });
+                await onChanged();
+              } catch (cause) {
+                setError(cause instanceof Error ? cause.message : "Could not save this show.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="space-y-3 border-t border-board-border pt-4"
+          >
+            <p className="text-xs font-semibold text-board-text">Add reusable show</p>
+            <Field label="Show name">
+              <input value={name} onChange={(event) => setName(event.target.value)} className={FORM_CONTROL} placeholder="Sunday Morning" maxLength={120} required />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Default start">
+                <input type="time" value={defaultStartTime} onChange={(event) => setDefaultStartTime(event.target.value)} className={FORM_CONTROL} />
+              </Field>
+              <Field label="Location">
+                <input value={location} onChange={(event) => setLocation(event.target.value)} className={FORM_CONTROL} placeholder="Main room" maxLength={240} />
+              </Field>
+            </div>
+            <Field label="Rundown source (optional)">
+              <select value={sourceTemplateId} onChange={(event) => setSourceTemplateId(event.target.value)} className={FORM_CONTROL}>
+                <option value="">Start with an empty rundown</option>
+                {savedTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.itemCount} items</option>)}
+              </select>
+            </Field>
+            <Field label="Description">
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} className={`${FORM_CONTROL} min-h-16 resize-y`} placeholder="What this show is used for" maxLength={500} />
+            </Field>
+            {error ? <p role="alert" className="text-xs text-red-300">{error}</p> : null}
+            <button disabled={busy || !name.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50">{busy ? "Saving…" : "Add to inventory"}</button>
+          </form>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 function ServiceDetailsModal({
   orgId,
   service,
+  confirm,
   onClose,
   onSaved,
+  onDeleted,
 }: {
   orgId: string;
   service: Awaited<ReturnType<typeof getSchedule>>["services"][number];
+  confirm: ReturnType<typeof useConfirmDialog>["confirm"];
   onClose: () => void;
   onSaved: () => void;
+  onDeleted: () => void | Promise<void>;
 }) {
   const [name, setName] = useState(service.name);
   const [time, setTime] = useState(inputTime(service.scheduledStartTime));
   const [location, setLocation] = useState(service.location);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
     <Modal title="Show details" onClose={onClose}>
       <form
@@ -1041,10 +1324,12 @@ function ServiceDetailsModal({
         onSubmit={async (event) => {
           event.preventDefault();
           setBusy(true);
+          setError(null);
           try {
             await saveServiceDetails({
               data: {
                 orgId,
+                showId: service.id,
                 serviceDate: service.serviceDate,
                 name,
                 startTime: time,
@@ -1052,6 +1337,8 @@ function ServiceDetailsModal({
               },
             });
             onSaved();
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : "Could not save show details");
           } finally {
             setBusy(false);
           }
@@ -1082,6 +1369,7 @@ function ServiceDetailsModal({
             className={FORM_CONTROL}
           />
         </Field>
+        {error ? <p role="alert" className="text-xs leading-relaxed text-red-300">{error}</p> : null}
         <button
           disabled={busy || !name.trim()}
           className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
@@ -1089,6 +1377,36 @@ function ServiceDetailsModal({
           {busy ? "Saving…" : "Save show details"}
         </button>
       </form>
+      <div className="mt-5 border-t border-board-border pt-4">
+        <p className="text-[10px] leading-4 text-board-muted">Deleting removes this stopped show’s rundown, crew assignments, notes, checklist, incidents and related notifications.</p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            const approved = await confirm({
+              title: "Delete this show?",
+              description: `Delete ${service.name || "this show"} and its service records? This cannot be undone.`,
+              confirmLabel: "Delete show",
+              variant: "danger",
+            });
+            if (!approved) return;
+            setBusy(true);
+            setError(null);
+            try {
+              await deleteService({ data: { orgId, showId: service.id } });
+              await onDeleted();
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : "Could not delete show");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-semibold text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete show
+        </button>
+      </div>
     </Modal>
   );
 }
@@ -1096,12 +1414,14 @@ type TeamBuilderRow = { crewId: string; role: string };
 
 function TeamBuilderModal({
   orgId,
+  showId,
   serviceDate,
   crew,
   onClose,
   onSaved,
 }: {
   orgId: string;
+  showId: string;
   serviceDate: string;
   crew: Array<{ id: string; name: string; role: string; email: string }>;
   onClose: () => void;
@@ -1129,6 +1449,7 @@ function TeamBuilderModal({
                 saveServiceAssignment({
                   data: {
                     orgId,
+                    showId,
                     serviceDate,
                     department: category.trim(),
                     role: row.role.trim(),
@@ -1278,6 +1599,7 @@ function TeamBuilderModal({
 
 function AssignmentModal({
   orgId,
+  showId,
   serviceDate,
   departments,
   initialDepartment,
@@ -1286,6 +1608,7 @@ function AssignmentModal({
   onSaved,
 }: {
   orgId: string;
+  showId: string;
   serviceDate: string;
   departments: string[];
   initialDepartment: string;
@@ -1309,6 +1632,7 @@ function AssignmentModal({
             await saveServiceAssignment({
               data: {
                 orgId,
+                showId,
                 serviceDate,
                 role,
                 department,
@@ -1403,6 +1727,7 @@ function AssignmentModal({
 }
 function EditAssignmentModal({
   orgId,
+  showId,
   assignment,
   departments,
   crew,
@@ -1411,6 +1736,7 @@ function EditAssignmentModal({
   onSaved,
 }: {
   orgId: string;
+  showId: string;
   assignment: Assignment;
   departments: string[];
   crew: Array<{ id: string; name: string; role: string; email: string }>;
@@ -1443,6 +1769,7 @@ function EditAssignmentModal({
       await saveServiceAssignment({
         data: {
           orgId,
+          showId,
           id: assignment.id,
           serviceDate: assignment.serviceDate,
           role,

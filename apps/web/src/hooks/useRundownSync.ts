@@ -154,6 +154,7 @@ interface UseRundownSyncReturn {
    * items.
    */
   stateServiceDate: string | null;
+  stateShowId: string | null;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
   /** Current stage message broadcast to kiosk (empty string = none active) */
@@ -163,7 +164,11 @@ interface UseRundownSyncReturn {
   seedState: (items: RundownItem[], timer: TimerState, force?: boolean) => void;
 }
 
-export function useRundownSync(orgId: string, serviceDate?: string): UseRundownSyncReturn {
+export function useRundownSync(
+  orgId: string,
+  serviceDate?: string,
+  showId?: string,
+): UseRundownSyncReturn {
   const [items, setItems] = useState<RundownItem[]>([]);
   const [timer, setTimer] = useState<TimerState>({
     playback: "stop",
@@ -176,6 +181,7 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
   const [connected, setConnected] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [stateServiceDate, setStateServiceDate] = useState<string | null>(null);
+  const [stateShowId, setStateShowId] = useState<string | null>(null);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -225,8 +231,11 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
     }
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const qs = serviceDate ? `?serviceDate=${encodeURIComponent(serviceDate)}` : "";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${qs}`;
+    const query = new URLSearchParams();
+    if (serviceDate) query.set("serviceDate", serviceDate);
+    if (showId) query.set("showId", showId);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${suffix}`;
 
     const ws = new WebSocket(url);
 
@@ -261,6 +270,9 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
         if ("serviceDate" in state) {
           setStateServiceDate(typeof state.serviceDate === "string" ? state.serviceDate : null);
         }
+        if ("showId" in state) {
+          setStateShowId(typeof state.showId === "string" ? state.showId : null);
+        }
         if ("timer" in state) {
           setTimer(normalizeTimerState(state.timer));
         }
@@ -288,9 +300,25 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
     wsRef.current = ws;
     reconnectTimer.current && clearTimeout(reconnectTimer.current);
     reconnectTimer.current = null;
-  }, [orgId, serviceDate, flushCommandQueue, scheduleReconnect]);
+  }, [orgId, serviceDate, showId, flushCommandQueue, scheduleReconnect]);
 
   useEffect(() => {
+    // A relay is shared by the org and can still be holding the previous
+    // service while the new WebSocket is being established. Never let the
+    // previous date's hydrate qualify as the current date's state.
+    setHydrated(false);
+    setStateServiceDate(null);
+    setStateShowId(null);
+    setItems([]);
+    setTimer({
+      playback: "stop",
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      pausedAt: null,
+      mode: "count-down",
+      serverTime: Date.now(),
+    });
     intentionalClose.current = false;
     connect();
 
@@ -334,6 +362,7 @@ export function useRundownSync(orgId: string, serviceDate?: string): UseRundownS
     connected,
     hydrated,
     stateServiceDate,
+    stateShowId,
     ppPreviewSlide,
     stageMessage,
     sendCommand,

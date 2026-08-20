@@ -77,6 +77,7 @@ interface RundownState {
   ppPreviewSlide: PPSlideState | null;
   stageMessage: string;
   serviceDate?: string;
+  showId?: string;
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -116,6 +117,7 @@ export class RundownRelay extends DurableObject {
         // unknown. Cue sheets correctly reject unknown-date live state,
         // which made sync work until a refresh/navigation and then stop.
         serviceDate: stored.serviceDate,
+        showId: stored.showId,
       };
     }
   }
@@ -155,15 +157,19 @@ export class RundownRelay extends DurableObject {
 
   /** Fire-and-forget D1 write for actualStart/actualEnd on a single item. */
   private persistItemTiming(itemId: string, field: "actualStart" | "actualEnd", value: string): void {
-    if (!this.orgId || !this.state.serviceDate) return;
+    if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
     const orgId = this.orgId;
     const serviceDate = this.state.serviceDate;
+    const showId = this.state.showId;
     const env = this.env as unknown as Env;
     this.ctx.waitUntil(
-      env.DB.prepare(
-        `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`
-      )
-        .bind(value, orgId, serviceDate, itemId)
+      (showId
+        ? env.DB.prepare(
+            `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND showId = ? AND itemId = ?`,
+          ).bind(value, orgId, showId, itemId)
+        : env.DB.prepare(
+            `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`,
+          ).bind(value, orgId, serviceDate, itemId))
         .first()
         .catch(() => null),
     );
@@ -174,12 +180,18 @@ export class RundownRelay extends DurableObject {
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
     const serviceDate = url.searchParams.get("serviceDate");
+    const showId = url.searchParams.get("showId");
     const access = url.searchParams.get("access");
-    if (serviceDate && access === "write" && serviceDate !== this.state.serviceDate) {
+    if (
+      access === "write" &&
+      ((showId && showId !== this.state.showId) ||
+        (!showId && serviceDate && serviceDate !== this.state.serviceDate))
+    ) {
       // A room is active for one service at a time. Relabelling the old
       // rows as a newly opened date made the cue sheet show a hybrid of
       // two services. Empty first; the editor then seeds this date's D1 rows.
-      this.state.serviceDate = serviceDate;
+      this.state.serviceDate = serviceDate ?? undefined;
+      this.state.showId = showId ?? undefined;
       this.state.items = [];
       this.state.timer = { ...DEFAULT_TIMER };
       this.persistState();
@@ -896,6 +908,7 @@ export class RundownRelay extends DurableObject {
       // cue sheet — has to be able to tell whether the state on the wire
       // is even about the service on screen.
       serviceDate: this.state.serviceDate ?? null,
+      showId: this.state.showId ?? null,
       items: this.state.items,
       timer: {
         ...this.state.timer,
@@ -911,6 +924,7 @@ export class RundownRelay extends DurableObject {
   private getDisplayState() {
     return {
       serviceDate: this.state.serviceDate ?? null,
+      showId: this.state.showId ?? null,
       items: this.state.items.map((item) => ({
         id: item.id,
         title: item.title,
