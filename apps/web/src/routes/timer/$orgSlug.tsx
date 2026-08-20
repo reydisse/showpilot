@@ -7,6 +7,7 @@ import { formatClockFull, getTodayDateString, type ClockFormat } from "@/lib/uti
 import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
 import type { PPSlidePayload } from "@/lib/rundown";
 import { getRundownStateForOrg } from "@/lib/rundown";
+import { elapsedAt } from "@/lib/rundown-transport";
 
 // ─── Server Functions ────────────────────────────────────────
 
@@ -91,14 +92,10 @@ function formatDurationShort(ms: number): string {
 
 
 function computeElapsed(timer: NativeTimerState, now: number): number {
-  if (timer.playback === "stop") return timer.elapsed;
-  if (timer.playback === "pause") return timer.elapsed;
-  if (timer.playback === "play" && timer.startedAt != null) {
-    // Use startedAt directly — serverTime resets on every DO broadcast
-    // which caused the timer to jump backwards mid-countdown
-    return Math.max(0, timer.elapsed + (now - timer.startedAt));
-  }
-  return timer.elapsed;
+  // Preserve negative elapsed offsets: they represent time added beyond the
+  // item's assigned duration. serverTime is intentionally not part of this
+  // calculation because it changes on every relay broadcast.
+  return elapsedAt(timer, now);
 }
 
 function computeRemaining(

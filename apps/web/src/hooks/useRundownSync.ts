@@ -84,7 +84,7 @@ const normalizePpPreviewSlide = (value: unknown): PPSlideState | null => {
   };
 };
 
-const normalizeTimerState = (value: unknown): TimerState => {
+export const normalizeTimerState = (value: unknown): TimerState => {
   if (!isObject(value)) {
     return {
       playback: "stop",
@@ -100,7 +100,9 @@ const normalizeTimerState = (value: unknown): TimerState => {
   return {
     playback: toPlayback(value.playback),
     currentItemId: toItemId(value.currentItemId),
-    elapsed: Math.max(0, toNumber(value.elapsed, 0)),
+    // Negative elapsed is intentional: it represents time added beyond the
+    // item's assigned duration and must survive relay broadcasts.
+    elapsed: toNumber(value.elapsed, 0),
     startedAt: toNullableNumber(value.startedAt, null),
     pausedAt: toNullableNumber(value.pausedAt, null),
     mode: toMode(value.mode),
