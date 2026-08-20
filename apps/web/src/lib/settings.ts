@@ -10,7 +10,6 @@ import {
 } from "@/lib/app-permissions";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
-import { resolveOpeningServiceDate } from "@/lib/cue-sheet-derive";
 import { getTodayDateString } from "@/lib/utils";
 
 // AppSetting values can be JSON blobs (templates, rundown snapshots) —
@@ -427,6 +426,7 @@ export interface DisplaySettingsBySlug {
   defaultTimerMode: "countdown" | "countup" | "clock";
   defaultCountdownMinutes: number;
   activeServiceDate: string;
+  activeShowId: string;
   rundownServiceDate: string;
 }
 
@@ -444,15 +444,16 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
         defaultTimerMode: "countdown",
         defaultCountdownMinutes: 5,
         activeServiceDate: "",
+        activeShowId: "",
         rundownServiceDate: getTodayDateString(),
       };
     }
 
-    const settings = await prisma.appSetting.findMany({
-      where: {
-        orgId: org.id,
-        OR: [
-          { key: { in: [
+    const [settings, shows] = await Promise.all([
+      prisma.appSetting.findMany({
+        where: {
+          orgId: org.id,
+          key: { in: [
             "clock-format",
             "timezone-display",
             "org-timezone",
@@ -460,27 +461,30 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
             "default-timer-mode",
             "default-countdown-minutes",
             "active-service-date",
-          ] } },
-          { key: { startsWith: "rundown-items:" } },
+            "active-show-id",
+          ] },
+        },
+      }),
+      prisma.rundown.findMany({
+        where: { orgId: org.id },
+        orderBy: [
+          { serviceDate: "asc" },
+          { scheduledStartTime: "asc" },
+          { createdAt: "asc" },
         ],
-      },
-    });
+        select: { id: true, serviceDate: true },
+      }),
+    ]);
 
     const map: Record<string, string> = {};
     for (const setting of settings) map[setting.key] = setting.value;
 
-    const datesWithItems = settings.flatMap((setting) => {
-      if (!setting.key.startsWith("rundown-items:")) return [];
-      try {
-        const items = JSON.parse(setting.value);
-        return Array.isArray(items) && items.length > 0
-          ? [setting.key.slice("rundown-items:".length)]
-          : [];
-      } catch {
-        return [];
-      }
-    });
     const today = getTodayDateString(map["org-timezone"] || undefined);
+    const selectedShow =
+      shows.find((show) => show.id === map["active-show-id"]) ??
+      shows.find((show) => show.serviceDate === map["active-service-date"]) ??
+      shows.find((show) => show.serviceDate >= today) ??
+      shows.at(-1);
 
     return {
       clockFormat: (map["clock-format"] as "12hr" | "24hr") || "12hr",
@@ -490,11 +494,8 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
       defaultTimerMode: (map["default-timer-mode"] as "countdown" | "countup" | "clock") || "countdown",
       defaultCountdownMinutes: Number(map["default-countdown-minutes"] || "5") || 5,
       activeServiceDate: map["active-service-date"] || "",
-      rundownServiceDate: resolveOpeningServiceDate(
-        datesWithItems,
-        today,
-        map["active-service-date"] || null,
-      ),
+      activeShowId: selectedShow?.id ?? "",
+      rundownServiceDate: selectedShow?.serviceDate ?? today,
     };
   });
 

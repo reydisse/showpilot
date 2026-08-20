@@ -14,6 +14,7 @@ import {
   sanitizePayloadSummary,
   type WebhookEventInput,
 } from "@/lib/settings";
+import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
@@ -437,7 +438,8 @@ export class TimecodeRelay extends DurableObject {
         }
 
         case "rundown-advance": {
-          const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
+          const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+          const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
           try {
             const response = await rdStub.fetch(
@@ -470,7 +472,8 @@ export class TimecodeRelay extends DurableObject {
         }
 
         case "rundown-start-item": {
-          const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
+          const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+          const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
           try {
             const response = await rdStub.fetch(

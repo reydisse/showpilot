@@ -84,7 +84,7 @@ export const Route = createFileRoute("/$slug/show")({
       getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
     const today = getTodayDateString(settings["org-timezone"]);
-    const { serviceDate } = await getRundownOpeningDate({
+    const { serviceDate, showId } = await getRundownOpeningDate({
       data: { orgId: context.orgId, today },
     });
 
@@ -101,11 +101,11 @@ export const Route = createFileRoute("/$slug/show")({
       } else {
         // OnTime not reachable — silent fallback to native
         effectiveRundownAdapter = "native";
-        nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate } });
+        nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate, showId } });
       }
     } else {
       // Native (or any other not-yet-implemented adapter)
-      nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate } });
+      nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate, showId } });
     }
 
     return {
@@ -117,6 +117,7 @@ export const Route = createFileRoute("/$slug/show")({
       orgId: context.orgId,
       slug: context.slug,
       serviceDate,
+      showId,
       clockFormat,
       userName: context.user.name,
       userRole: context.role,
@@ -225,7 +226,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members: initialMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, serviceDate, clockFormat, userName, userRole,
+    chatAdapter, orgId, slug, serviceDate, showId, clockFormat, userName, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -282,6 +283,7 @@ function ShowPage() {
         chatAdapter={chatAdapter}
         orgId={orgId}
         serviceDate={serviceDate}
+        showId={showId}
         slug={slug}
         clockFormat={clockFormat}
         userName={userName}
@@ -593,6 +595,7 @@ function ShowPageWithNative({
   chatAdapter,
   orgId,
   serviceDate,
+  showId,
   slug,
   clockFormat,
   userName,
@@ -604,6 +607,7 @@ function ShowPageWithNative({
   chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
   serviceDate: string;
+  showId?: string;
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
@@ -617,7 +621,7 @@ function ShowPageWithNative({
     timer: syncedTimer,
     hydrated: syncHydrated,
     seedState,
-  } = useRundownSync(orgId, serviceDate);
+  } = useRundownSync(orgId, serviceDate, showId);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])

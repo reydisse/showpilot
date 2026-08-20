@@ -27,6 +27,7 @@ import type {
   RelayState,
   LowerThirdLike,
 } from "@/lib/companion-control";
+import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 
 // ─────────────────────────────────────────────────────────────
 // Companion API HTTP layer: auth, JSON helpers, rate limiting, and the real
@@ -110,6 +111,7 @@ export async function authenticateCompanion(
 interface CompanionEnv {
   RUNDOWN_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
+  DB: D1Database;
 }
 
 async function rundownRelayCommand(
@@ -118,10 +120,11 @@ async function rundownRelayCommand(
   payload?: Record<string, unknown>,
 ): Promise<void> {
   const bindings = env as unknown as CompanionEnv;
-  const id = bindings.RUNDOWN_RELAY.idFromName(orgId);
+  const target = await getActiveRundownRelayTarget(bindings.DB, orgId);
+  const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   await stub.fetch(
-    new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}`, {
+    new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, payload }),
@@ -131,10 +134,11 @@ async function rundownRelayCommand(
 
 async function rundownRelayState(orgId: string): Promise<RelayState> {
   const bindings = env as unknown as CompanionEnv;
-  const id = bindings.RUNDOWN_RELAY.idFromName(orgId);
+  const target = await getActiveRundownRelayTarget(bindings.DB, orgId);
+  const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   const res = await stub.fetch(
-    new Request(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}`),
+    new Request(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`),
   );
   const data = (await res.json()) as Partial<RelayState>;
   return {

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface CueNoteEvent {
   type: "note";
+  showId: string;
   serviceDate: string;
   itemId: string;
   columnId: string;
@@ -30,6 +31,7 @@ export interface CueColumnsEvent {
 
 export interface IncidentEvent {
   type: "incident";
+  showId: string | null;
   incidentId: string;
   action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted" | "commented";
   at: number;

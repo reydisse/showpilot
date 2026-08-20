@@ -319,7 +319,6 @@ model CueNote {
   updatedBy   String    @default("")
 
   @@unique([orgId, showId, itemId, columnId])
-  @@unique([orgId, serviceDate, itemId, columnId])
   @@index([orgId, serviceDate])
   @@index([orgId, showId])
   @@map("cue_note")
@@ -555,7 +554,6 @@ model RundownItem {
   updatedAt      DateTime  @updatedAt
 
   @@unique([orgId, showId, itemId])
-  @@unique([orgId, serviceDate, itemId])
   @@index([orgId, serviceDate, sortOrder])
   @@index([orgId, serviceDate])
   @@index([orgId, showId, sortOrder])
@@ -583,7 +581,6 @@ model Rundown {
   micAssignments     MicAssignment[]
   items              RundownItem[]
 
-  @@unique([orgId, serviceDate])
   @@index([orgId, serviceDate])
   @@index([orgId, serviceDate, scheduledStartTime])
   @@map("rundown")

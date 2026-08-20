@@ -26,10 +26,10 @@ async function assertAccess(orgId: string) {
 }
 
 export const getIncidentComments = createServerFn({ method: "GET" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), value))
+  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), value))
   .handler(async ({ data }): Promise<IncidentComment[]> => {
     await assertAccess(data.orgId);
-    const rows = await getD1().prepare(`SELECT c.id, c.incidentId, c.userId, c.authorName, c.body, c.parentId, c.createdAt FROM incident_comment c JOIN incident i ON i.id = c.incidentId WHERE c.orgId = ? AND i.orgId = ? AND i.serviceDate = ? ORDER BY c.createdAt ASC`).bind(data.orgId, data.orgId, data.serviceDate).all<IncidentComment>();
+    const rows = await getD1().prepare(`SELECT c.id, c.incidentId, c.userId, c.authorName, c.body, c.parentId, c.createdAt FROM incident_comment c JOIN incident i ON i.id = c.incidentId WHERE c.orgId = ? AND i.orgId = ? AND ${data.showId ? "i.showId = ?" : "i.serviceDate = ?"} ORDER BY c.createdAt ASC`).bind(data.orgId, data.orgId, data.showId ?? data.serviceDate).all<IncidentComment>();
     return rows.results ?? [];
   });
 
@@ -37,7 +37,7 @@ export const addIncidentComment = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, incidentId: idSchema, parentId: idSchema.nullable().optional(), body: z.string().trim().min(1).max(2000) }), value))
   .handler(async ({ data }): Promise<IncidentComment> => {
     const user = await assertAccess(data.orgId);
-    const incident = await getD1().prepare("SELECT id, description, reportedBy, serviceDate FROM incident WHERE id = ? AND orgId = ?").bind(data.incidentId, data.orgId).first<{ id: string; description: string; reportedBy: string; serviceDate: string }>();
+    const incident = await getD1().prepare("SELECT id, description, reportedBy, serviceDate, showId FROM incident WHERE id = ? AND orgId = ?").bind(data.incidentId, data.orgId).first<{ id: string; description: string; reportedBy: string; serviceDate: string; showId: string | null }>();
     if (!incident) throw new Error("Issue not found");
     let parentAuthorId: string | null = null;
     if (data.parentId) {
@@ -57,7 +57,7 @@ export const addIncidentComment = createServerFn({ method: "POST" })
       severity: "warning",
       title: data.parentId ? `${user.name} replied to an issue comment` : `${user.name} commented on an issue`,
       message: comment.body.slice(0, 240),
-      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}&incident=${encodeURIComponent(data.incidentId)}`,
+      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}${incident.showId ? `&show=${encodeURIComponent(incident.showId)}` : ""}&incident=${encodeURIComponent(data.incidentId)}`,
       source: data.incidentId,
       pushTag: `incident-comment-${data.incidentId}`,
     });

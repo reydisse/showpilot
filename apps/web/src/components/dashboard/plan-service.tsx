@@ -49,21 +49,21 @@ export function PlanServiceButton({
 
 export function PlanServicePanel({
   orgId,
-  serviceDates,
+  shows,
   onPlanned,
   onClose,
 }: {
   orgId: string;
-  /** Existing services, newest first — the clone-from options. */
-  serviceDates: string[];
-  onPlanned: (serviceDate: string) => void;
+  /** Existing shows, newest first — the clone-from options. */
+  shows: Array<{ id: string; serviceDate: string; name: string }>;
+  onPlanned: (showId: string, serviceDate: string) => void;
   onClose: () => void;
 }) {
   const router = useRouter();
   const [date, setDate] = useState(() => nextSunday());
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("");
-  const [copyFrom, setCopyFrom] = useState(() => serviceDates[0] ?? "");
+  const [copyFromShowId, setCopyFromShowId] = useState(() => shows[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,11 +73,16 @@ export function PlanServicePanel({
     setError(null);
     try {
       const { createNextService } = await import("@/lib/pm-actions");
-      await createNextService({
+      const created = await createNextService({
         data: {
           orgId,
           serviceDate: date,
-          ...(copyFrom ? { copyFrom } : {}),
+          ...(copyFromShowId
+            ? {
+                copyFromShowId,
+                copyFrom: shows.find((show) => show.id === copyFromShowId)?.serviceDate,
+              }
+            : {}),
           ...(name.trim() ? { name: name.trim() } : {}),
           ...(startTime ? { startTime } : {}),
         },
@@ -86,7 +91,7 @@ export function PlanServicePanel({
       setName("");
       setStartTime("");
       onClose();
-      onPlanned(date);
+      onPlanned(created.showId, date);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not plan that service");
     } finally {
@@ -135,14 +140,14 @@ export function PlanServicePanel({
             <Field label="Based on" htmlFor="plan-copy">
               <select
                 id="plan-copy"
-                value={copyFrom}
-                onChange={(event) => setCopyFrom(event.target.value)}
+                value={copyFromShowId}
+                onChange={(event) => setCopyFromShowId(event.target.value)}
                 className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text"
               >
                 <option value="">Start blank</option>
-                {serviceDates.slice(0, 12).map((existing) => (
-                  <option key={existing} value={existing}>
-                    {new Date(`${existing}T12:00:00`).toLocaleDateString("en-US", {
+                {shows.slice(0, 12).map((existing) => (
+                  <option key={existing.id} value={existing.id}>
+                    {existing.name || new Date(`${existing.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
                       weekday: "short",
                       month: "short",
                       day: "numeric",

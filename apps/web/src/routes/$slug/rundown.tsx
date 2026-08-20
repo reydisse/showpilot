@@ -209,10 +209,10 @@ export const Route = createFileRoute("/$slug/rundown")({
     // opened empty six days a week — and once the cue sheet started
     // following the editor, that emptiness spread to it as well.
     const opening = await getRundownOpeningDate({
-      data: { orgId: context.orgId, today },
+      data: { orgId: context.orgId, today, serviceDate: deps.serviceDate, showId: deps.showId },
     });
-    const openOn = deps.serviceDate ?? opening.serviceDate;
-    const openShowId = deps.showId ?? (deps.serviceDate ? undefined : opening.showId);
+    const openOn = opening.serviceDate;
+    const openShowId = opening.showId;
     const state = await getRundownState({
       data: {
         orgId: context.orgId,
@@ -228,13 +228,14 @@ export const Route = createFileRoute("/$slug/rundown")({
       initialState: state,
       settings,
       role: context.role,
+      shows: opening.shows,
     };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, openOn, initialState, settings, role } = Route.useLoaderData();
+  const { orgId, slug, openOn, initialState, settings, role, shows } = Route.useLoaderData();
   const navigate = useNavigate({ from: Route.fullPath });
   const canEditRundown = hasPermission(role, "rundown:edit");
   const canControlRundown = hasPermission(role, "rundown:control");
@@ -257,10 +258,11 @@ function RundownPage() {
     timer: syncedTimer,
     hydrated: syncHydrated,
     stateServiceDate: syncedServiceDate,
+    stateShowId: syncedShowId,
     ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
-  } = useRundownSync(orgId, serviceDate);
+  } = useRundownSync(orgId, serviceDate, showId);
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
@@ -313,10 +315,14 @@ function RundownPage() {
     const databaseItems = databaseItemsRef.current;
     const databaseIds = databaseItems.map((item) => item.id).sort().join("|");
     const relayIds = syncedItems.map((item) => item.id).sort().join("|");
-    const relayIsWrongService =
-      syncedItems.length > 0 && syncedServiceDate !== serviceDate;
+    const relayIsWrongService = syncedItems.length > 0 && (
+      syncedServiceDate !== serviceDate ||
+      (showId ? syncedShowId !== showId : false)
+    );
     const relayHasDifferentItems =
-      syncedServiceDate === serviceDate && databaseIds !== relayIds;
+      syncedServiceDate === serviceDate &&
+      (!showId || syncedShowId === showId) &&
+      databaseIds !== relayIds;
     // Empty rooms and rooms retained with another service's rows are
     // repaired from D1. Matching rooms remain authoritative, preserving
     // active timer state and edits from other connected operators.
@@ -334,11 +340,11 @@ function RundownPage() {
           pausedAt: null,
           mode: timer.mode,
         }, relayIsWrongService);
-      } else if (syncedServiceDate === serviceDate) {
+      } else if (syncedServiceDate === serviceDate && (!showId || syncedShowId === showId)) {
       // DO already has items — no need to seed
       hasSeededRef.current = true;
     }
-  }, [syncHydrated, syncedItems, syncedServiceDate, serviceDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncHydrated, syncedItems, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
     initialState.meta?.scheduledStartTime
@@ -388,7 +394,7 @@ function RundownPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const report = await exportShowReport({ data: { orgId, serviceDate } });
+      const report = await exportShowReport({ data: { orgId, serviceDate, showId } });
       const exportReport: ExportReport = {
         ...report,
         rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage, name: report.rundown.name, scheduledStartTime: report.rundown.scheduledStartTime },
@@ -402,7 +408,7 @@ function RundownPage() {
       setExportError(err instanceof Error ? err.message : "Export failed");
     }
     setExporting(false);
-  }, [orgId, serviceDate]);
+  }, [orgId, serviceDate, showId]);
 
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -644,10 +650,10 @@ function RundownPage() {
   }, [persistItems]);
 
   // Load rundown for new date
-  const loadDate = async (date: string) => {
+  const loadDate = async (date: string, targetShowId?: string) => {
     setLoading(true);
     try {
-      const state = await getRundownState({ data: { orgId, serviceDate: date } });
+      const state = await getRundownState({ data: { orgId, serviceDate: date, showId: targetShowId } });
       const nextShowId = state.meta?.showId;
       databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
@@ -1222,6 +1228,25 @@ function RundownPage() {
                 is about, and it fills the gap the action cluster would
                 otherwise float against. */}
             <div className="flex items-center gap-1.5 shrink-0">
+          <select
+            aria-label="Show"
+            value={showId ?? ""}
+            onChange={(event) => {
+              const selected = shows.find((show) => show.id === event.target.value);
+              if (!selected) return;
+              setServiceDate(selected.serviceDate);
+              void loadDate(selected.serviceDate, selected.id);
+            }}
+            className="max-w-56 rounded border border-board-border/70 bg-board-card px-2 py-1 text-xs text-board-text"
+          >
+            {!showId && <option value="">New show</option>}
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.name || formatDisplayDate(show.serviceDate)}
+                {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+              </option>
+            ))}
+          </select>
           {/* Stepper for nudging a day either way; the picker is what
               makes planning six weeks out possible without 42 clicks. */}
           <div className="flex items-center gap-1">
@@ -2330,7 +2355,7 @@ function LoadRundownModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"dates" | "saved">("dates");
-  const [dates, setDates] = useState<{ date: string; itemCount: number }[]>([]);
+  const [dates, setDates] = useState<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }[]>([]);
   const [saved, setSaved] = useState<SavedRundownMeta[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -2346,10 +2371,10 @@ function LoadRundownModal({
     }).catch(() => {}).finally(() => setLoadingList(false));
   }, [orgId]);
 
-  const handleLoadFromDate = async (date: string) => {
+  const handleLoadFromDate = async (date: string, showId: string) => {
     setLoadingItems(true);
     try {
-      const state = await getRundownState({ data: { orgId, serviceDate: date } });
+      const state = await getRundownState({ data: { orgId, serviceDate: date, showId } });
       onLoad({ items: state.items as RundownItem[], serviceName: state.meta?.name ?? "", scheduledStartTime: state.meta?.scheduledStartTime ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5) : "" });
     } catch {
       // keep modal open
@@ -2421,14 +2446,14 @@ function LoadRundownModal({
               <div className="space-y-1.5">
                 {dates.map((d) => (
                   <button
-                    key={d.date}
-                    onClick={() => handleLoadFromDate(d.date)}
+                    key={d.showId}
+                    onClick={() => handleLoadFromDate(d.date, d.showId)}
                     disabled={loadingItems}
                     className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors text-left disabled:opacity-50"
                   >
                     <div>
-                      <p className="text-sm font-medium text-board-text">{formatDate(d.date)}</p>
-                      <p className="text-[10px] text-board-muted mt-0.5">{d.itemCount} items</p>
+                      <p className="text-sm font-medium text-board-text">{d.name || formatDate(d.date)}</p>
+                      <p className="text-[10px] text-board-muted mt-0.5">{formatDate(d.date)}{d.scheduledStartTime ? ` · ${new Date(d.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} · {d.itemCount} items</p>
                     </div>
                     <FolderOpen className="w-4 h-4 text-board-muted" />
                   </button>

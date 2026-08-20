@@ -28,6 +28,7 @@ import {
   type IncidentComment,
 } from "@/lib/incident-comments";
 import { getIncidentHistory } from "@/lib/incident-history";
+import { getRundownOpeningDate } from "@/lib/rundown";
 import {
   getContentReactions,
   REACTION_EMOJIS,
@@ -121,6 +122,7 @@ const CATEGORIES = [
 export const Route = createFileRoute("/$slug/production/incidents")({
   validateSearch: (search: Record<string, unknown>) => ({
     incident: typeof search.incident === "string" ? search.incident : undefined,
+    show: typeof search.show === "string" ? search.show : undefined,
     date:
       typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
         ? search.date
@@ -129,7 +131,7 @@ export const Route = createFileRoute("/$slug/production/incidents")({
   pendingComponent: () => <PageSkeleton />,
   pendingMs: 800,
   pendingMinMs: 100,
-  loaderDeps: ({ search }) => ({ date: search.date }),
+  loaderDeps: ({ search }) => ({ date: search.date, show: search.show }),
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
@@ -139,11 +141,15 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       context.orgId,
     );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
-    const serviceDate =
-      deps.date ?? getTodayDateString(settings["org-timezone"]);
+    const today = getTodayDateString(settings["org-timezone"]);
+    const opening = await getRundownOpeningDate({
+      data: { orgId: context.orgId, today, serviceDate: deps.date, showId: deps.show },
+    });
+    const serviceDate = opening.serviceDate;
+    const showId = opening.showId;
     const [incidents, comments, recentHistory] = await Promise.all([
-      getIncidents({ data: { orgId: context.orgId, serviceDate } }),
-      getIncidentComments({ data: { orgId: context.orgId, serviceDate } }),
+      getIncidents({ data: { orgId: context.orgId, serviceDate, showId } }),
+      getIncidentComments({ data: { orgId: context.orgId, serviceDate, showId } }),
       getIncidentHistory({
         data: {
           orgId: context.orgId,
@@ -162,6 +168,8 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       role: context.role,
       orgTimezone: settings["org-timezone"],
       initialServiceDate: serviceDate,
+      initialShowId: showId ?? null,
+      shows: opening.shows,
       comments,
       recentHistory,
     };
@@ -180,7 +188,10 @@ function IncidentsPage() {
     role,
     orgTimezone,
     initialServiceDate,
+    initialShowId,
+    shows,
   } = Route.useLoaderData();
+  const [showId, setShowId] = useState<string | null>(initialShowId);
   const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [incidents, setIncidents] = useState(initialIncidents);
   const [loadingIncidents, setLoadingIncidents] = useState(false);
@@ -223,12 +234,12 @@ function IncidentsPage() {
   }, [focusedIncidentId]);
 
   const loadIncidents = useCallback(
-    async (date: string) => {
+    async (date: string, targetShowId: string | null) => {
       setLoadingIncidents(true);
       try {
         const [latest, latestComments] = await Promise.all([
-          getIncidents({ data: { orgId, serviceDate: date } }),
-          getIncidentComments({ data: { orgId, serviceDate: date } }),
+          getIncidents({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } }),
+          getIncidentComments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } }),
         ]);
         setIncidents(latest.map(normalizeIncident));
         setComments(latestComments);
@@ -243,14 +254,17 @@ function IncidentsPage() {
     orgId,
     onNote: () => {},
     onColumns: () => {},
-    onIncident: () => void loadIncidents(serviceDate),
+    onIncident: (event) => {
+      if (event.showId === showId) void loadIncidents(serviceDate, showId);
+    },
   });
 
   useEffect(() => {
     setServiceDate(initialServiceDate);
+    setShowId(initialShowId);
     setIncidents(initialIncidents);
     setComments(initialComments);
-  }, [initialIncidents, initialComments, initialServiceDate]);
+  }, [initialIncidents, initialComments, initialServiceDate, initialShowId]);
 
   useEffect(() => {
     if (!showForm) return;
@@ -262,8 +276,8 @@ function IncidentsPage() {
   }, [showForm]);
 
   useEffect(() => {
-    void loadIncidents(serviceDate);
-  }, [loadIncidents, serviceDate]);
+    void loadIncidents(serviceDate, showId);
+  }, [loadIncidents, serviceDate, showId]);
 
   useEffect(() => {
     const targetIds = comments.map((comment) => comment.id);
@@ -280,21 +294,32 @@ function IncidentsPage() {
     serviceDate,
     timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
-      setServiceDate(nextToday);
+      const nextShow = shows.find((show) => show.serviceDate === nextToday);
+      setServiceDate(nextShow?.serviceDate ?? nextToday);
+      setShowId(nextShow?.id ?? null);
     },
   });
 
-  const handleDateChange = (days: number) => {
-    setServiceDate((d) => shiftDate(d, days));
+  const handleDateChange = (direction: number) => {
+    const ordered = [...shows].sort((a, b) =>
+      `${a.serviceDate}:${a.scheduledStartTime ?? ""}`.localeCompare(`${b.serviceDate}:${b.scheduledStartTime ?? ""}`),
+    );
+    const index = ordered.findIndex((show) => show.id === showId);
+    const next = ordered[index + direction];
+    if (!next) return;
+    setShowId(next.id);
+    setServiceDate(next.serviceDate);
   };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canReportIncidents) return;
     if (!form.description.trim()) return;
-    await addIncident({ data: { orgId, ...form, serviceDate } });
+    if (!showId) return;
+    await addIncident({ data: { orgId, ...form, serviceDate, showId } });
     publishIncident({
       type: "incident",
+      showId,
       incidentId: "new",
       action: "created",
       at: Date.now(),
@@ -306,7 +331,7 @@ function IncidentsPage() {
       reportedBy: "",
     });
     setShowForm(false);
-    await loadIncidents(serviceDate);
+    await loadIncidents(serviceDate, showId);
   };
 
   const handleDelete = async (id: string) => {
@@ -320,11 +345,12 @@ function IncidentsPage() {
     await deleteIncident({ data: { orgId, id } });
     publishIncident({
       type: "incident",
+      showId,
       incidentId: id,
       action: "deleted",
       at: Date.now(),
     });
-    await loadIncidents(serviceDate);
+    await loadIncidents(serviceDate, showId);
   };
 
   const submitComment = async (incidentId: string) => {
@@ -340,6 +366,7 @@ function IncidentsPage() {
       setReplyTargets((current) => ({ ...current, [incidentId]: null }));
       publishIncident({
         type: "incident",
+        showId,
         incidentId,
         action: "commented",
         at: Date.now(),
@@ -389,12 +416,25 @@ function IncidentsPage() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              <select
+                value={showId ?? ""}
+                onChange={(event) => {
+                  const selected = shows.find((show) => show.id === event.target.value);
+                  if (!selected) return;
+                  setShowId(selected.id);
+                  setServiceDate(selected.serviceDate);
+                }}
+                aria-label="Select show"
+                className="min-w-[210px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text transition-colors hover:border-fire-500/50"
               >
-                {formatDisplayDate(serviceDate)}
-              </button>
+                {!showId && <option value="">No planned show</option>}
+                {shows.map((show) => (
+                  <option key={show.id} value={show.id}>
+                    {show.name || formatDisplayDate(show.serviceDate)}
+                    {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                  </option>
+                ))}
+              </select>
               <button
                 onClick={() => handleDateChange(1)}
                 className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
@@ -402,7 +442,7 @@ function IncidentsPage() {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-            {canReportIncidents && (
+            {canReportIncidents && showId && (
               <button
                 onClick={() => setShowForm(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
@@ -738,6 +778,7 @@ function IncidentsPage() {
                         search={{
                           incident: incident.id,
                           date: incident.serviceDate,
+                          show: incident.showId ?? undefined,
                         }}
                         className="mt-3 inline-flex text-[11px] font-semibold text-fire-400 hover:text-fire-300"
                       >
@@ -758,7 +799,7 @@ function IncidentsPage() {
         </section>
       </div>
 
-      {showForm && canReportIncidents && (
+      {showForm && canReportIncidents && showId && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md"
           role="presentation"
