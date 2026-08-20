@@ -22,13 +22,19 @@ const executablePath = process.env.SHOWPILOT_BUN_EXECUTABLE_PATH;
 // On Windows, run the extracted baseline Bun directly. This avoids Bun's
 // cross-target cache move (which fails with EPERM on hosted runners) while
 // still embedding the baseline runtime into the output executable.
-const bunCommand = executablePath && process.platform === "win32" ? executablePath : "bun";
+const bunCommand = executablePath || "bun";
 const args = ["build", "--compile"];
-if (!executablePath || process.platform !== "win32") args.push(`--target=${target}`);
+if (!(executablePath && process.platform === "win32")) args.push(`--target=${target}`);
 args.push(source, "--outfile", output);
 const result = spawnSync(bunCommand, args, {
   cwd: root,
   stdio: "inherit",
+  // Avoid Bun's malformed generated Mach-O signature. A valid ad-hoc
+  // signature keeps local/test bundles intact, and Tauri replaces it with the
+  // configured Developer ID identity for notarized releases.
+  env: process.platform === "darwin"
+    ? { ...process.env, BUN_NO_CODESIGN_MACHO_BINARY: "1" }
+    : process.env,
 });
 
 if (result.error) {
@@ -37,3 +43,25 @@ if (result.error) {
   process.exit(1);
 }
 if (result.status !== 0) process.exit(result.status ?? 1);
+
+if (process.platform === "darwin") {
+  const sign = spawnSync("codesign", ["--force", "--sign", "-", "--timestamp=none", output], {
+    stdio: "inherit",
+  });
+  if (sign.error) {
+    console.error("Unable to ad-hoc sign the bridge sidecar.");
+    console.error(sign.error.message);
+    process.exit(1);
+  }
+  if (sign.status !== 0) process.exit(sign.status ?? 1);
+
+  const verify = spawnSync("codesign", ["--verify", "--strict", "--verbose=2", output], {
+    stdio: "inherit",
+  });
+  if (verify.error) {
+    console.error("Unable to verify the bridge sidecar signature.");
+    console.error(verify.error.message);
+    process.exit(1);
+  }
+  if (verify.status !== 0) process.exit(verify.status ?? 1);
+}

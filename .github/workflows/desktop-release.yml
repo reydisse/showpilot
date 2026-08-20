@@ -41,7 +41,10 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.1.21
+          # Keep the known-good baseline compiler on Windows. Current Bun is
+          # required on macOS so compiled sidecars have a signable Mach-O
+          # layout before Tauri applies Developer ID signing.
+          bun-version: ${{ runner.os == 'Windows' && '1.1.21' || '1.4.0' }}
 
       - uses: dtolnay/rust-toolchain@stable
 
