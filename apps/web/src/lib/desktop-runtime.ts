@@ -7,6 +7,23 @@ export type DesktopEngineInfo = {
 
 export type DesktopWindowKind = "timer" | "show-board" | "check-in";
 
+export type DesktopBridgeConfig = {
+  site: string;
+  org: string;
+  key: string;
+  propresenterHost?: string;
+  propresenterPort?: number;
+  propresenterApiPort?: number;
+  propresenterPassword?: string;
+};
+
+export type DesktopBridgeStatus = {
+  configured: boolean;
+  running: boolean;
+  pid: number | null;
+  logs: string[];
+};
+
 type TauriCore = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 };
@@ -24,6 +41,27 @@ function getTauriCore(): TauriCore | null {
 
 export function isDesktopRuntime(): boolean {
   return getTauriCore() !== null;
+}
+
+export function isDesktopNotificationSupported(): boolean {
+  return isDesktopRuntime();
+}
+
+export async function getDesktopNotificationPermission(): Promise<NotificationPermission> {
+  if (!isDesktopRuntime()) return "denied";
+  return (await isNativeNotificationPermissionGranted()) ? "granted" : "default";
+}
+
+export async function requestDesktopNotificationPermission(): Promise<NotificationPermission> {
+  if (!isDesktopRuntime()) return "denied";
+  if (await isNativeNotificationPermissionGranted()) return "granted";
+  return requestNativeNotificationPermission();
+}
+
+export async function showDesktopNotification(title: string, body: string): Promise<boolean> {
+  if (!isDesktopRuntime() || !(await isNativeNotificationPermissionGranted())) return false;
+  sendNativeNotification({ title, body });
+  return true;
 }
 
 export async function getDesktopEngineInfo(): Promise<DesktopEngineInfo | null> {
@@ -48,3 +86,40 @@ export async function cacheDesktopService(payload: unknown): Promise<string | nu
     payload: JSON.stringify(payload),
   });
 }
+
+export async function getDesktopBridgeStatus(): Promise<DesktopBridgeStatus | null> {
+  const core = getTauriCore();
+  if (!core) return null;
+  return core.invoke<DesktopBridgeStatus>("bridge_status");
+}
+
+export async function startDesktopBridge(
+  config: DesktopBridgeConfig,
+): Promise<DesktopBridgeStatus> {
+  const core = getTauriCore();
+  if (!core) throw new Error("ShowPilot Desktop is not available");
+  return core.invoke<DesktopBridgeStatus>("start_bridge", { config });
+}
+
+export async function stopDesktopBridge(): Promise<void> {
+  const core = getTauriCore();
+  if (!core) return;
+  await core.invoke("stop_bridge");
+}
+
+export async function getDesktopFullscreenState(): Promise<boolean | null> {
+  const core = getTauriCore();
+  if (!core) return null;
+  return core.invoke<boolean>("display_fullscreen_state");
+}
+
+export async function toggleDesktopFullscreen(): Promise<boolean | null> {
+  const core = getTauriCore();
+  if (!core) return null;
+  return core.invoke<boolean>("toggle_display_fullscreen");
+}
+import {
+  isPermissionGranted as isNativeNotificationPermissionGranted,
+  requestPermission as requestNativeNotificationPermission,
+  sendNotification as sendNativeNotification,
+} from "@tauri-apps/plugin-notification";

@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { MonitorPlay, PanelTopOpen, Timer, UserCheck } from "lucide-react";
 import {
+  getDesktopBridgeStatus,
   getDesktopEngineInfo,
   isDesktopRuntime,
   openDesktopWindow,
+  type DesktopBridgeStatus,
   type DesktopEngineInfo,
   type DesktopWindowKind,
 } from "@/lib/desktop-runtime";
@@ -22,6 +24,7 @@ const WINDOW_ACTIONS: Array<{
 export function DesktopStatusBar() {
   const { slug } = useParams({ strict: false });
   const [engine, setEngine] = useState<DesktopEngineInfo | null>(null);
+  const [bridge, setBridge] = useState<DesktopBridgeStatus | null>(null);
   const [busy, setBusy] = useState<DesktopWindowKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const desktop = isDesktopRuntime();
@@ -40,6 +43,23 @@ export function DesktopStatusBar() {
       });
     return () => {
       active = false;
+    };
+  }, [desktop]);
+
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    void getDesktopBridgeStatus().then((status) => {
+      if (active) setBridge(status);
+    });
+    const timer = window.setInterval(() => {
+      void getDesktopBridgeStatus().then((status) => {
+        if (active) setBridge(status);
+      });
+    }, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
     };
   }, [desktop]);
 
@@ -71,6 +91,16 @@ export function DesktopStatusBar() {
         {engine?.native
           ? `Local engine ${engine.version} · ${engine.platform}`
           : error ?? "Connecting to local engine…"}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className={`h-1.5 w-1.5 rounded-full ${bridge?.running ? "bg-green-500" : "bg-amber-400"}`} />
+        <span title={bridge?.logs.at(-1)}>
+          {bridge?.running
+            ? "Local devices ready"
+            : bridge?.configured
+              ? "Local devices reconnecting…"
+              : "Local devices need an API key"}
+        </span>
       </span>
       {slug ? (
         <div className="ml-auto flex items-center gap-1">
