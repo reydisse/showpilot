@@ -80,6 +80,7 @@ import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
@@ -358,6 +359,29 @@ function RundownPage() {
 
   const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The web app remains the source of truth. Desktop keeps a bounded local
+  // snapshot after edits so the native engine can grow an offline bootstrap
+  // without creating a second rundown implementation.
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    const timeout = window.setTimeout(() => {
+      void cacheDesktopService({
+        version: 1,
+        orgId,
+        orgSlug: slug,
+        serviceDate,
+        serviceName,
+        scheduledStartTime,
+        items,
+        timer,
+        cachedAt: new Date().toISOString(),
+      }).catch((cause) => {
+        console.warn("[SP] Desktop snapshot failed", cause);
+      });
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [items, orgId, scheduledStartTime, serviceDate, serviceName, slug, timer]);
 
   const handleServiceNameChange = useCallback(
     (value: string) => {

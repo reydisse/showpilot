@@ -70,6 +70,12 @@ importers:
         specifier: ^7.1.7
         version: 7.3.1(@types/node@22.19.13)(jiti@2.6.1)(lightningcss@1.31.1)(tsx@4.21.0)
 
+  apps/desktop:
+    devDependencies:
+      '@tauri-apps/cli':
+        specifier: ^2.0.0
+        version: 2.11.4
+
   apps/gateway:
     dependencies:
       ws:
