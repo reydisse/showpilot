@@ -104,15 +104,16 @@ function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; ser
   const adjust = (deltaMs: number) => command("timer-adjust", { deltaMs });
   const now = useNow(1_000);
   const elapsedMs = timer.elapsed + (timer.playback === "play" && timer.startedAt ? now - timer.startedAt : 0);
-  const safeElapsed = Math.max(0, elapsedMs);
-  const elapsed = `${String(Math.floor(safeElapsed / 60_000)).padStart(2, "0")}:${String(Math.floor(safeElapsed / 1_000) % 60).padStart(2, "0")}`;
+  const remainingMs = current && timer.mode === "count-down" ? current.duration - elapsedMs : null;
+  const displayedTime = formatDuration(remainingMs ?? elapsedMs);
+  const displayedTimeLabel = remainingMs === null ? "Elapsed" : "Remaining";
   const controlClass = "min-h-[72px] rounded-lg border border-board-border bg-board-bg/40 p-3 text-left text-board-text transition-colors hover:border-fire-500/35 hover:bg-board-bg disabled:opacity-40";
 
   return (
     <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
       <header className="flex items-center gap-3 border-b border-board-border px-4 py-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><RadioTower className="h-4 w-4" /></span>
-        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {elapsed}</p></div>
+        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>
         <span className={`ml-auto text-[10px] uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
       </header>
       <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -128,7 +129,7 @@ function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; ser
           <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={timer.playback === "stop"} />
           <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={timer.playback === "stop"} />
           <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={timer.playback === "stop"} />
-          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{elapsed}</span><span className="mt-0.5 block text-[9px] text-board-muted">Elapsed</span></span></div>
+          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{displayedTime}</span><span className="mt-0.5 block text-[9px] text-board-muted">{displayedTimeLabel}</span></span></div>
       </div>
     </section>
   );

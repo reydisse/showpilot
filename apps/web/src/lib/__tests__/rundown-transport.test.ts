@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { start, pause, stop, next, previous, adjustTime } from "../rundown-transport";
+import { start, pause, stop, next, previous, adjustTime, elapsedAt } from "../rundown-transport";
 import type { RundownItem, NativeTimerState } from "@/types/rundown";
 
 function item(id: string, overrides: Partial<RundownItem> = {}): RundownItem {
@@ -135,17 +135,22 @@ describe("previous", () => {
 });
 
 describe("adjustTime", () => {
-  it("adds time to a running timer by pushing startedAt forward", () => {
+  it("adds time beyond the assigned duration on a running timer", () => {
     const playing = start(items3(), STOPPED, "a", 1000); // startedAt 1000
     const r = adjustTime(playing.items, playing.timer, 60, 5000);
-    // +60s → startedAt + 60000, clamped to now (5000) since that would be future
+    expect(r.timer.elapsed).toBe(-56000);
     expect(r.timer.startedAt).toBe(5000);
+    expect(elapsedAt(r.timer, 6000)).toBe(-55000);
+
+    const paused = pause(r.items, r.timer, 6000);
+    expect(paused.timer.elapsed).toBe(-55000);
   });
 
-  it("subtracting time on a running timer moves startedAt earlier (more elapsed)", () => {
+  it("subtracting time on a running timer increases elapsed", () => {
     const playing = start(items3(), STOPPED, "a", 10000);
     const r = adjustTime(playing.items, playing.timer, -60, 12000);
-    expect(r.timer.startedAt).toBe(10000 - 60000);
+    expect(r.timer.elapsed).toBe(62000);
+    expect(r.timer.startedAt).toBe(12000);
     expect(r.timer.playback).toBe("play");
   });
 
@@ -157,11 +162,11 @@ describe("adjustTime", () => {
     expect(r.timer.playback).toBe("pause");
   });
 
-  it("clamps paused elapsed so it never goes negative", () => {
+  it("preserves extra time as negative elapsed while paused", () => {
     const playing = start(items3(), STOPPED, "a", 1000);
     const paused = pause(playing.items, playing.timer, 4000); // elapsed 3000
     const r = adjustTime(paused.items, paused.timer, 600, 5000); // +600s ≫ elapsed
-    expect(r.timer.elapsed).toBe(0);
+    expect(r.timer.elapsed).toBe(-597000);
   });
 
   it("is a no-op when stopped", () => {
