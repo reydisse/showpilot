@@ -92,7 +92,11 @@ export class Bridge {
   }
 
   private connect(): void {
-    const wsUrl = `${this.url}?role=bridge${this.key ? `&key=${this.key}` : ""}`;
+    const wsUrlObject = new URL(this.url);
+    wsUrlObject.searchParams.set("role", "bridge");
+    if (this.key) wsUrlObject.searchParams.set("key", this.key);
+    else wsUrlObject.searchParams.delete("key");
+    const wsUrl = wsUrlObject.toString();
     console.log(`[bridge] Connecting to ${this.url}...`);
 
     this.ws = new WebSocket(wsUrl);

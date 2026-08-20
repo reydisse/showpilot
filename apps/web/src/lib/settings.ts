@@ -346,10 +346,10 @@ export const regenerateApiKey = createServerFn({ method: "POST" })
     const prisma = getPrisma();
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let key = "sp_";
-    for (let i = 0; i < 40; i++) {
-      key += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const random = new Uint8Array(40);
+    crypto.getRandomValues(random);
+    const key =
+      "sp_" + Array.from(random, (value) => chars[value % chars.length]).join("");
     await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: "api-key" } },
       update: { value: key },

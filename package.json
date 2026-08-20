@@ -4,6 +4,10 @@
   "scripts": {
     "dev": "pnpm --filter @showpilot/web dev",
     "build": "pnpm --filter @showpilot/web build",
+    "desktop:dev": "pnpm --filter @showpilot/desktop desktop:dev",
+    "desktop:build": "pnpm --filter @showpilot/desktop desktop:build",
+    "bridge-desktop:dev": "pnpm --filter @showpilot/bridge-desktop desktop:dev",
+    "bridge-desktop:build": "pnpm --filter @showpilot/bridge-desktop desktop:build",
     "deploy": "pnpm --filter @showpilot/web deploy",
     "db:generate": "pnpm --filter @showpilot/web db:generate",
     "db:migrate": "pnpm --filter @showpilot/web db:migrate"

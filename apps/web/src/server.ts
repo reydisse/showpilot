@@ -110,7 +110,14 @@ async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null
 }
 
 async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
-  const presented = request.headers.get("x-showpilot-api-key");
+  // The desktop bridge connects through WebSocket and supplies its key in the
+  // bridge connection URL (`?role=bridge&key=...`). Browser clients continue
+  // to use the header, and query-string keys are only accepted for bridge
+  // connections so they cannot accidentally authorize other API requests.
+  const url = new URL(request.url);
+  const presented =
+    request.headers.get("x-showpilot-api-key") ??
+    (url.searchParams.get("role") === "bridge" ? url.searchParams.get("key") : null);
   const expected = await getOrgApiKey(orgId, db);
   if (!presented || !expected) return false;
 
