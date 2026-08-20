@@ -63,24 +63,26 @@ interface ProfileModalProps {
 export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated }: ProfileModalProps) {
   const [displayName, setDisplayName] = useState(user.name);
   const [avatarUrl, setAvatarUrl] = useState(user.image ?? "");
-  const [nameSaved, setNameSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [profileError, setProfileError] = useState("");
   const [signOutPhase, setSignOutPhase] = useState<"idle" | "confirm">("idle");
   const [countdown, setCountdown] = useState(3);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
   const navigate = useNavigate();
 
   // Sync user data when modal opens
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       setDisplayName(user.name);
       setAvatarUrl(user.image ?? "");
       setSignOutPhase("idle");
-      setNameSaved(false);
+      setProfileError("");
     }
+    wasOpenRef.current = open;
   }, [open, user.name, user.image]);
 
   // Escape key
@@ -139,35 +141,42 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
     const trimmed = displayName.trim();
     if (!trimmed || trimmed === user.name || saving) return;
     setSaving(true);
+    setProfileError("");
     try {
-      await authClient.updateUser({ name: trimmed });
+      const result = await authClient.updateUser({ name: trimmed });
+      if (result.error) throw new Error(result.error.message ?? "Could not update your name");
       onUserUpdated({ name: trimmed });
-      setNameSaved(true);
-      setTimeout(() => setNameSaved(false), 2000);
-    } catch {
-      // noop
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "Could not update your name");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }, [displayName, user.name, saving, onUserUpdated]);
 
   const handlePhotoSelect = useCallback(async (file: File) => {
     setUploadingPhoto(true);
+    setProfileError("");
     try {
+      if (!file.type.startsWith("image/")) throw new Error("Choose an image file");
+      if (file.size > 10 * 1024 * 1024) throw new Error("Choose an image smaller than 10 MB");
       const blob = await resizeImageToBlob(file, 256);
       const formData = new FormData();
       formData.append("file", blob, "avatar.jpg");
       const res = await fetch("/api/user/avatar", { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? "Could not upload your photo");
+      }
       const { url } = await res.json() as { url: string };
-      await authClient.updateUser({ image: url });
+      const result = await authClient.updateUser({ image: url });
+      if (result.error) throw new Error(result.error.message ?? "Could not save your photo");
       setAvatarUrl(url);
       onUserUpdated({ image: url });
-    } catch {
-      // Best-effort: show local preview as fallback
-      const localUrl = URL.createObjectURL(file);
-      setAvatarUrl(localUrl);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "Could not save your photo");
+    } finally {
+      setUploadingPhoto(false);
     }
-    setUploadingPhoto(false);
   }, [onUserUpdated]);
 
   const handleSignOut = useCallback(async () => {
@@ -234,9 +243,10 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingPhoto}
               className="text-[11px] text-board-muted hover:text-board-text transition-colors"
             >
-              Change Photo
+              {uploadingPhoto ? "Saving photo…" : "Change Photo"}
             </button>
             <input
               ref={fileInputRef}
@@ -245,7 +255,16 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoSelect(f); e.target.value = ""; }}
             />
+            <p className="text-[10px] text-board-muted">
+              {avatarUrl ? "Photo saved to your profile." : "Photo changes save automatically."}
+            </p>
           </div>
+
+          {profileError && (
+            <p role="alert" className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+              {profileError}
+            </p>
+          )}
 
           {/* Display name */}
           <div className="space-y-1.5">
@@ -263,9 +282,9 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
               disabled={nameUnchanged || saving}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-fire-500 text-black disabled:opacity-40 hover:bg-fire-400 transition-colors"
             >
-              {nameSaved ? (
-                <><Check className="w-3 h-3" /> Name updated</>
-              ) : saving ? "Saving…" : "Save Changes"}
+              {saving ? "Saving…" : nameUnchanged ? (
+                <><Check className="w-3 h-3" /> Name saved</>
+              ) : "Save name"}
             </button>
           </div>
 
