@@ -4,6 +4,11 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
+mod bridge_runtime;
+use bridge_runtime::{
+    bridge_status, start_bridge, start_saved_bridge, start_supervisor, stop_bridge, BridgeRuntime,
+};
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EngineInfo {
@@ -14,6 +19,7 @@ struct EngineInfo {
 }
 
 const MAX_SNAPSHOT_BYTES: usize = 5 * 1024 * 1024;
+const PRODUCTION_ORIGIN: &str = "https://showpilot.tech";
 
 struct CompanionWindowSpec {
     label: String,
@@ -69,6 +75,50 @@ fn companion_window_spec(org_slug: &str, kind: &str) -> Result<CompanionWindowSp
         path,
         always_on_top,
     })
+}
+
+fn validated_local_origin(origin: &str) -> Option<String> {
+    let origin = origin.trim().trim_end_matches('/');
+    let port = origin
+        .strip_prefix("http://localhost:")
+        .or_else(|| origin.strip_prefix("http://127.0.0.1:"))?;
+    port.parse::<u16>().ok()?;
+    Some(origin.to_string())
+}
+
+fn companion_origin() -> String {
+    if cfg!(debug_assertions) {
+        return std::env::var("SHOWPILOT_DESKTOP_WEB_URL")
+            .ok()
+            .and_then(|origin| validated_local_origin(&origin))
+            .unwrap_or_else(|| "http://localhost:3001".to_string());
+    }
+    PRODUCTION_ORIGIN.to_string()
+}
+
+fn is_display_surface(label: &str, path: &str) -> bool {
+    if label.starts_with("timer-") || label.starts_with("show-board-") {
+        return true;
+    }
+
+    if path.starts_with("/timer/") {
+        return true;
+    }
+
+    let segments: Vec<_> = path.trim_matches('/').split('/').collect();
+    segments.len() == 2 && segments[1] == "board"
+}
+
+fn ensure_display_surface(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let path = window
+        .url()
+        .map_err(|error| error.to_string())?
+        .path()
+        .to_string();
+    if is_display_surface(window.label(), &path) {
+        return Ok(());
+    }
+    Err("Fullscreen is available only on ShowPilot display windows".to_string())
 }
 
 fn service_cache_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -139,7 +189,7 @@ fn open_companion_window(
         return Ok(());
     }
 
-    let url = format!("https://showpilot.tech{}", spec.path)
+    let url = format!("{}{}", companion_origin(), spec.path)
         .parse()
         .map_err(|error| format!("Invalid ShowPilot URL: {error}"))?;
     tauri::WebviewWindowBuilder::new(&app, spec.label, tauri::WebviewUrl::External(url))
@@ -154,14 +204,42 @@ fn open_companion_window(
     Ok(())
 }
 
+#[tauri::command]
+fn display_fullscreen_state(window: tauri::WebviewWindow) -> Result<bool, String> {
+    ensure_display_surface(&window)?;
+    window.is_fullscreen().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn toggle_display_fullscreen(window: tauri::WebviewWindow) -> Result<bool, String> {
+    ensure_display_surface(&window)?;
+    let next = !window.is_fullscreen().map_err(|error| error.to_string())?;
+    window
+        .set_fullscreen(next)
+        .map_err(|error| error.to_string())?;
+    Ok(next)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
+        .manage(BridgeRuntime::new())
+        .setup(|app| {
+            start_saved_bridge(app.handle())?;
+            start_supervisor(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             engine_info,
             cache_service,
             get_cached_service,
-            open_companion_window
+            open_companion_window,
+            display_fullscreen_state,
+            toggle_display_fullscreen,
+            bridge_status,
+            start_bridge,
+            stop_bridge
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShowPilot Desktop");
@@ -202,5 +280,39 @@ mod tests {
             assert!(companion_window_spec(slug, "timer").is_err());
         }
         assert!(companion_window_spec(&"a".repeat(65), "timer").is_err());
+    }
+
+    #[test]
+    fn accepts_only_explicit_local_development_origins() {
+        assert_eq!(
+            validated_local_origin("http://localhost:3001/"),
+            Some("http://localhost:3001".to_string())
+        );
+        assert_eq!(
+            validated_local_origin("http://127.0.0.1:5173"),
+            Some("http://127.0.0.1:5173".to_string())
+        );
+        for origin in [
+            "https://showpilot.tech",
+            "http://localhost.evil:3001",
+            "http://localhost:3001/path",
+            "file:///tmp/showpilot",
+        ] {
+            assert!(validated_local_origin(origin).is_none());
+        }
+    }
+
+    #[test]
+    fn limits_native_fullscreen_to_display_surfaces() {
+        assert!(is_display_surface("timer-faithfire", "/loading"));
+        assert!(is_display_surface("show-board-faithfire", "/loading"));
+        assert!(is_display_surface("main", "/timer/faithfire"));
+        assert!(is_display_surface("main", "/faithfire/board"));
+        assert!(!is_display_surface("main", "/faithfire/show"));
+        assert!(!is_display_surface(
+            "check-in-faithfire",
+            "/faithfire/checkin"
+        ));
+        assert!(!is_display_surface("main", "/faithfire/board/settings"));
     }
 }

@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "identifier": "tech.showpilot.desktop",
   "build": {
-    "beforeDevCommand": "pnpm -C ../web dev",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "pnpm -C ../web exec vite dev --port 3001 --strictPort",
+    "beforeBuildCommand": "pnpm bridge:build",
+    "devUrl": "http://localhost:3001",
     "frontendDist": "https://showpilot.tech"
   },
   "app": {
@@ -28,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["binaries/showpilot-bridge"],
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "ShowPilot production control for desktop",

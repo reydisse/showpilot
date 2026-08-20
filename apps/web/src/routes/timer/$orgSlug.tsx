@@ -8,6 +8,7 @@ import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundow
 import type { PPSlidePayload } from "@/lib/rundown";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import { elapsedAt } from "@/lib/rundown-transport";
+import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 
 // ─── Server Functions ────────────────────────────────────────
 
@@ -255,7 +256,7 @@ function TimerKioskPage() {
   const [timezoneDisplay, setTimezoneDisplay] = useState<DisplaySettingsBySlug["timezoneDisplay"]>("local");
   const [orgTimezone, setOrgTimezone] = useState("");
   const [overtimeBehavior, setOvertimeBehavior] = useState<DisplaySettingsBySlug["overtimeBehavior"]>("flash");
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { isFullscreen, toggleFullscreen } = useDisplayFullscreen();
   const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
   const [relayServiceDate, setRelayServiceDate] = useState(serviceDate.current);
@@ -320,21 +321,6 @@ function TimerKioskPage() {
       window.clearInterval(interval);
     };
   }, [orgSlug]);
-
-  // Track fullscreen state
-  useEffect(() => {
-    const handleChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handleChange);
-    return () => document.removeEventListener("fullscreenchange", handleChange);
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
-  }, []);
 
   // Real-time sync via RundownRelay DO WebSocket
   const wsRef = useRef<WebSocket | null>(null);

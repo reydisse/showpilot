@@ -5,6 +5,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { DesktopBridgeController } from "@/components/layout/DesktopBridgeController";
 import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 import "@/lib/device-modules/register-all";
@@ -64,5 +65,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   useEffect(() => { void registerNotificationWorker(); }, []);
-  return <Outlet />;
+  return (
+    <>
+      <DesktopBridgeController />
+      <Outlet />
+    </>
+  );
 }

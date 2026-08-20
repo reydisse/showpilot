@@ -24,9 +24,15 @@ pnpm desktop:build
 macOS artifacts are written under
 `apps/desktop/src-tauri/target/release/bundle`.
 
-`desktop:dev` starts the real app in `apps/web` on port 3000 and opens it in
-the native window. Release builds point the webview at the production origin,
-so the desktop and browser products cannot drift.
+`desktop:dev` compiles and supervises the real ShowPilot device engine, starts the web app
+on its reserved port 3001, and opens it in the native window. Release builds point the
+webview at the production origin, so the desktop and browser products cannot drift.
+
+The desktop dev server uses strict port binding so it fails clearly instead of
+silently loading a different worktree's frontend. Set
+`SHOWPILOT_DESKTOP_WEB_URL=http://localhost:3001` when overriding companion
+window origins in debug builds. This debug-only override is rejected for
+non-local URLs; release companion windows always use `https://showpilot.tech`.
 
 ## Native boundary
 
@@ -37,13 +43,14 @@ so the desktop and browser products cannot drift.
 - `get_cached_service` reads that snapshot for the future offline bootstrap.
 - `open_companion_window` opens validated dedicated Timer, Show Board and
   Check-in windows; live output windows stay on top.
+- The embedded, architecture-matched ShowPilot device engine provides the same
+  ProPresenter, OBS, vMix and profile-driven device capabilities as the standalone Bridge.
+- The native notification plugin delivers personal ShowPilot notifications while
+  Desktop is running, including when its window is in the background.
 
 Only bundled development content and the exact `https://showpilot.tech`
 origin receive native capability access.
 
-## Next engine slices
-
-1. Add SQLite-backed service snapshots and an append-only local event journal.
-2. Reconcile local events with Cloudflare after reconnecting.
-3. Add OSC and MIDI discovery/output behind Rust commands.
-4. Add OBS, vMix and ProPresenter connections through the local engine.
+The standalone ShowPilot Bridge remains the supported agent for remote devices,
+browser-only operators and headless production computers. A machine running
+ShowPilot Desktop does not need the standalone Bridge for its own local devices.

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getPersonalNotifications, markAllPersonalNotificationsRead, markPersonalNotificationRead, type PersonalNotification } from "@/lib/personal-notifications";
 import { getNotificationDestination } from "@/lib/notification-destination";
+import { isDesktopRuntime, showDesktopNotification } from "@/lib/desktop-runtime";
 
 export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onNavigate, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; onNavigate?: () => void; placement?: "sidebar" | "account" }) {
   const navigate = useNavigate();
@@ -14,16 +15,34 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
   const [actionError, setActionError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const desktopInbox = useRef<{ orgId: string; ids: Set<string> } | null>(null);
   const refresh = useCallback(async () => {
-    try { const result = await getPersonalNotifications({ data: { orgId } }); setItems(result.notifications); setUnread(result.unread); onUnreadChange?.(result.unread); }
+    try {
+      const result = await getPersonalNotifications({ data: { orgId } });
+      if (isDesktopRuntime()) {
+        const previous = desktopInbox.current?.orgId === orgId ? desktopInbox.current.ids : null;
+        if (previous) {
+          for (const item of result.notifications) {
+            if (!item.readAt && !previous.has(item.id)) {
+              void showDesktopNotification(item.title, item.message);
+            }
+          }
+        }
+        desktopInbox.current = { orgId, ids: new Set(result.notifications.map((item) => item.id)) };
+      }
+      setItems(result.notifications);
+      setUnread(result.unread);
+      onUnreadChange?.(result.unread);
+    }
     catch { /* Navigation must remain usable if inbox retrieval fails. */ }
   }, [orgId, onUnreadChange]);
 
   useEffect(() => {
     void refresh();
+    const desktop = isDesktopRuntime();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 60_000);
+      if (desktop || document.visibilityState === "visible") void refresh();
+    }, desktop ? 15_000 : 60_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => {

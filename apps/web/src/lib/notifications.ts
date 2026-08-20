@@ -5,8 +5,18 @@
  * and notification permission management.
  */
 
+import {
+  getDesktopNotificationPermission,
+  isDesktopNotificationSupported,
+  requestDesktopNotificationPermission,
+  showDesktopNotification,
+} from "@/lib/desktop-runtime";
+
 /** Request notification permission and return the result */
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (isDesktopNotificationSupported()) {
+    return requestDesktopNotificationPermission();
+  }
   if (typeof window === "undefined" || !("Notification" in window)) {
     return "denied";
   }
@@ -36,6 +46,10 @@ export async function registerNotificationWorker(): Promise<ServiceWorkerRegistr
 
 /** Enable and persist Web Push for the current signed-in member/device. */
 export async function enablePushForOrg(orgId: string, requestPermission = true): Promise<NotificationPermission> {
+  if (isDesktopNotificationSupported()) {
+    if (!requestPermission) return getDesktopNotificationPermission();
+    return requestDesktopNotificationPermission();
+  }
   if (!isPushSupported()) return "denied";
   const permission = requestPermission ? await requestNotificationPermission() : Notification.permission;
   if (permission !== "granted") return permission;
@@ -90,6 +104,7 @@ export async function subscribeToPush(
 
 /** Check if push notifications are supported and permission is granted */
 export function isPushSupported(): boolean {
+  if (isDesktopNotificationSupported()) return true;
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
@@ -104,6 +119,10 @@ export function showLocalNotification(
   body: string,
   options?: { type?: string; url?: string }
 ) {
+  if (isDesktopNotificationSupported()) {
+    void showDesktopNotification(title, body);
+    return;
+  }
   if (
     typeof window === "undefined" ||
     !("Notification" in window) ||
