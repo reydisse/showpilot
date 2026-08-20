@@ -9,6 +9,10 @@
 -- multiple same-date shows.
 
 -- Ensure older date-scoped operational data has a parent show to reference.
+-- D1 intentionally limits the number of terms in a compound SELECT. Keep the
+-- backfill as separate statements so this migration works in both D1 and
+-- stock SQLite. The existing rundown date uniqueness makes each statement
+-- safe, while DISTINCT prevents duplicate source rows within a statement.
 INSERT INTO "rundown" (
   "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
   "status", "createdAt", "updatedAt"
@@ -16,15 +20,91 @@ INSERT INTO "rundown" (
 SELECT
   lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
   'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-FROM (
-  SELECT "orgId", "serviceDate" FROM "rundown_item"
-  UNION SELECT "orgId", "serviceDate" FROM "service_assignment"
-  UNION SELECT "orgId", "serviceDate" FROM "checklist_entry"
-  UNION SELECT "orgId", "serviceDate" FROM "cue_sheet"
-  UNION SELECT "orgId", "serviceDate" FROM "cue_note"
-  UNION SELECT "orgId", "serviceDate" FROM "incident"
-  UNION SELECT "orgId", "serviceDate" FROM "mic_assignment"
-) AS dates
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "rundown_item") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "service_assignment") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "checklist_entry") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "cue_sheet") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "cue_note") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "incident") AS dates
+WHERE NOT EXISTS (
+  SELECT 1 FROM "rundown" existing
+  WHERE existing."orgId" = dates."orgId"
+    AND existing."serviceDate" = dates."serviceDate"
+);
+
+INSERT INTO "rundown" (
+  "id", "orgId", "serviceDate", "name", "scheduledStartTime", "location",
+  "status", "createdAt", "updatedAt"
+)
+SELECT
+  lower(hex(randomblob(16))), dates."orgId", dates."serviceDate", '', NULL, '',
+  'stopped', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM (SELECT DISTINCT "orgId", "serviceDate" FROM "mic_assignment") AS dates
 WHERE NOT EXISTS (
   SELECT 1 FROM "rundown" existing
   WHERE existing."orgId" = dates."orgId"
