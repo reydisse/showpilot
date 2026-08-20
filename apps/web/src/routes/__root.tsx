@@ -9,6 +9,8 @@ import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 import "@/lib/device-modules/register-all";
 
+const THEME_BOOTSTRAP = `(function(){try{var saved=localStorage.getItem("showpilot-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.classList.remove("light","dark");document.documentElement.classList.add(theme)}catch(_){}})();`;
+
 export const Route = createRootRoute({
   pendingMs: 100, // show pending state after 100ms (avoids flash on fast navigations)
   pendingMinMs: 200, // keep it visible for at least 200ms to avoid flicker
@@ -47,11 +49,12 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
         <HeadContent />
       </head>
-      <body className="bg-slate-950 text-white antialiased">
+      <body className="bg-board-bg text-board-text antialiased">
         {children}
         <Scripts />
       </body>
