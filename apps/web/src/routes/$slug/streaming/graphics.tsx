@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import {
   getGraphicTemplates,
   addGraphicTemplate,
@@ -94,6 +94,7 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
       orgId: context.orgId,
       slug: context.slug,
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       proPresenter: {
         host: settings["propresenter-host"] ?? "",
         stagePort: Number.parseInt(settings["propresenter-port"] ?? "50001", 10) || 50001,
@@ -106,10 +107,10 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
 });
 
 function GraphicsPage() {
-  const { templates, activeIds: initialActiveIds, orgId, slug, role, proPresenter: proPresenterConfig } = Route.useLoaderData();
+  const { templates, activeIds: initialActiveIds, orgId, slug, role, grantedPermissions, proPresenter: proPresenterConfig } = Route.useLoaderData();
   const router = useRouter();
-  const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
-  const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
+  const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
+  const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
   const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
   const [filterType, setFilterType] = useState<GraphicType | "all">("all");
   const [showForm, setShowForm] = useState(false);

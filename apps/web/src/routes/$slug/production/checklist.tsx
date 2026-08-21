@@ -20,7 +20,7 @@ import {
   normalizeCategory,
   type DepartmentKey,
 } from "@/lib/departments";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -56,6 +56,7 @@ export const Route = createFileRoute("/$slug/production/checklist")({
       shows: opening.shows,
       orgId: context.orgId,
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       orgTimezone: settings["org-timezone"],
     };
   },
@@ -63,7 +64,7 @@ export const Route = createFileRoute("/$slug/production/checklist")({
 });
 
 function ChecklistPage() {
-  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, orgTimezone } = Route.useLoaderData();
+  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, grantedPermissions, orgTimezone } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [showId, setShowId] = useState<string | undefined>(initialShowId);
   const [entries, setEntries] = useState(initialEntries as Array<{
@@ -127,7 +128,8 @@ function ChecklistPage() {
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-  const canManageChecklist = hasPermission(role, "checklist:access") && Boolean(showId);
+  const canManageChecklist =
+    hasEffectivePermission(role, grantedPermissions, "checklist:access") && Boolean(showId);
 
   const handleToggle = async (entryId: string, checked: boolean) => {
     if (!canManageChecklist) return;

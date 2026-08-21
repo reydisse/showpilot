@@ -1,9 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasAnyPermission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 const historyInput = z.object({
@@ -37,16 +35,7 @@ function categoryLabel(value: string): string {
 }
 
 async function assertAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (!member || !hasAnyPermission(member.role ?? "member", ["incidents:report", "incidents:access"])) {
-    throw new Error("Forbidden");
-  }
+  await assertOrgPermission(orgId, ["incidents:report", "incidents:access"]);
 }
 
 export const getIncidentHistory = createServerFn({ method: "GET" })

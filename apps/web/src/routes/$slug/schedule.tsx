@@ -47,7 +47,7 @@ import {
 import { getOrgSettings } from "@/lib/settings";
 import { formatTimeInput, formatWallTime, getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
 
 function shiftDate(date: string, days: number) {
@@ -156,7 +156,11 @@ export const Route = createFileRoute("/$slug/schedule")({
       today,
       orgTimezone: settings["org-timezone"],
       orgId: context.orgId,
-      canManage: hasPermission(context.role, "schedule:manage"),
+      canManage: hasEffectivePermission(
+        context.role,
+        context.grantedPermissions,
+        "schedule:manage",
+      ),
       inventory,
       archivedInventory,
       savedTemplates,

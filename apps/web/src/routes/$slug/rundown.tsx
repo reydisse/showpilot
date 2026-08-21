@@ -59,7 +59,7 @@ import {
 import type { SavedRundownMeta, SavedRundown, PPSlidePayload } from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
 import { rundownItemNumbers } from "@/types/rundown";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
@@ -208,6 +208,7 @@ export const Route = createFileRoute("/$slug/rundown")({
       initialState: state,
       settings,
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       shows: opening.shows,
     };
   },
@@ -215,10 +216,10 @@ export const Route = createFileRoute("/$slug/rundown")({
 });
 
 function RundownPage() {
-  const { orgId, slug, openOn, initialState, settings, role, shows } = Route.useLoaderData();
+  const { orgId, slug, openOn, initialState, settings, role, grantedPermissions, shows } = Route.useLoaderData();
   const navigate = useNavigate({ from: Route.fullPath });
-  const canEditRundown = hasPermission(role, "rundown:edit");
-  const canControlRundown = hasPermission(role, "rundown:control");
+  const canEditRundown = hasEffectivePermission(role, grantedPermissions, "rundown:edit");
+  const canControlRundown = hasEffectivePermission(role, grantedPermissions, "rundown:control");
   const [serviceDate, setServiceDate] = useState(openOn);
   const [showId, setShowId] = useState<string | undefined>(initialState.meta?.showId);
   const showCreationRef = useRef<{ date: string; promise: Promise<string> } | null>(null);

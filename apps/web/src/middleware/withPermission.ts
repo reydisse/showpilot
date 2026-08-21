@@ -1,12 +1,14 @@
 import {
-  hasAnyPermission,
   hasPermission,
   isLowerThirdPermission,
-  normalizeRole,
   roleRequiresRundownPin,
   type Permission,
   type Role,
 } from "@/lib/permissions";
+import {
+  accessHasAnyPermission,
+  resolveEffectiveAccess,
+} from "@/lib/effective-access";
 
 interface D1Statement {
   bind(...params: unknown[]): {
@@ -38,10 +40,6 @@ export interface PermissionContext {
 export type PermissionHandler<T extends PermissionContext = PermissionContext> = (
   context: T,
 ) => Response | Promise<Response>;
-
-interface OrgRoleRow {
-  role: string;
-}
 
 interface CloudEnabledRow {
   cloud_enabled: number | null;
@@ -109,20 +107,6 @@ function pinChallenge(): Response {
   );
 }
 
-async function resolveRole(db: D1Database, userId: string, orgId: string): Promise<Role | null> {
-  // Better Auth's member table is the canonical organization membership
-  // source used by the route shell and every role-management mutation. The
-  // separate org_member table is an obsolete rundown-era mirror and can be
-  // stale; consulting it here made the UI recognize an admin while this
-  // server guard silently downgraded the same user and redirected to /board.
-  const member = await db
-    .prepare("SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1")
-    .bind(userId, orgId)
-    .first<OrgRoleRow>();
-
-  return normalizeRole(member?.role ?? null);
-}
-
 async function isCloudEnabled(db: D1Database, orgId: string): Promise<boolean> {
   let row: CloudEnabledRow | null = null;
   try {
@@ -163,13 +147,18 @@ async function assertPermission(
   context: PermissionContext,
   required: Permission | readonly Permission[],
 ): Promise<Role | Response> {
-  const role = await resolveRole(context.env.DB, context.session.userId, context.session.orgId);
-  if (!role) {
+  const access = await resolveEffectiveAccess(
+    context.env.DB,
+    context.session.userId,
+    context.session.orgId,
+  );
+  if (!access) {
     return forbidden(required);
   }
+  const role = access.role;
 
   const permissions = Array.isArray(required) ? required : [required];
-  if (!hasAnyPermission(role, permissions)) {
+  if (!accessHasAnyPermission(access, permissions)) {
     return forbidden(required);
   }
 
@@ -179,7 +168,7 @@ async function assertPermission(
     if (!cloudEnabled) {
       // Only a feature-flag block when the role genuinely holds a lower-thirds
       // permission; otherwise it's a real permission denial (forbidden).
-      if (hasAnyPermission(role, lowerThirdPerms)) {
+      if (accessHasAnyPermission(access, lowerThirdPerms)) {
         return featureDisabled(required);
       }
       return forbidden(required);

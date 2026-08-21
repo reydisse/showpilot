@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
-import { hasPermission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { persistRundownItemsForOrg, getRundownStateForOrg } from "@/lib/rundown";
 import {
   getOnboardingTemplate,
@@ -347,8 +347,7 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    const role = await getOrgMemberRole(data.orgId);
-    if (!hasPermission(role, "rundown:edit")) throw new Error("Forbidden");
+    await assertEffectiveOrgPermission(data.orgId, "rundown:edit");
 
     const template = getOnboardingTemplate(data.template);
     if (!template) throw new Error("Unknown template");

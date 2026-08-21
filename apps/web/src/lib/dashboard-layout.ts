@@ -1,9 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getD1 } from "@/lib/d1";
-import { getPrisma } from "@/lib/db";
-import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
 export const TM_LAYOUT_WIDGET_IDS = ["prep", "faults", "all-clear"] as const;
@@ -17,15 +15,8 @@ const layoutSchema = z.object({ version: z.literal(1), sections: z.array(section
 export type TmDashboardLayout = z.infer<typeof layoutSchema>;
 
 async function getLayoutViewer(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id }, select: { role: true },
-  });
-  const role = normalizeRole(member?.role ?? null);
-  if (!role || !hasPermission(role, "dashboard:tm")) throw new Error("Forbidden");
-  return session.user.id;
+  const { user } = await assertOrgPermission(orgId, "dashboard:tm");
+  return user.id;
 }
 
 export const getTmDashboardLayout = createServerFn({ method: "GET" })

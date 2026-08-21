@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Users,
   UserPlus,
@@ -16,6 +16,7 @@ import {
   Wrench,
   Megaphone,
   User,
+  KeyRound,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import {
@@ -27,8 +28,10 @@ import {
   cancelInvitation,
 } from "@/lib/session";
 import { ROLE_META, ASSIGNABLE_ROLES } from "@/lib/permissions";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission, hasPermission } from "@/lib/app-permissions";
+import { getAccessManagementSnapshot } from "@/lib/access-grants";
 import { MemberTable } from "@/components/admin/MemberTable";
+import { AccessManagementTab } from "@/components/admin/AccessManagementTab";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Member } from "@/types";
 
@@ -36,32 +39,86 @@ export const Route = createFileRoute("/$slug/team")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, ["settings:members", "checkin:access"], context.slug, context.orgId);
+    const accessManagement = await getAccessManagementSnapshot({
+      data: { orgId: context.orgId },
+    });
+    if (!accessManagement.authority.canManage) {
+      await withPermission(context.role, ["settings:members", "checkin:access"], context.slug, context.orgId);
+    }
     const canManageMembers = hasPermission(context.role, "settings:members");
+    const canViewCrew = hasEffectivePermission(
+      context.role,
+      context.grantedPermissions,
+      "checkin:access",
+    );
     const [orgMembers, invitations, crewMembers] = await Promise.all([
       canManageMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       canManageMembers ? getOrgInvitations({ data: { orgId: context.orgId } }) : Promise.resolve([]),
-      getCrewMembers({ data: { orgId: context.orgId } }),
+      canViewCrew ? getCrewMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
     ]);
     return {
       orgMembers,
       invitations,
       crewMembers: crewMembers as unknown as Member[],
       orgId: context.orgId,
-      role: context.role,
+      canManageMembers,
+      canViewCrew,
+      accessManagement,
     };
   },
   component: TeamPage,
 });
 
-type Tab = "members" | "crew";
+type Tab = "members" | "access" | "crew";
 
 function TeamPage() {
-  const { orgMembers, invitations, crewMembers, orgId, role } =
+  const {
+    orgMembers,
+    invitations,
+    crewMembers,
+    orgId,
+    canManageMembers,
+    canViewCrew,
+    accessManagement,
+  } =
     Route.useLoaderData();
 
-  const canManage = hasPermission(role, "settings:members");
-  const [activeTab, setActiveTab] = useState<Tab>(canManage ? "members" : "crew");
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    if (accessManagement.authority.kind === "on-duty-tm") return "access";
+    if (canManageMembers) return "members";
+    if (accessManagement.authority.canManage) return "access";
+    return "crew";
+  });
+
+  useEffect(() => {
+    if (activeTab === "members" && !canManageMembers) {
+      setActiveTab(accessManagement.authority.canManage ? "access" : "crew");
+    } else if (activeTab === "access" && !accessManagement.authority.canManage) {
+      setActiveTab(canManageMembers ? "members" : "crew");
+    } else if (activeTab === "crew" && !canViewCrew) {
+      setActiveTab(canManageMembers ? "members" : "access");
+    }
+  }, [
+    accessManagement.authority.canManage,
+    activeTab,
+    canManageMembers,
+    canViewCrew,
+  ]);
+
+  const visibleTab: Tab =
+    activeTab === "members" && !canManageMembers
+      ? accessManagement.authority.canManage
+        ? "access"
+        : "crew"
+      : activeTab === "access" && !accessManagement.authority.canManage
+        ? canManageMembers
+          ? "members"
+          : "crew"
+        : activeTab === "crew" && !canViewCrew
+          ? canManageMembers
+            ? "members"
+            : "access"
+          : activeTab;
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto min-h-0">
@@ -74,30 +131,49 @@ function TeamPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-6 border-b border-board-border overflow-x-auto hide-scrollbar">
-        {canManage && (
+        {canManageMembers && (
           <TabButton
-            active={activeTab === "members"}
+            active={visibleTab === "members"}
             onClick={() => setActiveTab("members")}
             icon={<Shield className="w-4 h-4" />}
             label="Members"
             count={orgMembers.length}
           />
         )}
-        <TabButton
-          active={activeTab === "crew"}
-          onClick={() => setActiveTab("crew")}
-          icon={<Users className="w-4 h-4" />}
-          label="Crew"
-          count={crewMembers.length}
-        />
+        {accessManagement.authority.canManage ? (
+          <TabButton
+            active={visibleTab === "access"}
+            onClick={() => setActiveTab("access")}
+            icon={<KeyRound className="w-4 h-4" />}
+            label="Access"
+            count={accessManagement.grants.length}
+          />
+        ) : null}
+        {canViewCrew ? (
+          <TabButton
+            active={visibleTab === "crew"}
+            onClick={() => setActiveTab("crew")}
+            icon={<Users className="w-4 h-4" />}
+            label="Crew"
+            count={crewMembers.length}
+          />
+        ) : null}
       </div>
 
-      {activeTab === "members" ? (
+      {visibleTab === "members" ? (
         <MembersTab
           members={orgMembers}
           invitations={invitations}
           orgId={orgId}
-          canManage={canManage}
+          canManage={canManageMembers}
+        />
+      ) : visibleTab === "access" ? (
+        <AccessManagementTab
+          orgId={orgId}
+          currentUserId={accessManagement.currentUserId}
+          authority={accessManagement.authority}
+          members={accessManagement.members}
+          grants={accessManagement.grants}
         />
       ) : (
         <MemberTable members={crewMembers} orgId={orgId} />

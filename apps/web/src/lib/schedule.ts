@@ -3,7 +3,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasPermission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { serviceTimeToIso } from "@/lib/utils";
@@ -209,27 +209,14 @@ export const deleteService = createServerFn({ method: "POST" })
   });
 
 async function assertAccess(orgId: string, manage = false) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({
-    headers: getRequestHeaders(),
-  });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (
-    !member ||
-    !hasPermission(
-      member.role ?? "member",
-      manage ? "schedule:manage" : "schedule:view",
-    )
-  )
-    throw new Error("Forbidden");
+  const { user } = await assertOrgPermission(
+    orgId,
+    manage ? "schedule:manage" : "schedule:view",
+  );
   return {
-    userId: session.user.id,
-    email: session.user.email.toLowerCase(),
-    name: session.user.name,
+    userId: user.id,
+    email: user.email.toLowerCase(),
+    name: user.name,
   };
 }
 

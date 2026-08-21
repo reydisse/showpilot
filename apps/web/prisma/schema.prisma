@@ -23,6 +23,9 @@ model User {
   orgMembers    OrgMember[]
   invitations   Invitation[]
   dashboardLayouts DashboardLayout[]
+  accessGrantsReceived MemberPermissionGrant[] @relation("AccessGrantRecipient")
+  accessGrantsIssued   MemberPermissionGrant[] @relation("AccessGrantIssuer")
+  accessGrantsRevoked  MemberPermissionGrant[] @relation("AccessGrantRevoker")
 
   @@unique([email])
   @@map("user")
@@ -123,6 +126,7 @@ model Organization {
   kioskTokens        KioskToken[]
   companionTokens    CompanionToken[]
   showInventory      ShowInventoryItem[]
+  memberPermissionGrants MemberPermissionGrant[]
 
   organizationroles OrganizationRole[]
 
@@ -142,6 +146,34 @@ model Member {
   @@index([organizationId])
   @@index([userId])
   @@map("member")
+}
+
+/// A revocable operational capability assigned to one organization member.
+/// Permissions are stored as a validated JSON snapshot so changing a bundle
+/// later never silently expands an existing grant.
+model MemberPermissionGrant {
+  id              String       @id @default(cuid())
+  orgId           String
+  organization    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User         @relation("AccessGrantRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  capability      String
+  permissions     String
+  startsOn        String
+  expiresOn       String?
+  reason          String       @default("")
+  grantedByUserId String
+  grantedBy       User         @relation("AccessGrantIssuer", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedBy       User?        @relation("AccessGrantRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([orgId, userId, startsOn, expiresOn])
+  @@index([orgId, revokedAt, updatedAt])
+  @@index([grantedByUserId])
+  @@map("member_permission_grant")
 }
 
 model OrgMember {

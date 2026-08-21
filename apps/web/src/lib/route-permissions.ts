@@ -14,19 +14,13 @@ export async function withPermission(
   slug: string,
   orgId: string,
 ): Promise<void> {
-  const allowed = Array.isArray(permission)
+  const allowedByRole = Array.isArray(permission)
     ? hasAnyPermission(role, permission)
     : hasPermission(role, permission);
 
-  if (!allowed) {
-    throw redirect({
-      to: "/$slug/board",
-      params: { slug },
-    });
-  }
-
   const permissions = Array.isArray(permission) ? permission : [permission];
   const needsServerPolicyCheck =
+    !allowedByRole ||
     permissions.some(isLowerThirdPermission) ||
     (roleRequiresRundownPin(role) &&
       permissions.some((entry) => entry === "rundown:view" || entry === "rundown:edit"));

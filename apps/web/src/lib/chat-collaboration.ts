@@ -1,24 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasPermission } from "@/lib/permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
 const roomIdSchema = z.string().min(1).max(220);
 const mentionPattern = /<@([^|>]+)\|([^>]+)>/g;
 
 async function assertChatMember(orgId: string) {
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (!member || !hasPermission(member.role, "chat:access")) throw new Error("Forbidden");
-  return session.user;
+  const { user } = await assertOrgPermission(orgId, "chat:access");
+  return user;
 }
 
 export interface ChatMemberSummary {

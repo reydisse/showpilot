@@ -1,6 +1,7 @@
 import handler from "@tanstack/react-start/server-entry";
 import { getAuth } from "./lib/auth";
-import { hasAnyPermission, hasPermission, type Permission } from "./lib/permissions";
+import { resolveEffectiveAccess } from "./lib/effective-access";
+import type { Permission } from "./lib/permissions";
 import { verifyCrewChatPass } from "./lib/crew-chat-pass";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
@@ -137,6 +138,7 @@ interface OrgIdentity {
   userId: string;
   name: string;
   role: string;
+  permissions: Permission[];
 }
 
 async function getOrgIdentity(
@@ -147,12 +149,14 @@ async function getOrgIdentity(
   try {
     const session = await getAuth().api.getSession({ headers: request.headers });
     if (!session) return null;
-    const row = await db
-      .prepare("SELECT role FROM member WHERE organizationId = ? AND userId = ? LIMIT 1")
-      .bind(orgId, session.user.id)
-      .first<{ role: string }>();
-    if (!row) return null;
-    return { userId: session.user.id, name: session.user.name, role: row.role };
+    const access = await resolveEffectiveAccess(db, session.user.id, orgId);
+    if (!access) return null;
+    return {
+      userId: session.user.id,
+      name: session.user.name,
+      role: access.role,
+      permissions: access.permissions,
+    };
   } catch {
     return null;
   }
@@ -172,9 +176,8 @@ function canUse(
 ): boolean {
   if (access.hasBridgeKey) return true;
   if (!access.identity) return false;
-  return Array.isArray(permissions)
-    ? hasAnyPermission(access.identity.role, permissions)
-    : hasPermission(access.identity.role, permissions);
+  const required = Array.isArray(permissions) ? permissions : [permissions];
+  return required.some((permission) => access.identity?.permissions.includes(permission));
 }
 
 async function canAccessChatRoom(

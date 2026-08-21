@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
-import { hasPermission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
 import { z } from "zod";
 import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
@@ -451,17 +451,11 @@ async function assertOrgAccess(orgId: string) {
 }
 
 async function assertRundownEditAccess(orgId: string) {
-  const role = await getOrgMemberRole(orgId);
-  if (!hasPermission(role, "rundown:edit")) {
-    throw new Error("Forbidden");
-  }
+  await assertEffectiveOrgPermission(orgId, "rundown:edit");
 }
 
 async function assertRundownControlAccess(orgId: string) {
-  const role = await getOrgMemberRole(orgId);
-  if (!hasPermission(role, "rundown:control")) {
-    throw new Error("Forbidden");
-  }
+  await assertEffectiveOrgPermission(orgId, "rundown:control");
 }
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";

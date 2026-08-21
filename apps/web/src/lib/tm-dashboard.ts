@@ -11,11 +11,16 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasAnyPermission, hasPermission, isAdminTier, type Permission } from "@/lib/app-permissions";
+import {
+  hasEffectivePermission,
+  isAdminTier,
+  type Permission,
+} from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
+import { resolveEffectiveAccess } from "@/lib/effective-access";
 import { ROLE_META, type Role } from "@/lib/permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
@@ -31,30 +36,14 @@ import {
 /** Carried-forward faults worth showing. Beyond this it is a backlog. */
 const OPEN_FAULT_LIMIT = 25;
 
-async function getViewer(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const session = await auth.api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-
-  return {
-    role: member.role ?? "member",
-    userId: session.user.id,
-    userName: session.user.name ?? "",
-  };
-}
-
 async function assertTm(orgId: string, permissions: Permission[]) {
-  const viewer = await getViewer(orgId);
-  if (!hasAnyPermission(viewer.role, permissions)) throw new Error("Forbidden");
-  return viewer;
+  const { user, access } = await assertEffectiveOrgPermission(orgId, permissions);
+  return {
+    role: access.role,
+    grantedPermissions: access.grantedPermissions,
+    userId: user.id,
+    userName: user.name,
+  };
 }
 
 export interface TmDashboardResult {
@@ -235,6 +224,14 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       where: { organizationId: orgId },
       select: { role: true, user: { select: { id: true, name: true } } },
     });
+    const assignableMembers = (
+      await Promise.all(
+        members.map(async (member) => ({
+          member,
+          access: await resolveEffectiveAccess(getD1(), member.user.id, orgId),
+        })),
+      )
+    ).filter(({ access }) => access?.permissions.includes("incidents:access"));
 
     return {
       model: deriveTmDashboard(snapshot),
@@ -258,9 +255,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         enabled: row.enabled,
         connected: Boolean(row.cfOutputId),
       })),
-      members: members
-        .filter((row) => hasPermission(row.role, "incidents:access"))
-        .map((row) => ({
+      members: assignableMembers
+        .map(({ member: row }) => ({
           id: row.user.id,
           name: row.user.name,
           role: row.role,
@@ -404,16 +400,22 @@ export const assignFault = createServerFn({ method: "POST" })
     // not: they have not seen it yet, and that gap is exactly what the
     // staleness rule watches for.
     const claimingSelf = data.assignedTo === viewer.userId;
-    if (claimingSelf && !hasPermission(viewer.role, "incidents:access")) throw new Error("Forbidden");
+    if (
+      claimingSelf &&
+      !hasEffectivePermission(viewer.role, viewer.grantedPermissions, "incidents:access")
+    ) throw new Error("Forbidden");
     let name = data.assignedTo ? data.assignedName || viewer.userName : "";
 
     if (data.assignedTo && !claimingSelf) {
       if (!isAdminTier(viewer.role)) throw new Error("Forbidden");
       const target = await getPrisma().member.findFirst({
         where: { organizationId: data.orgId, userId: data.assignedTo },
-        select: { role: true, user: { select: { name: true } } },
+        select: { user: { select: { name: true } } },
       });
-      if (!target || !hasPermission(target.role, "incidents:access")) {
+      const targetAccess = target
+        ? await resolveEffectiveAccess(getD1(), data.assignedTo, data.orgId)
+        : null;
+      if (!target || !targetAccess?.permissions.includes("incidents:access")) {
         throw new Error("That person cannot be assigned operational issues");
       }
       // Never trust the display name supplied by the browser. It is

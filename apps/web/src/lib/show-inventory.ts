@@ -1,9 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
-import { hasPermission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 import type { RundownItem } from "@/types/rundown";
 
@@ -45,17 +44,8 @@ function isMissingInventoryTable(error: unknown) {
 }
 
 async function assertInventoryAccess(orgId: string, manage = false) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
   const permission = manage ? "schedule:manage" : "schedule:view";
-  if (!member || !hasPermission(member.role ?? "member", permission)) {
-    throw new Error("Forbidden");
-  }
+  await assertOrgPermission(orgId, permission);
 }
 
 function parseItems(value: string | undefined): RundownItem[] {
