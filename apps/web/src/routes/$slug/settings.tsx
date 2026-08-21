@@ -33,6 +33,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
+import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
 import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getOrgSettings,
@@ -377,14 +378,17 @@ function SettingToggle({
   getSetting,
   saveSetting,
   warning,
+  defaultEnabled = false,
 }: {
   settingKey: string;
   label: string;
   getSetting: SectionProps["getSetting"];
   saveSetting: SectionProps["saveSetting"];
   warning?: string;
+  defaultEnabled?: boolean;
 }) {
-  const enabled = getSetting(settingKey) === "true";
+  const savedValue = getSetting(settingKey);
+  const enabled = savedValue === "true" || (savedValue === "" && defaultEnabled);
   return (
     <div>
       <label className="flex items-center gap-3 cursor-pointer">
@@ -1474,10 +1478,7 @@ function CloudLowerThirdsToggle({
 
 function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const overlayUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/overlay/${slug}`
-      : `/overlay/${slug}`;
+  const overlayUrl = useAbsoluteUrl(`/overlay/${slug}`);
 
   return (
     <div>
@@ -1643,6 +1644,7 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
         <SettingToggle
           settingKey="notify-app-chat"
           label="New chat messages"
+          defaultEnabled
           getSetting={getSetting}
           saveSetting={saveSetting}
         />
@@ -1878,7 +1880,7 @@ function DangerSection({
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [availableDates, setAvailableDates] = useState<Array<{ date: string; itemCount: number }>>([]);
+  const [availableDates, setAvailableDates] = useState<Array<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }>>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
   const [selectedSections, setSelectedSections] = useState<string[]>(["summary", "rundown", "incidents", "checklist", "cueSheets"]);
@@ -1923,10 +1925,11 @@ function DangerSection({
     setBusy("export");
     setExportError(null);
     try {
-      const serviceDate = selectedDate || availableDates[0]?.date;
-      if (!serviceDate) return;
+      const selectedShow = availableDates.find((show) => show.showId === selectedDate) ?? availableDates[0];
+      if (!selectedShow) return;
+      const serviceDate = selectedShow.date;
 
-      const report = await exportShowReport({ data: { orgId: org.id, serviceDate } });
+      const report = await exportShowReport({ data: { orgId: org.id, serviceDate, showId: selectedShow.showId } });
       const filteredReport = {
         generatedAt: report.generatedAt,
         serviceDate: report.serviceDate,
@@ -2048,7 +2051,7 @@ function DangerSection({
     try {
       const dates = await listRundownDates({ data: { orgId: org.id } });
       setAvailableDates(dates);
-      setSelectedDate(dates[0]?.date ?? "");
+      setSelectedDate(dates[0]?.showId ?? "");
       if (!dates.length) {
         setExportError("No show data found for this organization.");
       }
@@ -2158,8 +2161,8 @@ function DangerSection({
                       className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
                     >
                       {availableDates.map((entry) => (
-                        <option key={entry.date} value={entry.date}>
-                          {entry.date} ({entry.itemCount} items)
+                        <option key={entry.showId} value={entry.showId}>
+                          {entry.name || entry.date}{entry.scheduledStartTime ? ` · ${new Date(entry.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} ({entry.itemCount} items)
                         </option>
                       ))}
                     </select>

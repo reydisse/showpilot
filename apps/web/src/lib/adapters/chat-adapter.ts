@@ -27,6 +27,8 @@ export interface ChatMessageOptions {
   attachments?: ChatAttachment[];
   mentionedUserIds?: string[];
   poll?: ChatPoll;
+  /** Client-generated ID used to target a native chat notification. */
+  clientMessageId?: string;
 }
 
 export interface ChatPollOption { id: string; text: string; voterIds: string[]; }

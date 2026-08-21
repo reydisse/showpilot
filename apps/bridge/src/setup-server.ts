@@ -55,7 +55,11 @@ export function saveConfigFile(config: BridgeConfig): void {
 
 function toBridgeUrl(siteUrl: string, org: string): string {
   const url = new URL(siteUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:"));
-  url.pathname = `/api/bridge/${org}/ws`;
+  // Accept either a slug or a path-like value from setup fields. A leading
+  // slash otherwise creates `/api/bridge//org/ws`, which Cloudflare rejects
+  // before the BridgeRelay can authenticate the socket.
+  const normalizedOrg = org.trim().replace(/^\/+|\/+$/g, "");
+  url.pathname = `/api/bridge/${normalizedOrg}/ws`;
   url.searchParams.delete("role");
   url.searchParams.delete("key");
   return url.toString();

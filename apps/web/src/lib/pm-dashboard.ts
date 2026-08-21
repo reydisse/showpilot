@@ -69,6 +69,7 @@ async function assertOrgPermission(orgId: string, permission: Permission) {
 }
 
 interface RundownDateRow {
+  id: string;
   serviceDate: string;
   scheduledStartTime: Date | null;
   status: string;
@@ -86,6 +87,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
       findMany(args: {
         where: { orgId: string };
         select: {
+          id: true;
           serviceDate: true;
           scheduledStartTime: true;
           status: true;
@@ -99,6 +101,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
     return await prisma.rundown.findMany({
       where: { orgId },
       select: {
+        id: true,
         serviceDate: true,
         scheduledStartTime: true,
         status: true,
@@ -183,9 +186,10 @@ async function countAllAssignments(orgId: string): Promise<number> {
 async function loadAssignments(
   orgId: string,
   serviceDate: string,
+  showId?: string,
 ): Promise<AssignmentRow[]> {
   return getPrisma().serviceAssignment.findMany({
-    where: { orgId, serviceDate },
+    where: { orgId, ...(showId ? { showId } : { serviceDate }) },
     orderBy: [{ department: "asc" }, { role: "asc" }],
     select: {
       id: true,
@@ -305,6 +309,8 @@ export interface PmDashboardResult {
   /** Initial relay seed for the PM's transport controls. */
   rundownState: RundownState;
   orgId: string;
+  showId: string | null;
+  shows: Array<{ id: string; serviceDate: string; name: string }>;
   /** Every service date the org has, newest first — powers the picker. */
   serviceDates: string[];
   orgTimezone: string;
@@ -313,7 +319,7 @@ export interface PmDashboardResult {
 export const getPmDashboard = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, serviceDate: serviceDateSchema.optional() }),
+      z.object({ orgId: idSchema, serviceDate: serviceDateSchema.optional(), showId: idSchema.optional() }),
       data,
     ),
   )
@@ -350,12 +356,22 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       readPhaseSettings(settings);
 
     const startTimes = new Map<string, RundownDateRow>();
-    for (const row of rundownRows) startTimes.set(row.serviceDate, row);
+    for (const row of rundownRows) if (!startTimes.has(row.serviceDate)) startTimes.set(row.serviceDate, row);
 
     const allDates = [
-      ...new Set([...itemSummaries.keys(), ...startTimes.keys()]),
+      ...new Set([
+        ...[...itemSummaries.keys()].filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)),
+        ...startTimes.keys(),
+      ]),
     ].sort();
-    const serviceDate = data.serviceDate ?? resolveServiceDate(allDates, today);
+    const selectedShow =
+      (data.showId ? rundownRows.find((show) => show.id === data.showId) : undefined) ??
+      (data.serviceDate ? rundownRows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
+      (settings["active-show-id"] ? rundownRows.find((show) => show.id === settings["active-show-id"]) : undefined) ??
+      rundownRows.find((show) => show.serviceDate === resolveServiceDate(allDates, today));
+    if (data.showId && !selectedShow) throw new Error("Show not found");
+    const serviceDate = selectedShow?.serviceDate ?? data.serviceDate ?? resolveServiceDate(allDates, today);
+    const showId = selectedShow?.id;
     const lastServiceDate = resolveLastServiceDate(allDates, today);
 
     // Every read below selects only the columns the dashboard uses. That
@@ -387,18 +403,18 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       recentItems,
       recentIncidents,
     ] = await Promise.all([
-      getRundownStateForOrg({ orgId, serviceDate }),
+      getRundownStateForOrg({ orgId, serviceDate, showId }),
       prisma.checklistTemplate.findMany({
         where: { orgId },
         orderBy: { sortOrder: "asc" },
         select: { id: true, label: true, category: true },
       }),
       prisma.checklistEntry.findMany({
-        where: { orgId, serviceDate },
+        where: { orgId, ...(showId ? { showId } : { serviceDate }) },
         select: { templateId: true, checked: true },
       }),
       prisma.incident.findMany({
-        where: { orgId, serviceDate },
+        where: { orgId, ...(showId ? { showId } : { serviceDate }) },
         orderBy: { timestamp: "desc" },
         select: {
           id: true,
@@ -448,7 +464,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         take: NOTIFICATION_LIMIT,
         select: { id: true, title: true, message: true, severity: true },
       }),
-      loadAssignments(orgId, serviceDate),
+      loadAssignments(orgId, serviceDate, showId),
       countAllAssignments(orgId),
       loadRosterDuty(orgId, serviceDate),
       prisma.member.findMany({
@@ -546,7 +562,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
 
     const snapshot: PmSnapshot = {
       serviceDate,
-      serviceName: startTimes.get(serviceDate)?.name ?? "",
+      serviceName: selectedShow?.name ?? startTimes.get(serviceDate)?.name ?? "",
       now: Date.now(),
       callLeadMinutes,
       serviceWindowMinutes,
@@ -641,6 +657,8 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       model: derivePmDashboard(snapshot),
       rundownState,
       orgId,
+      showId: showId ?? null,
+      shows: rundownRows.map((show) => ({ id: show.id, serviceDate: show.serviceDate, name: show.name })),
       serviceDates: [...allDates].reverse(),
       orgTimezone,
     };

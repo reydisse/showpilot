@@ -5,12 +5,14 @@ import {
   sanitizePayloadSummary,
   type WebhookEventInput,
 } from "@/lib/settings";
+import { classifyRelayCommand } from "@/lib/rundown-command-protocol";
 
 interface D1Database {
   prepare(sql: string): {
     bind(...params: unknown[]): {
       first<T>(): Promise<T | null>;
       all<T>(): Promise<{ results: T[] }>;
+      run(): Promise<unknown>;
     };
   };
 }
@@ -77,6 +79,9 @@ interface RundownState {
   ppPreviewSlide: PPSlideState | null;
   stageMessage: string;
   serviceDate?: string;
+  showId?: string;
+  revision: number;
+  recentCommandIds: string[];
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -95,35 +100,137 @@ export class RundownRelay extends DurableObject {
     ppSlide: null,
     ppPreviewSlide: null,
     stageMessage: "",
+    revision: 0,
+    recentCommandIds: [],
   };
   private hydrated = false;
+  private hydrationPromise: Promise<void> | null = null;
   private orgId = "";
 
   /** Load state from durable storage on first access */
   private async hydrateFromStorage(): Promise<void> {
     if (this.hydrated) return;
-    this.hydrated = true;
-
-    const stored = await this.ctx.storage.get<RundownState>("state");
-    if (stored) {
-      this.state = {
-        items: stored.items ?? [],
-        timer: stored.timer ?? { ...DEFAULT_TIMER },
-        ppSlide: stored.ppSlide ?? null,
-        ppPreviewSlide: stored.ppPreviewSlide ?? null,
-        stageMessage: stored.stageMessage ?? "",
-        // Without this, every DO wake-up relabelled the active room as
-        // unknown. Cue sheets correctly reject unknown-date live state,
-        // which made sync work until a refresh/navigation and then stop.
-        serviceDate: stored.serviceDate,
-      };
+    if (!this.hydrationPromise) {
+      this.hydrationPromise = (async () => {
+        const stored = await this.ctx.storage.get<RundownState>("state");
+        if (stored) {
+          this.state = {
+            items: stored.items ?? [],
+            timer: stored.timer ?? { ...DEFAULT_TIMER },
+            ppSlide: stored.ppSlide ?? null,
+            ppPreviewSlide: stored.ppPreviewSlide ?? null,
+            stageMessage: stored.stageMessage ?? "",
+            serviceDate: stored.serviceDate,
+            showId: stored.showId,
+            revision: Number.isFinite(stored.revision) ? stored.revision : 0,
+            recentCommandIds: Array.isArray(stored.recentCommandIds)
+              ? stored.recentCommandIds.slice(-100)
+              : [],
+          };
+        }
+        this.hydrated = true;
+      })().finally(() => {
+        this.hydrationPromise = null;
+      });
     }
+    await this.hydrationPromise;
   }
 
-  /** Persist current state to durable storage (non-blocking) */
-  private persistState(): void {
-    // ctx.storage.put is automatically batched and doesn't block
-    this.ctx.storage.put("state", this.state);
+  /** Persist the authoritative state before any client sees the revision. */
+  private async persistState(): Promise<void> {
+    await this.ctx.storage.put("state", this.state);
+  }
+
+  private persistRuntimeSnapshot(action: string): void {
+    if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
+    const key = `rundown-timer:${this.state.showId ?? this.state.serviceDate}`;
+    const value = JSON.stringify({ ...this.state.timer, serverTime: Date.now() });
+    const env = this.env as unknown as Env;
+    const writes: Promise<unknown>[] = [
+      env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      )
+        .bind(crypto.randomUUID(), this.orgId, key, value)
+        .run(),
+    ];
+
+    if (action === "clear-all") {
+      writes.push(
+        (this.state.showId
+          ? env.DB.prepare(
+              "DELETE FROM rundown_item WHERE orgId = ? AND showId = ?",
+            ).bind(this.orgId, this.state.showId)
+          : env.DB.prepare(
+              "DELETE FROM rundown_item WHERE orgId = ? AND showId IS NULL AND serviceDate = ?",
+            ).bind(this.orgId, this.state.serviceDate))
+          .run(),
+      );
+    } else {
+      for (const item of this.state.items) {
+        writes.push(
+          (this.state.showId
+            ? env.DB.prepare(
+                `UPDATE rundown_item
+                    SET status = ?, actualStart = ?, actualEnd = ?, updatedAt = CURRENT_TIMESTAMP
+                  WHERE orgId = ? AND showId = ? AND itemId = ?`,
+              ).bind(
+                item.status,
+                item.actualStart ?? null,
+                item.actualEnd ?? null,
+                this.orgId,
+                this.state.showId,
+                item.id,
+              )
+            : env.DB.prepare(
+                `UPDATE rundown_item
+                    SET status = ?, actualStart = ?, actualEnd = ?, updatedAt = CURRENT_TIMESTAMP
+                  WHERE orgId = ? AND showId IS NULL AND serviceDate = ? AND itemId = ?`,
+              ).bind(
+                item.status,
+                item.actualStart ?? null,
+                item.actualEnd ?? null,
+                this.orgId,
+                this.state.serviceDate,
+                item.id,
+              ))
+            .run(),
+        );
+      }
+    }
+
+    this.ctx.waitUntil(
+      Promise.all(writes).catch((error) =>
+        console.error("[RundownRelay] runtime persistence failed", error),
+      ),
+    );
+  }
+
+  private persistActiveShow(): void {
+    if (!this.orgId || !this.state.serviceDate) return;
+    const env = this.env as unknown as Env;
+    const writes = [
+      env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, 'active-service-date', ?)
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      ).bind(crypto.randomUUID(), this.orgId, this.state.serviceDate).run(),
+    ];
+    if (this.state.showId) {
+      writes.push(
+        env.DB.prepare(
+          `INSERT INTO app_setting (id, orgId, key, value)
+           VALUES (?, ?, 'active-show-id', ?)
+           ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+        ).bind(crypto.randomUUID(), this.orgId, this.state.showId).run(),
+      );
+    }
+    this.ctx.waitUntil(
+      Promise.all(writes).catch((error) =>
+        console.error("[RundownRelay] active show persistence failed", error),
+      ),
+    );
   }
 
   private async isProPresenterStageDisplayEnabled(): Promise<boolean> {
@@ -155,15 +262,19 @@ export class RundownRelay extends DurableObject {
 
   /** Fire-and-forget D1 write for actualStart/actualEnd on a single item. */
   private persistItemTiming(itemId: string, field: "actualStart" | "actualEnd", value: string): void {
-    if (!this.orgId || !this.state.serviceDate) return;
+    if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
     const orgId = this.orgId;
     const serviceDate = this.state.serviceDate;
+    const showId = this.state.showId;
     const env = this.env as unknown as Env;
     this.ctx.waitUntil(
-      env.DB.prepare(
-        `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`
-      )
-        .bind(value, orgId, serviceDate, itemId)
+      (showId
+        ? env.DB.prepare(
+            `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND showId = ? AND itemId = ?`,
+          ).bind(value, orgId, showId, itemId)
+        : env.DB.prepare(
+            `UPDATE rundown_item SET ${field} = ? WHERE orgId = ? AND serviceDate = ? AND itemId = ?`,
+          ).bind(value, orgId, serviceDate, itemId))
         .first()
         .catch(() => null),
     );
@@ -174,15 +285,23 @@ export class RundownRelay extends DurableObject {
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
     const serviceDate = url.searchParams.get("serviceDate");
+    const showId = url.searchParams.get("showId");
     const access = url.searchParams.get("access");
-    if (serviceDate && access === "write" && serviceDate !== this.state.serviceDate) {
+    if (
+      access === "write" &&
+      ((showId && showId !== this.state.showId) ||
+        (!showId && serviceDate && serviceDate !== this.state.serviceDate))
+    ) {
       // A room is active for one service at a time. Relabelling the old
       // rows as a newly opened date made the cue sheet show a hybrid of
       // two services. Empty first; the editor then seeds this date's D1 rows.
-      this.state.serviceDate = serviceDate;
+      this.state.serviceDate = serviceDate ?? undefined;
+      this.state.showId = showId ?? undefined;
       this.state.items = [];
       this.state.timer = { ...DEFAULT_TIMER };
-      this.persistState();
+      this.state.revision += 1;
+      this.state.recentCommandIds = [];
+      await this.persistState();
     }
 
     if (url.pathname === "/ws") {
@@ -192,6 +311,9 @@ export class RundownRelay extends DurableObject {
       server.serializeAttachment?.({
         canWrite: access === "write",
         canObserve: access === "observe",
+        orgId: this.orgId,
+        serviceDate: serviceDate ?? null,
+        showId: showId ?? null,
       });
 
       // Hydrate with current state
@@ -221,8 +343,11 @@ export class RundownRelay extends DurableObject {
         action: string;
         payload?: Record<string, unknown>;
       };
-      await this.handleCommand(body.action, body.payload);
-      return Response.json({ ok: true });
+      const accepted = await this.handleCommand(body.action, body.payload);
+      return Response.json(
+        { ok: accepted, revision: this.state.revision },
+        { status: accepted ? 200 : 400 },
+      );
     }
 
     return new Response("Not found", { status: 404 });
@@ -233,6 +358,8 @@ export class RundownRelay extends DurableObject {
     try {
       const parsed = JSON.parse(data as string) as {
         type: string;
+        id?: string;
+        expectedRevision?: number;
         action?: string;
         payload?: Record<string, unknown>;
       };
@@ -243,9 +370,50 @@ export class RundownRelay extends DurableObject {
       }
 
       if (parsed.type === "command" && parsed.action) {
-        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+        const attachment = ws.deserializeAttachment?.() as {
+          canWrite?: boolean;
+          orgId?: string;
+        } | null;
         if (!attachment?.canWrite) return;
-        await this.handleCommand(parsed.action, parsed.payload);
+        if (attachment.orgId) this.orgId = attachment.orgId;
+
+        const decision = classifyRelayCommand(
+          this.state.revision,
+          this.state.recentCommandIds,
+          parsed.id,
+          parsed.expectedRevision,
+        );
+        if (decision === "duplicate") {
+          ws.send(JSON.stringify({
+            type: "command-result",
+            id: parsed.id,
+            accepted: true,
+            duplicate: true,
+            revision: this.state.revision,
+          }));
+          return;
+        }
+
+        if (decision === "revision-conflict") {
+          this.sendStateToSocket(ws);
+          ws.send(JSON.stringify({
+            type: "command-result",
+            id: parsed.id,
+            accepted: false,
+            reason: "revision-conflict",
+            revision: this.state.revision,
+          }));
+          return;
+        }
+
+        const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
+        ws.send(JSON.stringify({
+          type: "command-result",
+          id: parsed.id,
+          accepted,
+          reason: accepted ? undefined : "invalid-command",
+          revision: this.state.revision,
+        }));
       }
     } catch {
       // Ignore
@@ -262,8 +430,9 @@ export class RundownRelay extends DurableObject {
 
   private async handleCommand(
     action: string,
-    payload?: Record<string, unknown>
-  ) {
+    payload?: Record<string, unknown>,
+    commandId?: string,
+  ): Promise<boolean> {
     const previousPlayback = this.state.timer.playback;
     const previousItemId = this.state.timer.currentItemId;
     const shouldEmitAutomation = action !== "seed";
@@ -594,11 +763,22 @@ export class RundownRelay extends DurableObject {
       }
 
       default:
-        return;
+        return false;
     }
 
-    this.persistState();
+    this.state.revision += 1;
+    if (commandId) {
+      this.state.recentCommandIds = [...this.state.recentCommandIds, commandId].slice(-100);
+    }
+    await this.persistState();
     this.broadcastState();
+
+    if (action.startsWith("timer-") || action === "reset" || action === "clear-all" || action === "seed") {
+      this.persistRuntimeSnapshot(action);
+    }
+    if (previousPlayback === "stop" && this.state.timer.playback === "play") {
+      this.persistActiveShow();
+    }
 
     const currentItemId = this.state.timer.currentItemId;
     if (shouldEmitAutomation && previousPlayback === "stop" && this.state.timer.playback === "play") {
@@ -610,6 +790,7 @@ export class RundownRelay extends DurableObject {
         void this.sendAutomationChatMessage(`Now live: ${currentItem.title.trim()}`, "system");
       }
     }
+    return true;
   }
 
   private async sendAutomationChatMessage(text: string, type: "system") {
@@ -896,6 +1077,8 @@ export class RundownRelay extends DurableObject {
       // cue sheet — has to be able to tell whether the state on the wire
       // is even about the service on screen.
       serviceDate: this.state.serviceDate ?? null,
+      showId: this.state.showId ?? null,
+      revision: this.state.revision,
       items: this.state.items,
       timer: {
         ...this.state.timer,
@@ -911,6 +1094,8 @@ export class RundownRelay extends DurableObject {
   private getDisplayState() {
     return {
       serviceDate: this.state.serviceDate ?? null,
+      showId: this.state.showId ?? null,
+      revision: this.state.revision,
       items: this.state.items.map((item) => ({
         id: item.id,
         title: item.title,
@@ -926,17 +1111,24 @@ export class RundownRelay extends DurableObject {
     };
   }
 
+  private sendStateToSocket(ws: WebSocket) {
+    const attachment = ws.deserializeAttachment?.() as {
+      canWrite?: boolean;
+      canObserve?: boolean;
+    } | null;
+    ws.send(JSON.stringify({
+      type: "state",
+      state: attachment?.canWrite || attachment?.canObserve
+        ? this.getPublicState()
+        : this.getDisplayState(),
+    }));
+  }
+
   private broadcastState() {
     // Use ctx.getWebSockets() instead of manual Set — survives hibernation
     for (const ws of this.ctx.getWebSockets()) {
       try {
-        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean; canObserve?: boolean } | null;
-        ws.send(JSON.stringify({
-          type: "state",
-          state: attachment?.canWrite || attachment?.canObserve
-            ? this.getPublicState()
-            : this.getDisplayState(),
-        }));
+        this.sendStateToSocket(ws);
       } catch {
         // Dead socket — Cloudflare will clean it up
       }

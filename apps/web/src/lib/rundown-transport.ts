@@ -17,6 +17,18 @@ export interface TransportState {
   timer: NativeTimerState;
 }
 
+/**
+ * Resolve the timer's elapsed position without discarding a negative offset.
+ * Negative elapsed is intentional: adding time before an item has consumed its
+ * full allowance makes the countdown longer than the originally assigned time.
+ */
+export function elapsedAt(timer: NativeTimerState, now: number = Date.now()): number {
+  if (timer.playback === "play" && timer.startedAt !== null) {
+    return timer.elapsed + (now - timer.startedAt);
+  }
+  return timer.elapsed;
+}
+
 const DEFAULT_TIMER: NativeTimerState = {
   playback: "stop",
   currentItemId: null,
@@ -69,7 +81,7 @@ export function pause(
     return { items, timer };
   }
 
-  const elapsed = now - timer.startedAt;
+  const elapsed = elapsedAt(timer, now);
   const nextTimer: NativeTimerState = {
     ...timer,
     playback: "pause",
@@ -140,7 +152,8 @@ export function previous(
 /**
  * Shift the running/paused timer by ±deltaSeconds without changing play
  * state. Positive adds time (more remaining), negative subtracts it. Elapsed
- * is clamped so it can never go negative. No-op when stopped.
+ * may become negative so added time can exceed the assigned duration. No-op
+ * when stopped.
  */
 export function adjustTime(
   items: RundownItem[],
@@ -151,15 +164,12 @@ export function adjustTime(
   const deltaMs = deltaSeconds * 1000;
 
   if (timer.playback === "play" && timer.startedAt !== null) {
-    // Playing: elapsed is (now - startedAt). Adding time pushes startedAt
-    // forward; clamp to `now` so elapsed never goes negative.
-    const startedAt = Math.min(now, timer.startedAt + deltaMs);
-    return { items, timer: { ...timer, startedAt, serverTime: now } };
+    const elapsed = elapsedAt(timer, now) - deltaMs;
+    return { items, timer: { ...timer, elapsed, startedAt: now, serverTime: now } };
   }
 
   if (timer.playback === "pause") {
-    // Paused: elapsed is banked. Adding time reduces banked elapsed.
-    const elapsed = Math.max(0, timer.elapsed - deltaMs);
+    const elapsed = timer.elapsed - deltaMs;
     return { items, timer: { ...timer, elapsed, serverTime: now } };
   }
 

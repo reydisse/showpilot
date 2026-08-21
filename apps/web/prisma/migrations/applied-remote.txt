@@ -29,3 +29,6 @@
 0022_rundown_location.sql
 0023_service_assignment_department.sql
 0024_collaboration_and_assignment_responses.sql
+0025_show_inventory.sql
+0026_multiple_show_instances.sql
+0027_enable_multiple_show_instances.sql

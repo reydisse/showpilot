@@ -6,6 +6,7 @@ import { NotificationCenter } from "./NotificationCenter";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
+import { getDesktopNotificationPermission, isDesktopNotificationSupported } from "@/lib/desktop-runtime";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -64,6 +65,13 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
   useEffect(() => {
     setPushSupported(isPushSupported());
+    if (isDesktopNotificationSupported()) {
+      void getDesktopNotificationPermission().then((permission) => {
+        setPushPermission(permission);
+        setPushEnabled(permission === "granted");
+      });
+      return;
+    }
     if (typeof Notification === "undefined") return;
     setPushPermission(Notification.permission);
     if (Notification.permission === "granted") void enablePushForOrg(orgId, false).then(() => setPushEnabled(true)).catch(() => setPushEnabled(false));
@@ -72,11 +80,15 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const enablePush = async () => {
     setEnablingPush(true);
     try {
-      setPushPermission(await enablePushForOrg(orgId));
-      setPushEnabled(true);
+      const permission = await enablePushForOrg(orgId);
+      setPushPermission(permission);
+      setPushEnabled(permission === "granted");
       setPushError(null);
     } catch (error) {
-      setPushPermission(typeof Notification === "undefined" ? "denied" : Notification.permission);
+      const permission = isDesktopNotificationSupported()
+        ? await getDesktopNotificationPermission()
+        : typeof Notification === "undefined" ? "denied" : Notification.permission;
+      setPushPermission(permission);
       setPushError(error instanceof Error ? error.message : "Could not enable push notifications");
     }
     finally { setEnablingPush(false); }

@@ -13,7 +13,11 @@ import { getTodayDateString } from "@/lib/utils";
 // Item arrays are validated as bounded unknowns here; per-item shape is
 // owned by normalizeLegacyRundownItems, which sanitizes legacy payloads.
 
-const orgServiceDateSchema = z.object({ orgId: idSchema, serviceDate: serviceDateSchema });
+const orgServiceDateSchema = z.object({
+  orgId: idSchema,
+  showId: idSchema.optional(),
+  serviceDate: serviceDateSchema,
+});
 
 const rawItemsSchema = z.array(z.unknown()).max(500);
 
@@ -75,15 +79,15 @@ type RawRundownItemRow = {
 };
 
 type RelationalRundownStore = {
-  findMany(args: { where: { orgId: string; serviceDate: string }; orderBy: { sortOrder: "asc" | "desc" } }):
+  findMany(args: { where: { orgId: string; serviceDate?: string; showId?: string }; orderBy: { sortOrder: "asc" | "desc" } }):
     Promise<RawRundownItemRow[]>;
-  findFirst(args: { where: { orgId: string; serviceDate: string } }): Promise<RawRundownItemRow | null>;
+  findFirst(args: { where: { orgId: string; serviceDate?: string; showId?: string } }): Promise<RawRundownItemRow | null>;
   upsert(args: {
-    where: { orgId_serviceDate_itemId: { orgId: string; serviceDate: string; itemId: string } };
+    where: { orgId_showId_itemId: { orgId: string; showId: string; itemId: string } };
     update: Record<string, unknown>;
     create: Record<string, unknown>;
   }): Promise<unknown>;
-  deleteMany(args: { where: { orgId: string; serviceDate: string; itemId?: { notIn: string[] } } }): Promise<unknown>;
+  deleteMany(args: { where: { orgId: string; serviceDate?: string; showId?: string; itemId?: { notIn: string[] } } }): Promise<unknown>;
 };
 
 function getRelationalRundownStore(prisma: ReturnType<typeof getPrisma>): RelationalRundownStore | null {
@@ -207,7 +211,13 @@ function normalizeTimerState(value: string | undefined | null): NativeTimerState
         : "stop",
     currentItemId:
       typeof parsed.currentItemId === "string" && parsed.currentItemId.trim() ? parsed.currentItemId : null,
-    elapsed: toNumber(parsed.elapsed, 0),
+    // Negative elapsed is intentional when an operator adds more time than
+    // the item has consumed. Clamping here made the extra allowance vanish
+    // for any device that loaded from D1 instead of the live relay.
+    elapsed:
+      typeof parsed.elapsed === "number" && Number.isFinite(parsed.elapsed)
+        ? parsed.elapsed
+        : 0,
     startedAt: typeof parsed.startedAt === "number" && Number.isFinite(parsed.startedAt)
       ? parsed.startedAt
       : null,
@@ -260,12 +270,13 @@ async function migrateLegacyRundownItems(
   orgId: string,
   serviceDate: string,
   legacyItems: RundownItem[],
+  showId: string,
 ) {
   const store = getRelationalRundownStore(prisma);
   if (!store) return;
 
   const hasRows = await store.findFirst({
-    where: { orgId, serviceDate },
+    where: { orgId, showId },
   });
 
   if (hasRows) return;
@@ -277,7 +288,7 @@ async function migrateLegacyRundownItems(
   await store.deleteMany({
     where: {
       orgId,
-      serviceDate,
+      showId,
       ...(itemIds.length > 0
         ? { itemId: { notIn: itemIds } }
         : {}),
@@ -287,13 +298,7 @@ async function migrateLegacyRundownItems(
   await Promise.all(
     legacyItems.map((item, index) =>
       store.upsert({
-        where: {
-          orgId_serviceDate_itemId: {
-            orgId,
-            serviceDate,
-            itemId: item.id,
-          },
-        },
+        where: { orgId_showId_itemId: { orgId, showId, itemId: item.id } },
         update: {
           title: item.title,
           type: item.type,
@@ -308,6 +313,7 @@ async function migrateLegacyRundownItems(
         },
         create: {
           orgId,
+          showId,
           serviceDate,
           itemId: item.id,
           title: item.title,
@@ -326,16 +332,40 @@ async function migrateLegacyRundownItems(
   );
 }
 
-async function getRundownStateFromStorage(orgId: string, serviceDate: string): Promise<RundownState> {
+async function getRundownStateFromStorage(
+  orgId: string,
+  serviceDate: string,
+  showId?: string,
+): Promise<RundownState> {
   const prisma = getPrisma();
   const store = getRelationalRundownStore(prisma);
+  const rundownRecord = await prisma.rundown.findFirst({
+    where: showId ? { id: showId, orgId } : { orgId, serviceDate },
+    orderBy: showId ? undefined : [{ scheduledStartTime: "asc" }, { createdAt: "asc" }],
+    select: { id: true, serviceDate: true, scheduledStartTime: true, status: true, name: true },
+  }).catch(() => null);
+
+  if (showId && (!rundownRecord || rundownRecord.serviceDate !== serviceDate)) {
+    throw new Error("Show not found");
+  }
+  const effectiveShowId = rundownRecord?.id;
+  const legacyOwner = showId && rundownRecord
+    ? await prisma.rundown.findFirst({
+        where: { orgId, serviceDate },
+        orderBy: [{ scheduledStartTime: "asc" }, { createdAt: "asc" }],
+        select: { id: true },
+      })
+    : rundownRecord;
+  const allowDateFallback = Boolean(
+    effectiveShowId && legacyOwner?.id === effectiveShowId,
+  );
 
   let rows: RawRundownItemRow[] = [];
 
   if (store) {
     try {
       rows = await store.findMany({
-        where: { orgId, serviceDate },
+        where: { orgId, ...(effectiveShowId ? { showId: effectiveShowId } : { serviceDate }) },
         orderBy: { sortOrder: "asc" },
       });
     } catch {
@@ -343,19 +373,23 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
     }
   }
 
-  const [itemsSetting, timerSetting, rundownRecord] = await Promise.all([
+  const [itemsSetting, legacyItemsSetting, timerSetting, legacyTimerSetting] = await Promise.all([
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: rundownItemsKey(effectiveShowId ?? serviceDate) } },
+    }),
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId, key: rundownItemsKey(serviceDate) } },
     }),
     prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId, key: rundownTimerKey(effectiveShowId ?? serviceDate) } },
+    }),
+    prisma.appSetting.findUnique({
       where: { orgId_key: { orgId, key: rundownTimerKey(serviceDate) } },
     }),
-    (prisma as unknown as { rundown?: { findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string; name?: string } | null> } }).rundown?.findUnique({
-      where: { orgId_serviceDate: { orgId, serviceDate } },
-    }).catch(() => null) ?? Promise.resolve(null),
   ]);
 
   const meta: RundownMeta = {
+    showId: rundownRecord?.id,
     serviceDate,
     name: rundownRecord?.name ?? "",
     scheduledStartTime: rundownRecord?.scheduledStartTime?.toISOString() ?? null,
@@ -367,16 +401,19 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
   if (rows.length > 0) {
     return {
       items: mapRundownRowsToItems(rows),
-      timer: normalizeTimerState(timerSetting?.value ?? null),
+      timer: normalizeTimerState(
+        timerSetting?.value ?? (allowDateFallback ? legacyTimerSetting?.value : null),
+      ),
       meta,
     };
   }
 
-  const legacyItems = normalizeLegacyRundownItems(parseRundownJson(itemsSetting?.value, []));
+  const sourceItemsSetting = itemsSetting ?? (allowDateFallback ? legacyItemsSetting : null);
+  const legacyItems = normalizeLegacyRundownItems(parseRundownJson(sourceItemsSetting?.value, []));
 
-  if (itemsSetting?.value) {
+  if (sourceItemsSetting?.value && effectiveShowId) {
     try {
-      await migrateLegacyRundownItems(prisma, orgId, serviceDate, legacyItems);
+      await migrateLegacyRundownItems(prisma, orgId, serviceDate, legacyItems, effectiveShowId);
     } catch {
       // Best effort migration. Keep source-of-truth fallback on legacy JSON if this fails.
     }
@@ -384,7 +421,9 @@ async function getRundownStateFromStorage(orgId: string, serviceDate: string): P
 
   return {
     items: legacyItems,
-    timer: normalizeTimerState(timerSetting?.value ?? null),
+    timer: normalizeTimerState(
+      timerSetting?.value ?? (allowDateFallback ? legacyTimerSetting?.value : null),
+    ),
     meta,
   };
 }
@@ -442,11 +481,43 @@ export const getRundownState = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
   .handler(async ({ data }): Promise<RundownState> => {
     await assertOrgAccess(data.orgId);
-    return getRundownStateFromStorage(data.orgId, data.serviceDate);
+    return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
   });
 
-export async function getRundownStateForOrg(data: { orgId: string; serviceDate: string }): Promise<RundownState> {
-  return getRundownStateFromStorage(data.orgId, data.serviceDate);
+export async function getRundownStateForOrg(data: { orgId: string; serviceDate: string; showId?: string }): Promise<RundownState> {
+  return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
+}
+
+async function resolveWritableShowId(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  serviceDate: string,
+  showId?: string,
+): Promise<string> {
+  if (showId) {
+    const show = await prisma.rundown.findFirst({
+      where: { id: showId, orgId, serviceDate },
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
+    return show.id;
+  }
+
+  const existing = await prisma.rundown.findFirst({
+    where: { orgId, serviceDate },
+    orderBy: [{ scheduledStartTime: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const { checkPlanLimit } = await import("@/lib/plan-limits");
+  const showCount = await prisma.rundown.count({ where: { orgId } });
+  await checkPlanLimit(orgId, "shows", showCount);
+  const created = await prisma.rundown.create({
+    data: { orgId, serviceDate, status: "stopped" },
+    select: { id: true },
+  });
+  return created.id;
 }
 
 /**
@@ -458,25 +529,13 @@ export async function persistRundownItemsForOrg(
   orgId: string,
   serviceDate: string,
   rawItems: unknown[],
-): Promise<void> {
+  showId?: string,
+): Promise<string> {
   const prisma = getPrisma();
   const store = getRelationalRundownStore(prisma);
-  const key = rundownItemsKey(serviceDate);
+  const targetShowId = await resolveWritableShowId(prisma, orgId, serviceDate, showId);
+  const key = rundownItemsKey(targetShowId);
   const normalizedItems = normalizeLegacyRundownItems(rawItems);
-
-  // Plan gating: a new service date counts as a new show. Existing
-  // dates can always be edited regardless of plan.
-  const existing = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId, key } },
-    select: { id: true },
-  });
-  if (!existing) {
-    const { checkPlanLimit } = await import("@/lib/plan-limits");
-    const showCount = await prisma.appSetting.count({
-      where: { orgId, key: { startsWith: "rundown-items:" } },
-    });
-    await checkPlanLimit(orgId, "shows", showCount);
-  }
 
   await prisma.appSetting.upsert({
     where: { orgId_key: { orgId, key } },
@@ -489,20 +548,14 @@ export async function persistRundownItemsForOrg(
   });
 
   if (!store) {
-    return;
+    return targetShowId;
   }
 
   const itemIds = normalizedItems.map((item) => item.id);
   const relationalWrites: Promise<unknown>[] = [
     ...normalizedItems.map((item, index) =>
       store.upsert({
-        where: {
-          orgId_serviceDate_itemId: {
-            orgId,
-            serviceDate,
-            itemId: item.id,
-          },
-        },
+        where: { orgId_showId_itemId: { orgId, showId: targetShowId, itemId: item.id } },
         update: {
           title: item.title,
           type: item.type,
@@ -517,6 +570,7 @@ export async function persistRundownItemsForOrg(
         },
         create: {
           orgId,
+          showId: targetShowId,
           serviceDate,
           itemId: item.id,
           title: item.title,
@@ -535,7 +589,7 @@ export async function persistRundownItemsForOrg(
     store.deleteMany({
       where: {
         orgId,
-        serviceDate,
+        showId: targetShowId,
         ...(itemIds.length > 0 ? { itemId: { notIn: itemIds } } : {}),
       },
     }),
@@ -546,6 +600,7 @@ export async function persistRundownItemsForOrg(
   } catch (error) {
     console.warn("[SP] Relational rundown item write failed. Falling back to app_setting storage.", error);
   }
+  return targetShowId;
 }
 
 /**
@@ -557,7 +612,12 @@ export const saveRundownItems = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    await persistRundownItemsForOrg(data.orgId, data.serviceDate, data.items);
+    await persistRundownItemsForOrg(
+      data.orgId,
+      data.serviceDate,
+      data.items,
+      data.showId,
+    );
     return { ok: true };
   });
 
@@ -571,7 +631,8 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownControlAccess(data.orgId);
     const prisma = getPrisma();
-    const key = rundownTimerKey(data.serviceDate);
+    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
+    const key = rundownTimerKey(showId);
     await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key } },
       update: { value: JSON.stringify(data.timer) },
@@ -586,16 +647,13 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
 
 type RundownPrismaExt = {
   rundown?: {
-    upsert(args: {
-      where: { orgId_serviceDate: { orgId: string; serviceDate: string } };
-      update: Record<string, unknown>;
-      create: Record<string, unknown>;
-    }): Promise<unknown>;
-    findUnique(args: { where: { orgId_serviceDate: { orgId: string; serviceDate: string } } }): Promise<{ scheduledStartTime: Date | null; status: string } | null>;
+    findFirst(args: { where: { id?: string; orgId: string; serviceDate: string }; orderBy?: Array<Record<string, string>>; select?: Record<string, boolean> }): Promise<{ id: string; scheduledStartTime?: Date | null; status?: string } | null>;
+    update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<unknown>;
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
   rundownItem?: RelationalRundownStore & {
     update(args: {
-      where: { orgId_serviceDate_itemId: { orgId: string; serviceDate: string; itemId: string } };
+      where: { orgId_showId_itemId: { orgId: string; showId: string; itemId: string } };
       data: Record<string, unknown>;
     }): Promise<unknown>;
   };
@@ -621,23 +679,16 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     const ext = (prisma as unknown as RundownPrismaExt).rundown;
     if (!ext) return { ok: true };
 
-    await ext.upsert({
-      where: { orgId_serviceDate: { orgId: data.orgId, serviceDate: data.serviceDate } },
-      update: {
+    const update = {
         ...(data.scheduledStartTime !== undefined
           ? { scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null }
           : {}),
         ...(data.status ? { status: data.status } : {}),
         ...(data.name !== undefined ? { name: data.name.trim() } : {}),
-      },
-      create: {
-        orgId: data.orgId,
-        serviceDate: data.serviceDate,
-        scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null,
-        status: data.status ?? "stopped",
-        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
-      },
-    });
+      };
+
+    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
+    await prisma.rundown.update({ where: { id: showId }, data: update });
 
     return { ok: true };
   });
@@ -652,38 +703,61 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
  */
 export const getRundownOpeningDate = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, today: z.string().min(10).max(10) }), data),
+    parseOrThrow(
+      z.object({
+        orgId: idSchema,
+        today: serviceDateSchema,
+        serviceDate: serviceDateSchema.optional(),
+        showId: idSchema.optional(),
+      }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
-    const [rows, active] = await Promise.all([
-      prisma.appSetting.findMany({
-        where: { orgId: data.orgId, key: { startsWith: RUNDOWN_ITEMS_PREFIX } },
-        select: { key: true, value: true },
+    const [shows, activeDate, activeShow] = await Promise.all([
+      prisma.rundown.findMany({
+        where: { orgId: data.orgId },
+        orderBy: [
+          { serviceDate: "asc" },
+          { scheduledStartTime: "asc" },
+          { createdAt: "asc" },
+        ],
+        select: {
+          id: true,
+          serviceDate: true,
+          name: true,
+          scheduledStartTime: true,
+          status: true,
+        },
       }),
       prisma.appSetting.findUnique({
         where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
         select: { value: true },
       }),
+      prisma.appSetting.findUnique({
+        where: { orgId_key: { orgId: data.orgId, key: "active-show-id" } },
+        select: { value: true },
+      }),
     ]);
-
-    // A rundown row that exists but holds no items is not somewhere to
-    // land — that is the state the old "open on today" behaviour kept
-    // creating.
-    const datesWithItems = rows
-      .filter((row) => {
-        try {
-          const items = JSON.parse(row.value);
-          return Array.isArray(items) && items.length > 0;
-        } catch {
-          return false;
-        }
-      })
-      .map((row) => row.key.slice(RUNDOWN_ITEMS_PREFIX.length));
-
-    const { resolveOpeningServiceDate } = await import("@/lib/cue-sheet-derive");
+    const target =
+      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
+      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
+      (activeShow ? shows.find((show) => show.id === activeShow.value) : undefined) ??
+      (activeDate ? shows.find((show) => show.serviceDate === activeDate.value) : undefined) ??
+      shows.find((show) => show.serviceDate >= data.today) ??
+      shows.at(-1);
     return {
-      serviceDate: resolveOpeningServiceDate(datesWithItems, data.today, active?.value ?? null),
+      serviceDate: target?.serviceDate ?? data.today,
+      showId: target?.id,
+      shows: shows.map((show) => ({
+        id: show.id,
+        serviceDate: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+        status: show.status,
+      })),
     };
   });
 
@@ -708,11 +782,29 @@ export const setActiveServiceDate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
-      update: { value: data.serviceDate },
-      create: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY, value: data.serviceDate },
-    });
+    if (data.showId) {
+      const show = await prisma.rundown.findFirst({
+        where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+        select: { id: true },
+      });
+      if (!show) throw new Error("Show not found");
+    }
+    await prisma.$transaction([
+      prisma.appSetting.upsert({
+        where: { orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY } },
+        update: { value: data.serviceDate },
+        create: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY, value: data.serviceDate },
+      }),
+      data.showId
+        ? prisma.appSetting.upsert({
+            where: { orgId_key: { orgId: data.orgId, key: "active-show-id" } },
+            update: { value: data.showId },
+            create: { orgId: data.orgId, key: "active-show-id", value: data.showId },
+          })
+        : prisma.appSetting.deleteMany({
+            where: { orgId: data.orgId, key: "active-show-id" },
+          }),
+    ]);
     return { ok: true as const };
   });
 
@@ -740,8 +832,9 @@ export const patchRundownItemTiming = createServerFn({ method: "POST" })
     if (data.actualStart !== undefined) patch.actualStart = data.actualStart ? new Date(data.actualStart) : null;
     if (data.actualEnd !== undefined) patch.actualEnd = data.actualEnd ? new Date(data.actualEnd) : null;
 
+    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
     await ext.update({
-      where: { orgId_serviceDate_itemId: { orgId: data.orgId, serviceDate: data.serviceDate, itemId: data.itemId } },
+      where: { orgId_showId_itemId: { orgId: data.orgId, showId, itemId: data.itemId } },
       data: patch,
     });
 
@@ -762,7 +855,8 @@ export const saveRundownMessage = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const key = rundownMessageKey(data.serviceDate);
+    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
+    const key = rundownMessageKey(showId);
     if (!data.message) {
       await prisma.appSetting.deleteMany({ where: { orgId: data.orgId, key } });
     } else {
@@ -1005,7 +1099,8 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const key = ppSlideKey(data.serviceDate);
+    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
+    const key = ppSlideKey(showId);
     if (!data.slide) {
       // Upsert a "cleared" marker so kiosk sees null immediately on next poll
       // (deleteMany has a race with polling — kiosk might read stale data)
@@ -1030,11 +1125,16 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
           select: { value: true },
         });
         const id = bindings.RUNDOWN_RELAY.idFromName(
-          rundownRelayKey(data.orgId, data.serviceDate, getTodayDateString(timezone?.value)),
+          rundownRelayKey(
+            data.orgId,
+            data.serviceDate,
+            getTodayDateString(timezone?.value),
+            showId,
+          ),
         );
         const stub = bindings.RUNDOWN_RELAY.get(id);
         await stub.fetch(
-          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&access=write`, {
+          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&showId=${encodeURIComponent(showId)}&access=write`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1099,6 +1199,8 @@ export interface SavedRundownMeta {
   id: string;
   name: string;
   itemCount: number;
+  serviceName?: string;
+  scheduledStartTime?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1162,7 +1264,15 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
       where: { orgId_key: { orgId: data.orgId, key: SAVED_INDEX_KEY } },
     });
     const index: SavedRundownMeta[] = indexSetting ? JSON.parse(indexSetting.value) : [];
-    index.unshift({ id, name: data.name, itemCount: cleanItems.length, createdAt: now, updatedAt: now });
+    index.unshift({
+      id,
+      name: data.name,
+      itemCount: cleanItems.length,
+      serviceName: data.serviceName,
+      scheduledStartTime: data.scheduledStartTime,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: SAVED_INDEX_KEY } },
@@ -1230,18 +1340,54 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
  */
 export const listRundownDates = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<{ date: string; itemCount: number }[]> => {
+  .handler(async ({ data }): Promise<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }[]> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const settings = await prisma.appSetting.findMany({
-      where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },
-      select: { key: true, value: true },
-      orderBy: { key: "desc" },
-    });
+    const [shows, settings] = await Promise.all([
+      prisma.rundown.findMany({
+        where: { orgId: data.orgId },
+        select: {
+          id: true,
+          serviceDate: true,
+          name: true,
+          scheduledStartTime: true,
+          _count: { select: { items: true } },
+        },
+        orderBy: [
+          { serviceDate: "desc" },
+          { scheduledStartTime: "desc" },
+          { createdAt: "desc" },
+        ],
+      }),
+      prisma.appSetting.findMany({
+        where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },
+        select: { key: true, value: true },
+      }),
+    ]);
+    const settingCounts = new Map(
+      settings.map((setting) => {
+        let count = 0;
+        try {
+          const parsed = JSON.parse(setting.value);
+          count = Array.isArray(parsed) ? parsed.length : 0;
+        } catch {
+          // Corrupt fallback JSON must not hide healthy relational rows.
+        }
+        return [setting.key, count] as const;
+      }),
+    );
 
-    return settings.map((s) => {
-      const date = s.key.replace("rundown-items:", "");
-      const items: RundownItem[] = JSON.parse(s.value);
-      return { date, itemCount: items.length };
-    }).filter((d) => d.itemCount > 0);
+    return shows
+      .map((show) => ({
+        showId: show.id,
+        date: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+        itemCount: Math.max(
+          show._count.items,
+          settingCounts.get(rundownItemsKey(show.id)) ?? 0,
+          settingCounts.get(rundownItemsKey(show.serviceDate)) ?? 0,
+        ),
+      }))
+      .filter((show) => show.itemCount > 0);
   });

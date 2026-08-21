@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 
 /**
  * BridgeRelay — mediates between browser clients and the ShowPilot Bridge agent.
@@ -17,6 +18,7 @@ interface BridgeMessage {
 
 interface Env {
   RUNDOWN_RELAY: DurableObjectNamespace;
+  DB: D1Database;
 }
 
 interface SocketAttachment {
@@ -173,13 +175,19 @@ export class BridgeRelay extends DurableObject<Env> {
         }));
         break;
 
-        case "command-response":
-        case "device-event":
-          if (msg.eventName === "slide") {
-            this.pushPreviewSlide(msg.data as string);
-          }
-          break;
-        case "device-status":
+      case "command-response":
+      case "device-event":
+        if (msg.eventName === "slide") {
+          this.pushPreviewSlide(msg.data as string);
+        }
+        // Command responses must reach the browser that is waiting for them,
+        // and unsolicited device events must reach every open operator. The
+        // old relay consumed both message types here, which made remote
+        // equipment control time out even while the Bridge showed online.
+        this.broadcastToClients(JSON.stringify(msg));
+        break;
+
+      case "device-status":
         if (
           msg.type === "device-status" &&
           msg.connected === false &&
@@ -263,10 +271,11 @@ export class BridgeRelay extends DurableObject<Env> {
       };
 
       const env = this.env as unknown as Env;
-      const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
+      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+      const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}`, {
+        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "pp-preview", payload: { slide: payload } }),
@@ -282,10 +291,11 @@ export class BridgeRelay extends DurableObject<Env> {
 
     try {
       const env = this.env as unknown as Env;
-      const rdId = env.RUNDOWN_RELAY.idFromName(this.orgId);
+      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+      const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}`, {
+        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "pp-preview", payload: { slide: null } }),

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -17,6 +17,7 @@ import { getCrewMembers } from "@/lib/data";
 import { getClockFormat } from "@/lib/settings";
 import { formatTime, type ClockFormat } from "@/lib/utils";
 import type { Member } from "@/types";
+import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 
 const MEMBERS_PER_PAGE = 8;
 
@@ -240,7 +241,7 @@ function ShowBoardPage() {
     clockFormat,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const { isFullscreen, toggleFullscreen } = useDisplayFullscreen();
   const [currentPage, setCurrentPage] = useState(0);
 
   useEffect(() => {
@@ -263,20 +264,6 @@ function ShowBoardPage() {
       clearInterval(interval);
     };
   }, [orgId]);
-
-  useEffect(() => {
-    const handleChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handleChange);
-    return () => document.removeEventListener("fullscreenchange", handleChange);
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => {});
-    } else {
-      document.exitFullscreen?.().catch(() => {});
-    }
-  }, []);
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {

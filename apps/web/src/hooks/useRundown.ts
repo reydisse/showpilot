@@ -98,7 +98,7 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
       if (tMode === "clock") {
         setDisplayTime(getClockMs());
       } else if (t.playback === "play" && t.startedAt !== null) {
-        const elapsed = Date.now() - t.startedAt;
+        const elapsed = transport.elapsedAt(t);
         const item = itemsRef.current.find((i) => i.id === t.currentItemId);
 
         if (t.mode === "count-down" && item) {

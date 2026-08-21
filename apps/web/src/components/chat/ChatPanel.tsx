@@ -159,6 +159,7 @@ function ChatMessageRow({
   currentUserId,
   onVotePoll,
   onToggleReaction,
+  isFocused = false,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -172,6 +173,7 @@ function ChatMessageRow({
   currentUserId?: string;
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
+  isFocused?: boolean;
 }) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const isEvent = message.type === "cue" || message.type === "alert";
@@ -184,7 +186,7 @@ function ChatMessageRow({
 
   if (isEvent) {
     return (
-      <div className={cn("px-4", grouped ? "pt-1" : "pt-3")}>
+      <div id={`chat-message-${message.id}`} data-chat-message-id={message.id} className={cn("px-4", grouped ? "pt-1" : "pt-3", isFocused && "rounded-lg ring-2 ring-sky-400/50 ring-inset")}>
         <div className={cn(
           "flex gap-2.5 rounded-lg border px-3 py-2.5 shadow-sm",
           message.type === "alert" ? "border-red-500/25 bg-red-500/[0.08]" : "border-amber-400/20 bg-amber-400/[0.06]",
@@ -208,9 +210,12 @@ function ChatMessageRow({
 
   return (
     <div
+      id={`chat-message-${message.id}`}
+      data-chat-message-id={message.id}
       className={cn(
         "group flex px-4 transition-colors hover:bg-white/[0.018]",
         grouped ? "py-0.5" : "pb-1.5 pt-3",
+        isFocused && "rounded-lg bg-sky-400/[0.08] ring-2 ring-sky-400/50 ring-inset",
       )}
     >
       {!grouped && (
@@ -365,6 +370,7 @@ interface ChatPanelProps {
   seenThrough?: number;
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
+  focusedMessageId?: string;
 }
 
 export function ChatPanel({
@@ -391,6 +397,7 @@ export function ChatPanel({
   seenThrough,
   onVotePoll,
   onToggleReaction,
+  focusedMessageId,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -414,6 +421,11 @@ export function ChatPanel({
   const mountedAtRef = useRef(Date.now());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
+
+  useEffect(() => {
+    if (!focusedMessageId) return;
+    document.getElementById(`chat-message-${focusedMessageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedMessageId, messages]);
 
   // Track pinned alerts (pinned for 10 seconds)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -755,7 +767,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} />
+              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} />
             </div>
           );
         })}
@@ -783,7 +795,7 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
-        {pollOpen && <div className="mb-2 rounded-xl border border-board-border bg-board-card p-3 shadow-xl"><div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-xs font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto text-board-muted"><X className="h-4 w-4" /></button></div><input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-3 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />{pollOptions.map((option, index) => <input key={index} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-2 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />)}<div className="mt-3 flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions((items) => [...items, ""])} className="flex items-center gap-1 text-[10px] text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter((item) => item.trim()).length < 2} onClick={sendPoll} className="ml-auto rounded-lg bg-sky-400 px-3 py-2 text-[10px] font-semibold text-black disabled:opacity-40">Send poll</button></div></div>}
+        {pollOpen && <div className="mb-2 rounded-xl border border-board-border bg-board-card p-3 shadow-xl"><div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-xs font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto text-board-muted" aria-label="Close poll composer"><X className="h-4 w-4" /></button></div><input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-3 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />{pollOptions.map((option, index) => <input key={index} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-2 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />)}<div className="mt-3 flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions((items) => [...items, ""])} className="flex items-center gap-1 text-[10px] text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter((item) => item.trim()).length < 2} onClick={sendPoll} className="ml-auto rounded-lg bg-sky-400 px-3 py-2 text-[10px] font-semibold text-black disabled:opacity-40">Send poll</button></div></div>}
         {mentionSuggestions.length > 0 && !editingMessage && (
           <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
             <div className="flex items-center gap-2 border-b border-board-border px-3 py-2 text-[9px] font-semibold uppercase tracking-wider text-board-muted"><AtSign className="h-3 w-3" />Mention someone</div>
@@ -846,6 +858,7 @@ export function ChatPanel({
             )}
           />
           <button
+            type="button"
             onClick={handleSend}
             disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0}
             className={cn(
@@ -854,6 +867,7 @@ export function ChatPanel({
                 ? "bg-fire-500 text-black hover:bg-fire-400"
                 : "bg-board-border text-board-muted cursor-not-allowed",
             )}
+            aria-label={editingMessage ? "Save message" : "Send message"}
           >
             <Send className="w-4 h-4" />
           </button>

@@ -11,11 +11,27 @@ function getArg(name: string): string | undefined {
   return idx >= 0 && idx + 1 < args.length ? args[idx + 1] : undefined;
 }
 
-const config = loadConfigFile();
+const desktopMode = args.includes("--desktop");
+// The native desktop app passes configuration through the supervised process
+// environment. Never let a stale standalone config file in the working
+// directory override those values.
+const config = desktopMode ? null : loadConfigFile();
 const site = getArg("site") ?? process.env.SHOWPILOT_SITE_URL ?? config?.site;
 const org = getArg("org") ?? process.env.SHOWPILOT_ORG ?? config?.org;
 const key = getArg("key") ?? process.env.SHOWPILOT_BRIDGE_KEY ?? config?.key;
 const noOpen = args.includes("--no-open");
+const propresenterHost =
+  getArg("propresenter-host") ?? process.env.SHOWPILOT_PROPRESENTER_HOST ?? config?.propresenterHost;
+const propresenterPort = Number.parseInt(
+  getArg("propresenter-port") ?? process.env.SHOWPILOT_PROPRESENTER_PORT ?? "",
+  10,
+);
+const propresenterApiPort = Number.parseInt(
+  getArg("propresenter-api-port") ?? process.env.SHOWPILOT_PROPRESENTER_API_PORT ?? "",
+  10,
+);
+const propresenterPassword =
+  getArg("propresenter-password") ?? process.env.SHOWPILOT_PROPRESENTER_PASSWORD ?? config?.propresenterPassword;
 
 let bridge: Bridge | null = null;
 let currentConfig: BridgeConfig | null = config ?? null;
@@ -55,16 +71,21 @@ function startBridge(nextConfig: BridgeConfig) {
   bridge.start();
 }
 
-startSetupServer(9450, () => ({
-  config: currentConfig,
-  bridgeRunning: Boolean(bridge),
-  bridgeStatus: bridge ? "running" : "waiting",
-  debug: bridge?.getStatus(),
-}), async (nextConfig) => {
-  nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
-  currentConfig = nextConfig;
-  startBridge(nextConfig);
-});
+// The native desktop supervisor owns configuration and does not need the
+// standalone setup server. Avoid binding port 9450 so an older bridge process
+// cannot make the packaged sidecar exit with EADDRINUSE.
+if (!desktopMode) {
+  startSetupServer(9450, () => ({
+    config: currentConfig,
+    bridgeRunning: Boolean(bridge),
+    bridgeStatus: bridge ? "running" : "waiting",
+    debug: bridge?.getStatus(),
+  }), async (nextConfig) => {
+    nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
+    currentConfig = nextConfig;
+    startBridge(nextConfig);
+  });
+}
 
 const directUrl = getArg("url") ?? process.env.SHOWPILOT_BRIDGE_URL ?? config?.url;
 
@@ -79,14 +100,23 @@ if (!directUrl && !site && !org) {
   if (!resolvedUrl) {
     throw new Error("Unable to determine bridge URL");
   }
-  currentConfig = currentConfig ?? { site: site ?? "", org: org ?? "", key, url: resolvedUrl };
+  currentConfig = currentConfig ?? {
+    site: site ?? "",
+    org: org ?? "",
+    key,
+    url: resolvedUrl,
+    propresenterHost,
+    propresenterPort: Number.isFinite(propresenterPort) && propresenterPort > 0 ? propresenterPort : undefined,
+    propresenterApiPort: Number.isFinite(propresenterApiPort) && propresenterApiPort > 0 ? propresenterApiPort : undefined,
+    propresenterPassword,
+  };
   console.log(`
   ┌─────────────────────────────────┐
-  │   ShowPilot Bridge v0.1.0       │
+  │   ShowPilot Bridge v0.1.7       │
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);
-  startBridge({ site: site ?? "", org: org ?? "", key, url: resolvedUrl });
+  startBridge(currentConfig);
 }
 
 process.on("SIGINT", () => {

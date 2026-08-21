@@ -11,4 +11,11 @@ describe("rundown relay isolation", () => {
     expect(rundownRelayKey("org-1", "2026-08-23", "2026-08-16")).toBe("org-1:2026-08-23");
     expect(rundownRelayKey("org-1", "2026-08-09", "2026-08-16")).toBe("org-1:2026-08-09");
   });
+
+  it("isolates show instances that share a date", () => {
+    expect(rundownRelayKey("org-1", "2026-08-16", "2026-08-16", "show-a"))
+      .toBe("org-1:show:show-a");
+    expect(rundownRelayKey("org-1", "2026-08-16", "2026-08-16", "show-b"))
+      .toBe("org-1:show:show-b");
+  });
 });

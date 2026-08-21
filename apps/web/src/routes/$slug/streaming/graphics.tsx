@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Play,
   Square,
@@ -31,7 +31,12 @@ import {
   DEFAULT_CONTROLS,
   POSITION_PRESETS,
   ACCENT_PRESETS,
+  TEMPLATES,
 } from "@/lib/lt-templates";
+import { getOrgSettings } from "@/lib/settings";
+import { useProPresenter } from "@/hooks/useProPresenter";
+import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
+import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
 
 type GraphicType = "lower-third" | "scripture" | "announcement" | "title";
 
@@ -78,9 +83,10 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
-    const [templates, active] = await Promise.all([
+    const [templates, active, settings] = await Promise.all([
       getGraphicTemplates({ data: { orgId: context.orgId } }),
       getActiveGraphics({ data: { orgId: context.orgId } }),
+      getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
     return {
       templates,
@@ -88,13 +94,19 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
       orgId: context.orgId,
       slug: context.slug,
       role: context.role,
+      proPresenter: {
+        host: settings["propresenter-host"] ?? "",
+        stagePort: Number.parseInt(settings["propresenter-port"] ?? "50001", 10) || 50001,
+        apiPort: Number.parseInt(settings["propresenter-api-port"] ?? "1025", 10) || 1025,
+        password: settings["propresenter-password"] ?? "",
+      },
     };
   },
   component: GraphicsPage,
 });
 
 function GraphicsPage() {
-  const { templates, activeIds: initialActiveIds, orgId, slug, role } = Route.useLoaderData();
+  const { templates, activeIds: initialActiveIds, orgId, slug, role, proPresenter: proPresenterConfig } = Route.useLoaderData();
   const router = useRouter();
   const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
   const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
@@ -103,6 +115,65 @@ function GraphicsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTemplate, setEditTemplate] = useState<typeof templates[0] | null>(null);
   const [copiedOverlay, setCopiedOverlay] = useState(false);
+  const [proPresenterEnabled, setProPresenterEnabled] = useState(false);
+  const [proPresenterMessage, setProPresenterMessage] = useState<string | null>(null);
+  const [bridgeSlide, setBridgeSlide] = useState<import("@/lib/propresenter-client").PPSlideData | null>(null);
+  const [bridgeOnline, setBridgeOnline] = useState(false);
+
+  const proPresenter = useProPresenter({
+    host: proPresenterConfig.host,
+    port: proPresenterConfig.stagePort,
+    apiPort: proPresenterConfig.apiPort,
+    password: proPresenterConfig.password,
+    enabled: proPresenterEnabled,
+  });
+
+  // The Gateway Bridge is the fallback when the operator is not on the same
+  // LAN as ProPresenter. It forwards the same slide payload as the direct
+  // connection, so the generate buttons work in either topology.
+  useEffect(() => {
+    if (!proPresenterEnabled) {
+      setBridgeSlide(null);
+      setBridgeOnline(false);
+      return;
+    }
+    const bridge = getSharedBridgeProxy(orgId);
+    setBridgeOnline(bridge.isBridgeOnline());
+    const unsubscribeStatus = bridge.onBridgeStatus((online) => {
+      setBridgeOnline(online);
+      if (!online) setBridgeSlide(null);
+    });
+    const unsubscribeEvents = bridge.onDeviceEvent((target, eventName, data) => {
+      if (eventName !== "slide" || !target.startsWith("propresenter:")) return;
+      try {
+        const payload = JSON.parse(data) as Record<string, unknown> | null;
+        if (!payload?.text) {
+          setBridgeSlide(null);
+          return;
+        }
+        setBridgeSlide({
+          text: String(payload.text),
+          notes: String(payload.notes ?? ""),
+          presentationName: String(payload.presentationName ?? payload.pn ?? ""),
+          slideIndex: Number(payload.slideIndex ?? payload.si ?? 0),
+          isScripture: Boolean(payload.isScripture ?? payload.scripture),
+          receivedAt: Date.now(),
+          slideId: typeof payload.slideId === "string" ? payload.slideId : undefined,
+        });
+      } catch {
+        // Ignore malformed bridge events; the direct feed can still recover.
+      }
+    });
+    return () => {
+      unsubscribeStatus();
+      unsubscribeEvents();
+    };
+  }, [orgId, proPresenterEnabled]);
+
+  const currentProPresenterSlide = proPresenter.currentSlide ?? bridgeSlide;
+  const proPresenterConnected = proPresenter.status === "connected" || bridgeSlide !== null;
+  const proPresenterConnecting =
+    proPresenter.status === "connecting" || (proPresenterEnabled && bridgeOnline && !bridgeSlide);
 
   // Hide the designer's live-preview "scratch" entries from the library.
   const visibleTemplates = templates.filter((t) => !parseStyle(t.style).scratch);
@@ -137,6 +208,41 @@ function GraphicsPage() {
   };
 
   const overlayUrl = `/overlay/${slug}`;
+  const absoluteOverlayUrl = useAbsoluteUrl(overlayUrl);
+
+  const generateFromProPresenter = async (kind: "scripture" | "lower-third" | "title") => {
+    const slide = currentProPresenterSlide;
+    if (!slide?.text.trim() || !canConfigureGraphics) return;
+
+    const isScripture = kind === "scripture";
+    const secondary = (slide.notes || slide.presentationName || "").trim();
+    const title = slide.text.trim();
+    const name = (isScripture ? secondary || "ProPresenter Scripture" : slide.presentationName || title)
+      .replace(/\s+/g, " ")
+      .slice(0, 120);
+
+    await addGraphicTemplate({
+      data: {
+        orgId,
+        name,
+        title,
+        subtitle: secondary,
+        style: JSON.stringify({
+          type: kind,
+          templateId: isScripture ? "scripture-card" : kind === "title" ? "kicker" : "classic",
+          controls: {
+            ...DEFAULT_CONTROLS,
+            ...(isScripture ? { posX: 50, posY: 72, accentColor: "#8b5cf6" } : {}),
+          },
+          source: "propresenter",
+          sourceSlideId: slide.slideId,
+        }),
+      },
+    });
+    setProPresenterMessage(`${isScripture ? "Scripture" : "Graphic"} saved to the library`);
+    setTimeout(() => setProPresenterMessage(null), 2500);
+    router.invalidate();
+  };
 
   const types: (GraphicType | "all")[] = [
     "all",
@@ -186,6 +292,70 @@ function GraphicsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+        {/* ProPresenter slide import */}
+        {canConfigureGraphics && (
+          <section className="rounded-xl border border-board-border bg-board-card/60 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${proPresenterConnected ? "bg-green-400" : proPresenterConnecting ? "bg-yellow-400 animate-pulse" : "bg-board-muted/40"}`} />
+                  <h2 className="text-sm font-semibold text-board-text">ProPresenter import</h2>
+                  <span className="text-[10px] uppercase tracking-wider text-board-muted/60">
+                    {proPresenter.status === "connected"
+                      ? "Direct connection"
+                      : bridgeSlide
+                        ? "Connected through Bridge"
+                        : proPresenterEnabled && bridgeOnline
+                          ? "Bridge online · waiting for slide"
+                          : proPresenterEnabled
+                            ? "Waiting for connection"
+                            : "Not connected"}
+                  </span>
+                </div>
+                <p className="text-xs text-board-muted mt-1">
+                  Turn the current ProPresenter slide into a reusable scripture, title, or lower-third graphic.
+                </p>
+              </div>
+              <button
+                onClick={() => setProPresenterEnabled((enabled) => !enabled)}
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${proPresenterEnabled ? "border-red-500/25 text-red-400 hover:bg-red-500/10" : "border-fire-500/30 text-fire-500 hover:bg-fire-500/10"}`}
+              >
+                {proPresenterEnabled ? "Disconnect" : "Connect ProPresenter"}
+              </button>
+            </div>
+
+            {!proPresenterConfig.host && !bridgeOnline && (
+              <p className="mt-3 text-xs text-amber-400/80">
+                Add the ProPresenter host and ports in Settings → Integrations before connecting.
+              </p>
+            )}
+            {proPresenter.error && (
+              <p className="mt-3 text-xs text-red-400">{proPresenter.error}</p>
+            )}
+            {currentProPresenterSlide && (
+              <div className="mt-3 rounded-lg border border-board-border bg-board-bg p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-widest text-board-muted/60">Current slide</p>
+                    <p className="mt-1 text-sm text-board-text whitespace-pre-wrap line-clamp-4">{currentProPresenterSlide.text}</p>
+                    {(currentProPresenterSlide.notes || currentProPresenterSlide.presentationName) && (
+                      <p className="mt-1 text-xs text-board-muted truncate">
+                        {currentProPresenterSlide.notes || currentProPresenterSlide.presentationName}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                    <button onClick={() => void generateFromProPresenter("scripture")} className="px-2.5 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/25 text-[10px] font-medium hover:bg-purple-500/25">Scripture</button>
+                    <button onClick={() => void generateFromProPresenter("lower-third")} className="px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/25 text-[10px] font-medium hover:bg-blue-500/25">Lower third</button>
+                    <button onClick={() => void generateFromProPresenter("title")} className="px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300 border border-green-500/25 text-[10px] font-medium hover:bg-green-500/25">Title</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {proPresenterMessage && <p className="mt-2 text-xs font-medium text-green-400">{proPresenterMessage}</p>}
+          </section>
+        )}
+
         {/* Active indicator */}
         {activeIds.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
@@ -275,6 +445,7 @@ function GraphicsPage() {
                             : "bg-fire-500/15 text-fire-500 hover:bg-fire-500/25"
                         }`}
                         title={isActive ? "Hide graphic" : "Show graphic"}
+                        aria-label={`${isActive ? "Hide" : "Show"} ${template.title}`}
                       >
                         {isActive ? (
                           <Square className="w-4 h-4" />
@@ -315,12 +486,14 @@ function GraphicsPage() {
                             setShowForm(true);
                           }}
                           className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                          aria-label={`Edit ${template.title}`}
                         >
                           <Pencil className="w-3 h-3" />
                         </button>
                         <button
                           onClick={() => handleDelete(template.id)}
                           className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          aria-label={`Delete ${template.title}`}
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -356,18 +529,16 @@ function GraphicsPage() {
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg truncate">
-              {typeof window !== "undefined"
-                ? `${window.location.origin}${overlayUrl}`
-                : overlayUrl}
+              {absoluteOverlayUrl}
             </code>
             <button
               onClick={() => {
-                const url = `${window.location.origin}${overlayUrl}`;
-                navigator.clipboard.writeText(url);
+                navigator.clipboard.writeText(absoluteOverlayUrl);
                 setCopiedOverlay(true);
                 setTimeout(() => setCopiedOverlay(false), 2000);
               }}
               className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+              aria-label="Copy OBS browser source URL"
             >
               {copiedOverlay ? (
                 <Check className="w-4 h-4 text-green-400" />
@@ -431,8 +602,20 @@ function GraphicFormModal({
   const existingControls = existingRaw.controls ?? {};
   const existingTemplateId = existingRaw.templateId ?? "classic";
 
+  const defaultTemplateForType = (graphicType: GraphicType) => {
+    switch (graphicType) {
+      case "scripture": return "scripture-card";
+      case "title": return "kicker";
+      case "announcement": return "lower-bar";
+      default: return "classic";
+    }
+  };
+
   const [type, setType] = useState<GraphicType>(
     (existingStyle.type as GraphicType) ?? "lower-third"
+  );
+  const [templateId, setTemplateId] = useState(
+    existing ? existingTemplateId : defaultTemplateForType((existingStyle.type as GraphicType) ?? "lower-third"),
   );
   const [name, setName] = useState(existing?.name ?? "");
   const [title, setTitle] = useState(existing?.title ?? "");
@@ -452,7 +635,7 @@ function GraphicFormModal({
     // Store real controls (position + accent) so library graphics render where
     // they're placed and two can sit side-by-side without overlapping.
     const controls = { ...DEFAULT_CONTROLS, ...existingControls, posX, posY, accentColor };
-    const styleJson = JSON.stringify({ type, templateId: existingTemplateId, controls });
+    const styleJson = JSON.stringify({ type, templateId, controls });
 
     if (existing) {
       await updateGraphicTemplate({
@@ -486,14 +669,21 @@ function GraphicFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={existing ? "Edit graphic" : "New graphic"}
+        className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+      >
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold text-board-text">
             {existing ? "Edit Graphic" : "New Graphic"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
+            aria-label="Close graphic editor"
           >
             ✕
           </button>
@@ -513,7 +703,10 @@ function GraphicFormModal({
                   <button
                     key={t}
                     type="button"
-                    onClick={() => setType(t)}
+                    onClick={() => {
+                      setType(t);
+                      if (!existing) setTemplateId(defaultTemplateForType(t));
+                    }}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                       type === t
                         ? "bg-fire-500/15 text-fire-500 border-fire-500/25"
@@ -545,7 +738,7 @@ function GraphicFormModal({
           {/* Title */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
-              {type === "scripture" ? "Reference" : "Primary Text"}
+              {type === "scripture" ? "Verse Text" : "Primary Text"}
             </label>
             <input
               type="text"
@@ -553,7 +746,7 @@ function GraphicFormModal({
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
                 type === "scripture"
-                  ? "Romans 8:28 (NIV)"
+                  ? "For God so loved the world..."
                   : type === "lower-third"
                     ? "Name"
                     : "Main text"
@@ -565,7 +758,7 @@ function GraphicFormModal({
           {/* Subtitle */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
-              {type === "scripture" ? "Verse Text" : "Secondary Text"}
+              {type === "scripture" ? "Reference" : "Secondary Text"}
             </label>
             <input
               type="text"
@@ -573,13 +766,34 @@ function GraphicFormModal({
               onChange={(e) => setSubtitle(e.target.value)}
               placeholder={
                 type === "scripture"
-                  ? "Verse content..."
+                  ? "John 3:16 (NIV)"
                   : type === "lower-third"
                     ? "Title / Role"
                     : "Subtitle"
               }
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
+          </div>
+
+          {/* Template picker — the same studio library is available for quick graphics. */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm text-board-muted">Template</label>
+              <span className="text-[10px] text-board-muted/60">{TEMPLATES.length} broadcast-ready styles</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+              {TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => setTemplateId(template.id)}
+                  className={`text-left px-2.5 py-2 rounded-lg border transition-colors ${templateId === template.id ? "border-fire-500/35 bg-fire-500/10" : "border-board-border text-board-muted hover:border-board-muted/50"}`}
+                >
+                  <span className={`block text-[11px] font-medium ${templateId === template.id ? "text-fire-400" : "text-board-text"}`}>{template.name}</span>
+                  <span className="block text-[9px] text-board-muted/60 mt-0.5">{template.category}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Position — keeps two graphics from overlapping on screen */}

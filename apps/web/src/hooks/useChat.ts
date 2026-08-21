@@ -191,29 +191,31 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       const role = userRole || "Operator";
 
       const nativeSidecar = pollAdapterRef.current;
-      if (options?.poll && nativeSidecar) {
-        void nativeSidecar.sendMessage(text.trim(), type, name, role, options);
+      const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
+      const clientMessageId = usesNativeAdapter ? crypto.randomUUID() : undefined;
+      const messageOptions = clientMessageId ? { ...options, clientMessageId } : options;
+      if (messageOptions?.poll && nativeSidecar) {
+        void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);
       } else {
-        const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
-        if (!usesNativeAdapter && options) {
-          const replyPrefix = options.replyTo
-            ? `↪ Replying to ${options.replyTo.senderName}: “${options.replyTo.text.slice(0, 100)}”\n`
+        if (!usesNativeAdapter && messageOptions) {
+          const replyPrefix = messageOptions.replyTo
+            ? `↪ Replying to ${messageOptions.replyTo.senderName}: “${messageOptions.replyTo.text.slice(0, 100)}”\n`
             : "";
-          const attachmentLinks = options.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
+          const attachmentLinks = messageOptions.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
           adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
         } else {
-          adapterRef.current.sendMessage(text.trim(), type, name, role, options);
+          adapterRef.current.sendMessage(text.trim(), type, name, role, messageOptions);
         }
         // Mirror external-adapter member messages into the native room used
         // by temporary QR crew. The sidecar listener filters this sender's
         // mirror, avoiding a duplicate beside the external adapter's echo.
         if (nativeSidecar) {
-          void nativeSidecar.sendMessage(text.trim(), type, name, role, options);
+          void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);
         }
       }
       if (orgSlug && !guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
-          data: { orgId, orgSlug, roomId, text: text.trim() || options?.poll?.question || "", mentionedUserIds: options?.mentionedUserIds },
+          data: { orgId, orgSlug, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
         })).catch(() => undefined);
       }
     },

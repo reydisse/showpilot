@@ -50,6 +50,7 @@ export interface PmWidgetModel {
   rundownState: RundownState;
   slug: string;
   orgId: string;
+  showId: string | null;
 }
 
 type PmWidget = WidgetDefinition<PmWidgetModel>;
@@ -60,29 +61,27 @@ const controlPadWidget: PmWidget = {
   phases: "all",
   region: "banner",
   isRelevant: ({ rundownState }) => rundownState.items.some((item) => !isHeaderItem(item)),
-  render: ({ model, rundownState, orgId }) => (
-    <PmControlPad orgId={orgId} serviceDate={model.serviceDate} initialState={rundownState} />
+  render: ({ model, rundownState, orgId, showId }) => (
+    <PmControlPad orgId={orgId} serviceDate={model.serviceDate} showId={showId} initialState={rundownState} />
   ),
 };
 
-function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; serviceDate: string; initialState: RundownState }) {
-  const { items, timer, hydrated, stateServiceDate, sendCommand, seedState } = useRundownSync(orgId, serviceDate);
+function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: string; serviceDate: string; showId: string | null; initialState: RundownState }) {
+  const { items, timer, hydrated, stateServiceDate, stateShowId, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
   const seededRef = useRef(false);
 
   useEffect(() => {
     seededRef.current = false;
-  }, [serviceDate]);
+  }, [serviceDate, showId]);
 
   useEffect(() => {
     if (!hydrated || seededRef.current) return;
-    const initialIds = initialState.items.map((item) => item.id).sort().join("|");
-    const relayIds = items.map((item) => item.id).sort().join("|");
-    const wrongService = stateServiceDate === serviceDate && initialIds !== relayIds;
-    if ((items.length === 0 && initialState.items.length > 0) || wrongService) {
-      seedState(initialState.items, initialState.timer, wrongService);
+    const sameRoom = stateServiceDate === serviceDate && (!showId || stateShowId === showId);
+    if (sameRoom && items.length === 0 && initialState.items.length > 0) {
+      seedState(initialState.items, initialState.timer);
     }
-    seededRef.current = true;
-  }, [hydrated, initialState, items, seedState, serviceDate, stateServiceDate]);
+    if (sameRoom) seededRef.current = true;
+  }, [hydrated, initialState, items, seedState, serviceDate, showId, stateServiceDate, stateShowId]);
 
   const playable = items.filter((item) => !isHeaderItem(item));
   const current = playable.find((item) => item.id === timer.currentItemId) ?? null;
@@ -104,15 +103,16 @@ function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; ser
   const adjust = (deltaMs: number) => command("timer-adjust", { deltaMs });
   const now = useNow(1_000);
   const elapsedMs = timer.elapsed + (timer.playback === "play" && timer.startedAt ? now - timer.startedAt : 0);
-  const safeElapsed = Math.max(0, elapsedMs);
-  const elapsed = `${String(Math.floor(safeElapsed / 60_000)).padStart(2, "0")}:${String(Math.floor(safeElapsed / 1_000) % 60).padStart(2, "0")}`;
+  const remainingMs = current && timer.mode === "count-down" ? current.duration - elapsedMs : null;
+  const displayedTime = formatDuration(remainingMs ?? elapsedMs);
+  const displayedTimeLabel = remainingMs === null ? "Elapsed" : "Remaining";
   const controlClass = "min-h-[72px] rounded-lg border border-board-border bg-board-bg/40 p-3 text-left text-board-text transition-colors hover:border-fire-500/35 hover:bg-board-bg disabled:opacity-40";
 
   return (
     <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
       <header className="flex items-center gap-3 border-b border-board-border px-4 py-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><RadioTower className="h-4 w-4" /></span>
-        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {elapsed}</p></div>
+        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>
         <span className={`ml-auto text-[10px] uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
       </header>
       <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -128,7 +128,7 @@ function PmControlPad({ orgId, serviceDate, initialState }: { orgId: string; ser
           <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={timer.playback === "stop"} />
           <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={timer.playback === "stop"} />
           <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={timer.playback === "stop"} />
-          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{elapsed}</span><span className="mt-0.5 block text-[9px] text-board-muted">Elapsed</span></span></div>
+          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{displayedTime}</span><span className="mt-0.5 block text-[9px] text-board-muted">{displayedTimeLabel}</span></span></div>
       </div>
     </section>
   );
@@ -956,7 +956,7 @@ const incidentsWidget: PmWidget = {
   phases: "all",
   region: "main",
   isRelevant: ({ model }) => model.incidents.length > 0,
-  render: ({ model, slug }) => (
+  render: ({ model, slug, showId }) => (
     <WidgetCard
       title="Active incidents"
       action={
@@ -1006,7 +1006,7 @@ const incidentsWidget: PmWidget = {
             <Link
               to="/$slug/production/incidents"
               params={{ slug }}
-              search={{ incident: incident.id, date: model.serviceDate }}
+              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined }}
             >
               <WidgetAction>Open</WidgetAction>
             </Link>

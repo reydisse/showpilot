@@ -1,0 +1,16 @@
+{
+  "name": "@showpilot/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "bridge:prepare": "pnpm --filter @showpilot/bridge build",
+    "bridge:build": "node scripts/build-bridge.mjs",
+    "desktop:dev": "pnpm bridge:build && tauri dev",
+    "desktop:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

@@ -47,8 +47,9 @@ const PHASE_CHIP: Record<ServicePhase, string> = {
 export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
   validateSearch: (search: Record<string, unknown>) => ({
     date: typeof search.date === "string" ? search.date : undefined,
+    show: typeof search.show === "string" ? search.show : undefined,
   }),
-  loaderDeps: ({ search }) => ({ date: search.date }),
+  loaderDeps: ({ search }) => ({ date: search.date, showId: search.show }),
   pendingMs: 800,
   pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
@@ -61,14 +62,14 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
       context.orgId,
     );
     return await getPmDashboard({
-      data: { orgId: context.orgId, serviceDate: deps.date },
+      data: { orgId: context.orgId, serviceDate: deps.date, showId: deps.showId },
     });
   },
   component: ProdManagerPage,
 });
 
 function ProdManagerPage() {
-  const { model, rundownState, serviceDates, orgId } = Route.useLoaderData();
+  const { model, rundownState, shows, showId, orgId } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -91,7 +92,7 @@ function ProdManagerPage() {
     return () => clearInterval(id);
   }, [model.phase, router]);
 
-  const widgetModel: PmWidgetModel = { model, rundownState, slug, orgId };
+  const widgetModel: PmWidgetModel = { model, rundownState, slug, orgId, showId };
   const widgets = selectWidgets(PM_WIDGETS, model.phase, widgetModel);
   const banners = widgetsInRegion(widgets, "banner");
   const main = widgetsInRegion(widgets, "main");
@@ -136,18 +137,16 @@ function ProdManagerPage() {
               </label>
               <select
                 id="pm-service-date"
-                value={model.serviceDate}
+                value={showId ?? ""}
                 onChange={(event) => {
-                  void navigate({ search: { date: event.target.value } });
+                  const selected = shows.find((show) => show.id === event.target.value);
+                  if (selected) void navigate({ search: { date: selected.serviceDate, show: selected.id } });
                 }}
                 className="shrink-0 text-xs bg-transparent border border-board-border/70 rounded px-2 py-1 text-board-text hover:border-board-border transition-colors"
               >
-                {(serviceDates.includes(model.serviceDate)
-                  ? serviceDates
-                  : [model.serviceDate, ...serviceDates]
-                ).map((date) => (
-                  <option key={date} value={date}>
-                    {new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+                {shows.map((show) => (
+                  <option key={show.id} value={show.id}>
+                    {show.name ? `${show.name} · ` : ""}{new Date(`${show.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
                       weekday: "long",
                       month: "short",
                       day: "numeric",
@@ -167,7 +166,7 @@ function ProdManagerPage() {
                 open={planOpen}
                 onToggle={() => setPlanOpen((v) => !v)}
               />
-              <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} />
+              <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} showId={showId} />
 
               <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
                 {/* A countdown with nothing to count toward is dead space in
@@ -208,10 +207,10 @@ function ProdManagerPage() {
           <div className="px-6 pb-3">
             <PlanServicePanel
               orgId={orgId}
-              serviceDates={serviceDates}
+              shows={shows}
               onClose={() => setPlanOpen(false)}
-              onPlanned={(planned) => {
-                void navigate({ search: { date: planned } });
+              onPlanned={(plannedShowId, plannedDate) => {
+                void navigate({ search: { date: plannedDate, show: plannedShowId } });
               }}
             />
           </div>
@@ -260,9 +259,11 @@ function LiveCountdown({ countdown }: { countdown: PmWidgetModel["model"]["count
 function ShowReportButton({
   orgId,
   serviceDate,
+  showId,
 }: {
   orgId: string;
   serviceDate: string;
+  showId: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +275,7 @@ function ShowReportButton({
         import("@/lib/report"),
         import("@/lib/rundown-export"),
       ]);
-      const report = await exportShowReport({ data: { orgId, serviceDate } });
+      const report = await exportShowReport({ data: { orgId, serviceDate, showId: showId ?? undefined } });
       await exportRundownPdf({
         ...report,
         rundown: {

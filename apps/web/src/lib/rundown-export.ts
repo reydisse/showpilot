@@ -25,8 +25,9 @@ export interface ExportReport {
     reportedBy: string;
     timestamp: string;
   }>;
-  checklist?: Array<{ label: string; category: string; checked: boolean; checkedBy: string | null }>;
+  checklist?: Array<{ label: string; category: string; checked: boolean; checkedBy: string | null; checkedAt?: string | null }>;
   crew?: Array<{ role: string; name: string; status: string; notes: string }>;
+  cueSheets?: Array<{ cueNumber: number; rundownItem: string; cameraAssignments: string; notes: string }>;
 }
 
 /** Download a string as a file in the browser. */
@@ -37,28 +38,56 @@ function downloadFile(filename: string, content: string, mimeType: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // Give the browser a tick to hand the blob to its download manager before
+  // releasing the object URL (important in Safari and embedded webviews).
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Export rundown items as a CSV file. */
 export function exportRundownCsv(report: ExportReport) {
+  const csv = buildRundownCsv(report);
+
+  downloadFile(
+    `${report.organization.slug}-${report.serviceDate}-report.csv`,
+    `\uFEFF${csv}\r\n`,
+    "text/csv;charset=utf-8",
+  );
+}
+
+/** Build the rectangular report CSV independently of browser download APIs. */
+export function buildRundownCsv(report: ExportReport): string {
   const headers = [
-    "#",
+    "Record Type",
+    "Service Date",
+    "Show",
+    "Generated At",
+    "Item #",
     "Title",
-    "Type",
+    "Item Type",
+    "Category",
+    "Role",
+    "Person",
     "Planned Duration",
     "Scheduled Start",
     "Actual Start",
     "Actual End",
+    "Timestamp",
     "Overrun",
     "Status",
-    "Assignee",
+    "Severity",
+    "Description",
     "Notes",
     "Cue",
+    "Checked At",
   ];
 
   const itemNumbers = rundownItemNumbers(report.rundown.items);
-  const rows = report.rundown.items.map((item) => {
+  const base = {
+    serviceDate: report.serviceDate,
+    show: report.rundown.name || report.organization.name,
+    generatedAt: new Date(report.generatedAt).toLocaleString(),
+  };
+  const rows: unknown[][] = report.rundown.items.map((item) => {
     const overrun = itemOverrunMs(item);
     const overrunStr = overrun === null
       ? ""
@@ -67,69 +96,69 @@ export function exportRundownCsv(report: ExportReport) {
         : `${Math.round(overrun / 1000)}s`;
 
     return [
+      "Rundown item",
+      base.serviceDate,
+      base.show,
+      base.generatedAt,
       itemNumbers.get(item.id) ?? "",
-      csvEscape(item.title),
+      item.title,
       item.type,
+      "",
+      "",
+      item.assignee,
       formatDuration(item.duration),
       formatTime(item.scheduledStart),
       formatTime(item.actualStart),
       formatTime(item.actualEnd),
+      "",
       overrunStr,
       item.status,
-      csvEscape(item.assignee),
-      csvEscape(item.notes),
-      csvEscape(item.cue),
+      "",
+      "",
+      item.notes,
+      item.cue,
+      "",
     ];
   });
 
-  const totalPlanned = formatDuration(report.summary.plannedDurationMs);
-  const completedCount = report.summary.completedItems;
-
-  const header = [
-    `# ${report.organization.name} — Post-Show Report`,
-    `# Service Date: ${report.serviceDate}`,
-    `# Generated: ${new Date(report.generatedAt).toLocaleString()}`,
-    `# Items: ${completedCount}/${report.summary.totalItems} completed  Planned: ${totalPlanned}`,
-    "",
-    headers.join(","),
-  ].join("\n");
-
-  const body = rows.map((r) => r.join(",")).join("\n");
-
-  const incidentSection =
-    report.incidents.length > 0
-      ? [
-          "",
-          "# INCIDENTS",
-          "Timestamp,Category,Severity,Description,Reported By",
-          ...report.incidents.map((inc) =>
-            [
-              new Date(inc.timestamp).toLocaleTimeString(),
-              inc.category,
-              inc.severity,
-              csvEscape(inc.description),
-              csvEscape(inc.reportedBy),
-            ].join(",")
-          ),
-        ].join("\n")
-      : "";
-
-  const checklistSection = report.checklist?.length ? ["", "# CHECKLIST", "Category,Item,Status,Checked By", ...report.checklist.map((item) => [csvEscape(item.category), csvEscape(item.label), item.checked ? "Complete" : "Incomplete", csvEscape(item.checkedBy ?? "")].join(","))].join("\n") : "";
-  const crewSection = report.crew?.length ? ["", "# CREW", "Position,Crew Member,Status,Notes", ...report.crew.map((item) => [csvEscape(item.role), csvEscape(item.name), item.status, csvEscape(item.notes)].join(","))].join("\n") : "";
-
-  downloadFile(
-    `${report.organization.slug}-${report.serviceDate}-report.csv`,
-    `${header}\n${body}${incidentSection}${checklistSection}${crewSection}`,
-    "text/csv",
+  rows.push(
+    ...report.incidents.map((incident) => [
+      "Incident", base.serviceDate, base.show, base.generatedAt, "", "", "",
+      incident.category, "", incident.reportedBy, "", "", "", "",
+      new Date(incident.timestamp).toLocaleString(), "", "", incident.severity,
+      incident.description, "", "", "",
+    ]),
+    ...(report.checklist ?? []).map((item) => [
+      "Checklist", base.serviceDate, base.show, base.generatedAt, "", item.label,
+      "", item.category, "", item.checkedBy ?? "", "", "", "", "",
+      "", "", item.checked ? "Complete" : "Incomplete", "", "", "", "",
+      item.checkedAt ? new Date(item.checkedAt).toLocaleString() : "",
+    ]),
+    ...(report.crew ?? []).map((member) => [
+      "Crew", base.serviceDate, base.show, base.generatedAt, "", "", "", "",
+      member.role, member.name, "", "", "", "", "", "", member.status,
+      "", "", member.notes, "", "",
+    ]),
+    ...(report.cueSheets ?? []).map((cue) => [
+      "Cue sheet", base.serviceDate, base.show, base.generatedAt, cue.cueNumber,
+      cue.rundownItem, "", "", "", "", "", "", "", "", "", "", "", "",
+      "", cue.notes, cue.cameraAssignments, "",
+    ]),
   );
+
+  return [headers, ...rows]
+    .map((row) => row.map(csvEscape).join(","))
+    .join("\r\n");
 }
 
-function csvEscape(value: string): string {
-  if (!value) return "";
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
+function csvEscape(value: unknown): string {
+  if (value == null) return "";
+  const text = String(value);
+  if (!text) return "";
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
   }
-  return value;
+  return text;
 }
 
 /** Export rundown as a formatted PDF using pdfmake. */
@@ -139,7 +168,16 @@ export async function exportRundownPdf(report: ExportReport) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfFonts = (await import("pdfmake/build/vfs_fonts.js")) as any;
   const pdfMake = pdfMakeModule.default ?? pdfMakeModule;
-  pdfMake.vfs = pdfFonts.default ?? pdfFonts["module.exports"] ?? pdfFonts;
+  const fontContainer = pdfFonts.default ?? pdfFonts["module.exports"] ?? pdfFonts;
+  // pdfmake 0.3 replaced the old `pdfMake.vfs = ...` assignment with an
+  // explicit virtual file-system registration method.
+  if (typeof pdfMake.addFontContainer === "function" && fontContainer?.vfs) {
+    pdfMake.addFontContainer(fontContainer);
+  } else if (typeof pdfMake.addVirtualFileSystem === "function") {
+    pdfMake.addVirtualFileSystem(fontContainer?.vfs ?? fontContainer);
+  } else {
+    pdfMake.vfs = fontContainer?.vfs ?? fontContainer;
+  }
 
   const completedCount = report.summary.completedItems;
   const totalPlanned = formatDuration(report.summary.plannedDurationMs);
@@ -167,6 +205,7 @@ export async function exportRundownPdf(report: ExportReport) {
             : `${Math.round(overrun / 1000)}s`;
       const isLate = overrun !== null && overrun > 30000;
       const rowStyle = item.status === "complete" ? "rowComplete" : "rowNormal";
+      const cellStyle = isLate ? [rowStyle, "mono", "late"] : [rowStyle, "mono"];
 
       return [
         { text: itemNumbers.get(item.id) ?? "", style: rowStyle },
@@ -176,7 +215,7 @@ export async function exportRundownPdf(report: ExportReport) {
         { text: formatTime(item.scheduledStart), style: [rowStyle, "mono"] },
         { text: formatTime(item.actualStart), style: [rowStyle, "mono"] },
         { text: formatTime(item.actualEnd), style: [rowStyle, "mono"] },
-        { text: overrunStr, style: [rowStyle, "mono", isLate ? "late" : ""] },
+        { text: overrunStr, style: cellStyle },
         { text: item.status, style: rowStyle },
       ];
     }),
@@ -254,10 +293,10 @@ export async function exportRundownPdf(report: ExportReport) {
       tableHeader: { bold: true, fontSize: 8, color: "#ffffff", fillColor: "#1f2937" },
       rowNormal: { fontSize: 8, color: "#111827" },
       rowComplete: { fontSize: 8, color: "#6b7280" },
-      mono: { font: "Courier" },
+      mono: { font: "Roboto", fontSize: 8 },
       late: { color: "#ff6b6b" },
     },
-    defaultStyle: { font: "Helvetica", fontSize: 9 },
+    defaultStyle: { font: "Roboto", fontSize: 9 },
     pageSize: "A4",
     pageOrientation: "landscape",
   };

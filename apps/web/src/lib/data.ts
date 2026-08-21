@@ -140,7 +140,7 @@ export const toggleCheckIn = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, id: idSchema, isOnline: z.boolean() }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checkin:access");
     const prisma = getPrisma();
     const now = new Date();
     const existing = await prisma.crewMember.findFirst({
@@ -164,7 +164,7 @@ export const checkInByMemberId = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, memberId: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checkin:access");
     const prisma = getPrisma();
     const member = await prisma.crewMember.findUnique({
       where: { orgId_memberId: { orgId: data.orgId, memberId: data.memberId } },
@@ -429,12 +429,12 @@ export const deleteChecklistTemplate = createServerFn({ method: "POST" })
   });
 
 export const getChecklistEntries = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, ["checklist:view", "checklist:access"]);
     const prisma = getPrisma();
     return await prisma.checklistEntry.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
       include: { template: true },
     });
   });
@@ -446,19 +446,23 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
         orgId: idSchema,
         id: idSchema,
         checked: z.boolean(),
-        checkedBy: z.string().max(200).nullable(),
       }),
       data,
     ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
+    const { getAuth } = await import("@/lib/auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+    if (!session) throw new Error("Unauthorized");
     const prisma = getPrisma();
     const result = await prisma.checklistEntry.updateMany({
       where: { id: data.id, orgId: data.orgId },
       data: {
         checked: data.checked,
-        checkedBy: data.checkedBy,
+        // Never trust a client-supplied name. The authenticated actor is the
+        // source of truth for checklist attribution.
+        checkedBy: data.checked ? session.user.name : null,
         checkedAt: data.checked ? new Date() : null,
       },
     });
@@ -468,7 +472,7 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
 export const addChecklistEntry = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, templateId: idSchema, serviceDate: serviceDateSchema }),
+      z.object({ orgId: idSchema, templateId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }),
       data,
     ),
   )
@@ -480,9 +484,17 @@ export const addChecklistEntry = createServerFn({ method: "POST" })
       select: { id: true },
     });
     if (!template) throw new Error("Checklist template not found");
+    if (data.showId) {
+      const show = await prisma.rundown.findFirst({
+        where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+        select: { id: true },
+      });
+      if (!show) throw new Error("Show not found");
+    }
     return await prisma.checklistEntry.create({
       data: {
         orgId: data.orgId,
+        showId: data.showId,
         templateId: data.templateId,
         serviceDate: data.serviceDate,
       },
@@ -493,12 +505,12 @@ export type SmartChecklistDraft = ReturnType<typeof deriveChecklistSuggestions>[
   existingTemplateId: string | null;
 };
 
-async function buildSmartChecklistDraft(orgId: string, serviceDate: string): Promise<SmartChecklistDraft[]> {
+async function buildSmartChecklistDraft(orgId: string, serviceDate: string, showId?: string): Promise<SmartChecklistDraft[]> {
   const prisma = getPrisma();
   const [rundown, templates, entries] = await Promise.all([
-    getRundownStateForOrg({ orgId, serviceDate }),
+    getRundownStateForOrg({ orgId, serviceDate, showId }),
     prisma.checklistTemplate.findMany({ where: { orgId }, orderBy: { sortOrder: "asc" } }),
-    prisma.checklistEntry.findMany({ where: { orgId, serviceDate }, select: { templateId: true } }),
+    prisma.checklistEntry.findMany({ where: { orgId, ...(showId ? { showId } : { serviceDate }) }, select: { templateId: true } }),
   ]);
   const entryTemplateIds = new Set(entries.map((entry) => entry.templateId));
   const templatesByLabel = new Map(
@@ -515,11 +527,11 @@ async function buildSmartChecklistDraft(orgId: string, serviceDate: string): Pro
 /** Generate a reviewable draft. This is read-only and never publishes checks. */
 export const getSmartChecklistDraft = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
-    return buildSmartChecklistDraft(data.orgId, data.serviceDate);
+    return buildSmartChecklistDraft(data.orgId, data.serviceDate, data.showId);
   });
 
 /** Apply only selected server-generated suggestions, re-deriving them to reject invented client input. */
@@ -529,6 +541,7 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
       z.object({
         orgId: idSchema,
         serviceDate: serviceDateSchema,
+        showId: idSchema.optional(),
         suggestionIds: z.array(z.string().min(1).max(100)).max(30),
       }),
       data,
@@ -537,7 +550,7 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const requested = new Set(data.suggestionIds);
-    const draft = await buildSmartChecklistDraft(data.orgId, data.serviceDate);
+    const draft = await buildSmartChecklistDraft(data.orgId, data.serviceDate, data.showId);
     const selected = draft.filter((suggestion) => requested.has(suggestion.id));
     const prisma = getPrisma();
     let added = 0;
@@ -557,12 +570,12 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
       }
 
       const duplicate = await prisma.checklistEntry.findFirst({
-        where: { orgId: data.orgId, serviceDate: data.serviceDate, templateId },
+        where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }), templateId },
         select: { id: true },
       });
       if (duplicate) continue;
       await prisma.checklistEntry.create({
-        data: { orgId: data.orgId, serviceDate: data.serviceDate, templateId },
+        data: { orgId: data.orgId, showId: data.showId, serviceDate: data.serviceDate, templateId },
       });
       added += 1;
     }
@@ -574,13 +587,13 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
 
 export const getCueSheets = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema }), data),
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
   )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.cueSheet.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
       orderBy: { cueNumber: "asc" },
     });
   });
@@ -595,6 +608,7 @@ export const addCueSheet = createServerFn({ method: "POST" })
         cameraAssignments: shortTextSchema.optional(),
         notes: longTextSchema.optional(),
         serviceDate: serviceDateSchema,
+        showId: idSchema,
       }),
       data,
     ),
@@ -605,6 +619,7 @@ export const addCueSheet = createServerFn({ method: "POST" })
     return await prisma.cueSheet.create({
       data: {
         orgId: data.orgId,
+        showId: data.showId,
         cueNumber: data.cueNumber,
         rundownItem: data.rundownItem,
         cameraAssignments: data.cameraAssignments ?? "",
@@ -661,12 +676,14 @@ export const deleteCueSheet = createServerFn({ method: "POST" })
 // ─── Incidents ──────────────────────────────────────────────
 
 export const getIncidents = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
     const prisma = getPrisma();
     return await prisma.incident.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
       orderBy: { timestamp: "desc" },
     });
   });
@@ -681,6 +698,7 @@ export const addIncident = createServerFn({ method: "POST" })
         description: longTextSchema,
         reportedBy: z.string().max(200),
         serviceDate: serviceDateSchema,
+        showId: idSchema,
       }),
       data,
     ),
@@ -688,9 +706,15 @@ export const addIncident = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
     const prisma = getPrisma();
+    const show = await prisma.rundown.findFirst({
+      where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
     const incident = await prisma.incident.create({
       data: {
         orgId: data.orgId,
+        showId: data.showId,
         category: data.category,
         severity: data.severity,
         description: data.description,
@@ -709,7 +733,7 @@ export const addIncident = createServerFn({ method: "POST" })
       severity: data.severity === "critical" || data.severity === "high" ? "critical" : "warning",
       title: `New ${data.severity} ${data.category} issue`,
       message: data.description.slice(0, 240),
-      actionUrl: `production/incidents?incident=${encodeURIComponent(incident.id)}`,
+      actionUrl: `production/incidents?date=${encodeURIComponent(data.serviceDate)}&show=${encodeURIComponent(data.showId)}&incident=${encodeURIComponent(incident.id)}`,
       source: incident.id,
       pushTag: `incident-${incident.id}`,
     });
@@ -756,7 +780,7 @@ export const updateIncident = createServerFn({ method: "POST" })
       severity: incident.severity === "critical" || incident.severity === "high" ? "critical" : "warning",
       title: "Operational issue updated",
       message: incident.description.slice(0, 240),
-      actionUrl: `production/incidents?incident=${encodeURIComponent(incident.id)}`,
+      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}${incident.showId ? `&show=${encodeURIComponent(incident.showId)}` : ""}&incident=${encodeURIComponent(incident.id)}`,
       source: incident.id,
       pushTag: `incident-${incident.id}`,
     });
@@ -779,12 +803,14 @@ export const deleteIncident = createServerFn({ method: "POST" })
 // ─── Mic Assignments ────────────────────────────────────────
 
 export const getMicAssignments = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; serviceDate: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
     return await prisma.micAssignment.findMany({
-      where: { orgId: data.orgId, serviceDate: data.serviceDate },
+      where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
       orderBy: { channel: "asc" },
     });
   });
@@ -813,6 +839,7 @@ export const addMicAssignment = createServerFn({ method: "POST" })
         label: z.string().max(200),
         micType: z.string().max(100),
         serviceDate: serviceDateSchema,
+        showId: idSchema,
       }),
       data,
     ),
@@ -820,9 +847,15 @@ export const addMicAssignment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
+    const show = await prisma.rundown.findFirst({
+      where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+      select: { id: true },
+    });
+    if (!show) throw new Error("Show not found");
     return await prisma.micAssignment.create({
       data: {
         orgId: data.orgId,
+        showId: data.showId,
         channel: data.channel,
         label: data.label,
         micType: data.micType,
@@ -903,6 +936,7 @@ export const addEquipment = createServerFn({ method: "POST" })
         orgId: idSchema,
         name: nameSchema,
         category: z.string().max(100),
+        quantity: z.number().int().min(1).max(100).optional(),
       }),
       data,
     ),
@@ -910,16 +944,21 @@ export const addEquipment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
-    return await prisma.equipment.create({
-      data: {
-        orgId: data.orgId,
-        name: data.name,
-        category: data.category,
-        status: data.status ?? "operational",
-        location: data.location ?? "",
-        serialNumber: data.serialNumber ?? "",
-        notes: data.notes ?? "",
-      },
+    const quantity = data.quantity ?? 1;
+    const unit = {
+      orgId: data.orgId,
+      name: data.name,
+      category: data.category,
+      status: data.status ?? "operational",
+      location: data.location ?? "",
+      // A serial number identifies one physical unit. Never duplicate it
+      // across a bulk-created group; operators can assign each unit's serial
+      // from its individual editor after creation.
+      serialNumber: quantity === 1 ? data.serialNumber ?? "" : "",
+      notes: data.notes ?? "",
+    };
+    return await prisma.equipment.createMany({
+      data: Array.from({ length: quantity }, () => ({ ...unit })),
     });
   });
 

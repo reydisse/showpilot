@@ -110,7 +110,14 @@ async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null
 }
 
 async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
-  const presented = request.headers.get("x-showpilot-api-key");
+  // The desktop bridge connects through WebSocket and supplies its key in the
+  // bridge connection URL (`?role=bridge&key=...`). Browser clients continue
+  // to use the header, and query-string keys are only accepted for bridge
+  // connections so they cannot accidentally authorize other API requests.
+  const url = new URL(request.url);
+  const presented =
+    request.headers.get("x-showpilot-api-key") ??
+    (url.searchParams.get("role") === "bridge" ? url.searchParams.get("key") : null);
   const expected = await getOrgApiKey(orgId, db);
   if (!presented || !expected) return false;
 
@@ -298,9 +305,12 @@ export default {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
+      const showId = url.searchParams.get("showId");
       const timezone = await e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
         .bind(orgId).first<{ value: string }>();
-      const id = e.RUNDOWN_RELAY.idFromName(rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value)));
+      const id = e.RUNDOWN_RELAY.idFromName(
+        rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value), showId),
+      );
       const stub = e.RUNDOWN_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
@@ -436,25 +446,30 @@ export default {
 
     // Avatar upload — POST /api/user/avatar
     if (url.pathname === "/api/user/avatar" && request.method === "POST") {
-      const cookie = request.headers.get("cookie") ?? "";
-      const tokenMatch = cookie.match(/(?:^|;\s*)(?:__Secure-)?better-auth\.session_token=([^;]+)/);
-      const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
-      const sessionRow = token
-        ? await e.DB.prepare("SELECT userId FROM session WHERE token = ? AND expiresAt > datetime('now') LIMIT 1")
-            .bind(token)
-            .first<{ userId: string }>()
-        : null;
-      if (!sessionRow?.userId) return new Response("Unauthorized", { status: 401 });
-      const formData = await request.formData();
+      const session = await getAuth().api.getSession({ headers: request.headers });
+      if (!session?.user.id) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch {
+        return Response.json({ error: "Invalid upload" }, { status: 400 });
+      }
       const file = formData.get("file");
-      if (!file || !(file instanceof File)) return new Response("Bad Request", { status: 400 });
+      if (!(file instanceof File) || file.type !== "image/jpeg" || file.size === 0) {
+        return Response.json({ error: "Avatar must be a JPEG image" }, { status: 400 });
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        return Response.json({ error: "Avatar must be smaller than 2 MB" }, { status: 413 });
+      }
+
       const arrayBuffer = await file.arrayBuffer();
-      const key = `avatars/${sessionRow.userId}.jpg`;
+      const key = `avatars/${session.user.id}.jpg`;
       await e.STORAGE.put(key, arrayBuffer, { httpMetadata: { contentType: "image/jpeg" } });
-      const avatarUrl = `${url.origin}/api/user/avatar/${sessionRow.userId}.jpg`;
-      return new Response(JSON.stringify({ url: avatarUrl }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      const avatarUrl = `${url.origin}/api/user/avatar/${session.user.id}.jpg?v=${Date.now()}`;
+      return Response.json({ url: avatarUrl });
     }
 
     // Avatar serve — GET /api/user/avatar/:userId.jpg

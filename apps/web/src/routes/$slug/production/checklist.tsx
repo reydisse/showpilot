@@ -25,6 +25,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
+import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
 import {
   Dialog,
   DialogContent,
@@ -33,12 +34,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function formatDisplayDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -52,9 +47,13 @@ export const Route = createFileRoute("/$slug/production/checklist")({
     await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: today } });
+    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today } });
+    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: opening.serviceDate, showId: opening.showId } });
     return {
       entries,
+      serviceDate: opening.serviceDate,
+      showId: opening.showId,
+      shows: opening.shows,
       orgId: context.orgId,
       role: context.role,
       orgTimezone: settings["org-timezone"],
@@ -64,13 +63,15 @@ export const Route = createFileRoute("/$slug/production/checklist")({
 });
 
 function ChecklistPage() {
-  const { entries: initialEntries, orgId, role, orgTimezone } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(() => getTodayDateString(orgTimezone));
+  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, orgTimezone } = Route.useLoaderData();
+  const [serviceDate, setServiceDate] = useState(initialServiceDate);
+  const [showId, setShowId] = useState<string | undefined>(initialShowId);
   const [entries, setEntries] = useState(initialEntries as Array<{
     id: string;
     templateId: string;
     checked: boolean;
     checkedBy: string | null;
+    checkedAt: string | Date | null;
     template?: { label: string; category: string } | null;
   }>);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -84,10 +85,13 @@ function ChecklistPage() {
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
   const [generatorError, setGeneratorError] = useState("");
 
-  const loadEntries = useCallback(async (date: string) => {
+  const loadEntries = useCallback(async (date: string, requestedShowId?: string) => {
     setLoadingEntries(true);
     try {
-      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date } });
+      const rundown = await getRundownState({ data: { orgId, serviceDate: date, showId: requestedShowId } });
+      const resolvedShowId = rundown.meta?.showId;
+      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date, showId: resolvedShowId } });
+      setShowId(resolvedShowId);
       setEntries(latest as typeof entries);
     } finally {
       setLoadingEntries(false);
@@ -99,13 +103,14 @@ function ChecklistPage() {
   }, [initialEntries]);
 
   useEffect(() => {
-    void loadEntries(serviceDate);
-  }, [loadEntries, serviceDate]);
+    void loadEntries(serviceDate, showId);
+  }, [loadEntries, serviceDate, showId]);
 
   useServiceDateRollover({
     serviceDate,
     timeZone: orgTimezone,
     onTodayChanged: (nextToday) => {
+      setShowId(undefined);
       setServiceDate(nextToday);
     },
   });
@@ -122,12 +127,12 @@ function ChecklistPage() {
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-  const canManageChecklist = hasPermission(role, "checklist:access");
+  const canManageChecklist = hasPermission(role, "checklist:access") && Boolean(showId);
 
   const handleToggle = async (entryId: string, checked: boolean) => {
     if (!canManageChecklist) return;
-    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
-    await loadEntries(serviceDate);
+    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked } });
+    await loadEntries(serviceDate, showId);
   };
 
   const handleAddTemplate = async (e: React.FormEvent) => {
@@ -140,13 +145,13 @@ function ChecklistPage() {
         data: { orgId, label: newLabel.trim(), category: newCategory },
       });
       if (tpl) {
-        await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate } });
+        await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate, showId } });
       }
       setNewLabel("");
       // The department is deliberately sticky. Checks are written in
       // runs — five audio items, then four camera items — and resetting
       // to General after each one is how a list ends up uncategorised.
-      await loadEntries(serviceDate);
+      await loadEntries(serviceDate, showId);
     } finally {
       setAdding(false);
     }
@@ -180,11 +185,15 @@ function ChecklistPage() {
     });
     if (!ok) return;
     await deleteChecklistTemplate({ data: { orgId, id } });
-    await loadEntries(serviceDate);
+    await loadEntries(serviceDate, showId);
   };
 
-  const handleDateChange = (days: number) => {
-    setServiceDate((d) => shiftDate(d, days));
+  const handleDateChange = (direction: number) => {
+    const index = shows.findIndex((show) => show.id === showId);
+    const next = shows[index + direction];
+    if (!next) return;
+    setShowId(next.id);
+    setServiceDate(next.serviceDate);
   };
 
   const handleGenerateDraft = async () => {
@@ -193,7 +202,7 @@ function ChecklistPage() {
     setGenerating(true);
     setGeneratorError("");
     try {
-      const suggestions = await getSmartChecklistDraft({ data: { orgId, serviceDate } });
+      const suggestions = await getSmartChecklistDraft({ data: { orgId, serviceDate, showId } });
       setDraft(suggestions);
       setSelectedSuggestionIds(new Set(suggestions.map((suggestion) => suggestion.id)));
     } catch (error) {
@@ -210,9 +219,9 @@ function ChecklistPage() {
     setGeneratorError("");
     try {
       await applySmartChecklistDraft({
-        data: { orgId, serviceDate, suggestionIds: Array.from(selectedSuggestionIds) },
+        data: { orgId, serviceDate, showId, suggestionIds: Array.from(selectedSuggestionIds) },
       });
-      await loadEntries(serviceDate);
+      await loadEntries(serviceDate, showId);
       setGeneratorOpen(false);
     } catch (error) {
       setGeneratorError(error instanceof Error ? error.message : "Could not add the selected checks.");
@@ -239,16 +248,29 @@ function ChecklistPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
+            <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Previous service date">
               <ChevronLeft className="w-4 h-4" />
             </button>
-              <button
-                onClick={() => setServiceDate(getTodayDateString(orgTimezone))}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[160px] text-center"
+              <select
+                value={showId ?? ""}
+                onChange={(event) => {
+                  const selected = shows.find((show) => show.id === event.target.value);
+                  if (!selected) return;
+                  setShowId(selected.id);
+                  setServiceDate(selected.serviceDate);
+                }}
+                aria-label="Select show"
+                className="min-w-[210px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text"
               >
-                {formatDisplayDate(serviceDate)}
-              </button>
-            <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
+                {!showId && <option value="">No planned show</option>}
+                {shows.map((show) => (
+                  <option key={show.id} value={show.id}>
+                    {show.name || formatDisplayDate(show.serviceDate)}
+                    {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                  </option>
+                ))}
+              </select>
+            <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Next service date">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -289,16 +311,23 @@ function ChecklistPage() {
               <div className="space-y-2">
                 {items.map((entry) => (
                   <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist}>
+                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
                       {entry.checked ? (
                         <CheckCircle2 className="w-5 h-5 text-green-500" />
                       ) : (
                         <Circle className="w-5 h-5 text-board-muted" />
                       )}
                     </button>
-                    <span className={`flex-1 text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
-                      {entry.template?.label || "Untitled"}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className={`block text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
+                        {entry.template?.label || "Untitled"}
+                      </span>
+                      {entry.checked && entry.checkedBy && (
+                        <span className="mt-0.5 block truncate text-[10px] text-board-muted">
+                          Completed by {entry.checkedBy}{entry.checkedAt ? ` · ${new Date(entry.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                        </span>
+                      )}
+                    </div>
                     {canManageChecklist && (
                       <>
                         {/* Retagging has to be possible in place: every
@@ -321,7 +350,7 @@ function ChecklistPage() {
                             </option>
                           ))}
                         </select>
-                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100">
+                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100" aria-label={`Delete ${entry.template?.label || "checklist item"}`}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>
@@ -377,6 +406,7 @@ function ChecklistPage() {
               disabled={adding || !newLabel.trim()}
               className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
               style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+              aria-label="Add checklist item"
             >
               <Plus className="w-4 h-4" />
             </button>

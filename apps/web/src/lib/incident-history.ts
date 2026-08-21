@@ -73,7 +73,7 @@ export const getIncidentHistory = createServerFn({ method: "GET" })
       : data.sort === "severity"
         ? "CASE lower(i.severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, i.timestamp DESC"
         : "i.timestamp DESC";
-    type HistoryRow = { id: string; orgId: string; category: string; severity: string; description: string; reportedBy: string; serviceDate: string; timestamp: string; status: string; resolvedAt: string | null; resolvedBy: string | null; assignedTo: string | null; assignedName: string; acknowledgedAt: string | null; assignedBy: string | null; assignedAt: string | null; commentCount: number };
+    type HistoryRow = { id: string; orgId: string; showId: string | null; category: string; severity: string; description: string; reportedBy: string; serviceDate: string; timestamp: string; status: string; resolvedAt: string | null; resolvedBy: string | null; assignedTo: string | null; assignedName: string; acknowledgedAt: string | null; assignedBy: string | null; assignedAt: string | null; commentCount: number };
     const db = getD1();
     const [countRow, rowResult, categoryResult] = await Promise.all([
       db.prepare(`SELECT COUNT(*) AS total FROM incident i WHERE ${whereSql}`).bind(...params).first<{ total: number }>(),

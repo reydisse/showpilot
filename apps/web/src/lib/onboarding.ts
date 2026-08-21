@@ -354,6 +354,7 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
     if (!template) throw new Error("Unknown template");
 
     const prisma = getPrisma();
+    let seededShowId: string | undefined;
 
     const store: TemplateSeedStore = {
       getSeedMarker: async () => {
@@ -368,8 +369,9 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
           create: { orgId: data.orgId, key: ONBOARDING_SEED_KEY, value },
         });
       },
-      persistRundownItems: (items) =>
-        persistRundownItemsForOrg(data.orgId, data.serviceDate, items),
+      persistRundownItems: async (items) => {
+        seededShowId = await persistRundownItemsForOrg(data.orgId, data.serviceDate, items);
+      },
       createChecklistTemplates: async (rows) => {
         await Promise.all(
           rows.map((row) =>
@@ -390,6 +392,7 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
             prisma.cueSheet.create({
               data: {
                 orgId: data.orgId,
+                showId: seededShowId,
                 cueNumber: row.cueNumber,
                 rundownItem: row.rundownItem,
                 cameraAssignments: row.cameraAssignments,

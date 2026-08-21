@@ -2,6 +2,7 @@ import { SidebarProvider } from "./SidebarContext";
 import { Sidebar } from "./Sidebar";
 import { FullscreenExitButton } from "./FullscreenExitButton";
 import { MobileHeader } from "./MobileHeader";
+import { DesktopStatusBar } from "./DesktopStatusBar";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex h-[100dvh] min-h-[100dvh] overflow-hidden bg-board-bg">
         <Sidebar />
         <div className="flex-1 min-w-0 flex flex-col">
+          <DesktopStatusBar />
           <MobileHeader />
           <main className="flex-1 min-h-0 overflow-auto modern-scrollbar">
             {children}

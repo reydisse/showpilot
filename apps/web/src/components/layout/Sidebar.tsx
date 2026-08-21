@@ -39,6 +39,7 @@ import { useTheme } from "./ThemeContext";
 import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
 import { ROLE_COLOURS } from "./ProfileModal";
+import { isDesktopRuntime } from "@/lib/desktop-runtime";
 
 interface NavItem {
   icon: React.ElementType;
@@ -125,6 +126,7 @@ function NavLink({
 function QuickActions({ collapsed }: { collapsed: boolean }) {
   const { toggle, fullscreen, toggleFullscreen } = useSidebar();
   const { theme, toggleTheme } = useTheme();
+  const desktop = isDesktopRuntime();
 
   return (
     <div
@@ -142,18 +144,20 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
           <Moon className="w-3.5 h-3.5" />
         )}
       </button>
-      <button
-        onClick={toggleFullscreen}
-        type="button"
-        title={fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
-      >
-        {fullscreen ? (
-          <Minimize className="w-3.5 h-3.5" />
-        ) : (
-          <Maximize className="w-3.5 h-3.5" />
-        )}
-      </button>
+      {!desktop ? (
+        <button
+          onClick={toggleFullscreen}
+          type="button"
+          title={fullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+        >
+          {fullscreen ? (
+            <Minimize className="w-3.5 h-3.5" />
+          ) : (
+            <Maximize className="w-3.5 h-3.5" />
+          )}
+        </button>
+      ) : null}
       <button
         onClick={toggle}
         type="button"
