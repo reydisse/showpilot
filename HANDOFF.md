@@ -5,13 +5,20 @@ Updated: 2026-08-21 (Africa/Accra)
 Read this file, `CLAUDE.md`, and the live Git state before making changes. Always
 check whether the intended branch/worktree already exists before creating one.
 
-## Current integration branch
+## Current production state
 
 - Repository: `reydisse/showpilot`
-- Completed branch: `fix/complete-production-wip`
+- Production branch: `main`
 - Current checkout: `/Users/aopare/faithfire-cf`
 - Base release: `e48ecd3` (`release/desktop-production-ready`)
-- The branch is local and has not been pushed or deployed.
+- Integration PR [#38](https://github.com/reydisse/showpilot/pull/38) merged into
+  the release candidate; release PR
+  [#39](https://github.com/reydisse/showpilot/pull/39) merged into `main`.
+- Product release commit `4098024a` passed three GitHub CI runs, passed the D1
+  migration-manifest gate, and deployed successfully to `showpilot.tech` on
+  2026-08-21. The health endpoint reported that exact commit after deployment.
+- The merged remote integration branch was deleted; its local branch remains
+  available for historical comparison.
 - The former temporary integration worktree was removed after this branch was
   moved into the clean primary checkout.
 
@@ -93,11 +100,9 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   `0027_enable_multiple_show_instances.sql`.
 - This integration adds no new migration.
 - Do not run a remote migration merely for local testing.
-- Nothing in this handoff authorizes a push, pull request, deployment, release,
-  or production mutation. Get explicit user approval, then push this branch,
-  run CI, merge through the intended release path, deploy, and smoke-test login,
-  org navigation, two-operator rundown sync, kiosk, Bridge remote commands,
-  Assets, Planning Room, and exports.
+- Future code changes must start on a checked, purpose-specific feature/fix
+  branch and require fresh authorization before push, merge, deployment,
+  release, or production mutation.
 
 ## Product roles
 
