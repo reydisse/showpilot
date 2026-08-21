@@ -6,6 +6,7 @@ import { getD1 } from "@/lib/d1";
 import { hasPermission } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
+import { serviceTimeToIso } from "@/lib/utils";
 
 const rangeInput = z.object({
   orgId: idSchema,
@@ -116,9 +117,12 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
       select: { id: true },
     });
     if (!show) throw new Error("Show not found");
-    const scheduledStartTime = data.startTime
-      ? new Date(`${data.serviceDate}T${data.startTime}:00`)
-      : null;
+    const timezone = await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
+      select: { value: true },
+    });
+    const scheduledStartIso = serviceTimeToIso(data.serviceDate, data.startTime, timezone?.value);
+    const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
     return getPrisma().rundown.update({
       where: { id: show.id },
       data: { name: data.name, scheduledStartTime, location: data.location },
@@ -435,6 +439,7 @@ const assignmentInput = z.object({
   department: z.string().trim().min(1).max(80).default("Production"),
   crewMemberId: idSchema.nullable(),
   status: z.enum(["assigned", "confirmed", "declined"]).default("assigned"),
+  callTime: z.union([z.literal(""), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)]).default(""),
   notes: z.string().trim().max(500).default(""),
 });
 
@@ -472,6 +477,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
             department: data.department,
             crewMemberId: data.crewMemberId,
             status: "assigned",
+            callTime: data.callTime,
             notes: data.notes,
             invitedAt: null,
           },
@@ -499,6 +505,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
           role: data.role,
           department: data.department,
           crewMemberId: data.crewMemberId,
+          callTime: data.callTime,
           notes: data.notes,
           ...(personChanged
             ? { status: "assigned", responseNote: "", respondedAt: null, invitedAt: null }
@@ -530,6 +537,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
         department: data.department,
         crewMemberId: data.crewMemberId,
         status: data.status,
+        callTime: data.callTime,
         notes: data.notes,
         invitedAt: null,
       },

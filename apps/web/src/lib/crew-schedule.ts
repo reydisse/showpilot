@@ -4,7 +4,7 @@ import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { parseOrThrow } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
-import { getTodayDateString } from "@/lib/utils";
+import { formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 
 const publicTokenSchema = z
   .string()
@@ -43,10 +43,10 @@ export async function sendCrewScheduleInvite(input: {
   const prisma = getPrisma();
   const assignment = await prisma.serviceAssignment.findFirst({
     where: { id: input.assignmentId, orgId: input.orgId, crewMemberId: input.crewMemberId },
-    select: { showId: true, serviceDate: true, role: true },
+    select: { showId: true, serviceDate: true, role: true, callTime: true },
   });
   if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
-  const [crew, org, rundown, terminologySetting] = await Promise.all([
+  const [crew, org, rundown, terminologySetting, timezoneSetting] = await Promise.all([
     prisma.crewMember.findFirst({
       where: { id: input.crewMemberId, orgId: input.orgId },
       select: { name: true, email: true },
@@ -63,6 +63,10 @@ export async function sendCrewScheduleInvite(input: {
     }),
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: input.orgId, key: "terminology-profile" } },
+      select: { value: true },
+    }),
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: input.orgId, key: "org-timezone" } },
       select: { value: true },
     }),
   ]);
@@ -89,12 +93,13 @@ export async function sendCrewScheduleInvite(input: {
 
   const link = `${input.origin}/crew/schedule/${token}?assignment=${encodeURIComponent(input.assignmentId)}`;
   const serviceName = rundown?.name || "Service";
-  const start = rundown?.scheduledStartTime
+  const start = (assignment.callTime ? formatWallTime(assignment.callTime) : "") || (rundown?.scheduledStartTime
     ? new Date(rundown.scheduledStartTime).toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit",
+        timeZone: timezoneSetting?.value,
       })
-    : "Time to be confirmed";
+    : "Time to be confirmed");
   const parsedTerminology = orgTerminologyProfileSchema.safeParse(
     terminologySetting?.value,
   );
@@ -127,6 +132,7 @@ type PortalAssignmentRow = {
   status: string;
   notes: string;
   responseNote: string;
+  callTime: string;
   invitedAt: string | null;
   respondedAt: string | null;
 };
@@ -183,16 +189,26 @@ export async function getCrewScheduleCalendar(
       orgId: access.orgId,
       crewMemberId: access.crewMemberId,
     },
-    select: { id: true, showId: true, serviceDate: true, role: true, notes: true },
+    select: { id: true, showId: true, serviceDate: true, role: true, notes: true, callTime: true },
   });
   if (!assignment) throw new Error("Assignment not found");
-  const rundown = await getPrisma().rundown.findFirst({
-    where: assignment.showId
-      ? { id: assignment.showId, orgId: access.orgId }
-      : { orgId: access.orgId, serviceDate: assignment.serviceDate },
-    select: { name: true, scheduledStartTime: true, location: true },
-  });
+  const [rundown, timezoneSetting] = await Promise.all([
+    getPrisma().rundown.findFirst({
+      where: assignment.showId
+        ? { id: assignment.showId, orgId: access.orgId }
+        : { orgId: access.orgId, serviceDate: assignment.serviceDate },
+      select: { name: true, scheduledStartTime: true, location: true },
+    }),
+    getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: access.orgId, key: "org-timezone" } },
+      select: { value: true },
+    }),
+  ]);
+  const customStartIso = assignment.callTime
+    ? serviceTimeToIso(assignment.serviceDate, assignment.callTime, timezoneSetting?.value)
+    : null;
   const start =
+    (customStartIso ? new Date(customStartIso) : null) ??
     rundown?.scheduledStartTime ??
     new Date(`${assignment.serviceDate}T09:00:00Z`);
   const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
@@ -258,7 +274,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     threshold.setDate(threshold.getDate() - 1);
     const assignments = await getD1()
       .prepare(
-        "SELECT id, showId, serviceDate, role, status, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
+        "SELECT id, showId, serviceDate, role, status, callTime, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
       )
       .bind(
         access.orgId,
@@ -291,6 +307,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       crewName: crew?.name ?? "Crew member",
       orgName: org?.name ?? "Organization",
       today,
+      orgTimezone: settingMap["org-timezone"],
       terminologyProfile: parsedTerminology.success
         ? parsedTerminology.data
         : "general",
@@ -301,6 +318,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
           serviceName: rundown?.name || "Show",
           scheduledStartTime:
             rundown?.scheduledStartTime?.toISOString() ?? null,
+          callTime: assignment.callTime,
           location: rundown?.location ?? "",
         };
       }),

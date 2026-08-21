@@ -30,6 +30,7 @@ import { cn, getTodayDateString, formatTime, formatClockFull, type ClockFormat }
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
+import { getChatMembers, type ChatMemberSummary } from "@/lib/chat-collaboration";
 import { ShowPageTabs } from "@/components/ui/ShowPageTabs";
 import { FirstSessionChecklist } from "@/components/onboarding/FirstSessionChecklist";
 import type { OntimeRuntimeState } from "@/types/ontime";
@@ -77,8 +78,9 @@ export const Route = createFileRoute("/$slug/show")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "show:view", context.slug, context.orgId);
-    const [members, adapters, clockFormat, settings] = await Promise.all([
+    const [members, chatMembers, adapters, clockFormat, settings] = await Promise.all([
       getCrewMembers({ data: { orgId: context.orgId } }),
+      getChatMembers({ data: { orgId: context.orgId } }),
       getActiveAdapters({ data: { orgId: context.orgId } }),
       getClockFormat({ data: { orgId: context.orgId } }),
       getOrgSettings({ data: { orgId: context.orgId } }),
@@ -110,6 +112,7 @@ export const Route = createFileRoute("/$slug/show")({
 
     return {
       members,
+      chatMembers,
       ontimeState,
       nativeRundown,
       rundownAdapter: effectiveRundownAdapter,
@@ -120,6 +123,7 @@ export const Route = createFileRoute("/$slug/show")({
       showId,
       clockFormat,
       userName: context.user.name,
+      userId: context.user.id,
       userRole: context.role,
     };
   },
@@ -169,16 +173,23 @@ function ChatPanel({
   chatAdapter,
   userName,
   userRole,
+  userId,
+  orgSlug,
+  mentionMembers,
   liveStatus,
 }: {
   orgId: string;
   chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   userName: string;
   userRole: string;
+  userId: string;
+  orgSlug: string;
+  mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
   const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
+    orgSlug,
     isVisible: true,
     chatAdapter,
     senderName: userName,
@@ -214,6 +225,8 @@ function ChatPanel({
         title="Team Chat"
         subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
         currentUserName={userName}
+        currentUserId={userId}
+        mentionMembers={mentionMembers.filter((member) => member.userId !== userId)}
         liveStatus={liveStatus}
         className="border-l-0 flex-1 min-h-0"
       />
@@ -225,8 +238,8 @@ function ChatPanel({
 
 function ShowPage() {
   const {
-    members: initialMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, serviceDate, showId, clockFormat, userName, userRole,
+    members: initialMembers, chatMembers, ontimeState, nativeRundown, rundownAdapter,
+    chatAdapter, orgId, slug, serviceDate, showId, clockFormat, userName, userId, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -266,7 +279,9 @@ function ShowPage() {
           slug={slug}
           clockFormat={clockFormat}
           userName={userName}
+          userId={userId}
           userRole={userRole}
+          chatMembers={chatMembers}
         />
         <FirstSessionChecklist orgId={orgId} slug={slug} />
       </>
@@ -287,7 +302,9 @@ function ShowPage() {
         slug={slug}
         clockFormat={clockFormat}
         userName={userName}
+        userId={userId}
         userRole={userRole}
+        chatMembers={chatMembers}
       />
       <FirstSessionChecklist orgId={orgId} slug={slug} />
     </>
@@ -599,7 +616,9 @@ function ShowPageWithNative({
   slug,
   clockFormat,
   userName,
+  userId,
   userRole,
+  chatMembers,
 }: {
   initialRundown: RundownState | null;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -611,7 +630,9 @@ function ShowPageWithNative({
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
+  userId: string;
   userRole: string;
+  chatMembers: ChatMemberSummary[];
 }) {
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
 
@@ -764,7 +785,7 @@ function ShowPageWithNative({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
+      <ChatPanel orgId={orgId} orgSlug={slug} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
     </div>
   );
 
@@ -862,7 +883,9 @@ function ShowPageWithOntime({
   slug,
   clockFormat,
   userName,
+  userId,
   userRole,
+  chatMembers,
 }: {
   ontimeState: OntimeRuntimeState;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
@@ -872,7 +895,9 @@ function ShowPageWithOntime({
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
+  userId: string;
   userRole: string;
+  chatMembers: ChatMemberSummary[];
 }) {
   const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
@@ -945,7 +970,7 @@ function ShowPageWithOntime({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userRole={userRole} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
+      <ChatPanel orgId={orgId} orgSlug={slug} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
     </div>
   );
 

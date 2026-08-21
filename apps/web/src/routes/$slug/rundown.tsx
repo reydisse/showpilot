@@ -62,7 +62,7 @@ import { rundownItemNumbers } from "@/types/rundown";
 import { hasPermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
-import { getTodayDateString } from "@/lib/utils";
+import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import {
   DropdownMenu,
@@ -221,6 +221,23 @@ function RundownPage() {
   const canControlRundown = hasPermission(role, "rundown:control");
   const [serviceDate, setServiceDate] = useState(openOn);
   const [showId, setShowId] = useState<string | undefined>(initialState.meta?.showId);
+  const showCreationRef = useRef<{ date: string; promise: Promise<string> } | null>(null);
+  const ensureShowId = useCallback(async () => {
+    if (showId) return showId;
+    if (showCreationRef.current?.date === serviceDate) return showCreationRef.current.promise;
+    const promise = saveRundownMeta({ data: { orgId, serviceDate } })
+      .then((result) => result.showId)
+      .catch((error) => {
+        if (showCreationRef.current?.date === serviceDate) showCreationRef.current = null;
+        throw error;
+      });
+    showCreationRef.current = { date: serviceDate, promise };
+    return promise;
+  }, [orgId, serviceDate, showId]);
+  const adoptShowId = useCallback(async (nextShowId: string) => {
+    setShowId(nextShowId);
+    await navigate({ search: { show: nextShowId, date: serviceDate }, replace: true });
+  }, [navigate, serviceDate]);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
@@ -303,9 +320,7 @@ function RundownPage() {
   }, [syncHydrated, syncedItems, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
-    initialState.meta?.scheduledStartTime
-      ? new Date(initialState.meta.scheduledStartTime).toTimeString().slice(0, 5)
-      : ""
+    formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
   );
   const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -343,29 +358,35 @@ function RundownPage() {
       setServiceName(value);
       if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
       saveNameTimeoutRef.current = setTimeout(() => {
-        saveRundownMeta({ data: { orgId, showId, serviceDate, name: value } }).catch(() => {});
+        void ensureShowId()
+          .then(async (targetShowId) => {
+            await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, name: value } });
+            if (!showId) await adoptShowId(targetShowId);
+          })
+          .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service title did not save"));
       }, 800);
     },
-    [orgId, serviceDate, showId],
+    [adoptShowId, ensureShowId, orgId, serviceDate, showId],
   );
 
   const handleScheduledStartChange = useCallback((timeStr: string) => {
     setScheduledStartTime(timeStr);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     saveMetaTimeoutRef.current = setTimeout(() => {
-      let isoTime: string | null = null;
-      if (timeStr) {
-        // Anchor to the service being edited, not to today. Setting
-        // 10:00 for next Sunday was saving 10:00 *today*, which left
-        // every future service with a start time in the past.
-        const [h, m] = timeStr.split(":").map(Number);
-        const d = new Date(`${serviceDate}T00:00:00`);
-        d.setHours(h, m, 0, 0);
-        isoTime = d.toISOString();
-      }
-      saveRundownMeta({ data: { orgId, showId, serviceDate, scheduledStartTime: isoTime } }).catch(() => {});
+      const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
+      void ensureShowId()
+        .then(async (targetShowId) => {
+          await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
+          if (!showId) await adoptShowId(targetShowId);
+        })
+        .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"));
     }, 800);
-  }, [orgId, serviceDate, showId]);
+  }, [adoptShowId, ensureShowId, orgId, serviceDate, settings, showId]);
+
+  useEffect(() => () => {
+    if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
+    if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
+  }, [serviceDate]);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -598,7 +619,10 @@ function RundownPage() {
     if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
     saveItemsTimeoutRef.current = setTimeout(() => {
       saveRundownItems({ data: { orgId, showId, serviceDate, items: newItems } })
-        .then(() => setSaveError(null))
+        .then(async (result) => {
+          setSaveError(null);
+          if (!showId) await adoptShowId(result.showId);
+        })
         .catch((e: unknown) => {
           console.warn("[SP] Items persist failed:", e);
           setSaveError(
@@ -606,7 +630,7 @@ function RundownPage() {
           );
         });
     }, 1000);
-  }, [orgId, serviceDate, showId]);
+  }, [adoptShowId, orgId, serviceDate, showId]);
 
   const updateItems = useCallback((updater: (prev: RundownItem[]) => RundownItem[]) => {
     setItems((prev) => {
@@ -634,9 +658,10 @@ function RundownPage() {
       });
       setScheduledStartTime(
         state.meta?.scheduledStartTime
-          ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5)
+          ? formatTimeInput(state.meta.scheduledStartTime, settings["org-timezone"])
           : ""
       );
+      showCreationRef.current = null;
       setShowId(nextShowId);
       await navigate({
         search: { show: nextShowId, date },
@@ -921,7 +946,7 @@ function RundownPage() {
     sendRundownCommand("timer-adjust", { deltaMs });
   }, [canControlRundown, timer, sendRundownCommand]);
 
-  const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
+  const handleAddItem = async (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
     const item: RundownItem = {
       id: crypto.randomUUID(),
@@ -933,8 +958,21 @@ function RundownPage() {
       sortOrder: items.length,
       hardStop: false,
     };
-    sendRundownCommand("add-item", item as unknown as Record<string, unknown>);
-    updateItems((prev) => [...prev, item]);
+    if (!showId) {
+      const nextItems = [...items, item];
+      try {
+        const targetShowId = await ensureShowId();
+        await saveRundownItems({ data: { orgId, showId: targetShowId, serviceDate, items: nextItems } });
+        databaseItemsRef.current = nextItems;
+        await adoptShowId(targetShowId);
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "This item did not save");
+        return;
+      }
+    } else {
+      sendRundownCommand("add-item", item as unknown as Record<string, unknown>);
+      updateItems((prev) => [...prev, item]);
+    }
     setShowAddForm(false);
   };
 
@@ -1053,7 +1091,7 @@ function RundownPage() {
   };
 
   // Load items into current date (from a previous date or saved template)
-  const handleLoadItems = useCallback((loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => {
+  const handleLoadItems = useCallback(async (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => {
     if (!canEditRundown) return;
     const fresh = loaded.items.map((item, idx) => ({
       ...item,
@@ -1062,11 +1100,18 @@ function RundownPage() {
       sortOrder: idx,
     }));
     const resetTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, pausedAt: null, mode: defaultTimerMode as "count-down" | "count-up" | "clock" };
+    let targetShowId = showId;
     setItems(fresh);
     setTimer(resetTimer);
-    // Seed DO with loaded items so all devices get them
-    sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
-    persistItems(fresh);
+    if (showId) {
+      // Seed DO with loaded items so all devices get them.
+      sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
+      persistItems(fresh);
+    } else {
+      targetShowId = await ensureShowId();
+      await saveRundownItems({ data: { orgId, showId: targetShowId, serviceDate, items: fresh } });
+      databaseItemsRef.current = fresh;
+    }
     if (loaded.serviceName !== undefined) {
       setServiceName(loaded.serviceName);
     }
@@ -1074,13 +1119,12 @@ function RundownPage() {
       setScheduledStartTime(loaded.scheduledStartTime);
     }
     if (loaded.serviceName !== undefined || loaded.scheduledStartTime !== undefined) {
-      const scheduled = loaded.scheduledStartTime
-        ? new Date(`${serviceDate}T${loaded.scheduledStartTime}:00`).toISOString()
-        : null;
-      void saveRundownMeta({ data: { orgId, showId, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
+      const scheduled = serviceTimeToIso(serviceDate, loaded.scheduledStartTime ?? "", settings["org-timezone"]);
+      await saveRundownMeta({ data: { orgId, showId: targetShowId!, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
     }
+    if (!showId && targetShowId) await adoptShowId(targetShowId);
     setShowLoadModal(false);
-  }, [canEditRundown, sendCommand, persistItems, defaultTimerMode, orgId, serviceDate, showId]);
+  }, [adoptShowId, canEditRundown, defaultTimerMode, ensureShowId, orgId, persistItems, sendCommand, serviceDate, settings, showId]);
 
   const handleSaveTemplate = useCallback(async (name: string, templateServiceName: string, templateStartTime: string) => {
     if (!canEditRundown) return;
@@ -1152,14 +1196,7 @@ function RundownPage() {
   const rundownMeta = scheduledStartTime
     ? {
         serviceDate,
-        scheduledStartTime: (() => {
-          // Anchor the cascade preview to the service being edited. Using
-          // today put every future service's timings on the wrong day.
-          const [h, m] = scheduledStartTime.split(":").map(Number);
-          const d = new Date(`${serviceDate}T00:00:00`);
-          d.setHours(h, m, 0, 0);
-          return d.toISOString();
-        })(),
+        scheduledStartTime: serviceTimeToIso(serviceDate, scheduledStartTime, settings["org-timezone"])!,
         status: "stopped" as const,
       }
     : undefined;
@@ -1209,7 +1246,7 @@ function RundownPage() {
             {shows.map((show) => (
               <option key={show.id} value={show.id}>
                 {show.name || formatDisplayDate(show.serviceDate)}
-                {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                {show.scheduledStartTime ? ` · ${formatTimeInput(show.scheduledStartTime, settings["org-timezone"])}` : ""}
               </option>
             ))}
           </select>
@@ -2123,7 +2160,7 @@ function RundownPage() {
         />
       )}
       {canEditRundown && showLoadModal && (
-        <LoadRundownModal orgId={orgId} onLoad={handleLoadItems} onClose={() => setShowLoadModal(false)} />
+        <LoadRundownModal orgId={orgId} timeZone={settings["org-timezone"]} onLoad={handleLoadItems} onClose={() => setShowLoadModal(false)} />
       )}
       {canEditRundown && showSaveModal && (
         <SaveRundownModal
@@ -2317,11 +2354,13 @@ function EditItemModal({
 
 function LoadRundownModal({
   orgId,
+  timeZone,
   onLoad,
   onClose,
 }: {
   orgId: string;
-  onLoad: (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => void;
+  timeZone?: string;
+  onLoad: (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"dates" | "saved">("dates");
@@ -2345,7 +2384,7 @@ function LoadRundownModal({
     setLoadingItems(true);
     try {
       const state = await getRundownState({ data: { orgId, serviceDate: date, showId } });
-      onLoad({ items: state.items as RundownItem[], serviceName: state.meta?.name ?? "", scheduledStartTime: state.meta?.scheduledStartTime ? new Date(state.meta.scheduledStartTime).toTimeString().slice(0, 5) : "" });
+      await onLoad({ items: state.items as RundownItem[], serviceName: state.meta?.name ?? "", scheduledStartTime: formatTimeInput(state.meta?.scheduledStartTime, timeZone) });
     } catch {
       // keep modal open
     }
@@ -2356,7 +2395,7 @@ function LoadRundownModal({
     setLoadingItems(true);
     try {
       const saved = await loadSavedRundown({ data: { orgId, rundownId } });
-      if (saved) onLoad(saved as SavedRundown);
+      if (saved) await onLoad(saved as SavedRundown);
     } catch {
       // keep modal open
     }
@@ -2423,7 +2462,7 @@ function LoadRundownModal({
                   >
                     <div>
                       <p className="text-sm font-medium text-board-text">{d.name || formatDate(d.date)}</p>
-                      <p className="text-[10px] text-board-muted mt-0.5">{formatDate(d.date)}{d.scheduledStartTime ? ` · ${new Date(d.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} · {d.itemCount} items</p>
+                      <p className="text-[10px] text-board-muted mt-0.5">{formatDate(d.date)}{d.scheduledStartTime ? ` · ${formatTimeInput(d.scheduledStartTime, timeZone)}` : ""} · {d.itemCount} items</p>
                     </div>
                     <FolderOpen className="w-4 h-4 text-board-muted" />
                   </button>

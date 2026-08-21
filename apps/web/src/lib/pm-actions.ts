@@ -19,6 +19,7 @@ import {
 } from "@/lib/rundown";
 import type { RundownItem } from "@/types/rundown";
 import { readShowInventoryItem } from "@/lib/show-inventory";
+import { serviceTimeToIso } from "@/lib/utils";
 
 async function getSessionUser() {
   const { getAuth } = await import("@/lib/auth");
@@ -104,9 +105,12 @@ export const createNextService = createServerFn({ method: "POST" })
     }
 
     const startTime = data.startTime || inventory?.defaultStartTime || "";
-    const scheduledStartTime = startTime
-      ? new Date(`${data.serviceDate}T${startTime}:00`)
-      : null;
+    const timezone = await prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
+      select: { value: true },
+    });
+    const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, timezone?.value);
+    const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
     const rundown = await prisma.rundown.create({
       data: {
         orgId: data.orgId,
@@ -229,7 +233,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
         findMany(
           args: unknown,
         ): Promise<
-          { role: string; department: string; crewMemberId: string | null }[]
+          { role: string; department: string; crewMemberId: string | null; callTime: string }[]
         >;
         count(args: unknown): Promise<number>;
         createMany(args: unknown): Promise<unknown>;
@@ -249,7 +253,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
 
     const source = await prisma.serviceAssignment.findMany({
       where: { orgId: data.orgId, showId: data.copyFromShowId },
-      select: { role: true, department: true, crewMemberId: true },
+      select: { role: true, department: true, crewMemberId: true, callTime: true },
     });
     if (source.length === 0)
       throw new Error("That service has no crew to copy");
@@ -262,6 +266,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
         role: row.role,
         department: row.department,
         crewMemberId: row.crewMemberId,
+        callTime: row.callTime,
         // Never inherit a confirmation. Last week's yes is not this
         // week's yes, and pretending otherwise is how a PM ends up
         // short on a Sunday morning.
