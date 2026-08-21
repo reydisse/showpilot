@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { DesktopBridgeController } from "@/components/layout/DesktopBridgeController";
+import { DesktopNotificationController } from "@/components/layout/DesktopNotificationController";
 import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 import "@/lib/device-modules/register-all";
@@ -68,6 +69,7 @@ function RootComponent() {
   return (
     <>
       <DesktopBridgeController />
+      <DesktopNotificationController />
       <Outlet />
     </>
   );

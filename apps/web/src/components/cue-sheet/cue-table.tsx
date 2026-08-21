@@ -13,7 +13,7 @@
  * table scrolling inside a page that also scrolls.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { GripVertical } from "lucide-react";
 import type { CueColumnRow, CueRow } from "@/lib/cue-sheet-derive";
 import { rundownItemNumbers } from "@/types/rundown";
@@ -109,7 +109,20 @@ export function CueTable({
   const visible = columns.filter((column) => !hidden.has(column.id));
   const bases = BASE_COLUMNS.filter((column) => !hidden.has(column.key));
   const details = RUNDOWN_DETAIL_COLUMNS.filter((column) => !hidden.has(column.key));
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ id: string; overId: string } | null>(null);
+
+  const finishColumnMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!drag) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (drag.id !== drag.overId) onReorder(drag.id, drag.overId);
+    setDrag(null);
+  };
+
+  const moveColumnWithKeyboard = (columnId: string, delta: -1 | 1) => {
+    const index = visible.findIndex((column) => column.id === columnId);
+    const target = visible[index + delta];
+    if (target) onReorder(columnId, target.id);
+  };
 
   // Left offsets for the pinned block, accumulated in render order so
   // hiding a time column closes the gap instead of leaving a hole.
@@ -157,23 +170,41 @@ export function CueTable({
             return (
               <th
                 key={column.id}
-                draggable={canEdit}
-                onDragStart={() => setDragId(column.id)}
-                onDragEnd={() => setDragId(null)}
-                onDragOver={(event) => {
-                  if (dragId && dragId !== column.id) event.preventDefault();
-                }}
-                onDrop={() => {
-                  if (dragId && dragId !== column.id) onReorder(dragId, column.id);
-                  setDragId(null);
-                }}
+                data-cue-column-id={column.id}
                 style={{ width: column.width, minWidth: column.width }}
                 className={`sticky top-0 z-20 relative px-2 py-1.5 text-left font-medium border-r border-board-bg/40 ${tint.head} ${tint.text} ${
-                  dragId === column.id ? "opacity-50" : ""
+                  drag?.id === column.id ? "opacity-60" : drag?.overId === column.id ? "ring-2 ring-inset ring-white/80" : ""
                 }`}
               >
                 <span className="flex items-center gap-1">
-                  {canEdit && <GripVertical className="w-3 h-3 opacity-50 shrink-0" />}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      aria-label={`Move ${column.label} column. Use left and right arrow keys, or drag.`}
+                      className="-ml-1 inline-flex h-7 w-6 shrink-0 touch-none cursor-grab items-center justify-center rounded hover:bg-black/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current active:cursor-grabbing"
+                      onKeyDown={(event) => {
+                        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                          event.preventDefault();
+                          moveColumnWithKeyboard(column.id, event.key === "ArrowLeft" ? -1 : 1);
+                        }
+                      }}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        setDrag({ id: column.id, overId: column.id });
+                      }}
+                      onPointerMove={(event) => {
+                        if (!drag || drag.id !== column.id) return;
+                        const element = document.elementFromPoint(event.clientX, event.clientY);
+                        const overId = element?.closest<HTMLElement>("[data-cue-column-id]")?.dataset.cueColumnId;
+                        if (overId && overId !== drag.overId) setDrag({ id: drag.id, overId });
+                      }}
+                      onPointerUp={finishColumnMove}
+                      onPointerCancel={() => setDrag(null)}
+                    >
+                      <GripVertical className="h-4 w-4 opacity-60" />
+                    </button>
+                  )}
                   <span className="truncate">{column.label}</span>
                 </span>
                 {canEdit && (

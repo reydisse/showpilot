@@ -6,7 +6,10 @@ import { NotificationCenter } from "./NotificationCenter";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
-import { getDesktopNotificationPermission, isDesktopNotificationSupported } from "@/lib/desktop-runtime";
+import {
+  getDesktopNotificationPermission,
+  isDesktopNotificationSupported,
+} from "@/lib/desktop-runtime";
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -156,7 +159,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       </button>
 
       <Dialog open={accountOpen} onOpenChange={setAccountOpen}>
-        <DialogContent className="max-h-[min(620px,calc(100dvh-2rem))] overflow-hidden border-board-border bg-board-card p-0 text-board-text shadow-[0_24px_80px_rgba(0,0,0,0.5)] sm:max-w-[420px]">
+        <DialogContent className="flex max-h-[min(620px,calc(100dvh-2rem))] min-h-0 flex-col overflow-hidden border-board-border bg-board-card p-0 text-board-text shadow-[0_24px_80px_rgba(0,0,0,0.5)] sm:max-w-[420px]">
           <DialogHeader className="border-b border-board-border px-5 py-5 pr-12 text-left">
             <div className="flex items-center gap-3">
               <div
@@ -174,7 +177,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             </div>
           </DialogHeader>
 
-          <div className="overflow-y-auto px-3 py-3">
+          <div className="modern-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-3 py-3">
             <div className="mb-2 flex items-center justify-between rounded-lg bg-board-bg/40 px-3 py-2 text-[11px] text-board-muted">
               <span>{orgName}</span>
               <span className="font-medium" style={{ color: roleColour }}>{roleLabel}</span>

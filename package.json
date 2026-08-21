@@ -16,6 +16,7 @@
     "onlyBuiltDependencies": [
       "prisma",
       "@prisma/engines",
+      "bun",
       "esbuild",
       "workerd",
       "sharp"

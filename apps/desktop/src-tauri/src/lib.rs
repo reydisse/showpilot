@@ -1,7 +1,9 @@
 use serde::Serialize;
 use std::fs;
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
 mod bridge_runtime;
@@ -20,6 +22,8 @@ struct EngineInfo {
 
 const MAX_SNAPSHOT_BYTES: usize = 5 * 1024 * 1024;
 const PRODUCTION_ORIGIN: &str = "https://showpilot.tech";
+const NOTIFICATION_POLL_SCRIPT: &str =
+    "window.dispatchEvent(new Event('showpilot-desktop-notification-poll'))";
 
 struct CompanionWindowSpec {
     label: String,
@@ -204,6 +208,24 @@ fn open_companion_window(
     Ok(())
 }
 
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "ShowPilot main window is unavailable".to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+fn start_notification_pulse(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(15));
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.eval(NOTIFICATION_POLL_SCRIPT);
+        }
+    });
+}
+
 #[tauri::command]
 fn display_fullscreen_state(window: tauri::WebviewWindow) -> Result<bool, String> {
     ensure_display_surface(&window)?;
@@ -222,13 +244,39 @@ fn toggle_display_fullscreen(window: tauri::WebviewWindow) -> Result<bool, Strin
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(BridgeRuntime::new())
         .setup(|app| {
+            let open = MenuItem::with_id(app, "showpilot-open", "Open ShowPilot", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "showpilot-quit", "Quit ShowPilot", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let mut tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("ShowPilot")
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "showpilot-open" => {
+                        let _ = show_main_window(app.clone());
+                    }
+                    "showpilot-quit" => app.exit(0),
+                    _ => {}
+                });
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.build(app)?;
             start_saved_bridge(app.handle())?;
             start_supervisor(app.handle().clone());
+            start_notification_pulse(app.handle().clone());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             engine_info,
@@ -241,8 +289,19 @@ pub fn run() {
             start_bridge,
             stop_bridge
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ShowPilot Desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building ShowPilot Desktop");
+
+    app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } = event
+        {
+            let _ = show_main_window(app.clone());
+        }
+    });
 }
 
 #[cfg(test)]

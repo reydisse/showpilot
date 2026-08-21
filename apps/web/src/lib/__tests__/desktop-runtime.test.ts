@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const nativeNotifications = vi.hoisted(() => ({
   granted: false,
-  sent: [] as Array<{ title: string; body?: string }>,
+  sent: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
@@ -116,7 +116,22 @@ describe("desktop runtime boundary", () => {
     await expect(showDesktopNotification("Before", "Permission")).resolves.toBe(false);
     await expect(requestDesktopNotificationPermission()).resolves.toBe("granted");
     await expect(getDesktopNotificationPermission()).resolves.toBe("granted");
-    await expect(showDesktopNotification("ShowPilot", "Cue ready")).resolves.toBe(true);
-    expect(nativeNotifications.sent).toEqual([{ title: "ShowPilot", body: "Cue ready" }]);
+    await expect(showDesktopNotification("ShowPilot", "Cue ready", {
+      notificationId: "notice-1",
+      actionUrl: "/chat?room=ops",
+      orgSlug: "faithfire-production",
+    })).resolves.toBe(true);
+    expect(nativeNotifications.sent).toEqual([expect.objectContaining({
+      title: "ShowPilot",
+      body: "Cue ready",
+      autoCancel: true,
+      group: "showpilot-operations",
+      extra: {
+        notificationId: "notice-1",
+        actionUrl: "/chat?room=ops",
+        orgSlug: "faithfire-production",
+      },
+    })]);
   });
+
 });

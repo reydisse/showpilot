@@ -1,4 +1,5 @@
 import { BaseDeviceModule } from "../base-module";
+import { getSharedBridgeProxy } from "../bridge-proxy";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
 
 const ATEM_ACTIONS: ModuleAction[] = [
@@ -32,14 +33,105 @@ const ATEM_FEEDBACKS: ModuleFeedback[] = [
   { id: "tally_preview", label: "Tally Preview", type: "string", value: "[]" },
 ];
 
+interface AtemStateEvent {
+  programInput?: number;
+  previewInput?: number;
+  transitionPosition?: number;
+  ftbActive?: boolean;
+  tallyProgram?: number[];
+  tallyPreview?: number[];
+}
+
 class ATEMModule extends BaseDeviceModule {
-  protected async doConnect(): Promise<void> {
-    throw new Error("Bridge agent required for ATEM connections");
+  private proxy: ReturnType<typeof getSharedBridgeProxy> | null = null;
+  private target = "";
+  private settings: Record<string, unknown>;
+  private unsubscribeEvent: (() => void) | null = null;
+  private feedbacks: ModuleFeedback[] = ATEM_FEEDBACKS.map((feedback) => ({ ...feedback }));
+
+  constructor(settings: Record<string, unknown>) {
+    super();
+    this.settings = settings;
   }
-  protected doDisconnect(): void {}
+
+  protected async doConnect(): Promise<void> {
+    const orgId = String(this.settings.orgId || "");
+    const host = String(this.settings.host || "").trim();
+    const port = Number(this.settings.port || 9910);
+    if (!orgId || !host || !Number.isInteger(port) || port <= 0 || port > 65535) {
+      throw new Error("Local device engine, ATEM host, and port are required");
+    }
+
+    this.proxy = getSharedBridgeProxy(orgId);
+    if (!this.proxy.isBridgeOnline()) throw new Error("Local device engine is offline");
+    this.target = `${host}:${port}`;
+    this.unsubscribeEvent = this.proxy.onDeviceEvent((target, eventName, data) => {
+      if (target !== this.target || eventName !== "atem-state") return;
+      this.applyState(data);
+    });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          unsubscribe();
+          reject(new Error("ATEM connection timed out"));
+        }, 8_000);
+        const unsubscribe = this.proxy!.onDeviceStatus((target, connected) => {
+          if (target !== this.target) return;
+          window.clearTimeout(timeout);
+          unsubscribe();
+          if (connected) resolve();
+          else reject(new Error("Local device engine could not connect to the ATEM"));
+        });
+        this.proxy!.connectDevice("atem", this.target, this.settings);
+      });
+    } catch (error) {
+      this.unsubscribeEvent?.();
+      this.unsubscribeEvent = null;
+      throw error;
+    }
+  }
+
+  protected doDisconnect(): void {
+    this.unsubscribeEvent?.();
+    this.unsubscribeEvent = null;
+    if (this.proxy && this.target) this.proxy.disconnectDevice(this.target);
+    this.target = "";
+  }
+
   getActions() { return ATEM_ACTIONS; }
-  async executeAction() { throw new Error("Bridge agent required"); }
-  getFeedbacks() { return ATEM_FEEDBACKS; }
+
+  async executeAction(actionId: string, params: Record<string, unknown>) {
+    if (!this.proxy || !this.target || this.connectionStatus() !== "connected") {
+      throw new Error("ATEM is not connected");
+    }
+    await this.proxy.sendCommand("atem", this.target, JSON.stringify({ actionId, params }));
+  }
+
+  getFeedbacks() { return this.feedbacks; }
+
+  private applyState(raw: string) {
+    let state: AtemStateEvent;
+    try {
+      state = JSON.parse(raw) as AtemStateEvent;
+    } catch {
+      return;
+    }
+    const values: Record<string, unknown> = {
+      program_input: state.programInput,
+      preview_input: state.previewInput,
+      transition_position: state.transitionPosition,
+      ftb_active: state.ftbActive,
+      tally_program: state.tallyProgram ? JSON.stringify(state.tallyProgram) : undefined,
+      tally_preview: state.tallyPreview ? JSON.stringify(state.tallyPreview) : undefined,
+    };
+    for (const feedback of this.feedbacks) {
+      const value = values[feedback.id];
+      if (value === undefined) continue;
+      feedback.value = value;
+      this.emitFeedback(feedback.id, value);
+    }
+  }
 }
 
 export const atemModuleDefinition: ModuleDefinition = {
@@ -50,8 +142,9 @@ export const atemModuleDefinition: ModuleDefinition = {
   connectivity: "bridge-required",
   configFields: [
     { key: "host", label: "Switcher IP", placeholder: "192.168.1.240", required: true },
+    { key: "port", label: "Port", placeholder: "9910", type: "number" },
   ],
   icon: "Monitor",
-  description: "Control Blackmagic ATEM switchers. Program/preview switching, transitions, macros, aux outputs. Requires ShowPilot Bridge.",
-  createInstance: () => new ATEMModule(),
+  description: "Control Blackmagic ATEM switchers through the desktop local device engine or a venue Bridge.",
+  createInstance: (settings) => new ATEMModule(settings),
 };
