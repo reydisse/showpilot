@@ -16,11 +16,11 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import type { Permission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { ACTIVE_SERVICE_DATE_KEY, getRundownStateForOrg } from "@/lib/rundown";
 import {
@@ -131,27 +131,9 @@ async function readActiveShow(orgId: string): Promise<{ serviceDate: string | nu
   return { serviceDate: dateRow?.value || null, showId: showRow?.value || null };
 }
 
-async function getOrgMemberRole(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-
-  return { role: member.role ?? "member", userName: session.user.name ?? "" };
-}
-
 async function assertCuePermission(orgId: string, permissions: Permission[]) {
-  const { role, userName } = await getOrgMemberRole(orgId);
-  if (!hasAnyPermission(role, permissions)) throw new Error("Forbidden");
-  return userName;
+  const { user } = await assertEffectiveOrgPermission(orgId, permissions);
+  return user.name;
 }
 
 // ─── Columns ─────────────────────────────────────────────────

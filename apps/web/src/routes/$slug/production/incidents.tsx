@@ -16,7 +16,10 @@ import {
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
-import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
+import {
+  hasAnyEffectivePermission,
+  hasEffectivePermission,
+} from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -166,6 +169,7 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       incidents: incidents.map(normalizeIncident),
       orgId: context.orgId,
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       orgTimezone: settings["org-timezone"],
       initialServiceDate: serviceDate,
       initialShowId: showId ?? null,
@@ -186,6 +190,7 @@ function IncidentsPage() {
     recentHistory,
     orgId,
     role,
+    grantedPermissions,
     orgTimezone,
     initialServiceDate,
     initialShowId,
@@ -216,11 +221,15 @@ function IncidentsPage() {
     reportedBy: "",
   });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const canReportIncidents = hasAnyPermission(role, [
+  const canReportIncidents = hasAnyEffectivePermission(role, grantedPermissions, [
     "incidents:report",
     "incidents:access",
   ]);
-  const canManageIncidents = hasPermission(role, "incidents:access");
+  const canManageIncidents = hasEffectivePermission(
+    role,
+    grantedPermissions,
+    "incidents:access",
+  );
   const today = getTodayDateString(orgTimezone);
 
   useEffect(() => {

@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
+import { getD1 } from "@/lib/d1";
+import {
+  resolveAccessGrantAuthority,
+  resolveEffectiveAccess,
+} from "@/lib/effective-access";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { resolveMemberRoleForOrg } from "@/lib/org-role";
 import { z } from "zod";
@@ -81,11 +86,27 @@ export const getOrgRouteContext = createServerFn({ method: "GET" })
     });
     const memberRole = normalizeRole(membership?.role ?? null);
     if (!membership || !memberRole) return null;
+    const effectiveAccess = await resolveEffectiveAccess(
+      getD1(),
+      session.user.id,
+      membership.organization.id,
+    );
+    if (!effectiveAccess) return null;
+    const accessAuthority = await resolveAccessGrantAuthority(
+      getD1(),
+      session.user.id,
+      membership.organization.id,
+      effectiveAccess.today,
+    );
     return {
       user: session.user,
       activeOrganizationId: session.session.activeOrganizationId,
       org: membership.organization,
       memberRole,
+      grantedPermissions: effectiveAccess.grantedPermissions,
+      effectivePermissions: effectiveAccess.permissions,
+      accessRevision: `${memberRole}:${accessAuthority.kind}:${accessAuthority.weekStart}:${effectiveAccess.revision}:${effectiveAccess.permissions.join(",")}`,
+      accessAuthority,
     };
   });
 

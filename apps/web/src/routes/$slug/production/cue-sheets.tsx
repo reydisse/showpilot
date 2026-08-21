@@ -12,7 +12,7 @@ import { ChevronLeft, ChevronRight, ListOrdered, Plus, Settings2, Wifi, WifiOff 
 import { EmptyState } from "@/components/ui/empty-state";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
@@ -72,6 +72,7 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
       model,
       orgId: context.orgId,
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       orgTimezone: settings["org-timezone"],
     };
   },
@@ -79,7 +80,7 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
 });
 
 function CueSheetsPage() {
-  const { model: initialModel, orgId, role, orgTimezone } = Route.useLoaderData();
+  const { model: initialModel, orgId, role, grantedPermissions, orgTimezone } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const today = getTodayDateString(orgTimezone);
   const [showId, setShowId] = useState(initialModel.showId);
@@ -97,8 +98,10 @@ function CueSheetsPage() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const sheetScroll = useEdgeScroll();
 
-  const canAddNotes = hasPermission(role, "cuesheet:add_notes") || hasPermission(role, "cuesheet:edit");
-  const canManageColumns = hasPermission(role, "cuesheet:edit");
+  const canAddNotes =
+    hasEffectivePermission(role, grantedPermissions, "cuesheet:add_notes") ||
+    hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
+  const canManageColumns = hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
 
   useEffect(() => {
     try {

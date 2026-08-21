@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
-import { hasPermission, normalizeRole, type Permission } from "@/lib/app-permissions";
+import type { Permission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
@@ -10,26 +10,8 @@ const styleSchema = z.string().max(20_000);
 const graphicTextSchema = z.string().max(500);
 const orgGraphicSchema = z.object({ orgId: idSchema, graphicId: idSchema });
 
-async function getOrgMemberRole(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  const role = normalizeRole(member?.role ?? null);
-  if (!role) throw new Error("Forbidden");
-  return role;
-}
-
 async function assertGraphicPermission(orgId: string, permission: Permission) {
-  const role = await getOrgMemberRole(orgId);
-  if (!hasPermission(role, permission)) throw new Error("Forbidden");
+  await assertOrgPermission(orgId, permission);
 
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({

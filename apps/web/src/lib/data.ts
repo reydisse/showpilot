@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
-import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import type { Permission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
@@ -36,9 +37,7 @@ async function assertOrgAccess(orgId: string) {
 }
 
 async function assertOrgPermission(orgId: string, permission: Permission | Permission[]) {
-  const role = await getOrgMemberRole(orgId);
-  const allowed = hasAnyPermission(role, Array.isArray(permission) ? permission : [permission]);
-  if (!allowed) throw new Error("Forbidden");
+  await assertEffectiveOrgPermission(orgId, permission);
 }
 
 // ─── Crew Members ───────────────────────────────────────────

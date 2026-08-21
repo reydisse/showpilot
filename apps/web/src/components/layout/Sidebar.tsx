@@ -36,7 +36,11 @@ import {
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
-import { hasAnyPermission, hasPermission } from "@/lib/app-permissions";
+import {
+  hasAnyEffectivePermission,
+  hasEffectivePermission,
+  type Permission,
+} from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
 import { ROLE_COLOURS } from "./ProfileModal";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
@@ -186,6 +190,8 @@ export function Sidebar() {
     logo: string | null;
   } | null = null;
   let role: string | null = null;
+  let grantedPermissions: Permission[] = [];
+  let canManageAccess = false;
   let user: {
     id: string;
     name: string;
@@ -196,6 +202,8 @@ export function Sidebar() {
     const ctx = useRouteContext({ from: "/$slug" });
     org = ctx.org;
     role = ctx.role ?? null;
+    grantedPermissions = ctx.grantedPermissions ?? [];
+    canManageAccess = ctx.accessAuthority?.canManage ?? false;
     user = ctx.user ?? null;
   } catch {
     // Not inside /$slug route
@@ -247,6 +255,8 @@ export function Sidebar() {
             slug: slug!,
             isActive,
             role,
+            grantedPermissions,
+            canManageAccess,
             user,
           })}
         </aside>
@@ -269,6 +279,8 @@ export function Sidebar() {
           slug: slug!,
           isActive,
           role,
+          grantedPermissions,
+          canManageAccess,
           user,
         })}
       </aside>
@@ -293,6 +305,8 @@ function renderSidebarContent({
   slug,
   isActive,
   role,
+  grantedPermissions,
+  canManageAccess,
   user,
 }: {
   collapsed: boolean;
@@ -300,6 +314,8 @@ function renderSidebarContent({
   slug: string;
   isActive: (path: string) => boolean;
   role: string | null;
+  grantedPermissions: Permission[];
+  canManageAccess: boolean;
   user: {
     id: string;
     name: string;
@@ -307,54 +323,59 @@ function renderSidebarContent({
     image?: string | null;
   } | null;
 }) {
+  const can = (permission: Permission) =>
+    hasEffectivePermission(role, grantedPermissions, permission);
+  const canAny = (permissions: readonly Permission[]) =>
+    hasAnyEffectivePermission(role, grantedPermissions, permissions);
+
   const visibleMainNav = mainNav.filter((item) => {
-    if (item.path === "show") return hasPermission(role, "show:view");
-    if (item.path === "schedule") return hasPermission(role, "schedule:view");
-    if (item.path === "board") return hasPermission(role, "showboard:view");
-    if (item.path === "rundown") return hasPermission(role, "rundown:view");
-    if (item.path === "timecode") return hasPermission(role, "timecode:access");
-    if (item.path === "chat") return hasPermission(role, "chat:access");
-    if (item.path === "checkin") return hasPermission(role, "checkin:access");
+    if (item.path === "show") return can("show:view");
+    if (item.path === "schedule") return can("schedule:view");
+    if (item.path === "board") return can("showboard:view");
+    if (item.path === "rundown") return can("rundown:view");
+    if (item.path === "timecode") return can("timecode:access");
+    if (item.path === "chat") return can("chat:access");
+    if (item.path === "checkin") return can("checkin:access");
     if (item.path === "team")
-      return hasAnyPermission(role, ["settings:members", "checkin:access"]);
+      return canManageAccess || canAny(["settings:members", "checkin:access"]);
     return true;
   });
 
   const visibleProductionNav = productionNav.filter((item) => {
     if (item.path === "production/checklist")
-      return hasAnyPermission(role, ["checklist:view", "checklist:access"]);
+      return canAny(["checklist:view", "checklist:access"]);
     if (item.path === "production/incidents") {
-      return hasAnyPermission(role, ["incidents:report", "incidents:access"]);
+      return canAny(["incidents:report", "incidents:access"]);
     }
     if (item.path === "production/cue-sheets") {
-      return hasAnyPermission(role, [
+      return canAny([
         "cuesheet:view",
         "cuesheet:edit",
         "cuesheet:add_notes",
       ]);
     }
     if (item.path === "production/assets")
-      return hasPermission(role, "assets:view");
+      return can("assets:view");
     return true;
   });
 
   const visibleStreamingNav = streamingNav.filter((item) => {
     if (item.path === "streaming/health")
-      return hasPermission(role, "stream_health:view");
+      return can("stream_health:view");
     if (item.path === "streaming/platforms")
-      return hasPermission(role, "streaming_suite:access");
+      return can("streaming_suite:access");
     if (item.path === "streaming/graphics")
-      return hasPermission(role, "lowerthird:view");
+      return can("lowerthird:view");
     return true;
   });
 
   const visibleDashboardNav = dashboardNav.filter((item) => {
     if (item.path === "dashboard/devices")
-      return hasPermission(role, "devices:access");
+      return can("devices:access");
     if (item.path === "dashboard/prod-manager")
-      return hasPermission(role, "dashboard:pm");
-    if (item.path === "reports") return hasPermission(role, "dashboard:pm");
-    return hasPermission(role, "dashboard:tm");
+      return can("dashboard:pm");
+    if (item.path === "reports") return can("dashboard:pm");
+    return can("dashboard:tm");
   });
 
   const roleColour = ROLE_COLOURS[role ?? ""] ?? ROLE_COLOURS.member;
@@ -501,7 +522,7 @@ function renderSidebarContent({
             orgName={org.name}
             orgId={org.id}
             slug={slug}
-            canAccessSettings={hasAnyPermission(role, [
+            canAccessSettings={canAny([
               "settings:organization",
               "settings:members",
               "settings:billing",

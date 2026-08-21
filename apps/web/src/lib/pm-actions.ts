@@ -8,10 +8,10 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
-import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import type { Permission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import {
   getRundownStateForOrg,
@@ -21,25 +21,9 @@ import type { RundownItem } from "@/types/rundown";
 import { readShowInventoryItem } from "@/lib/show-inventory";
 import { serviceTimeToIso } from "@/lib/utils";
 
-async function getSessionUser() {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const session = await auth.api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  return session.user;
-}
-
 async function assertOrgPermission(orgId: string, permission: Permission) {
-  const user = await getSessionUser();
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: user.id },
-    select: { role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-  if (!hasAnyPermission(member.role ?? "member", [permission]))
-    throw new Error("Forbidden");
-  return { user, role: member.role ?? "member" };
+  const { user, access } = await assertEffectiveOrgPermission(orgId, permission);
+  return { user, role: access.role };
 }
 
 // ─── Create the next service ─────────────────────────────────

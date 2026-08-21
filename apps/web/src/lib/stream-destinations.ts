@@ -1,32 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
-import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
 // Destinations hold RTMP stream keys — every read/write must verify org
 // membership + stream permission. Matches the pattern in src/lib/stream.ts.
-async function assertOrgPermission(
-  orgId: string,
-  permission: "stream_health:view" | "stream_health:manage",
-) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  const role = normalizeRole(member?.role ?? null);
-  if (!role || !hasPermission(role, permission)) throw new Error("Forbidden");
-}
-
 /** Resolve a destination's org, then assert manage permission on it. */
 async function assertDestinationAccess(id: string) {
   const prisma = getPrisma();

@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
-import { hasPermission, normalizeRole } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
 const actionSchema = z.enum([
@@ -22,18 +22,16 @@ export interface TmControlState {
 }
 
 async function assertControlAccess(orgId: string, action?: TmControlAction) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  const role = normalizeRole(member?.role ?? null);
-  if (!role || !hasPermission(role, "dashboard:tm")) throw new Error("Forbidden");
-  if ((action === "stream-live" || action === "stream-stop") && !hasPermission(role, "stream_health:manage")) throw new Error("Forbidden");
-  if (action === "lower-third-clear" && !hasPermission(role, "lowerthird:trigger")) throw new Error("Forbidden");
-  return { userId: session.user.id, userName: session.user.name ?? "Technical operator" };
+  const { user, access } = await assertOrgPermission(orgId, "dashboard:tm");
+  if (
+    (action === "stream-live" || action === "stream-stop") &&
+    !hasEffectivePermission(access.role, access.grantedPermissions, "stream_health:manage")
+  ) throw new Error("Forbidden");
+  if (
+    action === "lower-third-clear" &&
+    !hasEffectivePermission(access.role, access.grantedPermissions, "lowerthird:trigger")
+  ) throw new Error("Forbidden");
+  return { userId: user.id, userName: user.name || "Technical operator" };
 }
 
 export const getTmControlState = createServerFn({ method: "GET" })

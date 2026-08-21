@@ -4,12 +4,18 @@ import { Lock, ShieldAlert } from "lucide-react";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { getRundownPinCookieName } from "@/middleware/withPermission";
 import { validateRundownPin } from "@/lib/rbac";
-import { hasPermission, roleRequiresRundownPin } from "@/lib/app-permissions";
+import { hasEffectivePermission, roleRequiresRundownPin } from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug/rundown-pin")({
   pendingComponent: () => <BoardSkeleton />,
   beforeLoad: ({ context, params }) => {
-    if (!hasPermission(context.role, "rundown:view")) {
+    if (
+      !hasEffectivePermission(
+        context.role,
+        context.grantedPermissions,
+        "rundown:view",
+      )
+    ) {
       throw redirect({ to: "/$slug/board", params: { slug: params.slug } });
     }
 

@@ -63,7 +63,7 @@ export type Permission =
   | "settings:danger_zone"
   | "org:delete";
 
-const ALL_PERMISSIONS = [
+export const ALL_PERMISSIONS = [
   "show:view",
   "show:edit",
   "showboard:view",
@@ -245,6 +245,35 @@ export function hasAnyPermission(
   permissions: readonly Permission[],
 ): boolean {
   return permissions.some((permission) => hasPermission(role, permission));
+}
+
+export function isPermission(value: unknown): value is Permission {
+  return typeof value === "string" && (ALL_PERMISSIONS as readonly string[]).includes(value);
+}
+
+export function getEffectivePermissions(
+  role: string | null | undefined,
+  grantedPermissions: readonly Permission[] = [],
+): Permission[] {
+  return [...new Set<Permission>([...getPermissions(role), ...grantedPermissions])];
+}
+
+export function hasEffectivePermission(
+  role: string | null | undefined,
+  grantedPermissions: readonly Permission[] | null | undefined,
+  permission: Permission,
+): boolean {
+  return hasPermission(role, permission) || Boolean(grantedPermissions?.includes(permission));
+}
+
+export function hasAnyEffectivePermission(
+  role: string | null | undefined,
+  grantedPermissions: readonly Permission[] | null | undefined,
+  permissions: readonly Permission[],
+): boolean {
+  return permissions.some((permission) =>
+    hasEffectivePermission(role, grantedPermissions, permission),
+  );
 }
 
 export function roleRequiresRundownPin(

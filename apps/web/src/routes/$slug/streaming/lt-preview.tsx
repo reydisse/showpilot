@@ -20,7 +20,7 @@ import {
   clearActiveGraphics,
   getActiveGraphics,
 } from "@/lib/graphics";
-import { hasPermission } from "@/lib/app-permissions";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 import {
   type Controls,
   DEFAULT_CONTROLS,
@@ -43,6 +43,7 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
       orgId: context.orgId,
       activeIds: active.map((g) => g.id),
       role: context.role,
+      grantedPermissions: context.grantedPermissions,
       slug: context.slug,
     };
   },
@@ -283,10 +284,10 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
-  const { orgId, activeIds: initialActiveIds, role, slug } = Route.useLoaderData();
+  const { orgId, activeIds: initialActiveIds, role, grantedPermissions, slug } = Route.useLoaderData();
   const router = useRouter();
-  const canConfigureGraphics = hasPermission(role, "lowerthird:configure");
-  const canTriggerGraphics = hasPermission(role, "lowerthird:trigger");
+  const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
+  const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visible, setVisible] = useState(true);
   const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES | "custom">("person");

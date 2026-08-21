@@ -10,11 +10,11 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
-import { hasAnyPermission, type Permission } from "@/lib/app-permissions";
+import type { Permission } from "@/lib/app-permissions";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { readPhaseSettings } from "@/lib/service-phase";
@@ -46,26 +46,8 @@ const RECENT_LIMIT = 4;
 const ON_FLOOR_PHOTO_LIMIT = 18;
 const OPEN_ITEM_LIMIT = 6;
 
-async function getOrgMemberRole(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-
-  return member.role ?? "member";
-}
-
 async function assertOrgPermission(orgId: string, permission: Permission) {
-  const role = await getOrgMemberRole(orgId);
-  if (!hasAnyPermission(role, [permission])) throw new Error("Forbidden");
+  await assertEffectiveOrgPermission(orgId, permission);
 }
 
 interface RundownDateRow {

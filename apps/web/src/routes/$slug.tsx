@@ -8,6 +8,7 @@ import { getOrgRouteContext, setActiveOrg } from "@/lib/session";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { AccessGrantSyncController } from "@/components/layout/AccessGrantSyncController";
 
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
@@ -21,7 +22,16 @@ export const Route = createFileRoute("/$slug")({
     if (!routeContext) {
       throw redirect({ to: "/login" });
     }
-    const { user, activeOrganizationId, org, memberRole } = routeContext;
+    const {
+      user,
+      activeOrganizationId,
+      org,
+      memberRole,
+      grantedPermissions,
+      effectivePermissions,
+      accessRevision,
+      accessAuthority,
+    } = routeContext;
 
     // Side effect: keep Better Auth's active org in sync with the visited
     // org so its other flows (invitations, etc.) stay consistent.
@@ -39,6 +49,10 @@ export const Route = createFileRoute("/$slug")({
       orgId: org.id,
       slug: params.slug,
       role: memberRole,
+      grantedPermissions,
+      effectivePermissions,
+      accessRevision,
+      accessAuthority,
     };
   },
   component: OrgLayout,
@@ -55,6 +69,7 @@ function OrgPending() {
 }
 
 function OrgLayout() {
+  const context = Route.useRouteContext();
   const matchRoute = useMatchRoute();
   const isBoard = matchRoute({ to: "/$slug/board" });
   const isCrewChat = matchRoute({ to: "/$slug/crew-chat" });
@@ -69,6 +84,10 @@ function OrgLayout() {
     return (
       <ThemeProvider>
         <div className={wrapperClassName}>
+          <AccessGrantSyncController
+            orgId={context.orgId}
+            revision={context.accessRevision}
+          />
           <Outlet />
         </div>
       </ThemeProvider>
@@ -78,6 +97,10 @@ function OrgLayout() {
   return (
     <ThemeProvider>
       <AppShell>
+        <AccessGrantSyncController
+          orgId={context.orgId}
+          revision={context.accessRevision}
+        />
         <Outlet />
       </AppShell>
     </ThemeProvider>

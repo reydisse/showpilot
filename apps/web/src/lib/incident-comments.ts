@@ -1,9 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getD1 } from "@/lib/d1";
-import { getPrisma } from "@/lib/db";
-import { hasAnyPermission } from "@/lib/app-permissions";
+import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 export interface IncidentComment {
@@ -17,12 +15,8 @@ export interface IncidentComment {
 }
 
 async function assertAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
-  if (!session) throw new Error("Unauthorized");
-  const member = await getPrisma().member.findFirst({ where: { organizationId: orgId, userId: session.user.id }, select: { role: true } });
-  if (!member || !hasAnyPermission(member.role ?? "member", ["incidents:report", "incidents:access"])) throw new Error("Forbidden");
-  return session.user;
+  const { user } = await assertOrgPermission(orgId, ["incidents:report", "incidents:access"]);
+  return user;
 }
 
 export const getIncidentComments = createServerFn({ method: "GET" })
