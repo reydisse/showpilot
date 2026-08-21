@@ -33,3 +33,4 @@
 0026_multiple_show_instances.sql
 0027_enable_multiple_show_instances.sql
 0028_assignment_custom_call_time.sql
+0029_weekly_access_grants.sql
