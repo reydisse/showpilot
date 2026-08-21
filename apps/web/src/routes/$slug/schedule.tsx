@@ -45,7 +45,7 @@ import {
   type SavedRundownSource,
 } from "@/lib/show-inventory";
 import { getOrgSettings } from "@/lib/settings";
-import { getTodayDateString } from "@/lib/utils";
+import { formatTimeInput, formatWallTime, getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasPermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
@@ -78,18 +78,20 @@ function longDate(date: string) {
     year: "numeric",
   });
 }
-function timeLabel(value: string | null) {
+function timeLabel(value: string | null, timeZone?: string) {
   return value
     ? new Date(value).toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit",
+        timeZone,
       })
     : "Time not set";
 }
-function inputTime(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+function inputTime(value: string | null, timeZone?: string) {
+  return formatTimeInput(value, timeZone);
+}
+function wallTimeLabel(value: string) {
+  return formatWallTime(value) || "Service start";
 }
 function providerName(provider: ScheduleProvider, label = "") {
   return (
@@ -152,6 +154,7 @@ export const Route = createFileRoute("/$slug/schedule")({
       defaultSelectedDate,
       defaultSelectedShowId,
       today,
+      orgTimezone: settings["org-timezone"],
       orgId: context.orgId,
       canManage: hasPermission(context.role, "schedule:manage"),
       inventory,
@@ -306,7 +309,7 @@ function SchedulePage() {
           ) : null}
         </div>
       </header>
-      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] border-x border-board-border lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
           <MonthCalendar
             selectedDate={selected?.serviceDate ?? data.today}
@@ -345,7 +348,7 @@ function SchedulePage() {
                   {service.name}
                 </p>
                 <p className="mt-1 text-[11px] text-board-muted">
-                  {timeLabel(service.scheduledStartTime)} ·{" "}
+                  {timeLabel(service.scheduledStartTime, data.orgTimezone)} ·{" "}
                   {service.id === selected?.id
                     ? selectedAssignments.filter(
                         (assignment) => assignment.status === "confirmed",
@@ -387,7 +390,7 @@ function SchedulePage() {
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Clock3 className="h-3.5 w-3.5" />
-                        {timeLabel(selected.scheduledStartTime)}
+                        {timeLabel(selected.scheduledStartTime, data.orgTimezone)}
                       </span>
                       {selected.location ? (
                         <span className="flex items-center gap-1.5">
@@ -643,6 +646,7 @@ function SchedulePage() {
       {serviceOpen && selected ? (
         <ServiceDetailsModal
           orgId={data.orgId}
+          orgTimezone={data.orgTimezone}
           service={selected}
           confirm={confirm}
           onClose={() => setServiceOpen(false)}
@@ -799,9 +803,33 @@ function RosterTable({
     ),
   }));
   return (
-    <div className="overflow-x-auto">
+    <>
+      <div className="divide-y divide-board-border md:hidden">
+        {groups.map((group) => (
+          <section key={`mobile-${group.name}`}>
+            <div className="flex items-center justify-between bg-board-card/70 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+              <span>{group.name} <span className="ml-1 text-board-muted/50">{group.rows.length}</span></span>
+              {canManage ? <button onClick={() => onAdd(group.name)} className="text-fire-400">Add position</button> : null}
+            </div>
+            <div className="divide-y divide-board-border">
+              {group.rows.map((assignment) => (
+                <RosterMobileCard
+                  key={assignment.id}
+                  assignment={assignment}
+                  orgId={orgId}
+                  canManage={canManage}
+                  onEdit={() => onEdit(assignment)}
+                  onChanged={onChanged}
+                  confirm={confirm}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
       <div className="min-w-[900px]">
-        <div className="grid grid-cols-[1.2fr_1fr_.9fr_.8fr_72px] border-b border-board-border bg-board-bg px-6 py-2.5 text-[10px] uppercase tracking-wider text-board-muted">
+        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_72px] border-b border-board-border bg-board-bg px-6 py-2.5 text-[10px] uppercase tracking-wider text-board-muted">
           <span>Position</span>
           <span>Assigned to</span>
           <span>Invitation</span>
@@ -839,7 +867,78 @@ function RosterTable({
           </section>
         ))}
       </div>
-    </div>
+      </div>
+    </>
+  );
+}
+
+function RosterMobileCard({
+  assignment,
+  orgId,
+  canManage,
+  onEdit,
+  onChanged,
+  confirm,
+}: {
+  assignment: Assignment;
+  orgId: string;
+  canManage: boolean;
+  onEdit: () => void;
+  onChanged: () => Promise<void>;
+  confirm: ReturnType<typeof useConfirmDialog>["confirm"];
+}) {
+  const [busy, setBusy] = useState(false);
+  const pending = assignment.status === "assigned" && Boolean(assignment.crewMemberId);
+  const responseLabel = assignment.crewMemberId
+    ? assignment.status === "assigned" ? "Awaiting response" : assignment.status
+    : "Open position";
+  const statusClass = assignment.status === "confirmed"
+    ? "text-green-400"
+    : assignment.status === "declined" ? "text-red-400" : "text-yellow-300";
+  const remove = async () => {
+    const approved = await confirm({
+      title: "Remove assignment?",
+      description: `Remove ${assignment.role} from this service?`,
+      confirmLabel: "Remove assignment",
+      variant: "danger",
+    });
+    if (!approved) return;
+    setBusy(true);
+    try {
+      await deleteServiceAssignment({ data: { orgId, id: assignment.id } });
+      await onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article id={`assignment-mobile-${assignment.id}`} className="min-w-0 space-y-3 bg-board-bg px-4 py-4">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-medium text-board-text">{assignment.role}</p>
+          <p className="mt-1 text-[10px] text-board-muted">Call {wallTimeLabel(assignment.callTime)} · {assignment.department}</p>
+        </div>
+        <span className={`shrink-0 text-[10px] font-medium capitalize ${statusClass}`}>{responseLabel}</span>
+      </div>
+      <div className="rounded-xl border border-board-border bg-board-card/45 p-3">
+        <p className="break-words text-xs font-medium text-board-text">{assignment.crewMember?.name ?? "Nobody assigned"}</p>
+        <p className="mt-0.5 break-all text-[10px] text-board-muted">{assignment.crewMember?.email || "This position is open"}</p>
+        <p className="mt-2 text-[10px] text-board-muted">{assignment.invitedAt ? "Invitation sent" : assignment.crewMember ? "Invitation not sent" : "No invitation needed"}</p>
+      </div>
+      {assignment.responseNote ? (
+        <details className="min-w-0 rounded-xl border border-red-500/20 bg-red-500/[0.045] px-3 py-2.5">
+          <summary className="cursor-pointer text-[10px] font-semibold text-red-300">Read declined response</summary>
+          <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
+        </details>
+      ) : null}
+      {canManage ? (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={onEdit} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
+          {pending ? <button disabled={busy} onClick={async () => { setBusy(true); try { await remindServiceAssignment({ data: { orgId, id: assignment.id } }); } finally { setBusy(false); } }} className="rounded-lg border border-fire-500/25 px-3 py-2 text-[11px] text-fire-400 disabled:opacity-50">Resend invite</button> : null}
+          <button disabled={busy} onClick={() => void remove()} className="ml-auto rounded-lg px-3 py-2 text-[11px] text-red-300 disabled:opacity-50">Remove</button>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -867,13 +966,14 @@ function RosterRow({
         ? "text-red-400"
         : "text-yellow-300";
   return (
-    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[1.2fr_1fr_.9fr_.8fr_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
+    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
       <button
         disabled={!canManage}
         onClick={onEdit}
         className="text-left font-medium text-board-text disabled:cursor-default"
       >
         {assignment.role}
+        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {wallTimeLabel(assignment.callTime)}</span>
       </button>
       <button
         disabled={!canManage}
@@ -897,43 +997,41 @@ function RosterRow({
           "—"
         )}
       </div>
-      <div
-        className={`flex items-center gap-1.5 text-[10px] capitalize ${statusColor}`}
-      >
-        {assignment.status === "confirmed" ? (
-          <Check className="h-3 w-3" />
-        ) : assignment.status === "declined" ? (
-          <X className="h-3 w-3" />
-        ) : (
-          <Clock3 className="h-3 w-3" />
-        )}
-        {assignment.crewMemberId
-          ? assignment.status === "assigned"
-            ? "Awaiting"
-            : assignment.status
-          : "Open"}
+      <div className={`min-w-0 text-[10px] ${statusColor}`}>
+        <div className="flex min-w-0 items-center gap-1.5 capitalize">
+          {assignment.status === "confirmed" ? (
+            <Check className="h-3 w-3 shrink-0" />
+          ) : assignment.status === "declined" ? (
+            <X className="h-3 w-3 shrink-0" />
+          ) : (
+            <Clock3 className="h-3 w-3 shrink-0" />
+          )}
+          <span>{assignment.crewMemberId
+            ? assignment.status === "assigned"
+              ? "Awaiting"
+              : assignment.status
+            : "Open"}</span>
+          {pending && canManage ? (
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await remindServiceAssignment({ data: { orgId, id: assignment.id } });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="ml-auto shrink-0 text-[9px] normal-case text-fire-400 disabled:opacity-50"
+            >
+              Resend
+            </button>
+          ) : null}
+        </div>
         {assignment.responseNote ? (
-          <p className="mt-1 max-w-[220px] normal-case leading-4 text-board-muted" title={assignment.responseNote}>
+          <p className="mt-1 line-clamp-2 max-w-full break-all normal-case leading-4 text-board-muted" title={assignment.responseNote}>
             “{assignment.responseNote}”
           </p>
-        ) : null}
-        {pending && canManage ? (
-          <button
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await remindServiceAssignment({
-                  data: { orgId, id: assignment.id },
-                });
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="ml-2 text-[9px] text-fire-400 disabled:opacity-50"
-          >
-            Resend
-          </button>
         ) : null}
       </div>
       <div className="flex items-center gap-1">
@@ -1300,6 +1398,7 @@ function ShowInventoryModal({
 
 function ServiceDetailsModal({
   orgId,
+  orgTimezone,
   service,
   confirm,
   onClose,
@@ -1307,6 +1406,7 @@ function ServiceDetailsModal({
   onDeleted,
 }: {
   orgId: string;
+  orgTimezone?: string;
   service: Awaited<ReturnType<typeof getSchedule>>["services"][number];
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
   onClose: () => void;
@@ -1314,7 +1414,7 @@ function ServiceDetailsModal({
   onDeleted: () => void | Promise<void>;
 }) {
   const [name, setName] = useState(service.name);
-  const [time, setTime] = useState(inputTime(service.scheduledStartTime));
+  const [time, setTime] = useState(inputTime(service.scheduledStartTime, orgTimezone));
   const [location, setLocation] = useState(service.location);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1620,6 +1720,7 @@ function AssignmentModal({
   const [role, setRole] = useState("");
   const [department, setDepartment] = useState(initialDepartment);
   const [crewId, setCrewId] = useState("");
+  const [callTime, setCallTime] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const selectedCrew = crew.find((person) => person.id === crewId);
@@ -1639,6 +1740,7 @@ function AssignmentModal({
                 department,
                 crewMemberId: crewId || null,
                 status: "assigned",
+                callTime,
                 notes,
               },
             });
@@ -1687,6 +1789,10 @@ function AssignmentModal({
               </option>
             ))}
           </select>
+        </Field>
+        <Field label="Custom call time (optional)">
+          <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
+          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">Leave blank to use the service start time.</p>
         </Field>
         <Field label="Manager note (optional)">
           <textarea
@@ -1750,6 +1856,7 @@ function EditAssignmentModal({
     assignment.department || inferredDepartment(assignment.role),
   );
   const [crewId, setCrewId] = useState(assignment.crewMemberId ?? "");
+  const [callTime, setCallTime] = useState(assignment.callTime);
   const [notes, setNotes] = useState(assignment.notes);
   const [busy, setBusy] = useState(false);
   const selectedCrew = crew.find((person) => person.id === crewId);
@@ -1777,6 +1884,7 @@ function EditAssignmentModal({
           department,
           crewMemberId: crewId || null,
           status: assignment.status as "assigned" | "confirmed" | "declined",
+          callTime,
           notes,
         },
       });
@@ -1810,7 +1918,7 @@ function EditAssignmentModal({
           {assignment.responseNote ? (
             <div className="mt-2 border-t border-board-border pt-2">
               <p className="text-[10px] uppercase tracking-wider text-board-muted">Crew response note</p>
-              <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-board-text">{assignment.responseNote}</p>
+              <p className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
               {assignment.respondedAt ? <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(assignment.respondedAt).toLocaleString()}</p> : null}
             </div>
           ) : null}
@@ -1848,6 +1956,10 @@ function EditAssignmentModal({
               </option>
             ))}
           </select>
+        </Field>
+        <Field label="Custom call time (optional)">
+          <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
+          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">Leave blank to use the service start time.</p>
         </Field>
         <Field label="Manager note">
           <textarea

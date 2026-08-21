@@ -18,6 +18,7 @@ import {
   respondToCrewScheduleInvite,
 } from "@/lib/crew-schedule";
 import { orgTerms } from "@/lib/org-terminology";
+import { formatWallTime } from "@/lib/utils";
 
 export const Route = createFileRoute("/crew/schedule/$token")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -40,11 +41,12 @@ function formatDate(value: string) {
     year: "numeric",
   });
 }
-function formatTime(value: string | null) {
+function formatTime(value: string | null, timeZone?: string) {
   return value
     ? new Date(value).toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit",
+        timeZone,
       })
     : "Time to be confirmed";
 }
@@ -139,7 +141,7 @@ function CrewSchedulePortal() {
         <Detail
           icon={Clock3}
           label="Call time"
-          value={formatTime(selected.scheduledStartTime)}
+          value={formatWallTime(selected.callTime) || formatTime(selected.scheduledStartTime, data.orgTimezone)}
         />
         {selected.location ? (
           <Detail icon={MapPin} label="Location" value={selected.location} />

@@ -5,6 +5,7 @@ import { getPrisma } from "@/lib/db";
 import { hasPermission } from "@/lib/app-permissions";
 import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
 import { z } from "zod";
+import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import { idSchema, labelSchema, parseOrThrow, serviceDateSchema, textSchema } from "@/lib/validation";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 import { getTodayDateString } from "@/lib/utils";
@@ -612,13 +613,13 @@ export const saveRundownItems = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    await persistRundownItemsForOrg(
+    const showId = await persistRundownItemsForOrg(
       data.orgId,
       data.serviceDate,
       data.items,
       data.showId,
     );
-    return { ok: true };
+    return { ok: true, showId };
   });
 
 /**
@@ -642,7 +643,7 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
         value: JSON.stringify(data.timer),
       },
     });
-    return { ok: true };
+    return { ok: true, showId };
   });
 
 type RundownPrismaExt = {
@@ -677,7 +678,7 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma() as unknown as RundownPrismaExt & ReturnType<typeof getPrisma>;
     const ext = (prisma as unknown as RundownPrismaExt).rundown;
-    if (!ext) return { ok: true };
+    if (!ext) throw new Error("Rundown storage is unavailable");
 
     const update = {
         ...(data.scheduledStartTime !== undefined
@@ -690,7 +691,7 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
     await prisma.rundown.update({ where: { id: showId }, data: update });
 
-    return { ok: true };
+    return { ok: true, showId };
   });
 
 /**
@@ -741,15 +742,16 @@ export const getRundownOpeningDate = createServerFn({ method: "GET" })
         select: { value: true },
       }),
     ]);
-    const target =
-      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
-      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
-      (activeShow ? shows.find((show) => show.id === activeShow.value) : undefined) ??
-      (activeDate ? shows.find((show) => show.serviceDate === activeDate.value) : undefined) ??
-      shows.find((show) => show.serviceDate >= data.today) ??
-      shows.at(-1);
+    const target = resolveRundownOpeningShow({
+      shows,
+      today: data.today,
+      requestedShowId: data.showId,
+      requestedServiceDate: data.serviceDate,
+      activeShowId: activeShow?.value,
+      activeServiceDate: activeDate?.value,
+    });
     return {
-      serviceDate: target?.serviceDate ?? data.today,
+      serviceDate: target?.serviceDate ?? data.serviceDate ?? data.today,
       showId: target?.id,
       shows: shows.map((show) => ({
         id: show.id,

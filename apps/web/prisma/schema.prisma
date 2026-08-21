@@ -421,6 +421,8 @@ model ServiceAssignment {
   role         String
   department   String       @default("Production")
   status       String       @default("assigned") // assigned | confirmed | declined
+  /// Optional per-person arrival time as venue wall time (HH:mm).
+  callTime     String       @default("")
   notes        String       @default("")
   responseNote String       @default("")
   invitedAt    DateTime?
