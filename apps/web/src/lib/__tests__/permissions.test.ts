@@ -95,6 +95,7 @@ describe("manager scoping regression (unchanged by director roles)", () => {
       "chat:access",
       "checklist:access",
       "incidents:access",
+      "checkin:access",
       "timecode:access",
       "lowerthird:view",
       "lowerthird:trigger",

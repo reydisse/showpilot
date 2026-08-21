@@ -155,6 +155,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "chat:access",
     "checklist:access",
     "incidents:access",
+    "checkin:access",
     "timecode:access",
     "lowerthird:view",
     "lowerthird:trigger",

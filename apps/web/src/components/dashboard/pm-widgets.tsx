@@ -72,20 +72,15 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
 
   useEffect(() => {
     seededRef.current = false;
-  }, [serviceDate]);
+  }, [serviceDate, showId]);
 
   useEffect(() => {
     if (!hydrated || seededRef.current) return;
-    const initialIds = initialState.items.map((item) => item.id).sort().join("|");
-    const relayIds = items.map((item) => item.id).sort().join("|");
-    const sameShow = !showId || stateShowId === showId;
-    const wrongService = items.length > 0 && (
-      stateServiceDate !== serviceDate || !sameShow || initialIds !== relayIds
-    );
-    if ((items.length === 0 && initialState.items.length > 0) || wrongService) {
-      seedState(initialState.items, initialState.timer, wrongService);
+    const sameRoom = stateServiceDate === serviceDate && (!showId || stateShowId === showId);
+    if (sameRoom && items.length === 0 && initialState.items.length > 0) {
+      seedState(initialState.items, initialState.timer);
     }
-    seededRef.current = true;
+    if (sameRoom) seededRef.current = true;
   }, [hydrated, initialState, items, seedState, serviceDate, showId, stateServiceDate, stateShowId]);
 
   const playable = items.filter((item) => !isHeaderItem(item));

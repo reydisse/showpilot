@@ -100,6 +100,7 @@ function ReportsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const filtered = useMemo(
     () =>
@@ -146,6 +147,7 @@ function ReportsPage() {
     setDetailShowId(showId);
     setDetail(null);
     setDetailError(null);
+    setExportError(null);
     setDetailLoading(true);
     void navigate({ search: { date: serviceDate, show: showId, page }, replace: true });
     try {
@@ -163,12 +165,14 @@ function ReportsPage() {
     setDetailShowId(null);
     setDetail(null);
     setDetailError(null);
+    setExportError(null);
     void navigate({ search: { date: undefined, show: undefined, page }, replace: true });
   };
 
   const exportReport = async (format: "pdf" | "csv") => {
     if (!detailDate) return;
     setExporting(format);
+    setExportError(null);
     try {
       const report =
         detail ??
@@ -176,8 +180,10 @@ function ReportsPage() {
           data: { orgId: data.orgId, serviceDate: detailDate, showId: detailShowId ?? undefined },
         }));
       const exports = await import("@/lib/rundown-export");
-      if (format === "pdf") exports.exportRundownPdf(report);
+      if (format === "pdf") await exports.exportRundownPdf(report);
       else exports.exportRundownCsv(report);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "The export could not be generated.");
     } finally {
       setExporting(null);
     }
@@ -317,6 +323,7 @@ function ReportsPage() {
           loading={detailLoading}
           error={detailError}
           exporting={exporting}
+          exportError={exportError}
           onClose={closeReport}
           onExport={exportReport}
         />
@@ -354,6 +361,7 @@ function ReportDetailModal({
   loading,
   error,
   exporting,
+  exportError,
   onClose,
   onExport,
 }: {
@@ -364,6 +372,7 @@ function ReportDetailModal({
   loading: boolean;
   error: string | null;
   exporting: "pdf" | "csv" | null;
+  exportError: string | null;
   onClose: () => void;
   onExport: (format: "pdf" | "csv") => void;
 }) {
@@ -491,6 +500,7 @@ function ReportDetailModal({
                 Export CSV
               </button>
             </div>
+            {exportError ? <p className="text-xs text-red-300">{exportError}</p> : null}
           </div>
         )}
       </div>

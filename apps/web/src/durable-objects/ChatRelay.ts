@@ -158,6 +158,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         replyTo?: ChatMessage["replyTo"];
         attachments?: ChatMessage["attachments"];
         poll?: ChatMessage["poll"];
+        clientMessageId?: string;
         messageId?: string;
         requestId?: string;
         optionId?: string;
@@ -199,8 +200,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       if (parsed.type === "message") {
+        const clientMessageId = typeof parsed.clientMessageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.clientMessageId)
+          ? parsed.clientMessageId
+          : crypto.randomUUID();
         const message: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: clientMessageId,
           orgId: session.orgId,
           senderId: session.userId,
           senderName: session.name,

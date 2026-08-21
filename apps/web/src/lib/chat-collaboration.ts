@@ -52,6 +52,7 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     roomId: roomIdSchema,
     text: z.string().max(4000),
     mentionedUserIds: z.array(idSchema).max(20).optional(),
+    messageId: idSchema.optional(),
   }), data))
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);
@@ -63,13 +64,20 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     }
     for (const userId of data.mentionedUserIds ?? []) if (userId !== sender.id) recipients.set(userId, "mention");
     if (recipients.size === 0) return { notified: 0 };
+    const chatNotifications = await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "notify-app-chat" } },
+      select: { value: true },
+    });
+    // Existing organizations have no setting row yet; keep notifications on
+    // until the owner explicitly turns them off.
+    if (chatNotifications?.value === "false") return { notified: 0 };
 
     const validMembers = await getPrisma().member.findMany({
       where: { organizationId: data.orgId, userId: { in: [...recipients.keys()] } },
       select: { userId: true },
     });
     const cleanText = data.text.replace(mentionPattern, "@$2").trim().slice(0, 240) || "Shared an attachment";
-    const actionUrl = `chat?room=${encodeURIComponent(data.roomId)}`;
+    const actionUrl = `chat?room=${encodeURIComponent(data.roomId)}${data.messageId ? `&message=${encodeURIComponent(data.messageId)}` : ""}`;
     await Promise.all(validMembers.map(async ({ userId }) => {
       const kind = recipients.get(userId) ?? "mention";
       const title = kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`;
@@ -87,7 +95,7 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
       await deliverPushToUser(data.orgId, userId, {
         title,
         body: cleanText,
-        url: `/${encodeURIComponent(data.orgSlug)}/chat?room=${encodeURIComponent(data.roomId)}`,
+        url: `/${encodeURIComponent(data.orgSlug)}/${actionUrl}`,
         tag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
       });
     }));
@@ -105,6 +113,11 @@ export const notifyChatReaction = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);
     if (sender.id === data.targetUserId) return { notified: 0 };
+    const chatNotifications = await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "notify-app-chat" } },
+      select: { value: true },
+    });
+    if (chatNotifications?.value === "false") return { notified: 0 };
     const target = await getPrisma().member.findFirst({
       where: { organizationId: data.orgId, userId: data.targetUserId },
       select: { userId: true },
@@ -118,7 +131,7 @@ export const notifyChatReaction = createServerFn({ method: "POST" })
       type: "chat-reaction",
       title: `${sender.name} reacted ${data.emoji} to your message`,
       message: "Open the conversation to view the reaction.",
-      actionUrl: `chat?room=${encodeURIComponent(data.roomId)}`,
+      actionUrl: `chat?room=${encodeURIComponent(data.roomId)}&message=${encodeURIComponent(data.messageId)}`,
       source: data.messageId,
       pushTag: `chat-reaction-${data.messageId}`,
     });

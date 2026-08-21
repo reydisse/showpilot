@@ -656,12 +656,11 @@ function ShowPageWithNative({
   }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [displayTime, setDisplayTime] = useState(0);
-  const rafRef = useRef<number>(0);
-
   const isPlaying = timer.playback === "play";
   const isPaused = timer.playback === "pause";
 
-  // RAF for smooth timer display
+  // Timer text is second-granular. A 10 Hz sample stays responsive while
+  // avoiding a full show-page React render on every animation frame.
   useEffect(() => {
     const tick = () => {
       if (timer.mode === "clock") {
@@ -671,10 +670,10 @@ function ShowPageWithNative({
       } else {
         setDisplayTime(timer.elapsed);
       }
-      rafRef.current = requestAnimationFrame(tick);
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+    tick();
+    const timerId = window.setInterval(tick, 100);
+    return () => window.clearInterval(timerId);
   }, [timer.playback, timer.startedAt, timer.elapsed, timer.mode]);
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);

@@ -61,6 +61,7 @@ import { Route as SlugDashboardTechManagerRouteImport } from './routes/$slug/das
 import { Route as SlugDashboardProdManagerRouteImport } from './routes/$slug/dashboard/prod-manager'
 import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboard/devices'
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
+import { Route as JoinChatPlanningTokenRouteImport } from './routes/join/chat/planning/$token'
 import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
 import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
 import { Route as ApiV1KioskDisplayRouteImport } from './routes/api/v1/kiosk/display'
@@ -346,6 +347,11 @@ const SlugDashboardAudioRoute = SlugDashboardAudioRouteImport.update({
   path: '/dashboard/audio',
   getParentRoute: () => SlugRoute,
 } as any)
+const JoinChatPlanningTokenRoute = JoinChatPlanningTokenRouteImport.update({
+  id: '/join/chat/planning/$token',
+  path: '/join/chat/planning/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1KioskRosterRoute = ApiV1KioskRosterRouteImport.update({
   id: '/api/v1/kiosk/roster',
   path: '/api/v1/kiosk/roster',
@@ -525,6 +531,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -598,6 +605,7 @@ export interface FileRoutesByTo {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -674,6 +682,7 @@ export interface FileRoutesById {
   '/api/v1/kiosk/display': typeof ApiV1KioskDisplayRoute
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
+  '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -750,6 +759,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/join/chat/planning/$token'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -823,6 +833,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/join/chat/planning/$token'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -898,6 +909,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/display'
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
+    | '/join/chat/planning/$token'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -938,6 +950,7 @@ export interface RootRouteChildren {
   ApiV1KioskDisplayRoute: typeof ApiV1KioskDisplayRoute
   ApiV1KioskOrgRoute: typeof ApiV1KioskOrgRoute
   ApiV1KioskRosterRoute: typeof ApiV1KioskRosterRoute
+  JoinChatPlanningTokenRoute: typeof JoinChatPlanningTokenRoute
   ApiCrewScheduleTokenCalendarRoute: typeof ApiCrewScheduleTokenCalendarRoute
   ApiV1CompanionKioskBlankRoute: typeof ApiV1CompanionKioskBlankRoute
   ApiV1CompanionLowerThirdClearRoute: typeof ApiV1CompanionLowerThirdClearRoute
@@ -1319,6 +1332,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugDashboardAudioRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/join/chat/planning/$token': {
+      id: '/join/chat/planning/$token'
+      path: '/join/chat/planning/$token'
+      fullPath: '/join/chat/planning/$token'
+      preLoaderRoute: typeof JoinChatPlanningTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/kiosk/roster': {
       id: '/api/v1/kiosk/roster'
       path: '/api/v1/kiosk/roster'
@@ -1602,6 +1622,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1KioskDisplayRoute: ApiV1KioskDisplayRoute,
   ApiV1KioskOrgRoute: ApiV1KioskOrgRoute,
   ApiV1KioskRosterRoute: ApiV1KioskRosterRoute,
+  JoinChatPlanningTokenRoute: JoinChatPlanningTokenRoute,
   ApiCrewScheduleTokenCalendarRoute: ApiCrewScheduleTokenCalendarRoute,
   ApiV1CompanionKioskBlankRoute: ApiV1CompanionKioskBlankRoute,
   ApiV1CompanionLowerThirdClearRoute: ApiV1CompanionLowerThirdClearRoute,

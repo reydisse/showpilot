@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Timer,
   X,
+  ArrowLeft,
 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import { getCrewMembers, checkInByMemberId } from "@/lib/data";
@@ -103,8 +104,18 @@ function CheckInPage() {
     <div className="h-full overflow-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-5 py-4">
-        <div className="flex items-center justify-between max-w-lg mx-auto">
-          <div>
+        <div className="flex max-w-2xl items-center gap-3 mx-auto">
+          <button
+            type="button"
+            onClick={() => router.history.back()}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border p-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text sm:px-3 sm:py-1.5"
+            title="Go back"
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+          <div className="min-w-0 flex-1">
             <h1 className="text-lg font-bold">
               <span className="text-fire-500">Check-In</span>
             </h1>
@@ -114,25 +125,27 @@ function CheckInPage() {
                 : "Tap to check in or out"}
             </p>
           </div>
-          <button
-            onClick={() => {
-              setMode(mode === "code-entry" ? "browse-all" : "code-entry");
-              resetState();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-board-muted hover:text-board-text hover:bg-board-border/50 border border-board-border transition-colors"
-          >
-            {mode === "code-entry" ? (
-              <>
-                <List className="w-3.5 h-3.5" />
-                Browse All
-              </>
-            ) : (
-              <>
-                <KeyRound className="w-3.5 h-3.5" />
-                Use ID
-              </>
-            )}
-          </button>
+          <div className="shrink-0">
+            <button
+              onClick={() => {
+                setMode(mode === "code-entry" ? "browse-all" : "code-entry");
+                resetState();
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text"
+            >
+              {mode === "code-entry" ? (
+                <>
+                  <List className="h-3.5 w-3.5" />
+                  Browse All
+                </>
+              ) : (
+                <>
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Use ID
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

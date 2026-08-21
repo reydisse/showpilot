@@ -140,7 +140,7 @@ export const toggleCheckIn = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, id: idSchema, isOnline: z.boolean() }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checkin:access");
     const prisma = getPrisma();
     const now = new Date();
     const existing = await prisma.crewMember.findFirst({
@@ -164,7 +164,7 @@ export const checkInByMemberId = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, memberId: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "checkin:access");
     const prisma = getPrisma();
     const member = await prisma.crewMember.findUnique({
       where: { orgId_memberId: { orgId: data.orgId, memberId: data.memberId } },
@@ -446,19 +446,23 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
         orgId: idSchema,
         id: idSchema,
         checked: z.boolean(),
-        checkedBy: z.string().max(200).nullable(),
       }),
       data,
     ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
+    const { getAuth } = await import("@/lib/auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+    if (!session) throw new Error("Unauthorized");
     const prisma = getPrisma();
     const result = await prisma.checklistEntry.updateMany({
       where: { id: data.id, orgId: data.orgId },
       data: {
         checked: data.checked,
-        checkedBy: data.checkedBy,
+        // Never trust a client-supplied name. The authenticated actor is the
+        // source of truth for checklist attribution.
+        checkedBy: data.checked ? session.user.name : null,
         checkedAt: data.checked ? new Date() : null,
       },
     });
@@ -932,6 +936,7 @@ export const addEquipment = createServerFn({ method: "POST" })
         orgId: idSchema,
         name: nameSchema,
         category: z.string().max(100),
+        quantity: z.number().int().min(1).max(100).optional(),
       }),
       data,
     ),
@@ -939,16 +944,21 @@ export const addEquipment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
-    return await prisma.equipment.create({
-      data: {
-        orgId: data.orgId,
-        name: data.name,
-        category: data.category,
-        status: data.status ?? "operational",
-        location: data.location ?? "",
-        serialNumber: data.serialNumber ?? "",
-        notes: data.notes ?? "",
-      },
+    const quantity = data.quantity ?? 1;
+    const unit = {
+      orgId: data.orgId,
+      name: data.name,
+      category: data.category,
+      status: data.status ?? "operational",
+      location: data.location ?? "",
+      // A serial number identifies one physical unit. Never duplicate it
+      // across a bulk-created group; operators can assign each unit's serial
+      // from its individual editor after creation.
+      serialNumber: quantity === 1 ? data.serialNumber ?? "" : "",
+      notes: data.notes ?? "",
+    };
+    return await prisma.equipment.createMany({
+      data: Array.from({ length: quantity }, () => ({ ...unit })),
     });
   });
 

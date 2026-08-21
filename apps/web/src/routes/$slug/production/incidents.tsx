@@ -413,6 +413,7 @@ function IncidentsPage() {
               <button
                 onClick={() => handleDateChange(-1)}
                 className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
+                aria-label="Previous service date"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -438,6 +439,7 @@ function IncidentsPage() {
               <button
                 onClick={() => handleDateChange(1)}
                 className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
+                aria-label="Next service date"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -568,11 +570,13 @@ function IncidentsPage() {
                   </div>
                   {canManageIncidents && (
                     <button
+                      type="button"
                       onClick={(event) => {
                         event.stopPropagation();
                         void handleDelete(incident.id);
                       }}
                       className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Delete incident: ${incident.description}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

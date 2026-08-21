@@ -175,13 +175,19 @@ export class BridgeRelay extends DurableObject<Env> {
         }));
         break;
 
-        case "command-response":
-        case "device-event":
-          if (msg.eventName === "slide") {
-            this.pushPreviewSlide(msg.data as string);
-          }
-          break;
-        case "device-status":
+      case "command-response":
+      case "device-event":
+        if (msg.eventName === "slide") {
+          this.pushPreviewSlide(msg.data as string);
+        }
+        // Command responses must reach the browser that is waiting for them,
+        // and unsolicited device events must reach every open operator. The
+        // old relay consumed both message types here, which made remote
+        // equipment control time out even while the Bridge showed online.
+        this.broadcastToClients(JSON.stringify(msg));
+        break;
+
+      case "device-status":
         if (
           msg.type === "device-status" &&
           msg.connected === false &&

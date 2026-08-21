@@ -464,6 +464,46 @@ export const TEMPLATES: TemplateStyle[] = [
     },
   },
 
+  // ── 8. Scripture Ribbon ──
+  {
+    id: "scripture-ribbon",
+    name: "Scripture Ribbon",
+    description: "Full-width verse treatment with an accent reference ribbon for sermon slides and readings.",
+    category: "Scripture",
+    fullWidth: true,
+    render: (primary, secondary, visible, c) => {
+      const dur = getAnimDuration(c.animSpeed);
+      return (
+        <div style={{ position: "absolute", left: 0, right: 0, top: `${c.posY}%`, opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(36px)", transition: `all ${dur + 150}ms ${EASE}` }}>
+          <div style={{ padding: "42px 14% 34px", textAlign: "center", background: `linear-gradient(90deg, transparent, rgba(0,0,0,${c.bgOpacity / 125}) 16%, rgba(0,0,0,${c.bgOpacity / 125}) 84%, transparent)`, borderTop: `2px solid ${hexToRgba(c.accentColor, 0.7)}`, borderBottom: `2px solid ${hexToRgba(c.accentColor, 0.35)}`, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" }}>
+            <p style={{ color: "#fff", fontWeight: 400, fontStyle: "italic", lineHeight: 1.45, fontSize: c.primarySize + 2, textShadow: "0 2px 18px rgba(0,0,0,0.9)" }}>“{primary}”</p>
+            {secondary && <p style={{ marginTop: 18, color: c.accentColor, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", fontSize: c.secondarySize }}>{secondary}</p>}
+          </div>
+        </div>
+      );
+    },
+  },
+
+  // ── 9. Scripture Corner ──
+  {
+    id: "scripture-corner",
+    name: "Scripture Corner",
+    description: "Compact corner quote with a strong reference lockup for live readings and interview moments.",
+    category: "Scripture",
+    render: (primary, secondary, visible, c) => {
+      const p = getPositionStyles(c);
+      const dur = getAnimDuration(c.animSpeed);
+      return (
+        <div style={{ position: "absolute", maxWidth: 920, left: p.left, right: p.right, top: p.top, transform: `translateX(${p.translateX}) ${visible ? "translateY(0)" : "translateY(28px)"}`, opacity: visible ? 1 : 0, transition: `all ${dur}ms ${EASE}`, textAlign: p.textAlign }}>
+          <div style={{ padding: "24px 34px", borderLeft: p.isRight ? "none" : `5px solid ${c.accentColor}`, borderRight: p.isRight ? `5px solid ${c.accentColor}` : "none", background: `rgba(0,0,0,${c.bgOpacity / 100})`, backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}>
+            <p style={{ color: "rgba(255,255,255,0.96)", fontWeight: 400, fontStyle: "italic", lineHeight: 1.4, fontSize: c.primarySize }}>{primary}</p>
+            {secondary && <p style={{ marginTop: 12, color: c.accentColor, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", fontSize: c.secondarySize }}>{secondary}</p>}
+          </div>
+        </div>
+      );
+    },
+  },
+
   // ── 8. Corner Badge ──
   {
     id: "corner-badge",

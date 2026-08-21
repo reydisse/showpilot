@@ -211,7 +211,13 @@ function normalizeTimerState(value: string | undefined | null): NativeTimerState
         : "stop",
     currentItemId:
       typeof parsed.currentItemId === "string" && parsed.currentItemId.trim() ? parsed.currentItemId : null,
-    elapsed: toNumber(parsed.elapsed, 0),
+    // Negative elapsed is intentional when an operator adds more time than
+    // the item has consumed. Clamping here made the extra allowance vanish
+    // for any device that loaded from D1 instead of the live relay.
+    elapsed:
+      typeof parsed.elapsed === "number" && Number.isFinite(parsed.elapsed)
+        ? parsed.elapsed
+        : 0,
     startedAt: typeof parsed.startedAt === "number" && Number.isFinite(parsed.startedAt)
       ? parsed.startedAt
       : null,

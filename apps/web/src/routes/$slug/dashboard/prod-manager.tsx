@@ -7,7 +7,6 @@ import {
 import { useEffect, useState } from "react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
-import { setActiveServiceDate } from "@/lib/rundown";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
 import {
@@ -82,13 +81,6 @@ function ProdManagerPage() {
     onColumns: () => {},
     onIncident: () => void router.invalidate(),
   });
-
-  useEffect(() => {
-    if (!showId) return;
-    void setActiveServiceDate({
-      data: { orgId, serviceDate: model.serviceDate, showId },
-    });
-  }, [model.serviceDate, orgId, showId]);
 
   // Server data ages; the countdown does not. Re-read on a cadence that
   // matches the phase rather than making the operator hit reload.

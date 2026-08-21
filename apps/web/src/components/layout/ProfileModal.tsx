@@ -208,8 +208,10 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
         <div className="flex items-center justify-between px-5 pt-5 pb-0">
           <span className="text-sm font-semibold text-board-text">Profile</span>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+            aria-label="Close profile"
           >
             <X className="w-4 h-4" />
           </button>
@@ -225,6 +227,7 @@ export function ProfileModal({ open, onClose, user, role, orgName, onUserUpdated
               className="relative w-[72px] h-[72px] rounded-full overflow-hidden shrink-0 group"
               style={{ backgroundColor: roleColour }}
               title="Change photo"
+              aria-label="Change profile photo"
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
