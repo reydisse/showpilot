@@ -9,8 +9,8 @@ describe("notification destinations", () => {
   });
 
   it("routes native rooms and canonical direct messages", () => {
-    expect(getNotificationDestination("chat?room=production")).toEqual({ kind: "chat", room: "production" });
-    expect(getNotificationDestination("chat?room=dm%3Aalice%3Abob")).toEqual({ kind: "chat", room: "dm:alice:bob" });
+    expect(getNotificationDestination("chat?room=production")).toEqual({ kind: "chat", room: "production", message: undefined });
+    expect(getNotificationDestination("chat?room=dm%3Aalice%3Abob&message=message-12")).toEqual({ kind: "chat", room: "dm:alice:bob", message: "message-12" });
   });
 
   it("routes service assignments to the selected schedule", () => {

@@ -213,6 +213,7 @@ export class NativeChatAdapter implements ChatAdapter {
         replyTo: payload.options?.replyTo,
         attachments: payload.options?.attachments,
         poll: payload.options?.poll,
+        clientMessageId: payload.options?.clientMessageId,
       }));
     } else {
       // Queue the message for when we reconnect
@@ -314,6 +315,7 @@ export class NativeChatAdapter implements ChatAdapter {
           replyTo: msg.options?.replyTo,
           attachments: msg.options?.attachments,
           poll: msg.options?.poll,
+          clientMessageId: msg.options?.clientMessageId,
         }),
       );
     }

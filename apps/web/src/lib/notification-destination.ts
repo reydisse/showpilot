@@ -2,7 +2,7 @@ export type NotificationDestination =
   | { kind: "tech-manager" }
   | { kind: "incident"; incident?: string; date?: string; show?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
-  | { kind: "chat"; room: string };
+  | { kind: "chat"; room: string; message?: string };
 
 /** Resolve only the internal destinations notifications are allowed to open. */
 export function getNotificationDestination(actionUrl: string): NotificationDestination | null {
@@ -26,11 +26,13 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
   }
 
   if (actionUrl.startsWith("chat?")) {
-    const room = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)).get("room");
+    const search = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1));
+    const room = search.get("room");
+    const message = search.get("message")?.trim() || undefined;
     const isKnownRoom = room === "production" || room === "planning";
     const dmParts = room?.split(":") ?? [];
     const isDmRoom = dmParts.length === 3 && dmParts[0] === "dm" && Boolean(dmParts[1]) && dmParts[1] < dmParts[2];
-    if (room && (isKnownRoom || isDmRoom)) return { kind: "chat", room };
+    if (room && (isKnownRoom || isDmRoom)) return { kind: "chat", room, message };
   }
 
   return null;
