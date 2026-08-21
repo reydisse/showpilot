@@ -1,4 +1,5 @@
 import WebSocket, { type ClientOptions } from "ws";
+import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
@@ -62,6 +63,7 @@ export class Bridge {
   private tcpConnections = new Map<string, TcpConnection>();
   private udpConnections = new Map<string, UdpConnection>();
   private ppConnections = new Map<string, ProPresenterBridge>();
+  private atemConnections = new Map<string, Atem>();
   private httpDeviceSettings = new Map<string, Record<string, unknown>>();
   private startTime = Date.now();
   private propresenter?: BridgeOptions["propresenter"];
@@ -101,9 +103,11 @@ export class Bridge {
     for (const conn of this.ppConnections.values()) conn.disconnect();
     for (const conn of this.tcpConnections.values()) conn.disconnect();
     for (const conn of this.udpConnections.values()) conn.disconnect();
+    for (const conn of this.atemConnections.values()) void conn.disconnect();
     this.ppConnections.clear();
     this.tcpConnections.clear();
     this.udpConnections.clear();
+    this.atemConnections.clear();
   }
 
   private connect(): void {
@@ -203,6 +207,9 @@ export class Bridge {
         case "propresenter":
           await this.executePPCommand(msg.target, msg.command);
           break;
+        case "atem":
+          await this.executeAtemCommand(msg.target, msg.command);
+          break;
         case "wol":
           await this.executeWol(msg.command);
           break;
@@ -241,6 +248,13 @@ export class Bridge {
 
       if (msg.protocol === "http-command") {
         this.httpDeviceSettings.set(key, msg.settings ?? {});
+        this.send({ type: "device-status", target: key, connected: true });
+        this.sendStatus();
+        return;
+      }
+
+      if (msg.protocol === "atem") {
+        await this.connectAtem(key, msg.settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
@@ -287,6 +301,11 @@ export class Bridge {
       udp.disconnect();
       this.udpConnections.delete(msg.target);
     }
+    const atem = this.atemConnections.get(msg.target);
+    if (atem) {
+      void atem.disconnect();
+      this.atemConnections.delete(msg.target);
+    }
     this.httpDeviceSettings.delete(msg.target);
     this.send({ type: "device-status", target: msg.target, connected: false });
     this.sendStatus();
@@ -298,6 +317,109 @@ export class Bridge {
     const pp = this.ppConnections.get(target);
     if (pp) {
       await pp.sendCommand(command);
+    }
+  }
+
+  private async connectAtem(target: string, settings: Record<string, unknown>): Promise<void> {
+    if (this.atemConnections.has(target)) return;
+
+    const [fallbackHost, fallbackPort] = target.split(":");
+    const host = typeof settings.host === "string" && settings.host.trim()
+      ? settings.host.trim()
+      : fallbackHost;
+    const port = Number(settings.port || fallbackPort || 9910);
+    if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) {
+      throw new Error("ATEM host and port are required");
+    }
+
+    const atem = new Atem();
+    atem.on("connected", () => {
+      this.send({ type: "device-status", target, connected: true });
+      if (atem.state) this.sendAtemState(target, atem, atem.state);
+    });
+    atem.on("disconnected", () => {
+      this.send({ type: "device-status", target, connected: false });
+    });
+    atem.on("stateChanged", (state) => this.sendAtemState(target, atem, state));
+    atem.on("error", (message) => console.error(`[atem:${target}] ${message}`));
+
+    try {
+      await atem.connect(host, port);
+      this.atemConnections.set(target, atem);
+    } catch (error) {
+      await atem.destroy().catch(() => {});
+      throw error;
+    }
+  }
+
+  private sendAtemState(target: string, atem: Atem, state: AtemState): void {
+    const mixEffect = state.video.mixEffects[0];
+    if (!mixEffect) return;
+    this.send({
+      type: "device-event",
+      target,
+      eventName: "atem-state",
+      data: JSON.stringify({
+        programInput: mixEffect.programInput,
+        previewInput: mixEffect.previewInput,
+        transitionPosition: mixEffect.transitionPosition.handlePosition,
+        ftbActive: Boolean(mixEffect.fadeToBlack?.isFullyBlack || mixEffect.fadeToBlack?.inTransition),
+        tallyProgram: atem.listVisibleInputs("program"),
+        tallyPreview: atem.listVisibleInputs("preview"),
+      }),
+    });
+  }
+
+  private async executeAtemCommand(target: string, command: string): Promise<void> {
+    const atem = this.atemConnections.get(target);
+    if (!atem) throw new Error("ATEM is not connected");
+
+    let payload: { actionId?: unknown; params?: unknown };
+    try {
+      payload = JSON.parse(command) as { actionId?: unknown; params?: unknown };
+    } catch {
+      throw new Error("Invalid ATEM command payload");
+    }
+    if (typeof payload.actionId !== "string") throw new Error("ATEM action is required");
+    const params = payload.params && typeof payload.params === "object"
+      ? payload.params as Record<string, unknown>
+      : {};
+    const integer = (name: string, minimum = 0) => {
+      const value = Number(params[name]);
+      if (!Number.isInteger(value) || value < minimum) throw new Error(`Invalid ATEM ${name}`);
+      return value;
+    };
+
+    switch (payload.actionId) {
+      case "set_program_input":
+        await atem.changeProgramInput(integer("input", 1));
+        return;
+      case "set_preview_input":
+        await atem.changePreviewInput(integer("input", 1));
+        return;
+      case "cut":
+        await atem.cut();
+        return;
+      case "auto_transition":
+        await atem.autoTransition();
+        return;
+      case "fade_to_black":
+        await atem.fadeToBlack();
+        return;
+      case "run_macro":
+        await atem.macroRun(integer("macro"));
+        return;
+      case "set_aux_source":
+        await atem.setAuxSource(integer("source", 1), integer("aux", 1) - 1);
+        return;
+      case "toggle_downstream_key": {
+        const key = integer("key", 1) - 1;
+        const onAir = atem.state?.video.downstreamKeyers[key]?.onAir ?? false;
+        await atem.setDownstreamKeyOnAir(!onAir, key);
+        return;
+      }
+      default:
+        throw new Error(`Unknown ATEM action: ${payload.actionId}`);
     }
   }
 
@@ -468,7 +590,7 @@ export class Bridge {
     this.send({
       type: "bridge-status",
       version: "0.1.0",
-      devices: this.tcpConnections.size + this.udpConnections.size + this.ppConnections.size,
+      devices: this.tcpConnections.size + this.udpConnections.size + this.ppConnections.size + this.atemConnections.size,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     });
   }

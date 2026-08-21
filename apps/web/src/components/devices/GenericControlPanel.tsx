@@ -111,7 +111,13 @@ function ActionButton({
   disabled: boolean;
 }) {
   const [executing, setExecuting] = useState(false);
-  const [paramValues, setParamValues] = useState<Record<string, unknown>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [paramValues, setParamValues] = useState<Record<string, unknown>>(() => Object.fromEntries(
+    action.params.map((param) => [
+      param.id,
+      param.default ?? (param.type === "boolean" ? false : param.type === "number" ? (param.min ?? 0) : ""),
+    ]),
+  ));
 
   const hasParams = action.params.length > 0;
   const [expanded, setExpanded] = useState(false);
@@ -119,10 +125,12 @@ function ActionButton({
   async function execute() {
     if (!module || disabled) return;
     setExecuting(true);
+    setActionError(null);
     try {
       await module.executeAction(action.id, paramValues);
     } catch (err) {
       console.error(`Action ${action.id} failed:`, err);
+      setActionError(err instanceof Error ? err.message : "Device command failed");
     } finally {
       setExecuting(false);
     }
@@ -131,13 +139,16 @@ function ActionButton({
   // Simple action (no params) — single button
   if (!hasParams) {
     return (
-      <button
-        onClick={execute}
-        disabled={disabled || executing}
-        className="rounded-lg border border-board-border bg-board-bg px-3 py-2.5 text-left text-sm font-medium text-board-text hover:border-fire-500/30 hover:bg-fire-500/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-      >
-        {executing ? "..." : action.label}
-      </button>
+      <div>
+        <button
+          onClick={execute}
+          disabled={disabled || executing}
+          className="w-full rounded-lg border border-board-border bg-board-bg px-3 py-2.5 text-left text-sm font-medium text-board-text hover:border-fire-500/30 hover:bg-fire-500/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+        >
+          {executing ? "..." : action.label}
+        </button>
+        {actionError ? <p role="alert" className="mt-1 text-[10px] leading-4 text-red-400">{actionError}</p> : null}
+      </div>
     );
   }
 
@@ -229,6 +240,7 @@ function ActionButton({
           >
             {executing ? "Executing..." : "Execute"}
           </button>
+          {actionError ? <p role="alert" className="text-[10px] leading-4 text-red-400">{actionError}</p> : null}
         </div>
       )}
     </div>

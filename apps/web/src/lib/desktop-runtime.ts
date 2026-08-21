@@ -1,3 +1,9 @@
+import {
+  isPermissionGranted as isNativeNotificationPermissionGranted,
+  requestPermission as requestNativeNotificationPermission,
+  sendNotification as sendNativeNotification,
+} from "@tauri-apps/plugin-notification";
+
 export type DesktopEngineInfo = {
   native: boolean;
   platform: string;
@@ -22,6 +28,12 @@ export type DesktopBridgeStatus = {
   running: boolean;
   pid: number | null;
   logs: string[];
+};
+
+export type DesktopNotificationPayload = {
+  notificationId: string;
+  actionUrl?: string;
+  orgSlug: string;
 };
 
 type TauriCore = {
@@ -58,9 +70,27 @@ export async function requestDesktopNotificationPermission(): Promise<Notificati
   return requestNativeNotificationPermission();
 }
 
-export async function showDesktopNotification(title: string, body: string): Promise<boolean> {
+function notificationNumber(id: string): number {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) {
+    hash = (Math.imul(31, hash) + id.charCodeAt(index)) | 0;
+  }
+  return (hash & 0x7fffffff) || 1;
+}
+
+export async function showDesktopNotification(
+  title: string,
+  body: string,
+  payload?: DesktopNotificationPayload,
+): Promise<boolean> {
   if (!isDesktopRuntime() || !(await isNativeNotificationPermissionGranted())) return false;
-  sendNativeNotification({ title, body });
+  sendNativeNotification({
+    ...(payload ? { id: notificationNumber(payload.notificationId), extra: payload } : {}),
+    title,
+    body,
+    autoCancel: true,
+    group: "showpilot-operations",
+  });
   return true;
 }
 
@@ -118,8 +148,3 @@ export async function toggleDesktopFullscreen(): Promise<boolean | null> {
   if (!core) return null;
   return core.invoke<boolean>("toggle_display_fullscreen");
 }
-import {
-  isPermissionGranted as isNativeNotificationPermissionGranted,
-  requestPermission as requestNativeNotificationPermission,
-  sendNotification as sendNativeNotification,
-} from "@tauri-apps/plugin-notification";

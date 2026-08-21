@@ -34,6 +34,9 @@
     "category": "Productivity",
     "shortDescription": "ShowPilot production control for desktop",
     "longDescription": "The complete ShowPilot production workspace with native local-engine, offline snapshot and dedicated output-window capabilities.",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

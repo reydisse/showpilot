@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getPersonalNotifications, markAllPersonalNotificationsRead, markPersonalNotificationRead, type PersonalNotification } from "@/lib/personal-notifications";
 import { getNotificationDestination } from "@/lib/notification-destination";
-import { isDesktopRuntime, showDesktopNotification } from "@/lib/desktop-runtime";
 
 export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onNavigate, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; onNavigate?: () => void; placement?: "sidebar" | "account" }) {
   const navigate = useNavigate();
@@ -15,21 +14,9 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
   const [actionError, setActionError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const desktopInbox = useRef<{ orgId: string; ids: Set<string> } | null>(null);
   const refresh = useCallback(async () => {
     try {
       const result = await getPersonalNotifications({ data: { orgId } });
-      if (isDesktopRuntime()) {
-        const previous = desktopInbox.current?.orgId === orgId ? desktopInbox.current.ids : null;
-        if (previous) {
-          for (const item of result.notifications) {
-            if (!item.readAt && !previous.has(item.id)) {
-              void showDesktopNotification(item.title, item.message);
-            }
-          }
-        }
-        desktopInbox.current = { orgId, ids: new Set(result.notifications.map((item) => item.id)) };
-      }
       setItems(result.notifications);
       setUnread(result.unread);
       onUnreadChange?.(result.unread);
@@ -39,10 +26,9 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
 
   useEffect(() => {
     void refresh();
-    const desktop = isDesktopRuntime();
     const timer = window.setInterval(() => {
-      if (desktop || document.visibilityState === "visible") void refresh();
-    }, desktop ? 15_000 : 20_000);
+      if (document.visibilityState === "visible") void refresh();
+    }, 20_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -88,15 +74,15 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
       role={placement === "account" ? "dialog" : undefined}
       aria-modal={placement === "account" ? true : undefined}
       className={placement === "account"
-        ? "relative z-[60] mt-2 w-full overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl"
-        : `pointer-events-auto fixed z-[10000] max-h-[min(560px,82vh)] overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}
+        ? "relative z-[60] mt-2 flex min-h-0 max-h-[min(470px,55dvh)] w-full flex-col overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl"
+        : `pointer-events-auto fixed z-[10000] flex max-h-[min(560px,82dvh)] min-h-0 flex-col overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}
     >
       <header className="flex items-center gap-2 border-b border-board-border px-4 py-3">
         <div><h2 className="text-sm font-semibold text-board-text">Notifications</h2><p className="text-[10px] text-board-muted">Assignments and operational updates</p></div>
         {unread ? <button type="button" disabled={loading} onClick={() => void readAll()} className="ml-auto inline-flex items-center gap-1 text-[10px] text-board-muted hover:text-board-text disabled:opacity-50"><CheckCheck className="h-3.5 w-3.5" />Mark all read</button> : null}
       </header>
       {actionError ? <p role="alert" className="border-b border-red-500/20 bg-red-500/[0.06] px-4 py-2 text-[10px] text-red-300">{actionError}</p> : null}
-      <div className="max-h-[430px] divide-y divide-board-border/60 overflow-y-auto">
+      <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/60 overflow-y-auto overscroll-contain">
         {items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => {
           setOpen(false);
           onNavigate?.();
