@@ -26,6 +26,7 @@ export class BridgeProxy {
   private eventListeners = new Set<(target: string, eventName: string, data: string) => void>();
   private orgId: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldReconnect = true;
 
   constructor(orgId: string) {
     this.orgId = orgId;
@@ -34,6 +35,7 @@ export class BridgeProxy {
   /** Connect to BridgeRelay DO */
   connect(): void {
     if (this.ws) return;
+    this.shouldReconnect = true;
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const url = `${protocol}://${window.location.host}/api/bridge/${this.orgId}/ws?role=client`;
@@ -55,17 +57,20 @@ export class BridgeProxy {
       this.connected = false;
       this.bridgeOnline = false;
       this.notifyStatus(false);
-      // Auto-reconnect
-      this.reconnectTimer = setTimeout(() => {
-        this.ws = null;
-        this.connect();
-      }, 5000);
+      this.ws = null;
+      if (this.shouldReconnect) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.connect();
+        }, 5000);
+      }
     };
 
     this.ws.onerror = () => {};
   }
 
   disconnect(): void {
+    this.shouldReconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -165,16 +170,12 @@ export class BridgeProxy {
             pending.reject(new Error((msg.error as string) ?? "Command failed"));
           }
         }
+        this.notifyDeviceEvent(msg);
         break;
       }
 
       case "device-event": {
-        const target = msg.target as string;
-        const eventName = msg.eventName as string;
-        const data = msg.data as string;
-        for (const cb of this.eventListeners) {
-          cb(target, eventName, data);
-        }
+        this.notifyDeviceEvent(msg);
         break;
       }
 
@@ -198,6 +199,19 @@ export class BridgeProxy {
   private notifyStatus(online: boolean): void {
     for (const cb of this.statusListeners) {
       cb(online);
+    }
+  }
+
+  private notifyDeviceEvent(msg: Record<string, unknown>): void {
+    if (
+      typeof msg.target !== "string" ||
+      typeof msg.eventName !== "string" ||
+      typeof msg.data !== "string"
+    ) {
+      return;
+    }
+    for (const cb of this.eventListeners) {
+      cb(msg.target, msg.eventName, msg.data);
     }
   }
 }

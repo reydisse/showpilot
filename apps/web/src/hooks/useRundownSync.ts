@@ -223,7 +223,7 @@ export function useRundownSync(
   useEffect(() => {
     let disposed = false;
     let activeSocket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: number | null = null;
     let reconnectAttempts = 0;
 
     setHydrated(false);
