@@ -27,6 +27,7 @@ const STATUS_COLORS: Record<string, string> = {
 const CATEGORIES = ["Audio", "Video", "Lighting", "Streaming", "Network", "Power", "Cables", "Other"];
 
 const BLANK_FORM = { name: "", category: "Audio", status: "operational", location: "", serialNumber: "", notes: "" };
+const BLANK_ADD_FORM = { ...BLANK_FORM, quantity: 1 };
 
 export const Route = createFileRoute("/$slug/production/assets")({
   pendingComponent: () => <PageSkeleton />,
@@ -50,12 +51,13 @@ function AssetsPage() {
 
   // Add modal state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(BLANK_FORM);
+  const [addForm, setAddForm] = useState(BLANK_ADD_FORM);
   const [adding, setAdding] = useState(false);
 
   // Edit inline state
   const [editingItem, setEditingItem] = useState<EquipmentItem | null>(null);
   const [editForm, setEditForm] = useState(BLANK_FORM);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
@@ -76,10 +78,28 @@ function AssetsPage() {
     });
   }, [equipment, search, categoryFilter, statusFilter]);
 
+  const groupedFiltered = useMemo(() => {
+    const groups = new Map<string, EquipmentItem[]>();
+    for (const item of filtered) {
+      const key = `${item.name.trim().toLowerCase()}::${item.category.trim().toLowerCase()}`;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+    return Array.from(groups, ([key, items]) => ({ key, name: items[0].name, category: items[0].category, items }));
+  }, [filtered]);
+
   const clearFilters = () => {
     setSearch("");
     setCategoryFilter("");
     setStatusFilter("");
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -89,7 +109,7 @@ function AssetsPage() {
     try {
       await addEquipment({ data: { orgId, ...addForm } });
       setShowAddModal(false);
-      setAddForm(BLANK_FORM);
+      setAddForm(BLANK_ADD_FORM);
       router.invalidate();
     } finally {
       setAdding(false);
@@ -129,7 +149,7 @@ function AssetsPage() {
           <p className="text-board-muted text-sm mt-0.5">Track and manage production equipment, gear, and assets</p>
         </div>
         <button
-          onClick={() => { setAddForm(BLANK_FORM); setShowAddModal(true); }}
+          onClick={() => { setAddForm(BLANK_ADD_FORM); setShowAddModal(true); }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
           style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
         >
@@ -150,7 +170,7 @@ function AssetsPage() {
             className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted">
+            <button type="button" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted" aria-label="Clear asset search">
               <X className="w-3.5 h-3.5" />
             </button>
           )}
@@ -197,14 +217,22 @@ function AssetsPage() {
 
       {/* Grid */}
       {filtered.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((item) => (
-            <div key={item.id} className="group p-4 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
+        <div className="overflow-hidden rounded-2xl border border-board-border bg-board-card">
+          {groupedFiltered.map((group) => (
+            <section key={group.key} className="border-b border-board-border last:border-b-0">
+              <button type="button" onClick={() => toggleGroup(group.key)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-board-bg/45">
+                <ChevronDown className={`h-4 w-4 shrink-0 text-board-muted transition-transform ${collapsedGroups.has(group.key) ? "-rotate-90" : ""}`} />
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><Package className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-board-text">{group.name}</span><span className="mt-0.5 block text-[10px] text-board-muted">{group.category} · {group.items.length} {group.items.length === 1 ? "unit" : "units"}</span></span>
+                <span className="hidden items-center gap-1.5 text-[10px] text-board-muted sm:flex">{group.items.filter((item) => item.status === "operational").length} operational{group.items.some((item) => item.status !== "operational") ? ` · ${group.items.filter((item) => item.status !== "operational").length} attention` : ""}</span>
+              </button>
+              {!collapsedGroups.has(group.key) && <div className="border-t border-board-border bg-board-bg/20 px-3 py-2">
+              {group.items.map((item, unitIndex) => <div key={item.id} className="group/unit border-b border-board-border/60 py-3 last:border-b-0 sm:px-2">
               {editingItem?.id === item.id ? (
                 <form onSubmit={handleUpdate} className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-board-text">Edit Item</h3>
-                    <button type="button" onClick={() => setEditingItem(null)} className="text-board-muted hover:text-board-text"><X className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => setEditingItem(null)} className="text-board-muted hover:text-board-text" aria-label={`Cancel editing ${item.name}`}><X className="w-4 h-4" /></button>
                   </div>
                   <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Equipment name..." className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50" />
                   <div className="grid grid-cols-2 gap-2">
@@ -226,26 +254,27 @@ function AssetsPage() {
                   </button>
                 </form>
               ) : (
-                <>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <Package className="w-4 h-4 text-fire-500/70" />
-                      <p className="text-sm font-medium text-board-text">{item.name}</p>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-card text-[10px] font-semibold tabular-nums text-board-muted">{String(unitIndex + 1).padStart(2, "0")}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_COLORS[item.status] || STATUS_COLORS.operational}`}>{item.status}</span>
+                      {item.serialNumber && <span className="truncate text-[10px] font-mono text-board-muted/60">S/N {item.serialNumber}</span>}
                     </div>
-                    <div className="flex gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
-                      <button onClick={() => startEdit(item)} className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => handleDelete(item.id)} className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-board-muted">
+                      {item.location && <span>{item.location}</span>}
+                      {item.notes && <span className="truncate">{item.notes}</span>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${STATUS_COLORS[item.status] || STATUS_COLORS.operational}`}>{item.status}</span>
-                    <span className="text-[10px] text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border">{item.category}</span>
+                  <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
+                    <button type="button" aria-label={`Edit unit ${unitIndex + 1}`} onClick={() => startEdit(item)} className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button type="button" aria-label={`Delete unit ${unitIndex + 1}`} onClick={() => handleDelete(item.id)} className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
-                  {item.location && <p className="text-[11px] text-board-muted mt-2">{item.location}</p>}
-                  {item.serialNumber && <p className="text-[10px] font-mono text-board-muted/60 mt-1">S/N: {item.serialNumber}</p>}
-                </>
+                </div>
               )}
-            </div>
+              </div>)}
+              </div>}
+            </section>
           ))}
         </div>
       ) : hasFilters ? (
@@ -265,7 +294,7 @@ function AssetsPage() {
           title="No equipment yet"
           description="Track cameras, mixers, cables and the rest of your gear — status, location and serial numbers in one place."
           action={
-            <EmptyStateButton onClick={() => { setAddForm(BLANK_FORM); setShowAddModal(true); }}>
+            <EmptyStateButton onClick={() => { setAddForm(BLANK_ADD_FORM); setShowAddModal(true); }}>
               Add first item
             </EmptyStateButton>
           }
@@ -276,14 +305,16 @@ function AssetsPage() {
       {showAddModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowAddModal(false); setAddForm(BLANK_FORM); } }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowAddModal(false); setAddForm(BLANK_ADD_FORM); } }}
         >
-          <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="add-asset-title" className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-board-text">Add New Asset</h2>
+              <h2 id="add-asset-title" className="text-lg font-semibold text-board-text">Add New Asset</h2>
               <button
-                onClick={() => { setShowAddModal(false); setAddForm(BLANK_FORM); }}
+                type="button"
+                onClick={() => { setShowAddModal(false); setAddForm(BLANK_ADD_FORM); }}
                 className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
+                aria-label="Close add asset dialog"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -309,6 +340,18 @@ function AssetsPage() {
                 >
                   {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs text-board-muted mb-1.5">Number of units</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={addForm.quantity}
+                  onChange={(e) => setAddForm({ ...addForm, quantity: Math.max(1, Math.min(100, Number(e.target.value) || 1)) })}
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors"
+                />
+                <p className="mt-1 text-[10px] text-board-muted">Each unit can later have its own status, serial number, location, and notes.</p>
               </div>
               <div>
                 <label className="block text-xs text-board-muted mb-1.5">Status</label>
@@ -346,7 +389,7 @@ function AssetsPage() {
               <div className="flex gap-3 pt-1">
                 <button
                   type="button"
-                  onClick={() => { setShowAddModal(false); setAddForm(BLANK_FORM); }}
+                  onClick={() => { setShowAddModal(false); setAddForm(BLANK_ADD_FORM); }}
                   className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-sm text-board-muted hover:bg-board-border/50 transition-colors"
                 >
                   Cancel

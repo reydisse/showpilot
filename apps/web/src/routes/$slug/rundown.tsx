@@ -1527,6 +1527,7 @@ function RundownPage() {
                   disabled={timer.playback === "stop"}
                   className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
                   title="Previous item"
+                  aria-label="Previous rundown item"
                 >
                   <SkipBack className="w-4 h-4" />
                 </button>
@@ -1535,6 +1536,7 @@ function RundownPage() {
                   disabled={timer.playback === "stop"}
                   className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
                   title="Next item"
+                  aria-label="Next rundown item"
                 >
                   <SkipForward className="w-4 h-4" />
                 </button>
@@ -1542,6 +1544,7 @@ function RundownPage() {
                   onClick={handleStop}
                   disabled={timer.playback === "stop"}
                   className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                  aria-label="Stop rundown"
                 >
                   <Square className="w-4 h-4" />
                 </button>
@@ -1648,6 +1651,7 @@ function RundownPage() {
                   onClick={handleSendMessage}
                   disabled={!message.trim()}
                   className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${messagePriority ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/35" : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"}`}
+                  aria-label="Send stage message"
                 >
                   <Send className="w-4 h-4" />
                 </button>

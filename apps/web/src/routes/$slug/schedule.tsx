@@ -371,6 +371,7 @@ function SchedulePage() {
                       disabled={!data.canManage}
                       onClick={() => setServiceOpen(true)}
                       className="flex items-center gap-2 text-left disabled:cursor-default"
+                      aria-label={data.canManage ? `Edit ${selected.name}` : undefined}
                     >
                       <h2 className="text-xl font-semibold text-board-text md:text-2xl">
                         {selected.name}
@@ -2025,13 +2026,16 @@ function Modal({
       <div
         role="dialog"
         aria-modal="true"
+        aria-label={title}
         className="w-full max-w-md rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl"
       >
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-base font-semibold text-board-text">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-board-muted hover:bg-board-border"
+            aria-label={`Close ${title}`}
           >
             <X className="h-4 w-4" />
           </button>

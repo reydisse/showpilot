@@ -71,6 +71,7 @@ function ChecklistPage() {
     templateId: string;
     checked: boolean;
     checkedBy: string | null;
+    checkedAt: string | Date | null;
     template?: { label: string; category: string } | null;
   }>);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -130,7 +131,7 @@ function ChecklistPage() {
 
   const handleToggle = async (entryId: string, checked: boolean) => {
     if (!canManageChecklist) return;
-    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, checkedBy: checked ? null : "user" } });
+    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked } });
     await loadEntries(serviceDate, showId);
   };
 
@@ -247,7 +248,7 @@ function ChecklistPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
+            <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Previous service date">
               <ChevronLeft className="w-4 h-4" />
             </button>
               <select
@@ -269,7 +270,7 @@ function ChecklistPage() {
                   </option>
                 ))}
               </select>
-            <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors">
+            <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Next service date">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -310,16 +311,23 @@ function ChecklistPage() {
               <div className="space-y-2">
                 {items.map((entry) => (
                   <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist}>
+                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
                       {entry.checked ? (
                         <CheckCircle2 className="w-5 h-5 text-green-500" />
                       ) : (
                         <Circle className="w-5 h-5 text-board-muted" />
                       )}
                     </button>
-                    <span className={`flex-1 text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
-                      {entry.template?.label || "Untitled"}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <span className={`block text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
+                        {entry.template?.label || "Untitled"}
+                      </span>
+                      {entry.checked && entry.checkedBy && (
+                        <span className="mt-0.5 block truncate text-[10px] text-board-muted">
+                          Completed by {entry.checkedBy}{entry.checkedAt ? ` · ${new Date(entry.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                        </span>
+                      )}
+                    </div>
                     {canManageChecklist && (
                       <>
                         {/* Retagging has to be possible in place: every
@@ -342,7 +350,7 @@ function ChecklistPage() {
                             </option>
                           ))}
                         </select>
-                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100">
+                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100" aria-label={`Delete ${entry.template?.label || "checklist item"}`}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>
@@ -398,6 +406,7 @@ function ChecklistPage() {
               disabled={adding || !newLabel.trim()}
               className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
               style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+              aria-label="Add checklist item"
             >
               <Plus className="w-4 h-4" />
             </button>

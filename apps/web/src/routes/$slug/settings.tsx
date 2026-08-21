@@ -33,6 +33,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
+import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
 import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getOrgSettings,
@@ -377,14 +378,17 @@ function SettingToggle({
   getSetting,
   saveSetting,
   warning,
+  defaultEnabled = false,
 }: {
   settingKey: string;
   label: string;
   getSetting: SectionProps["getSetting"];
   saveSetting: SectionProps["saveSetting"];
   warning?: string;
+  defaultEnabled?: boolean;
 }) {
-  const enabled = getSetting(settingKey) === "true";
+  const savedValue = getSetting(settingKey);
+  const enabled = savedValue === "true" || (savedValue === "" && defaultEnabled);
   return (
     <div>
       <label className="flex items-center gap-3 cursor-pointer">
@@ -1474,10 +1478,7 @@ function CloudLowerThirdsToggle({
 
 function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const overlayUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/overlay/${slug}`
-      : `/overlay/${slug}`;
+  const overlayUrl = useAbsoluteUrl(`/overlay/${slug}`);
 
   return (
     <div>
@@ -1643,6 +1644,7 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
         <SettingToggle
           settingKey="notify-app-chat"
           label="New chat messages"
+          defaultEnabled
           getSetting={getSetting}
           saveSetting={saveSetting}
         />
