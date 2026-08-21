@@ -44,10 +44,8 @@ import {
 import {
   getRundownState,
   saveRundownItems,
-  saveRundownTimer,
   saveRundownMessage,
   saveRundownMeta,
-  setActiveServiceDate,
   getRundownOpeningDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
@@ -60,7 +58,7 @@ import {
 } from "@/lib/rundown";
 import type { SavedRundownMeta, SavedRundown, PPSlidePayload } from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
-import { rundownItemNumbers, type NativeTimerState } from "@/types/rundown";
+import { rundownItemNumbers } from "@/types/rundown";
 import { hasPermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
@@ -168,25 +166,6 @@ function formatOffset(deltaMs: number): string {
   return `${negative ? "-" : "+"}${minutes}m${seconds}s`;
 }
 
-/** Build a NativeTimerState from local state for DB persistence */
-function buildNativeTimer(
-  playback: "stop" | "play" | "pause",
-  currentItemId: string | null,
-  elapsed: number,
-  startedAt: number | null,
-  mode: "count-down" | "count-up" | "clock" = "count-down",
-): NativeTimerState {
-  return {
-    playback,
-    currentItemId,
-    elapsed,
-    startedAt,
-    pausedAt: playback === "pause" ? Date.now() : null,
-    mode,
-    serverTime: Date.now(),
-  };
-}
-
 export const Route = createFileRoute("/$slug/rundown")({
   validateSearch: (search: Record<string, unknown>): {
     show?: string;
@@ -290,16 +269,6 @@ function RundownPage() {
   // so all other devices get them via broadcast.
   // IMPORTANT: wait for hydrated=true so we know the DO has actually responded,
   // not just that the WS connected (syncedItems would still be [] before hydrate).
-  // Whatever service the editor is on is the org's active service, full
-  // stop. The cue sheet and anything else downstream follow this rather
-  // than guessing, so opening a rundown from years ago takes them with
-  // it. Fire and forget: failing to record it must never block editing,
-  // and the next date change tries again.
-  useEffect(() => {
-    if (!canEditRundown) return;
-    setActiveServiceDate({ data: { orgId, serviceDate, showId } }).catch(() => {});
-  }, [canEditRundown, orgId, serviceDate, showId]);
-
   const hasSeededRef = useRef(false);
   // Track which date we last seeded for — reset when date changes
   const seededDateRef = useRef(showId ?? serviceDate);
@@ -314,35 +283,21 @@ function RundownPage() {
     if (!syncHydrated) return; // Wait for actual DO response
     if (hasSeededRef.current) return; // Only seed once per date
     const databaseItems = databaseItemsRef.current;
-    const databaseIds = databaseItems.map((item) => item.id).sort().join("|");
-    const relayIds = syncedItems.map((item) => item.id).sort().join("|");
-    const relayIsWrongService = syncedItems.length > 0 && (
-      syncedServiceDate !== serviceDate ||
-      (showId ? syncedShowId !== showId : false)
-    );
-    const relayHasDifferentItems =
-      syncedServiceDate === serviceDate &&
-      (!showId || syncedShowId === showId) &&
-      databaseIds !== relayIds;
-    // Empty rooms and rooms retained with another service's rows are
-    // repaired from D1. Matching rooms remain authoritative, preserving
-    // active timer state and edits from other connected operators.
-    if (
-      (syncedItems.length === 0 && databaseItems.length > 0) ||
-      relayIsWrongService ||
-      relayHasDifferentItems
-    ) {
+    const sameRoom = syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
+    // The relay wins whenever it already has state. A joining operator's D1
+    // loader can be a fraction behind a live edit; forcing that snapshot into
+    // the room is exactly how a second operator used to roll the show back.
+    if (sameRoom && syncedItems.length === 0 && databaseItems.length > 0) {
       hasSeededRef.current = true;
-        seedState(databaseItems, {
-          playback: timer.playback,
-          currentItemId: timer.currentItemId,
-          elapsed: timer.elapsed,
-          startedAt: timer.startedAt,
-          pausedAt: null,
-          mode: timer.mode,
-        }, relayIsWrongService);
-      } else if (syncedServiceDate === serviceDate && (!showId || syncedShowId === showId)) {
-      // DO already has items — no need to seed
+      seedState(databaseItems, {
+        playback: timer.playback,
+        currentItemId: timer.currentItemId,
+        elapsed: timer.elapsed,
+        startedAt: timer.startedAt,
+        pausedAt: null,
+        mode: timer.mode,
+      });
+    } else if (sameRoom) {
       hasSeededRef.current = true;
     }
   }, [syncHydrated, syncedItems, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -633,18 +588,6 @@ function RundownPage() {
     }
   }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
 
-  // Persist timer to DB immediately (not debounced — kiosk needs it fast)
-  const persistTimer = useCallback((
-    playback: "stop" | "play" | "pause",
-    currentItemId: string | null,
-    elapsed: number,
-    startedAt: number | null,
-    mode?: "count-down" | "count-up" | "clock",
-  ) => {
-    const native = buildNativeTimer(playback, currentItemId, elapsed, startedAt, mode ?? timerRef.current.mode);
-    saveRundownTimer({ data: { orgId, showId, serviceDate, timer: native } }).catch((e) => console.warn("[SP] Timer persist failed:", e));
-  }, [orgId, serviceDate, showId]);
-
   // Auto-save items on change (debounced).
   //
   // A failure here has to be visible. The relay keeps the rundown on
@@ -747,13 +690,19 @@ function RundownPage() {
     sendCommand(action, payload);
   }, [relayNeedsPriming, sendCommand]);
 
-  // RAF: unconditionally tick `now` every frame for smooth timer + progress bar
+  // The text changes at second boundaries; sampling at 10 Hz keeps it precise
+  // without rerendering this dense operator page on every animation frame.
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  // Keep the narrow progress bars visually fluid without involving React.
   useEffect(() => {
     let running = true;
     const tick = () => {
       if (!running) return;
       const n = Date.now();
-      setNow(n);
 
       // Direct DOM update for progress bars — sole owner of width
       const t = timerRef.current;
@@ -821,8 +770,7 @@ function RundownPage() {
      setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow, mode: timer.mode });
     // Sync to DO + persist to DB
     sendRundownCommand("timer-start", { itemId });
-    persistTimer("play", itemId, 0, startNow);
-  }, [canControlRundown, items, sendRundownCommand, persistTimer, timer.mode]);
+  }, [canControlRundown, items, sendRundownCommand, timer.mode]);
 
   const handlePause = useCallback(() => {
     if (!canControlRundown) return;
@@ -830,9 +778,8 @@ function RundownPage() {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
        setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
       sendRundownCommand("timer-pause");
-      persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
-  }, [canControlRundown, timer, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer, sendRundownCommand]);
 
   const handleResume = useCallback(() => {
     if (!canControlRundown) return;
@@ -840,9 +787,8 @@ function RundownPage() {
       const resumeNow = Date.now();
        setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendRundownCommand("timer-resume");
-      persistTimer("play", timer.currentItemId, timer.elapsed, resumeNow);
     }
-  }, [canControlRundown, timer, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer, sendRundownCommand]);
 
   const handleStop = useCallback(() => {
     if (!canControlRundown) return;
@@ -853,8 +799,7 @@ function RundownPage() {
     );
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendRundownCommand("timer-stop");
-    persistTimer("stop", null, 0, null, timer.mode);
-  }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand]);
 
   const handleNext = useCallback(() => {
     if (!canControlRundown) return;
@@ -878,14 +823,12 @@ function RundownPage() {
       );
       const startNow = Date.now();
        setTimer({ playback: "play", currentItemId: nextItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
-      persistTimer("play", nextItem.id, 0, startNow);
     } else {
-       setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
-      persistTimer("stop", null, 0, null);
+      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     }
     // Single DO command — DO handles the advance logic
     sendRundownCommand("timer-next");
-  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand]);
 
   const handlePrev = useCallback(() => {
     if (!canControlRundown) return;
@@ -905,17 +848,20 @@ function RundownPage() {
       const startNow = Date.now();
        setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
       sendRundownCommand("timer-prev");
-      persistTimer("play", prevItem.id, 0, startNow);
     }
-  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand, persistTimer]);
+  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand]);
 
   const handleReset = useCallback(() => {
     if (!canEditRundown) return;
-    updateItems((prev) => prev.map((i) => ({ ...i, status: "upcoming" as ItemStatus })));
+    setItems((prev) => prev.map((i) => ({
+      ...i,
+      status: "upcoming" as ItemStatus,
+      actualStart: null,
+      actualEnd: null,
+    })));
      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
     sendRundownCommand("reset");
-    persistTimer("stop", null, 0, null);
-  }, [canEditRundown, updateItems, sendRundownCommand, persistTimer, timer.mode]);
+  }, [canEditRundown, sendRundownCommand, timer.mode]);
 
   const [clearPhase, setClearPhase] = useState<"idle" | "confirm">("idle");
   const clearCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -950,11 +896,10 @@ function RundownPage() {
     const clearedTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode };
     setItems([]);
     setTimer(clearedTimer);
-    saveRundownItems({ data: { orgId, showId, serviceDate, items: [] } }).catch(() => {});
-    persistTimer("stop", null, 0, null);
-    // Use clear-all command so DO unconditionally clears and broadcasts to all clients
+    // The relay arbitrates and persists this destructive change so a stale
+    // operator cannot clear D1 after another operator has already advanced.
     sendRundownCommand("clear-all");
-  }, [canEditRundown, clearPhase, setTimer, persistTimer, sendRundownCommand, orgId, serviceDate, showId, timer.mode]);
+  }, [canEditRundown, clearPhase, setTimer, sendRundownCommand, timer.mode]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
@@ -968,15 +913,13 @@ function RundownPage() {
       const newElapsed = currentElapsed - deltaMs; // Allow negative = extra time added
       const adjustNow = Date.now();
       setTimer({ ...timer, elapsed: newElapsed, startedAt: adjustNow });
-      persistTimer("play", timer.currentItemId, newElapsed, adjustNow);
     } else if (timer.playback === "pause") {
       const newElapsed = timer.elapsed - deltaMs;
       setTimer({ ...timer, elapsed: newElapsed });
-      persistTimer("pause", timer.currentItemId, newElapsed, null);
     }
     // Sync to DO → broadcasts to all clients and kiosk
     sendRundownCommand("timer-adjust", { deltaMs });
-  }, [canControlRundown, timer, persistTimer, sendRundownCommand]);
+  }, [canControlRundown, timer, sendRundownCommand]);
 
   const handleAddItem = (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
@@ -1124,7 +1067,6 @@ function RundownPage() {
     // Seed DO with loaded items so all devices get them
     sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
     persistItems(fresh);
-    persistTimer("stop", null, 0, null);
     if (loaded.serviceName !== undefined) {
       setServiceName(loaded.serviceName);
     }
@@ -1138,7 +1080,7 @@ function RundownPage() {
       void saveRundownMeta({ data: { orgId, showId, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
     }
     setShowLoadModal(false);
-  }, [canEditRundown, sendCommand, persistItems, persistTimer, defaultTimerMode, orgId, serviceDate, showId]);
+  }, [canEditRundown, sendCommand, persistItems, defaultTimerMode, orgId, serviceDate, showId]);
 
   const handleSaveTemplate = useCallback(async (name: string, templateServiceName: string, templateStartTime: string) => {
     if (!canEditRundown) return;

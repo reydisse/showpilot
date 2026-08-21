@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 
 const isObject = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -84,7 +85,7 @@ const normalizePpPreviewSlide = (value: unknown): PPSlideState | null => {
   };
 };
 
-export const normalizeTimerState = (value: unknown): TimerState => {
+export const normalizeTimerState = (value: unknown, receivedAt = Date.now()): TimerState => {
   if (!isObject(value)) {
     return {
       playback: "stop",
@@ -97,7 +98,7 @@ export const normalizeTimerState = (value: unknown): TimerState => {
     };
   }
 
-  return {
+  return rebaseTimerToLocalClock({
     playback: toPlayback(value.playback),
     currentItemId: toItemId(value.currentItemId),
     // Negative elapsed is intentional: it represents time added beyond the
@@ -106,8 +107,8 @@ export const normalizeTimerState = (value: unknown): TimerState => {
     startedAt: toNullableNumber(value.startedAt, null),
     pausedAt: toNullableNumber(value.pausedAt, null),
     mode: toMode(value.mode),
-    serverTime: toNumber(value.serverTime, Date.now()),
-  };
+    serverTime: toNumber(value.serverTime, receivedAt),
+  }, receivedAt);
 };
 
 interface RundownItem {
@@ -142,6 +143,12 @@ interface PPSlideState {
   presentationName: string;
   isScripture: boolean;
   updatedAt: number;
+}
+
+interface QueuedCommand {
+  id: string;
+  action: string;
+  payload?: Record<string, unknown>;
 }
 
 interface UseRundownSyncReturn {
@@ -187,128 +194,43 @@ export function useRundownSync(
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const reconnectAttempts = useRef(0);
-  const intentionalClose = useRef(false);
-  const commandQueue = useRef<Array<{ action: string; payload?: Record<string, unknown> }>>([]);
+  const socketHydratedRef = useRef(false);
+  const revisionRef = useRef(0);
+  const commandQueue = useRef<QueuedCommand[]>([]);
+  const pendingCommandRef = useRef<QueuedCommand | null>(null);
 
-  const clearPingTimer = () => {
-    if (pingTimerRef.current) {
-      clearInterval(pingTimerRef.current);
-      pingTimerRef.current = null;
-    }
-  };
-
-  const scheduleReconnect = useCallback(() => {
-    if (intentionalClose.current) return;
-    if (reconnectTimer.current) return;
-
-    const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-    reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 6);
-
-    reconnectTimer.current = setTimeout(() => {
-      reconnectTimer.current = null;
-      connect();
-    }, delay);
-  }, []);
-
-  const flushCommandQueue = useCallback(() => {
+  const dispatchNextCommand = useCallback(() => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-    while (commandQueue.current.length > 0) {
-      const entry = commandQueue.current.shift();
-      if (!entry) continue;
-      ws.send(JSON.stringify({ type: "command", action: entry.action, payload: entry.payload }));
-    }
-  }, []);
-
-  const connect = useCallback(() => {
     if (
-      wsRef.current?.readyState === WebSocket.OPEN ||
-      wsRef.current?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
-    }
+      !ws ||
+      ws.readyState !== WebSocket.OPEN ||
+      !socketHydratedRef.current ||
+      pendingCommandRef.current
+    ) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const query = new URLSearchParams();
-    if (serviceDate) query.set("serviceDate", serviceDate);
-    if (showId) query.set("showId", showId);
-    const suffix = query.size ? `?${query.toString()}` : "";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${suffix}`;
-
-    const ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      intentionalClose.current = false;
-      reconnectAttempts.current = 0;
-      clearPingTimer();
-      setConnected(true);
-      // Keepalive to prevent DO hibernation
-      pingTimerRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "ping" }));
-        }
-      }, 20000);
-      flushCommandQueue();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        if (!isObject(msg)) return;
-        if (msg.type !== "hydrate" && msg.type !== "state") return;
-
-        const state = msg.state;
-        if (!isObject(state)) return;
-
-        // Always accept DO state — it is the source of truth once connected
-        if ("items" in state) {
-          setItems(normalizeRundownItems(state.items));
-        }
-        if ("serviceDate" in state) {
-          setStateServiceDate(typeof state.serviceDate === "string" ? state.serviceDate : null);
-        }
-        if ("showId" in state) {
-          setStateShowId(typeof state.showId === "string" ? state.showId : null);
-        }
-        if ("timer" in state) {
-          setTimer(normalizeTimerState(state.timer));
-        }
-        if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
-          setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
-        }
-        if (Object.prototype.hasOwnProperty.call(state, "stageMessage")) {
-          setStageMessage(typeof state.stageMessage === "string" ? state.stageMessage : "");
-        }
-        setHydrated(true);
-      } catch {
-        // Ignore
-      }
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      wsRef.current = null;
-      clearPingTimer();
-      scheduleReconnect();
-    };
-
-    ws.onerror = () => {};
-
-    wsRef.current = ws;
-    reconnectTimer.current && clearTimeout(reconnectTimer.current);
-    reconnectTimer.current = null;
-  }, [orgId, serviceDate, showId, flushCommandQueue, scheduleReconnect]);
+    const entry = commandQueue.current.shift();
+    if (!entry) return;
+    pendingCommandRef.current = entry;
+    ws.send(JSON.stringify({
+      type: "command",
+      id: entry.id,
+      expectedRevision: revisionRef.current,
+      action: entry.action,
+      payload: entry.payload,
+    }));
+  }, []);
 
   useEffect(() => {
-    // A relay is shared by the org and can still be holding the previous
-    // service while the new WebSocket is being established. Never let the
-    // previous date's hydrate qualify as the current date's state.
+    let disposed = false;
+    let activeSocket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
+
     setHydrated(false);
+    socketHydratedRef.current = false;
+    revisionRef.current = 0;
+    commandQueue.current = [];
+    pendingCommandRef.current = null;
     setStateServiceDate(null);
     setStateShowId(null);
     setItems([]);
@@ -321,30 +243,140 @@ export function useRundownSync(
       mode: "count-down",
       serverTime: Date.now(),
     });
-    intentionalClose.current = false;
+
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const query = new URLSearchParams();
+    if (serviceDate) query.set("serviceDate", serviceDate);
+    if (showId) query.set("showId", showId);
+    const suffix = query.size ? `?${query.toString()}` : "";
+    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${suffix}`;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(1000 * 2 ** reconnectAttempts, 30_000);
+      reconnectAttempts = Math.min(reconnectAttempts + 1, 6);
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const stateMatchesTarget = (state: Record<string, unknown>) => {
+      const incomingShowId = typeof state.showId === "string" ? state.showId : null;
+      const incomingServiceDate = typeof state.serviceDate === "string" ? state.serviceDate : null;
+      const incomingItems = Array.isArray(state.items) ? state.items : [];
+      const hasRoomState = incomingItems.length > 0 || incomingShowId !== null || incomingServiceDate !== null;
+
+      if (showId && incomingShowId !== showId) return !hasRoomState;
+      if (!showId && serviceDate && incomingServiceDate && incomingServiceDate !== serviceDate) return false;
+      return true;
+    };
+
+    function connect() {
+      if (disposed) return;
+      if (
+        activeSocket?.readyState === WebSocket.OPEN ||
+        activeSocket?.readyState === WebSocket.CONNECTING
+      ) return;
+
+      const ws = new WebSocket(url);
+      activeSocket = ws;
+      wsRef.current = ws;
+      socketHydratedRef.current = false;
+
+      ws.onopen = () => {
+        if (disposed || activeSocket !== ws) return;
+        reconnectAttempts = 0;
+        setConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        if (disposed || activeSocket !== ws || wsRef.current !== ws) return;
+        try {
+          const msg = JSON.parse(event.data);
+          if (!isObject(msg)) return;
+
+          if (msg.type === "command-result") {
+            const pending = pendingCommandRef.current;
+            if (pending && msg.id === pending.id) {
+              if (typeof msg.revision === "number" && Number.isFinite(msg.revision)) {
+                revisionRef.current = msg.revision;
+              }
+              pendingCommandRef.current = null;
+              dispatchNextCommand();
+            }
+            return;
+          }
+
+          if (msg.type !== "hydrate" && msg.type !== "state") return;
+          const state = msg.state;
+          if (!isObject(state) || !stateMatchesTarget(state)) return;
+
+          if (typeof state.revision === "number" && Number.isFinite(state.revision)) {
+            revisionRef.current = Math.max(revisionRef.current, state.revision);
+          }
+          if ("items" in state) setItems(normalizeRundownItems(state.items));
+          if ("serviceDate" in state) {
+            setStateServiceDate(typeof state.serviceDate === "string" ? state.serviceDate : null);
+          }
+          if ("showId" in state) {
+            setStateShowId(typeof state.showId === "string" ? state.showId : null);
+          }
+          if ("timer" in state) setTimer(normalizeTimerState(state.timer));
+          if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
+            setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
+          }
+          if (Object.prototype.hasOwnProperty.call(state, "stageMessage")) {
+            setStageMessage(typeof state.stageMessage === "string" ? state.stageMessage : "");
+          }
+          socketHydratedRef.current = true;
+          setHydrated(true);
+          dispatchNextCommand();
+        } catch {
+          // Ignore malformed relay frames without disturbing the live state.
+        }
+      };
+
+      ws.onclose = () => {
+        if (disposed || activeSocket !== ws) return;
+        if (pendingCommandRef.current) {
+          commandQueue.current.unshift(pendingCommandRef.current);
+          pendingCommandRef.current = null;
+        }
+        activeSocket = null;
+        if (wsRef.current === ws) wsRef.current = null;
+        socketHydratedRef.current = false;
+        setConnected(false);
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {};
+    }
+
     connect();
 
     return () => {
-      intentionalClose.current = true;
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      reconnectTimer.current = null;
-      clearPingTimer();
+      disposed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       commandQueue.current = [];
-      wsRef.current?.close();
-      wsRef.current = null;
+      pendingCommandRef.current = null;
+      socketHydratedRef.current = false;
+      if (wsRef.current === activeSocket) wsRef.current = null;
+      activeSocket?.close();
+      activeSocket = null;
     };
-  }, [connect]);
+  }, [dispatchNextCommand, orgId, serviceDate, showId]);
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "command", action, payload }));
-        return;
-      }
-
-      commandQueue.current.push({ action, payload });
+      commandQueue.current.push({
+        id: crypto.randomUUID(),
+        action,
+        payload,
+      });
+      dispatchNextCommand();
     },
-    []
+    [dispatchNextCommand]
   );
 
   const seedState = useCallback(

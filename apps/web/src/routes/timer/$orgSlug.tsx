@@ -8,6 +8,7 @@ import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundow
 import type { PPSlidePayload } from "@/lib/rundown";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import { elapsedAt } from "@/lib/rundown-transport";
+import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 
 // ─── Server Functions ────────────────────────────────────────
@@ -66,6 +67,13 @@ type ViewMode = "timer" | "minimal" | "stage";
 
 /** OnTime-style color phases */
 type TimerPhase = "normal" | "alert" | "danger" | "overtime";
+
+function localizeRundownState(state: RundownState, receivedAt = Date.now()): RundownState {
+  return {
+    ...state,
+    timer: rebaseTimerToLocalClock(state.timer, receivedAt),
+  };
+}
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -257,7 +265,6 @@ function TimerKioskPage() {
   const [orgTimezone, setOrgTimezone] = useState("");
   const [overtimeBehavior, setOvertimeBehavior] = useState<DisplaySettingsBySlug["overtimeBehavior"]>("flash");
   const { isFullscreen, toggleFullscreen } = useDisplayFullscreen();
-  const rafRef = useRef<number>(0);
   const serviceDate = useRef(getTodayDateString());
   const [relayServiceDate, setRelayServiceDate] = useState(serviceDate.current);
   const [relayShowId, setRelayShowId] = useState("");
@@ -325,62 +332,62 @@ function TimerKioskPage() {
   // Real-time sync via RundownRelay DO WebSocket
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnectedRef = useRef(false);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const reconnectAttempts = useRef(0);
-  const intentionalClose = useRef(false);
 
   useEffect(() => {
+    let disposed = false;
+    let activeSocket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectAttempts = 0;
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const query = new URLSearchParams({ serviceDate: relayServiceDate });
     if (relayShowId) query.set("showId", relayShowId);
     const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws?${query.toString()}`;
 
     const clearPing = () => {
-      if (pingRef.current) {
-        clearInterval(pingRef.current);
-        pingRef.current = null;
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
       }
     };
 
     const clearReconnect = () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
     };
 
     const scheduleReconnect = () => {
-      if (intentionalClose.current) return;
-      if (reconnectTimerRef.current) return;
-
-      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-      reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 6);
-
-      reconnectTimerRef.current = setTimeout(() => {
-        reconnectTimerRef.current = null;
+      if (disposed || reconnectTimer) return;
+      const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
+      reconnectAttempts = Math.min(reconnectAttempts + 1, 6);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
         connectWS();
       }, delay);
     };
 
     function connectWS() {
+      if (disposed) return;
       if (
-        wsRef.current?.readyState === WebSocket.OPEN ||
-        wsRef.current?.readyState === WebSocket.CONNECTING
+        activeSocket?.readyState === WebSocket.OPEN ||
+        activeSocket?.readyState === WebSocket.CONNECTING
       ) {
         return;
       }
 
       const ws = new WebSocket(url);
+      activeSocket = ws;
+      wsRef.current = ws;
 
       ws.onopen = () => {
-        intentionalClose.current = false;
-        reconnectAttempts.current = 0;
+        if (disposed || activeSocket !== ws || wsRef.current !== ws) return;
+        reconnectAttempts = 0;
         wsConnectedRef.current = true;
         setConnected(true);
         clearPing();
-        // Keepalive ping every 20s to prevent DO hibernation
-        pingRef.current = setInterval(() => {
+        pingTimer = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "ping" }));
           }
@@ -388,6 +395,7 @@ function TimerKioskPage() {
       };
 
       ws.onmessage = (event) => {
+        if (disposed || activeSocket !== ws || wsRef.current !== ws) return;
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "hydrate" || msg.type === "state") {
@@ -395,7 +403,7 @@ function TimerKioskPage() {
             // Always accept DO state — it is the source of truth
             // Empty items is valid (e.g. after clearing rundown)
             if (s.items) {
-              setState(s);
+              setState(localizeRundownState(s));
               setConnected(true);
             }
             if (s.ppSlide !== undefined) {
@@ -411,28 +419,27 @@ function TimerKioskPage() {
       };
 
       ws.onclose = () => {
+        if (disposed || activeSocket !== ws) return;
+        activeSocket = null;
+        if (wsRef.current === ws) wsRef.current = null;
         wsConnectedRef.current = false;
-        wsRef.current = null;
         clearPing();
         scheduleReconnect();
       };
 
       ws.onerror = () => {};
-
-      wsRef.current = ws;
-      clearReconnect();
     }
 
-    intentionalClose.current = false;
-    clearReconnect();
     connectWS();
 
     return () => {
-      intentionalClose.current = true;
+      disposed = true;
       clearReconnect();
       clearPing();
-      wsRef.current?.close();
-      wsRef.current = null;
+      if (wsRef.current === activeSocket) wsRef.current = null;
+      activeSocket?.close();
+      activeSocket = null;
+      wsConnectedRef.current = false;
     };
   }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
@@ -449,7 +456,7 @@ function TimerKioskPage() {
         // state and, most visibly, erase a kiosk message seconds after it
         // arrived.
         if (!wsConnectedRef.current) {
-          setState(result.state);
+          setState(localizeRundownState(result.state));
           applyStageMessage(result.message);
           setPpSlide(result.ppSlide);
           setConnected(true);
@@ -503,21 +510,11 @@ function TimerKioskPage() {
     return () => clearInterval(interval);
   }, [poll, resolvedOrgTimezoneDate]);
 
-  // RAF for smooth clock + timer rendering
+  // A tenth-second cadence keeps the timer visually responsive without
+  // rerendering this full-screen display on every animation frame.
   useEffect(() => {
-    let running = true;
-    const tick = () => {
-      if (!running) return;
-      const n = Date.now();
-      setNow(n);
-
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      running = false;
-      cancelAnimationFrame(rafRef.current);
-    };
+    const interval = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(interval);
   }, []);
 
   // Derived state
