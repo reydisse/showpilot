@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { chatRelayKey } from "../lib/chat-relay-key";
 import { getPrisma } from "@/lib/db";
 import {
   appendWebhookEvent,
@@ -1016,14 +1017,15 @@ export class RundownRelay extends DurableObject {
           });
         }
 
-      const chatId = env.CHAT_RELAY.idFromName(this.orgId);
+			const chatId = env.CHAT_RELAY.idFromName(chatRelayKey(this.orgId, "production"));
       const chatStub = env.CHAT_RELAY.get(chatId);
       const relayResponse = await chatStub.fetch(
         new Request("https://chat.local/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orgId: this.orgId,
+					body: JSON.stringify({
+						orgId: this.orgId,
+						roomId: "production",
             senderName,
             senderRole: "System",
             text,
