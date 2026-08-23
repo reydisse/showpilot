@@ -7,6 +7,8 @@ import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { serviceTimeToIso } from "@/lib/utils";
+import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
+import { readPhaseSettings } from "@/lib/service-phase";
 
 const rangeInput = z.object({
   orgId: idSchema,
@@ -285,6 +287,8 @@ export const getSchedule = createServerFn({ method: "GET" })
               "schedule-provider-url",
               "schedule-provider-label",
               "terminology-profile",
+              "org-timezone",
+              "default-service-window-minutes",
             ],
           },
         },
@@ -304,6 +308,7 @@ export const getSchedule = createServerFn({ method: "GET" })
     const terminologyProfile = parsedTerminology.success
       ? parsedTerminology.data
       : "general";
+    const { serviceWindowMinutes } = readPhaseSettings(providerMap);
     const selectedShow = data.selectedShowId
       ? rundowns.find((rundown) => rundown.id === data.selectedShowId)
       : undefined;
@@ -372,6 +377,8 @@ export const getSchedule = createServerFn({ method: "GET" })
         ),
       };
     });
+    const serviceById = new Map(services.map((service) => [service.id, service]));
+    const nowMs = Date.now();
     return {
       services,
       selectedDate: selectedDate ?? null,
@@ -380,6 +387,21 @@ export const getSchedule = createServerFn({ method: "GET" })
         canRespond:
           Boolean(assignment.crewMember?.email) &&
           assignment.crewMember!.email.toLowerCase() === viewer.email,
+        responseWindow: getCrewScheduleResponseWindow(
+          (() => {
+            const service = assignment.showId
+              ? serviceById.get(assignment.showId)
+              : undefined;
+            return {
+              serviceDate: assignment.serviceDate,
+              scheduledStartTime: service?.scheduledStartTime,
+              plannedDurationMs: service?.plannedDurationMs,
+              serviceWindowMinutes,
+              timeZone: providerMap["org-timezone"],
+            };
+          })(),
+          nowMs,
+        ),
       })),
       crew,
       provider: {
@@ -400,20 +422,56 @@ export const getServiceAssignments = createServerFn({ method: "GET" })
   )
   .handler(async ({ data }) => {
     const viewer = await assertAccess(data.orgId);
-    const assignments = await getPrisma().serviceAssignment.findMany({
-      where: { orgId: data.orgId, showId: data.showId },
-      include: {
-        crewMember: {
-          select: { id: true, name: true, role: true, email: true },
+    const prisma = getPrisma();
+    const [assignments, rundown, settings] = await Promise.all([
+      prisma.serviceAssignment.findMany({
+        where: { orgId: data.orgId, showId: data.showId },
+        include: {
+          crewMember: {
+            select: { id: true, name: true, role: true, email: true },
+          },
         },
-      },
-      orderBy: [{ department: "asc" }, { role: "asc" }],
-    });
+        orderBy: [{ department: "asc" }, { role: "asc" }],
+      }),
+      prisma.rundown.findFirst({
+        where: { id: data.showId, orgId: data.orgId },
+        select: {
+          serviceDate: true,
+          scheduledStartTime: true,
+          items: { select: { duration: true } },
+        },
+      }),
+      prisma.appSetting.findMany({
+        where: {
+          orgId: data.orgId,
+          key: { in: ["org-timezone", "default-service-window-minutes"] },
+        },
+        select: { key: true, value: true },
+      }),
+    ]);
+    const settingMap = Object.fromEntries(
+      settings.map((setting) => [setting.key, setting.value]),
+    );
+    const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+    const nowMs = Date.now();
     return assignments.map((assignment) => ({
       ...assignment,
       canRespond:
         Boolean(assignment.crewMember?.email) &&
         assignment.crewMember!.email.toLowerCase() === viewer.email,
+      responseWindow: getCrewScheduleResponseWindow(
+        {
+          serviceDate: rundown?.serviceDate ?? assignment.serviceDate,
+          scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+          plannedDurationMs: rundown?.items.reduce(
+            (sum, item) => sum + item.duration,
+            0,
+          ),
+          serviceWindowMinutes,
+          timeZone: settingMap["org-timezone"],
+        },
+        nowMs,
+      ),
     }));
   });
 
@@ -477,7 +535,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
             replacement.role,
             data.crewMemberId,
           );
-          if (delivered) {
+          if (delivered.delivered) {
             return getPrisma().serviceAssignment.update({
               where: { id: replacement.id },
               data: { invitedAt: new Date() },
@@ -507,7 +565,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
           updated.role,
           data.crewMemberId,
         );
-        if (delivered)
+        if (delivered.delivered)
           return getPrisma().serviceAssignment.update({
             where: { id: updated.id },
             data: { invitedAt: new Date() },
@@ -537,7 +595,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
         data.role,
         data.crewMemberId,
       );
-      if (delivered)
+      if (delivered.delivered)
         return getPrisma().serviceAssignment.update({
           where: { id: assignment.id },
           data: { invitedAt: new Date() },
@@ -575,10 +633,10 @@ async function notifyAssignment(
       reminder,
       origin,
     });
-    return result.delivered;
+    return result;
   } catch (error) {
     console.error("[Schedule] Crew invitation delivery failed", error);
-    return false;
+    return { delivered: false, reason: "delivery-failed" as const };
   }
 }
 
@@ -606,12 +664,15 @@ export const remindServiceAssignment = createServerFn({ method: "POST" })
       assignment.crewMemberId,
       true,
     );
-    if (delivered)
+    if (!delivered.delivered && delivered.reason === "assignment-expired") {
+      throw new Error("This assignment is closed because the service has ended");
+    }
+    if (delivered.delivered)
       await getPrisma().serviceAssignment.update({
         where: { id: assignment.id },
         data: { invitedAt: new Date() },
       });
-    return { ok: true as const, delivered };
+    return { ok: true as const, delivered: delivered.delivered };
   });
 
 export const remindAllServiceAssignments = createServerFn({ method: "POST" })
@@ -642,7 +703,7 @@ export const remindAllServiceAssignments = createServerFn({ method: "POST" })
           assignment.crewMemberId!,
           true,
         );
-        if (delivered)
+        if (delivered.delivered)
           await getPrisma().serviceAssignment.update({
             where: { id: assignment.id },
             data: { invitedAt: new Date() },
@@ -650,10 +711,13 @@ export const remindAllServiceAssignments = createServerFn({ method: "POST" })
         return delivered;
       }),
     );
+    const availableResults = results.filter(
+      (result) => result.reason !== "assignment-expired",
+    );
     return {
       ok: true as const,
-      delivered: results.filter(Boolean).length,
-      total: assignments.length,
+      delivered: availableResults.filter((result) => result.delivered).length,
+      total: availableResults.length,
     };
   });
 
