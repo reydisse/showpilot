@@ -1,11 +1,30 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(root, "../bridge/src/index.ts");
-const output = resolve(root, "src-tauri/binaries/showpilot-bridge");
+const desktopPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+const enginePackage = JSON.parse(readFileSync(resolve(root, "../bridge/package.json"), "utf8"));
+const tauriConfig = JSON.parse(readFileSync(resolve(root, "src-tauri/tauri.conf.json"), "utf8"));
+const cargoManifest = readFileSync(resolve(root, "src-tauri/Cargo.toml"), "utf8");
+const cargoVersion = cargoManifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+const versions = [desktopPackage.version, enginePackage.version, tauriConfig.version, cargoVersion];
+if (versions.some((version) => !version) || new Set(versions).size !== 1) {
+  console.error(
+    `Bridge versions must match before packaging (desktop=${desktopPackage.version}, engine=${enginePackage.version}, tauri=${tauriConfig.version}, cargo=${cargoVersion ?? "missing"}).`,
+  );
+  process.exit(1);
+}
+const rustc = spawnSync("rustc", ["--print", "host-tuple"], { encoding: "utf8" });
+const targetTriple = rustc.stdout?.trim();
+if (rustc.status !== 0 || !targetTriple) {
+  console.error("Unable to determine the Rust target triple for the Bridge engine.");
+  process.exit(rustc.status ?? 1);
+}
+const extension = process.platform === "win32" ? ".exe" : "";
+const output = resolve(root, `src-tauri/binaries/showpilot-bridge-${targetTriple}${extension}`);
 
 mkdirSync(dirname(output), { recursive: true });
 // The default x64 Bun executable uses AVX2 instructions. Bridge machines are

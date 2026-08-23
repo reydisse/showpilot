@@ -217,6 +217,16 @@ fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_main_window(app)
+}
+
+#[tauri::command]
+fn restart_desktop(app: tauri::AppHandle) {
+    app.restart();
+}
+
 fn start_notification_pulse(app: tauri::AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(15));
@@ -246,10 +256,13 @@ fn toggle_display_fullscreen(window: tauri::WebviewWindow) -> Result<bool, Strin
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BridgeRuntime::new())
         .setup(|app| {
-            let open = MenuItem::with_id(app, "showpilot-open", "Open ShowPilot", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "showpilot-quit", "Quit ShowPilot", true, None::<&str>)?;
+            let open =
+                MenuItem::with_id(app, "showpilot-open", "Open ShowPilot", true, None::<&str>)?;
+            let quit =
+                MenuItem::with_id(app, "showpilot-quit", "Quit ShowPilot", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
@@ -280,6 +293,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             engine_info,
+            focus_main_window,
+            restart_desktop,
             cache_service,
             get_cached_service,
             open_companion_window,

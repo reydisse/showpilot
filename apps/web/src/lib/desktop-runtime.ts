@@ -1,8 +1,10 @@
 import {
   isPermissionGranted as isNativeNotificationPermissionGranted,
+  onAction as onNativeNotificationAction,
   requestPermission as requestNativeNotificationPermission,
   sendNotification as sendNativeNotification,
 } from "@tauri-apps/plugin-notification";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type DesktopEngineInfo = {
   native: boolean;
@@ -25,9 +27,12 @@ export type DesktopBridgeConfig = {
 
 export type DesktopBridgeStatus = {
   configured: boolean;
+  localDevicesEnabled: boolean;
   running: boolean;
+  connection: "offline" | "connecting" | "connected" | "disconnected" | "unauthorized" | "error";
   pid: number | null;
   logs: string[];
+  lastError: string | null;
 };
 
 export type DesktopNotificationPayload = {
@@ -35,6 +40,14 @@ export type DesktopNotificationPayload = {
   actionUrl?: string;
   orgSlug: string;
 };
+
+export type DesktopUpdateInfo = {
+  version: string;
+  notes: string | null;
+  date: string | null;
+};
+
+export const DESKTOP_NOTIFICATION_POLL_EVENT = "showpilot-desktop-notification-poll";
 
 type TauriCore = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
@@ -53,6 +66,10 @@ function getTauriCore(): TauriCore | null {
 
 export function isDesktopRuntime(): boolean {
   return getTauriCore() !== null;
+}
+
+export function isDesktopMainWindow(): boolean {
+  return isDesktopRuntime() && getCurrentWebviewWindow().label === "main";
 }
 
 export function isDesktopNotificationSupported(): boolean {
@@ -94,6 +111,69 @@ export async function showDesktopNotification(
   return true;
 }
 
+export async function listenForDesktopNotificationActions(
+  onAction: (payload: DesktopNotificationPayload) => void,
+): Promise<() => void> {
+  if (!isDesktopRuntime()) return () => {};
+  const listener = await onNativeNotificationAction((notification) => {
+    const extra = notification.extra;
+    if (
+      !extra
+      || typeof extra.notificationId !== "string"
+      || typeof extra.orgSlug !== "string"
+      || (extra.actionUrl !== undefined && typeof extra.actionUrl !== "string")
+    ) {
+      return;
+    }
+    onAction({
+      notificationId: extra.notificationId,
+      orgSlug: extra.orgSlug,
+      ...(typeof extra.actionUrl === "string" ? { actionUrl: extra.actionUrl } : {}),
+    });
+  });
+  return () => listener.unregister();
+}
+
+export async function focusDesktopMainWindow(): Promise<void> {
+  const core = getTauriCore();
+  if (!core) return;
+  await core.invoke("focus_main_window");
+}
+
+export async function checkDesktopUpdate(): Promise<DesktopUpdateInfo | null> {
+  if (!isDesktopRuntime()) return null;
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check({ timeout: 30_000 });
+  if (!update) return null;
+  const info = {
+    version: update.version,
+    notes: update.body ?? null,
+    date: update.date ?? null,
+  };
+  await update.close();
+  return info;
+}
+
+export async function installDesktopUpdate(): Promise<DesktopUpdateInfo | null> {
+  const core = getTauriCore();
+  if (!core) return null;
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check({ timeout: 30_000 });
+  if (!update) return null;
+  const info = {
+    version: update.version,
+    notes: update.body ?? null,
+    date: update.date ?? null,
+  };
+  try {
+    await update.downloadAndInstall();
+  } finally {
+    await update.close();
+  }
+  await core.invoke("restart_desktop");
+  return info;
+}
+
 export async function getDesktopEngineInfo(): Promise<DesktopEngineInfo | null> {
   const core = getTauriCore();
   if (!core) return null;
@@ -128,7 +208,10 @@ export async function startDesktopBridge(
 ): Promise<DesktopBridgeStatus> {
   const core = getTauriCore();
   if (!core) throw new Error("ShowPilot Desktop is not available");
-  return core.invoke<DesktopBridgeStatus>("start_bridge", { config });
+  return core.invoke<DesktopBridgeStatus>("start_bridge", {
+    config,
+    confirmedLocalNetwork: true,
+  });
 }
 
 export async function stopDesktopBridge(): Promise<void> {

@@ -10,6 +10,7 @@ use std::thread;
 use tauri::Manager;
 
 const MAX_LOG_LINES: usize = 80;
+const LOCAL_DEVICE_CONFIRMATION_VERSION: u8 = 1;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +18,10 @@ pub struct BridgeConfig {
     site: String,
     org: String,
     key: String,
+    #[serde(default)]
+    local_devices_enabled: bool,
+    #[serde(default)]
+    local_devices_confirmation_version: u8,
     #[serde(default)]
     propresenter_host: Option<String>,
     #[serde(default)]
@@ -59,9 +64,79 @@ impl BridgeRuntime {
 #[serde(rename_all = "camelCase")]
 pub struct BridgeStatus {
     configured: bool,
+    local_devices_enabled: bool,
     running: bool,
+    connection: BridgeConnection,
     pid: Option<u32>,
     logs: Vec<String>,
+    last_error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BridgeConnection {
+    Offline,
+    Connecting,
+    Connected,
+    Disconnected,
+    Unauthorized,
+    Error,
+}
+
+fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnection {
+    let normalized = line.to_ascii_lowercase();
+    if normalized.contains("authentication failed")
+        || normalized.contains("unexpected server response: 401")
+    {
+        BridgeConnection::Unauthorized
+    } else if normalized.contains("websocket error")
+        || normalized.contains("connection rejected")
+        || normalized.contains("unable to start")
+        || normalized.contains("output error")
+    {
+        BridgeConnection::Error
+    } else if normalized.contains("connected to showpilot") {
+        BridgeConnection::Connected
+    } else if normalized.contains("connecting to") {
+        BridgeConnection::Connecting
+    } else if normalized.contains("disconnected") {
+        if matches!(
+            current,
+            BridgeConnection::Unauthorized | BridgeConnection::Error
+        ) {
+            current
+        } else {
+            BridgeConnection::Disconnected
+        }
+    } else {
+        current
+    }
+}
+
+fn connection_from_logs(logs: &[String]) -> BridgeConnection {
+    let mut connection = BridgeConnection::Offline;
+    for line in logs {
+        connection = connection_from_log(connection, line);
+    }
+    connection
+}
+
+fn last_error_from_logs(logs: &[String]) -> Option<String> {
+    logs.iter().rev().find_map(|line| {
+        let trimmed = line.trim();
+        let normalized = trimmed.to_ascii_lowercase();
+        if normalized.starts_with("error:")
+            || normalized.contains("authentication failed")
+            || normalized.contains("connection rejected")
+            || normalized.contains("websocket error")
+            || normalized.contains("unable to start")
+            || normalized.contains("output error")
+        {
+            Some(trimmed.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 fn validate_config(config: &BridgeConfig) -> Result<(), String> {
@@ -85,6 +160,11 @@ fn validate_config(config: &BridgeConfig) -> Result<(), String> {
         return Err("A valid ShowPilot API key is required".into());
     }
     Ok(())
+}
+
+fn has_confirmed_local_device_ownership(config: &BridgeConfig) -> bool {
+    config.local_devices_enabled
+        && config.local_devices_confirmation_version == LOCAL_DEVICE_CONFIRMATION_VERSION
 }
 
 fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -195,7 +275,8 @@ fn bridge_command(config: &BridgeConfig) -> Result<Command, String> {
             config.site.trim().trim_end_matches('/'),
         )
         .env("SHOWPILOT_ORG", config.org.trim())
-        .env("SHOWPILOT_BRIDGE_KEY", config.key.trim());
+        .env("SHOWPILOT_BRIDGE_KEY", config.key.trim())
+        .env("SHOWPILOT_PARENT_PID", std::process::id().to_string());
     if let Some(host) = &config.propresenter_host {
         command.env("SHOWPILOT_PROPRESENTER_HOST", host);
     }
@@ -244,7 +325,11 @@ pub fn bridge_status(
     app: tauri::AppHandle,
     runtime: tauri::State<'_, BridgeRuntime>,
 ) -> Result<BridgeStatus, String> {
-    let configured = read_config(&app)?.is_some();
+    let saved_config = read_config(&app)?;
+    let configured = saved_config.is_some();
+    let local_devices_enabled = saved_config
+        .as_ref()
+        .is_some_and(has_confirmed_local_device_ownership);
     let mut process = runtime
         .process
         .lock()
@@ -287,10 +372,28 @@ pub fn bridge_status(
             .collect();
     }
 
+    let connection = if running {
+        connection_from_logs(&logs)
+    } else {
+        BridgeConnection::Offline
+    };
+    let last_error = if matches!(
+        connection,
+        BridgeConnection::Unauthorized | BridgeConnection::Error
+    ) || !running
+    {
+        last_error_from_logs(&logs)
+    } else {
+        None
+    };
+
     Ok(BridgeStatus {
         configured,
+        local_devices_enabled,
         running,
+        connection,
         pid,
+        last_error,
         logs,
     })
 }
@@ -298,9 +401,18 @@ pub fn bridge_status(
 #[tauri::command]
 pub fn start_bridge(
     app: tauri::AppHandle,
-    config: BridgeConfig,
+    mut config: BridgeConfig,
+    confirmed_local_network: bool,
     runtime: tauri::State<'_, BridgeRuntime>,
 ) -> Result<BridgeStatus, String> {
+    if !confirmed_local_network {
+        return Err(
+            "Confirm that this computer is connected to the equipment network before enabling local devices"
+                .to_string(),
+        );
+    }
+    config.local_devices_enabled = true;
+    config.local_devices_confirmation_version = LOCAL_DEVICE_CONFIRMATION_VERSION;
     let unchanged = read_config(&app)?.as_ref() == Some(&config);
     if unchanged {
         let running = runtime
@@ -320,15 +432,25 @@ pub fn start_bridge(
     let pid = replace_process(&runtime, &config)?;
     Ok(BridgeStatus {
         configured: true,
+        local_devices_enabled: true,
         running: true,
+        connection: BridgeConnection::Connecting,
         pid: Some(pid),
         logs: Vec::new(),
+        last_error: None,
     })
 }
 
 #[tauri::command]
-pub fn stop_bridge(runtime: tauri::State<'_, BridgeRuntime>) -> Result<(), String> {
+pub fn stop_bridge(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, BridgeRuntime>,
+) -> Result<(), String> {
     runtime.auto_restart.store(false, Ordering::Relaxed);
+    if let Some(mut config) = read_config(&app)? {
+        config.local_devices_enabled = false;
+        save_config(&app, &config)?;
+    }
     let mut process = runtime
         .process
         .lock()
@@ -348,11 +470,23 @@ pub fn start_supervisor(app: tauri::AppHandle) {
             .process
             .lock()
             .map(|mut process| match process.as_mut() {
-                Some(active) => active
-                    .child
-                    .try_wait()
-                    .map(|status| status.is_some())
-                    .unwrap_or(false),
+                Some(active) => {
+                    let stopped = active
+                        .child
+                        .try_wait()
+                        .map(|status| status.is_some())
+                        .unwrap_or(false);
+                    if stopped {
+                        if let (Ok(logs), Ok(mut previous)) =
+                            (active.logs.lock(), runtime.last_logs.lock())
+                        {
+                            previous.clear();
+                            previous.extend(logs.iter().cloned());
+                        }
+                        *process = None;
+                    }
+                    stopped
+                }
                 // bridge_status may already have reaped and cleared a dead child.
                 None => true,
             })
@@ -370,6 +504,12 @@ pub fn start_saved_bridge(app: &tauri::AppHandle) -> Result<(), String> {
     let Some(config) = read_config(app)? else {
         return Ok(());
     };
+    // Venue Bridge mode is the safe default. Automatically starting an
+    // embedded Bridge on every operator's Desktop would evict the one active
+    // venue agent from the organization's relay.
+    if !has_confirmed_local_device_ownership(&config) {
+        return Ok(());
+    }
     let runtime = app.state::<BridgeRuntime>();
     replace_process(&runtime, &config)?;
     Ok(())
@@ -384,6 +524,8 @@ mod tests {
             site: site.into(),
             org: org.into(),
             key: key.into(),
+            local_devices_enabled: false,
+            local_devices_confirmation_version: 0,
             propresenter_host: None,
             propresenter_port: None,
             propresenter_api_port: None,
@@ -409,5 +551,65 @@ mod tests {
             validate_config(&config("https://showpilot.tech", "../faithfire", "sp_test")).is_err()
         );
         assert!(validate_config(&config("https://showpilot.tech", "faithfire", "wrong")).is_err());
+    }
+
+    #[test]
+    fn requires_the_current_explicit_local_device_confirmation() {
+        let mut bridge = config("https://showpilot.tech", "faithfire-production", "sp_test");
+        bridge.local_devices_enabled = true;
+        assert!(!has_confirmed_local_device_ownership(&bridge));
+
+        bridge.local_devices_confirmation_version = LOCAL_DEVICE_CONFIRMATION_VERSION;
+        assert!(has_confirmed_local_device_ownership(&bridge));
+    }
+
+    #[test]
+    fn derives_cloud_connection_from_the_latest_bridge_log() {
+        let connected = vec![
+            "[bridge] Connecting to ShowPilot".to_string(),
+            "[bridge] Connected to ShowPilot".to_string(),
+        ];
+        assert_eq!(
+            connection_from_logs(&connected),
+            BridgeConnection::Connected
+        );
+
+        let disconnected = vec![
+            "[bridge] Connected to ShowPilot".to_string(),
+            "[bridge] Disconnected (code 1006)".to_string(),
+        ];
+        assert_eq!(
+            connection_from_logs(&disconnected),
+            BridgeConnection::Disconnected
+        );
+    }
+
+    #[test]
+    fn keeps_authentication_and_transport_failures_distinct() {
+        let unauthorized = vec![
+            "[bridge] Connecting to ShowPilot".to_string(),
+            "[bridge] Authentication failed (HTTP 401)".to_string(),
+            "[bridge] Disconnected (code 1006)".to_string(),
+        ];
+        assert_eq!(
+            connection_from_logs(&unauthorized),
+            BridgeConnection::Unauthorized
+        );
+
+        let error = vec!["[bridge] WebSocket error: DNS lookup failed".to_string()];
+        assert_eq!(connection_from_logs(&error), BridgeConnection::Error);
+    }
+
+    #[test]
+    fn preserves_a_crash_reason_for_the_desktop_status_bar() {
+        let logs = vec![
+            "stack frame".to_string(),
+            "error: native addon could not load".to_string(),
+            "Bun v1.4.0".to_string(),
+        ];
+        assert_eq!(
+            last_error_from_logs(&logs).as_deref(),
+            Some("error: native addon could not load")
+        );
     }
 }

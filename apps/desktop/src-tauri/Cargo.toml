@@ -1,6 +1,6 @@
 [package]
 name = "showpilot-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "ShowPilot local production engine"
 authors = ["ShowPilot"]
 edition = "2021"
@@ -17,3 +17,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2.10.1"
