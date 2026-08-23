@@ -23,7 +23,8 @@ interface ChatRelayEnv {}
 export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private sessions: Map<WebSocket, { userId?: string; name: string; role?: string; orgId: string; roomId: string }> = new Map();
   private recentMessages: ChatMessage[] = [];
-  private readonly MAX_MESSAGES = 2000;
+  /** Keep connection hydration bounded without treating that window as retention. */
+  private readonly HYDRATION_MESSAGE_LIMIT = 2000;
   private historyLoaded = false;
   private roomId = "production";
 
@@ -49,7 +50,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
     const rows = this.ctx.storage.sql.exec<{ payload: string }>(
       "SELECT payload FROM chat_messages ORDER BY timestamp DESC LIMIT ?",
-      this.MAX_MESSAGES,
+      this.HYDRATION_MESSAGE_LIMIT,
     ).toArray().reverse();
     if (rows.length) {
       this.recentMessages = rows.flatMap((row) => {
@@ -61,22 +62,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     // One-time compatibility migration from the original single-value store.
     const legacy = await this.ctx.storage.get<ChatMessage[]>("recentMessages");
     if (legacy?.length) {
-      this.persistMessages(legacy.slice(-this.MAX_MESSAGES));
-      this.recentMessages = legacy.slice(-this.MAX_MESSAGES);
+      for (const message of legacy) this.persistMessage(message);
+      this.recentMessages = legacy.slice(-this.HYDRATION_MESSAGE_LIMIT);
       await this.ctx.storage.delete("recentMessages");
     }
   }
 
-  private persistMessages(messages = this.recentMessages) {
-    this.ctx.storage.sql.exec("DELETE FROM chat_messages");
-    for (const message of messages) {
-      this.ctx.storage.sql.exec(
-        "INSERT INTO chat_messages (id, timestamp, payload) VALUES (?, ?, ?)",
-        message.id,
-        message.timestamp,
-        JSON.stringify(message),
-      );
-    }
+  private persistMessage(message: ChatMessage) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO chat_messages (id, timestamp, payload) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET timestamp = excluded.timestamp, payload = excluded.payload`,
+      message.id,
+      message.timestamp,
+      JSON.stringify(message),
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -85,7 +84,6 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
     if (url.pathname === "/ws") {
       this.roomId = url.searchParams.get("room") ?? "production";
-      await this.pruneHistory();
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
@@ -245,7 +243,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         const updated = { ...current, poll };
         const nextMessages = [...this.recentMessages];
         nextMessages[index] = updated;
-        this.persistMessages(nextMessages);
+        this.persistMessage(updated);
         this.recentMessages = nextMessages;
         this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
         respond(true);
@@ -271,7 +269,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         const updated = { ...current, reactions };
         const nextMessages = [...this.recentMessages];
         nextMessages[index] = updated;
-        this.persistMessages(nextMessages);
+        this.persistMessage(updated);
         this.recentMessages = nextMessages;
         this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
         respond(true);
@@ -293,7 +291,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         if (parsed.type === "edit" && !updated.text) { respond(false, "Message cannot be empty"); return; }
         const nextMessages = [...this.recentMessages];
         nextMessages[index] = updated;
-        this.persistMessages(nextMessages);
+        this.persistMessage(updated);
         this.recentMessages = nextMessages;
         this.broadcast(JSON.stringify({ type: parsed.type === "delete" ? "message-deleted" : "message-edited", message: updated }));
         respond(true);
@@ -314,19 +312,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   private async addMessage(message: ChatMessage) {
-    const nextMessages = [...this.recentMessages, message].slice(-this.MAX_MESSAGES);
-    this.persistMessages(nextMessages);
+    const nextMessages = [...this.recentMessages, message].slice(-this.HYDRATION_MESSAGE_LIMIT);
+    this.persistMessage(message);
     this.recentMessages = nextMessages;
-  }
-
-  private async pruneHistory() {
-    if (this.roomId !== "planning") return;
-    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const retained = this.recentMessages.filter((message) => message.timestamp >= weekAgo);
-    if (retained.length !== this.recentMessages.length) {
-      this.persistMessages(retained);
-      this.recentMessages = retained;
-    }
   }
 
   private cleanReply(reply: ChatMessage["replyTo"]): ChatMessage["replyTo"] {

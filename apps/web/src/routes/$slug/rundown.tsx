@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useEffect, useCallback, useRef, type DragEvent, type TouchEvent } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Play,
   Pause,
@@ -63,6 +63,7 @@ import { hasEffectivePermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import {
   DropdownMenu,
@@ -77,6 +78,7 @@ import {
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 
@@ -421,8 +423,6 @@ function RundownPage() {
   const [activeMessage, setActiveMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-  const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
 
   // Sync: accept DO state as source of truth, but ONLY after hydration.
   // Skip during date loads — loadDate() sets items directly and we don't
@@ -1015,69 +1015,20 @@ function RundownPage() {
     });
   }, [canEditRundown, sendRundownCommand, updateItems]);
 
-  const getTouchTargetItemId = useCallback((touch: { clientX: number; clientY: number }) => {
-    const element = document.elementFromPoint(touch.clientX, touch.clientY);
-    const row = element?.closest<HTMLElement>("[data-rundown-item-id]");
-    return row?.dataset.rundownItemId ?? null;
-  }, []);
-
-  const handleItemDragStart = useCallback((event: DragEvent<HTMLDivElement>, itemId: string) => {
-    if (!canEditRundown) return;
-    setDraggedItemId(itemId);
-    setDropTargetItemId(itemId);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", itemId);
-  }, [canEditRundown]);
-
-  const handleItemDragOver = useCallback((event: DragEvent<HTMLDivElement>, itemId: string) => {
-    if (!canEditRundown) return;
-    if (!draggedItemId || draggedItemId === itemId) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDropTargetItemId((current) => (current === itemId ? current : itemId));
-  }, [canEditRundown, draggedItemId]);
-
-  const handleItemDrop = useCallback((event: DragEvent<HTMLDivElement>, targetItemId: string) => {
-    event.preventDefault();
-    const sourceItemId = draggedItemId ?? event.dataTransfer.getData("text/plain");
-    setDraggedItemId(null);
-    setDropTargetItemId(null);
-    if (!canEditRundown || !sourceItemId || sourceItemId === targetItemId) return;
-
-    reorderItemsById(sourceItemId, targetItemId);
-  }, [canEditRundown, draggedItemId, reorderItemsById]);
-
-  const handleItemTouchStart = useCallback((itemId: string) => {
-    if (!canEditRundown) return;
-    setDraggedItemId(itemId);
-    setDropTargetItemId(itemId);
-  }, [canEditRundown]);
-
-  const handleItemTouchMove = useCallback((event: TouchEvent<HTMLDivElement>) => {
-    if (!canEditRundown || !draggedItemId) return;
-    const touch = event.touches[0];
-    if (!touch) return;
-
-    event.preventDefault();
-    const targetItemId = getTouchTargetItemId(touch);
-    if (!targetItemId || targetItemId === draggedItemId) return;
-    setDropTargetItemId((current) => (current === targetItemId ? current : targetItemId));
-  }, [canEditRundown, draggedItemId, getTouchTargetItemId]);
-
-  const handleItemTouchEnd = useCallback(() => {
-    const sourceItemId = draggedItemId;
-    const targetItemId = dropTargetItemId;
-    setDraggedItemId(null);
-    setDropTargetItemId(null);
-    if (!sourceItemId || !targetItemId || sourceItemId === targetItemId) return;
-
-    reorderItemsById(sourceItemId, targetItemId);
-  }, [draggedItemId, dropTargetItemId, reorderItemsById]);
-
-  const handleItemDragEnd = useCallback(() => {
-    setDraggedItemId(null);
-    setDropTargetItemId(null);
-  }, []);
+  const {
+    draggedItemId,
+    dropTargetItemId,
+    handleDragStart: handleItemDragStart,
+    handleDragOver: handleItemDragOver,
+    handleDrop: handleItemDrop,
+    handleTouchStart: handleItemTouchStart,
+    handleTouchMove: handleItemTouchMove,
+    handleTouchEnd: handleItemTouchEnd,
+    cancelDrag: handleItemDragEnd,
+  } = useRundownDragReorder({
+    enabled: canEditRundown,
+    onReorder: reorderItemsById,
+  });
 
   const handleEditItem = (id: string, title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
@@ -1246,8 +1197,7 @@ function RundownPage() {
             {!showId && <option value="">New show</option>}
             {shows.map((show) => (
               <option key={show.id} value={show.id}>
-                {show.name || formatDisplayDate(show.serviceDate)}
-                {show.scheduledStartTime ? ` · ${formatTimeInput(show.scheduledStartTime, settings["org-timezone"])}` : ""}
+                {formatServicePickerLabel(show, { timeZone: settings["org-timezone"] })}
               </option>
             ))}
           </select>

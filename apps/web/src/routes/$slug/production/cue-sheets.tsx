@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, ListOrdered, Plus, Settings2, Wifi, WifiOff 
 import { EmptyState } from "@/components/ui/empty-state";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
@@ -32,15 +33,6 @@ function notesFromRows(rows: { itemId: string; notes: Record<string, string> }[]
     if (Object.keys(row.notes).length > 0) out[row.itemId] = { ...row.notes };
   }
   return out;
-}
-
-function formatDisplayDate(dateStr: string): string {
-  return new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 /**
@@ -395,9 +387,7 @@ function CueSheetsPage() {
             >
               {pickerShows.map((show) => (
                 <option key={show.id} value={show.id}>
-                  {show.name || formatDisplayDate(show.serviceDate)}
-                  {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
-                  {show.serviceDate === today ? " · today" : ""}
+                  {formatServicePickerLabel(show, { timeZone: orgTimezone, today })}
                 </option>
               ))}
             </select>
