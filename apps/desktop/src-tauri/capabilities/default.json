@@ -6,5 +6,5 @@
   "remote": {
     "urls": ["https://showpilot.tech/*"]
   },
-  "permissions": ["core:default", "notification:default"]
+  "permissions": ["core:default", "notification:default", "updater:default"]
 }

@@ -20,6 +20,9 @@
       "esbuild",
       "workerd",
       "sharp"
-    ]
+    ],
+    "patchedDependencies": {
+      "atem-connection@3.9.0": "patches/atem-connection@3.9.0.patch"
+    }
   }
 }

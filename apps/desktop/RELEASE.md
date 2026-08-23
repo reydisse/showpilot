@@ -22,17 +22,24 @@ we do not publish macOS downloads that Gatekeeper reports as damaged.
    - `APPLE_ID`: notarization Apple Account email
    - `APPLE_PASSWORD`: the app-specific password, not the Apple Account password
    - `APPLE_TEAM_ID`: Apple Developer Team ID
+   - `TAURI_SIGNING_PRIVATE_KEY`: updater signing key used by Desktop and Bridge
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: updater key password
 
 ## Release a version
 
 1. Confirm the desktop package, Cargo package and Tauri config versions match.
 2. Run the web, Bridge and Rust tests, then build an application bundle locally.
 3. Push the reviewed desktop branch and merge it through its pull request.
-4. Tag the merge commit, for example `desktop-v0.1.0`, and push the tag.
+4. Tag the merge commit, for example `desktop-v0.1.1`, and push the tag.
 5. Wait for all four platform jobs. On macOS, verify signing, notarization and
    stapling succeeded. Test the Apple Silicon DMG on a second Mac after downloading
    it through a browser so Gatekeeper evaluates the quarantined artifact.
 6. Publish the GitHub draft release only after the smoke test passes.
+7. Upload each signed updater bundle and installer to the private downloads R2
+   bucket. Add the updater bundle's matching `.sig` contents to the release
+   manifest as `updaterSignature`, then publish the manifest last. Desktop
+   checks `https://www.showpilot.tech/updates/desktop/latest.json`; it never
+   reads the repository-wide GitHub “latest release.”
 
 Never send certificate files, private keys, passwords or notarization credentials
 in chat or commit them to the repository.

@@ -12,20 +12,24 @@ Add these repository secrets before creating the first public release:
 - `TAURI_SIGNING_PRIVATE_KEY`: the complete contents of the private updater key
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the key password (empty only if the key
   was deliberately generated without one)
-- `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, and
-  `APPLE_SIGNING_IDENTITY`: Developer ID Application signing credentials
+- `APPLE_CERTIFICATE` and `APPLE_CERTIFICATE_PASSWORD`: Developer ID
+  Application signing credentials
+- `APPLE_SIGNING_IDENTITY`: optional explicit identity; Tauri infers it from
+  `APPLE_CERTIFICATE` when this secret is absent
 - `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID`: notarization credentials
 
-The updater public key is embedded in `src-tauri/tauri.conf.json`. Never commit
+The updater public key and product-specific ShowPilot update endpoint are
+embedded in `src-tauri/tauri.conf.json`. Never commit
 the private key. The fresh local key generated while preparing this bundle is at
 `/private/tmp/showpilot-bridge-updater-key-v2`; move it to a password manager and
 GitHub Actions secret before publishing.
 
 ## Release a version
 
-1. Update the version in `package.json`, `src-tauri/Cargo.toml`, and
-   `src-tauri/tauri.conf.json` so the installer and updater report the same
-   version.
+1. Update the version in `package.json`, `src-tauri/Cargo.toml`,
+   `src-tauri/tauri.conf.json`, and `../bridge/package.json` so the installer,
+   updater, and embedded engine report the same version. Packaging refuses to
+   run when they differ.
 2. Run `pnpm install --lockfile-only` if package metadata changed.
 3. Verify locally with `pnpm -C apps/bridge-desktop build`,
    `pnpm -C apps/bridge build`, and
@@ -34,13 +38,18 @@ GitHub Actions secret before publishing.
 5. Create and push a tag, for example:
 
    ```bash
-   git tag bridge-v0.1.7
-   git push origin bridge-v0.1.7
+   git tag bridge-v0.1.8
+   git push origin bridge-v0.1.8
    ```
 
 The workflow builds macOS Intel/Apple Silicon, Windows, and Linux installers,
 signs updater artifacts, and creates a draft GitHub release. Review the assets
-and publish the draft when the release notes and signing checks are complete.
+and publish the draft only when the release notes, signing checks, and clean-
+machine smoke tests are complete. Upload the approved installers and signed
+updater bundles to the private downloads R2 bucket, then publish the release
+manifest last by following `apps/landing/RELEASES.md`. Bridge checks
+`https://www.showpilot.tech/updates/bridge/latest.json`; it never reads the
+repository-wide GitHub “latest release.”
 
 Label the download choices prominently in every published release:
 

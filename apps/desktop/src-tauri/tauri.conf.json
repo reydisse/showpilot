@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ShowPilot Desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "tech.showpilot.desktop",
   "build": {
     "beforeDevCommand": "pnpm -C ../web exec vite dev --port 3001 --strictPort",
@@ -22,7 +22,7 @@
         "resizable": true,
         "fullscreen": false,
         "backgroundColor": "#090a0b",
-        "userAgent": "ShowPilotDesktop/0.1.0"
+        "userAgent": "ShowPilotDesktop/0.1.1"
       }
     ],
     "security": { "csp": null }
@@ -44,5 +44,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGNjgyQUY5NUU2QTQwOTkKUldTWlFHcGUrU3BvLzY5cUdieDNhdk9MeWhVcjhybU1BRURVbUNuZmhkbG1ZRTFHVlZjS3Z6NkIK",
+      "endpoints": [
+        "https://www.showpilot.tech/updates/desktop/latest.json"
+      ]
+    }
   }
 }

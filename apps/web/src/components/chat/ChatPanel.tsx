@@ -25,6 +25,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
+import { insertMention as insertMentionText, mentionedUserIds, mentionSearch } from "@/lib/chat-mentions";
 
 // -- Role badge component --
 
@@ -339,11 +340,6 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function includesMention(text: string, name: string): boolean {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\s)@${escapedName}(?=\\s|$|[.,!?;:])`, "i").test(text);
-}
-
 // -- Main ChatPanel --
 
 interface ChatPanelProps {
@@ -540,7 +536,7 @@ export function ChatPanel({
     onSendMessage(inputText.trim(), messageType, {
       replyTo: replyingTo ? { messageId: replyingTo.id, senderName: replyingTo.senderName, text: replyingTo.text } : undefined,
       attachments: pendingAttachments.length ? pendingAttachments : undefined,
-      mentionedUserIds: mentionMembers.filter((member) => includesMention(inputText, member.name)).map((member) => member.userId),
+      mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
     });
     setInputText("");
     setReplyingTo(null);
@@ -596,13 +592,13 @@ export function ChatPanel({
     }
   };
 
-  const mentionQuery = inputText.match(/(?:^|\s)@([^\n@]*)$/)?.[1]?.toLowerCase();
-  const mentionSuggestions = mentionQuery === undefined ? [] : mentionMembers
+  const mentionQuery = mentionSearch(inputText);
+  const mentionSuggestions = mentionQuery === null ? [] : mentionMembers
     .filter((member) => member.name.toLowerCase().includes(mentionQuery))
     .slice(0, 5);
 
   const insertMention = (member: ChatMemberSummary) => {
-    setInputText((current) => current.replace(/(?:^|\s)@([^\n@]*)$/, (match) => `${match.startsWith(" ") ? " " : ""}@${member.name} `));
+    setInputText((current) => insertMentionText(current, member.name));
     textareaRef.current?.focus();
   };
 
