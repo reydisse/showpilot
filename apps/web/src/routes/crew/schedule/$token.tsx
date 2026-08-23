@@ -3,7 +3,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/crew-schedule";
 import { orgTerms } from "@/lib/org-terminology";
 import { formatWallTime } from "@/lib/utils";
+import { isCrewScheduleResponseOpen } from "@/lib/crew-schedule-response";
 
 export const Route = createFileRoute("/crew/schedule/$token")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -60,6 +61,8 @@ function CrewSchedulePortal() {
   const [busy, setBusy] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState("");
+  const [responseError, setResponseError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(data.responseAsOf);
   const selected = useMemo(
     () =>
       data.assignments.find((assignment) => assignment.id === requestedId) ??
@@ -67,9 +70,36 @@ function CrewSchedulePortal() {
       null,
     [data.assignments, requestedId],
   );
+  const selectedClosesAt =
+    selected?.responseWindow.status === "open"
+      ? selected.responseWindow.closesAt
+      : null;
+  useEffect(() => {
+    const closesAt = selectedClosesAt
+      ? new Date(selectedClosesAt).getTime()
+      : null;
+    if (closesAt === null || !Number.isFinite(closesAt)) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refreshAtDeadline = () => {
+      const remaining = closesAt - Date.now();
+      if (remaining <= 0) {
+        setNowMs(Date.now());
+        return;
+      }
+      timer = setTimeout(
+        refreshAtDeadline,
+        Math.min(remaining + 25, 2_147_483_647),
+      );
+    };
+    refreshAtDeadline();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [selectedClosesAt]);
   const respond = async (response: "confirmed" | "declined") => {
     if (!selected) return;
     setBusy(true);
+    setResponseError(null);
     try {
       await respondToCrewScheduleInvite({
         data: {
@@ -81,6 +111,11 @@ function CrewSchedulePortal() {
       });
       setDeclining(false);
       await router.invalidate();
+    } catch (error) {
+      setNowMs(Date.now());
+      setResponseError(
+        error instanceof Error ? error.message : "Could not save your response",
+      );
     } finally {
       setBusy(false);
     }
@@ -102,6 +137,10 @@ function CrewSchedulePortal() {
     );
   const confirmed = selected.status === "confirmed";
   const declined = selected.status === "declined";
+  const closed =
+    !confirmed &&
+    !declined &&
+    !isCrewScheduleResponseOpen(selected.responseWindow, nowMs);
   const terms = orgTerms(data.terminologyProfile);
 
   return (
@@ -113,6 +152,8 @@ function CrewSchedulePortal() {
             <Check className="h-6 w-6" />
           ) : declined ? (
             <X className="h-6 w-6" />
+          ) : closed ? (
+            <LockKeyhole className="h-6 w-6" />
           ) : (
             <CalendarDays className="h-6 w-6" />
           )}
@@ -122,14 +163,18 @@ function CrewSchedulePortal() {
             ? "You’re scheduled"
             : declined
               ? "Response received"
-              : `Can you ${terms.participate}?`}
+              : closed
+                ? "Response closed"
+                : `Can you ${terms.participate}?`}
         </h1>
         <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-board-muted">
           {confirmed
             ? "Thanks! You’re all set for this assignment."
             : declined
               ? "Thanks for letting the team know."
-              : `Hi ${data.crewName}, please respond to this ${terms.event} request.`}
+              : closed
+                ? "This service ended before a response was received. Contact your team leader if the schedule needs to change."
+                : `Hi ${data.crewName}, please respond to this ${terms.event} request.`}
         </p>
       </header>
       <section className="divide-y divide-board-border">
@@ -155,7 +200,12 @@ function CrewSchedulePortal() {
           />
         ) : null}
       </section>
-      {!confirmed && !declined ? (
+      {responseError ? (
+        <p className="mt-5 rounded-xl border border-red-500/25 bg-red-500/[0.06] px-4 py-3 text-sm text-red-300">
+          {responseError}
+        </p>
+      ) : null}
+      {!confirmed && !declined && !closed ? (
         <section className="space-y-3 pt-6">
           {declining ? (
             <div className="space-y-3">
@@ -254,9 +304,13 @@ function CrewSchedulePortal() {
                     </span>
                   </span>
                   <span
-                    className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${assignment.status === "confirmed" ? "text-green-400" : "text-fire-400"}`}
+                    className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${assignment.status === "confirmed" ? "text-green-400" : isCrewScheduleResponseOpen(assignment.responseWindow, nowMs) ? "text-fire-400" : "text-board-muted"}`}
                   >
-                    {assignment.status === "confirmed" ? "Accepted" : "Reply"}
+                    {assignment.status === "confirmed"
+                      ? "Accepted"
+                      : isCrewScheduleResponseOpen(assignment.responseWindow, nowMs)
+                        ? "Reply"
+                        : "Closed"}
                   </span>
                 </button>
               ))}
