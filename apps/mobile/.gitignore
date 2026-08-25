@@ -35,7 +35,6 @@ yarn-error.*
 *.tsbuildinfo
 
 # unused create-expo-app template files
-/assets/
 /.vscode/
 /LICENSE
 

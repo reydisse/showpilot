@@ -1,6 +1,6 @@
 # ShowPilot development handoff
 
-Updated: 2026-08-23 (Africa/Accra)
+Updated: 2026-08-25 (Africa/Accra)
 
 Read this file, `CLAUDE.md`, and the live Git state before making changes. Always
 check whether the intended branch/worktree already exists before creating one.
@@ -9,13 +9,12 @@ check whether the intended branch/worktree already exists before creating one.
 
 - Repository: `reydisse/showpilot`
 - Production branch: `main`
-- Current checkout: `/Users/aopare/faithfire-cf`
-- Production commit: `44a60a6`, merged by
-  [PR #44](https://github.com/reydisse/showpilot/pull/44).
-- GitHub CI and the D1 migration-manifest gate passed for `44a60a6`.
-- The protected deploy workflow released Cloudflare version
-  `e7f6b767-bdc8-4aa7-9b7b-51ea62821948` on 2026-08-23.
-- `https://showpilot.tech/api/health` reports `44a60a6f429c86979a4adc77aefb24a9a5d635fc`.
+- Production checkout: `/Users/aopare/faithfire-cf`
+- Launch-candidate worktree: `/private/tmp/showpilot-launch-candidate`
+- Production commit: `5e630c2`, merged by
+  [PR #46](https://github.com/reydisse/showpilot/pull/46).
+- `https://showpilot.tech/api/health` reported
+  `5e630c2a1ee9d884a9f80858eb5039d83d019131` on 2026-08-25.
 - The root checkout is clean on `main`. The merged remote feature branch was
   deleted.
 
@@ -110,7 +109,8 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 
 - The migration manifest records migrations through
   `0029_weekly_access_grants.sql`.
-- This integration adds no new migration.
+- The launch candidate adds `0030_multitenant_push_subscriptions.sql` and
+  `0031_expo_push_receipts.sql`. Neither is applied to production yet.
 - Do not run a remote migration merely for local testing.
 - Future code changes must start on a checked, purpose-specific feature/fix
   branch and require fresh authorization before push, merge, deployment,
@@ -125,16 +125,30 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - `apps/bridge-desktop` is the standalone Bridge supervisor/tray installer.
 - Do not confuse the full desktop product with the standalone Bridge app.
 
-## Separate React Native work
+## Launch candidate and React Native app
 
-- `/private/tmp/showpilot-react-native-mobile` remains on
-  `feature/react-native-mobile`.
-- That worktree contains uncommitted React Native source, mobile API changes,
-  and `0030_multitenant_push_subscriptions.sql`.
-- The branch still starts at `9a1bfe5`. Merge current `main` into the feature
-  branch and resolve its overlapping Worker files before release validation.
-- Do not apply migration `0030` or deploy the mobile API until that branch has
-  passed its mobile, web, and migration checks.
+- `release/launch-candidate-2026-08-25` integrates the completed UI,
+  landing/download, and React Native branches. The integration merge is
+  `6e5db6b`; it is local only and has not been pushed or deployed.
+- The native app is Expo SDK 54 / React Native 0.81.5 and targets the production
+  API by default. Its package IDs are `tech.showpilot.mobile` on iOS and
+  Android.
+- The app includes native authentication, organization switching, rundown and
+  timer synchronization, schedule responses, chat, incidents, Bridge-backed
+  device controls, notifications, and profile-photo updates.
+- Store-safe icon sources and 1024x1024 platform PNGs live in
+  `apps/mobile/assets`. The verifier rejects transparent iOS icons, changed
+  package IDs, and unused camera or microphone permissions.
+- Full launch-candidate verification passed: 554 web tests, 19 landing tests,
+  web production build, both Wrangler dry runs, all-platform mobile export, and
+  Expo Doctor 18/18.
+- Native push delivery still needs an EAS project ID, platform credentials, and
+  a signed development build. Apple distribution also waits on the owner's
+  developer enrollment. Those external actions are not authorized or complete.
+- Before deploying the mobile Worker endpoints, apply migrations 0030 and 0031
+  through the protected migration workflow, then perform signed-device push,
+  profile upload, organization switching, chat, Bridge control, and
+  multi-operator rundown tests.
 - Existing web, Desktop `0.1.0`, Desktop `0.1.1`, and Bridge `0.1.7` clients
   remain compatible with the current production protocol. Older Desktop builds
   do not have the new native updater, notification, or local-device controls.
