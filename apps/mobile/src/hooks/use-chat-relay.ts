@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
-import { authClient } from "@/lib/auth-client";
+import {
+  createAuthenticatedWebSocket,
+  getAuthenticatedFetchCredentials,
+  getNativeCookieHeader,
+} from "@/lib/auth-transport";
 import {
   compareChatMessages,
   mergeChatMessage,
@@ -15,12 +19,6 @@ import { SHOWPILOT_URL } from "@/lib/env";
 export type { MobileChatMessage } from "@/lib/chat-history";
 
 type Status = "connecting" | "connected" | "reconnecting" | "offline";
-
-type NativeWebSocketConstructor = new (
-  uri: string,
-  protocols?: string | string[] | null,
-  options?: { headers: Record<string, string> } | null,
-) => WebSocket;
 
 function chatUrl(orgId: string, roomId: string) {
   const url = new URL(SHOWPILOT_URL);
@@ -83,8 +81,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
 
     function connect() {
       if (disposed || AppState.currentState !== "active") return;
-      const NativeWebSocket = WebSocket as unknown as NativeWebSocketConstructor;
-      const socket = new NativeWebSocket(chatUrl(activeOrgId, roomId), null, { headers: { Cookie: authClient.getCookie() } });
+      const socket = createAuthenticatedWebSocket(chatUrl(activeOrgId, roomId));
       socketRef.current = socket;
       setStatus(attempts ? "reconnecting" : "connecting");
       socket.onopen = () => {
@@ -161,7 +158,8 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     setLoadingOlder(true);
     try {
       const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
-        headers: { Accept: "application/json", Cookie: authClient.getCookie() },
+        credentials: getAuthenticatedFetchCredentials(),
+        headers: { Accept: "application/json", ...getNativeCookieHeader() },
       });
       if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
       const payload: unknown = await response.json();

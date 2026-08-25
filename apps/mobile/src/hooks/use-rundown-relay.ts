@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
-import { authClient } from "@/lib/auth-client";
+import { createAuthenticatedWebSocket } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
 import type { RundownItem, RundownTimer } from "@/lib/mobile-api";
 import { normalizeRelayItems, normalizeRelayTimer } from "@/lib/rundown-state";
@@ -20,12 +20,6 @@ interface RelayState {
   serviceDate: string | null;
   showId: string | null;
 }
-
-type NativeWebSocketConstructor = new (
-  uri: string,
-  protocols?: string | string[] | null,
-  options?: { headers: Record<string, string> } | null,
-) => WebSocket;
 
 const EMPTY_TIMER: RundownTimer = {
   playback: "stop",
@@ -168,10 +162,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       if (existing?.readyState === WebSocket.OPEN || existing?.readyState === WebSocket.CONNECTING) return;
 
       setStatus(attempts ? "reconnecting" : "connecting");
-      const NativeWebSocket = WebSocket as unknown as NativeWebSocketConstructor;
-      const socket = new NativeWebSocket(relayUrl(orgId, serviceDate, showId), null, {
-        headers: { Cookie: authClient.getCookie() },
-      });
+      const socket = createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId));
       socketRef.current = socket;
       hydratedRef.current = false;
 

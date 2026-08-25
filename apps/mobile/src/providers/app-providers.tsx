@@ -1,6 +1,5 @@
 import { focusManager, onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Network from "expo-network";
-import * as Notifications from "expo-notifications";
 import * as SystemUI from "expo-system-ui";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { AppState, Platform } from "react-native";
@@ -8,16 +7,20 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAppTheme } from "@/theme/tokens";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
 if (Platform.OS !== "web") {
+  void import("expo-notifications").then((Notifications) => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  }).catch(() => {
+    // Notification setup must never block the application from starting.
+  });
+
   onlineManager.setEventListener((setOnline) => {
     const updateOnlineState = (state: Network.NetworkState) => {
       setOnline(state.isConnected !== false && state.isInternetReachable !== false);

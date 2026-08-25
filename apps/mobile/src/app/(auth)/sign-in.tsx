@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Link, router } from "expo-router";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import { AppButton } from "@/components/app-button";
 import { AppField } from "@/components/app-field";
 import { BrandMark } from "@/components/brand-mark";

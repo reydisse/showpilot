@@ -145,6 +145,13 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - Full launch-candidate verification passed: 557 web tests, 19 landing tests,
   web production build, both Wrangler dry runs, all-platform mobile export, and
   Expo Doctor 18/18.
+- Follow-up branch `fix/mobile-api-cors` is local-only on top of the launch
+  candidate. It fixes credentialed Expo web auth, private-LAN trusted origins,
+  browser-safe chat/rundown WebSockets, and native-only notifications/haptics.
+  Rendered 390x844 QA passed sign-in, organization selection, every primary
+  tab, profile-name save, chat send/echo, and live rundown connection. Its full
+  verification passes 560 web tests, the production web build, all-platform
+  mobile export, and Expo Doctor 18/18.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

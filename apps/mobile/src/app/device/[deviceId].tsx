@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Cable, CheckCircle2, CirclePower, RadioTower, ShieldAlert } from "lucide-react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";

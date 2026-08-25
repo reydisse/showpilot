@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Hash, Send, Wifi, WifiOff } from "lucide-react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import {
   FlatList,
   KeyboardAvoidingView,

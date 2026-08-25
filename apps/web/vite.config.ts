@@ -18,7 +18,12 @@ const config = defineConfig({
   server: {
     allowedHosts: true,
     host: true,
-    cors: true,
+    // Expo's web target talks to this server from Metro's dev origin. Reflect
+    // that origin so credentialed Better Auth requests are valid in local QA.
+    cors: {
+      origin: true,
+      credentials: true,
+    },
     hmr: false,
   },
   plugins: [

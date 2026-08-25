@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fetch as expoFetch, type FetchRequestInit } from "expo/fetch";
 import { File } from "expo-file-system";
 import { Platform } from "react-native";
-import { authClient } from "@/lib/auth-client";
+import { getAuthenticatedFetchCredentials, getNativeCookieHeader } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
 
 const rundownSchema = z.object({
@@ -164,13 +164,13 @@ export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
 
 async function authenticatedFetch(path: string, init?: FetchRequestInit) {
-  const cookie = authClient.getCookie();
   const response = await expoFetch(`${SHOWPILOT_URL}${path}`, {
     ...init,
+    credentials: getAuthenticatedFetchCredentials() ?? init?.credentials,
     headers: {
       Accept: "application/json",
       ...(typeof init?.body === "string" ? { "Content-Type": "application/json" } : {}),
-      Cookie: cookie,
+      ...getNativeCookieHeader(),
       ...init?.headers,
     },
   });

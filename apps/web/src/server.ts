@@ -7,6 +7,7 @@ import { chatRelayKey } from "./lib/chat-relay-key";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
+import { isLocalDevelopmentHost } from "./lib/auth-origins";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -53,20 +54,12 @@ function isAllowedApiOrigin(origin: string | null): boolean {
   if (
     host === "showpilot.tech" ||
     host === "admin.showpilot.tech" ||
-    host === "showpilot.reydisse.workers.dev" ||
-    /^\d+\.\d+\.\d+\.\d+$/.test(host)
+    host === "showpilot.reydisse.workers.dev"
   ) {
     return true;
   }
 
-  if (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "192.168.2.73" ||
-    host === "192.168.2.108"
-  ) {
-    return true;
-  }
+  if (parsed.protocol === "http:" && isLocalDevelopmentHost(host)) return true;
 
   if (host.endsWith(".showpilot.tech")) return true;
 
@@ -269,11 +262,11 @@ export default {
     const authMatch = url.pathname.match(/^\/api\/auth(?:\/.*)?$/);
     if (authMatch) {
       const auth = getAuth();
-      return await auth.handler(request);
+      return withApiCorsHeaders(request, await auth.handler(request));
     }
 
     const mobileResponse = await handleMobileApi(request, e);
-    if (mobileResponse) return mobileResponse;
+    if (mobileResponse) return withApiCorsHeaders(request, mobileResponse);
 
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
     if (tcMatch) {

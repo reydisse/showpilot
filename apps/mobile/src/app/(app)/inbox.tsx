@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Bell, CheckCheck, Info } from "lucide-react-native";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { markAllNotificationsRead, markNotificationRead } from "@/lib/mobile-api";

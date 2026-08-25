@@ -5,6 +5,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
+import { getDevelopmentTrustedOrigins } from "@/lib/auth-origins";
 import {
   sendEmail,
   passwordResetEmail,
@@ -129,6 +130,8 @@ export function getAuth() {
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001",
       "http://127.0.0.1:5173",
+      "http://localhost:8081",
+      "http://127.0.0.1:8081",
       "http://192.168.2.73:5173",
       "http://192.168.2.108:3000",
       "http://192.168.2.108:5173",
@@ -139,6 +142,7 @@ export function getAuth() {
       "https://*.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",
       "showpilot://",
+      ...getDevelopmentTrustedOrigins(baseURL),
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
     emailVerification: {

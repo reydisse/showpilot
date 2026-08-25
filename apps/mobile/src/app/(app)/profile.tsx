@@ -3,7 +3,7 @@ import { BellRing, Building2, Camera, LogOut, Mail, Save, Shield, UserRound } fr
 import { Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Constants from "expo-constants";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { AppButton } from "@/components/app-button";

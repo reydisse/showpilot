@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import * as Notifications from "expo-notifications";
+import type { NotificationResponse } from "expo-notifications";
 import { Platform } from "react-native";
 import { saveMobilePushToken } from "@/lib/mobile-api";
 import { getNativePushToken } from "@/lib/native-notifications";
@@ -11,7 +11,8 @@ export function useNativePushRegistration(orgId?: string) {
     if (!orgId || !nativePlatform) return;
     let disposed = false;
 
-    void Notifications.getPermissionsAsync().then(async (permission) => {
+    void import("expo-notifications").then(async (Notifications) => {
+      const permission = await Notifications.getPermissionsAsync();
       if (disposed || permission.status !== "granted") return;
       const token = await getNativePushToken();
       if (!disposed && token) await saveMobilePushToken(orgId, token, nativePlatform);
@@ -26,15 +27,26 @@ export function useNativePushRegistration(orgId?: string) {
   }, [nativePlatform, orgId]);
 
   useEffect(() => {
-    const openNotification = (response: Notifications.NotificationResponse) => {
+    if (!nativePlatform) return;
+    let disposed = false;
+    let removeListener: (() => void) | undefined;
+    const openNotification = (response: NotificationResponse) => {
       openNotificationDestination(response.notification.request.content.data?.url);
     };
-    const subscription = Notifications.addNotificationResponseReceivedListener(openNotification);
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
+    void import("expo-notifications").then(async (Notifications) => {
+      if (disposed) return;
+      const subscription = Notifications.addNotificationResponseReceivedListener(openNotification);
+      removeListener = () => subscription.remove();
+      const response = await Notifications.getLastNotificationResponseAsync();
+      if (!response || disposed) return;
       openNotification(response);
-      void Notifications.clearLastNotificationResponseAsync();
+      await Notifications.clearLastNotificationResponseAsync();
+    }).catch(() => {
+      // Native notification routing is best-effort during app startup.
     });
-    return () => subscription.remove();
-  }, []);
+    return () => {
+      disposed = true;
+      removeListener?.();
+    };
+  }, [nativePlatform]);
 }

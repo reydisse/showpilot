@@ -1,6 +1,5 @@
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 function projectId() {
@@ -11,12 +10,14 @@ export async function getNativePushToken() {
   if (!Device.isDevice) return null;
   const id = projectId();
   if (!id) return null;
+  const Notifications = await import("expo-notifications");
   const token = await Notifications.getExpoPushTokenAsync({ projectId: id });
   return token.data;
 }
 
 export async function enableNativeNotifications() {
   if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
+  const Notifications = await import("expo-notifications");
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("show-operations", {

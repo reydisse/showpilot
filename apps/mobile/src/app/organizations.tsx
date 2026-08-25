@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Building2, Check, ChevronRight } from "lucide-react-native";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router } from "expo-router";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "@/lib/haptics";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";

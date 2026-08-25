@@ -6,6 +6,7 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 
 - Email/password authentication and organization switching
 - Recoverable network errors plus foreground/reconnect refresh
+- Platform-correct authenticated HTTP and WebSocket transport on native and Expo web
 - Command center, upcoming shows, and permission-aware live rundown controls
 - Multi-operator timer synchronization with reconnect and queued commands
 - Crew schedule, custom call times, and assignment accept/decline responses
@@ -14,6 +15,10 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 - Incident reporting plus permission-checked ATEM and X32/WING control through the venue Bridge
 - Scrollable inbox with destination-aware notification and push navigation
 - Profile name, profile photo, workspace, sign-out, and push settings
+
+Native-only notification and haptic modules are not evaluated by the web
+target. Browser authentication uses credentialed cookies, while iOS and Android
+keep session cookies in SecureStore and attach them to native requests.
 
 The app is an Expo managed project. `ios/`, `android/`, build output, generated assets, and local signing material are intentionally ignored and must be regenerated from `app.json` and the package manifest.
 
