@@ -7,7 +7,7 @@ import { chatRelayKey } from "./lib/chat-relay-key";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
-import { isLocalDevelopmentHost } from "./lib/auth-origins";
+import { isAllowedApiOrigin } from "./lib/auth-origins";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -40,35 +40,9 @@ interface D1Database {
   };
 }
 
-function isAllowedApiOrigin(origin: string | null): boolean {
-  if (!origin) return false;
-
-  let parsed: URL;
-  try {
-    parsed = new URL(origin);
-  } catch {
-    return false;
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "showpilot.tech" ||
-    host === "admin.showpilot.tech" ||
-    host === "showpilot.reydisse.workers.dev"
-  ) {
-    return true;
-  }
-
-  if (parsed.protocol === "http:" && isLocalDevelopmentHost(host)) return true;
-
-  if (host.endsWith(".showpilot.tech")) return true;
-
-  return false;
-}
-
 function withApiCorsHeaders(request: Request, response: Response): Response {
   const origin = request.headers.get("origin");
-  if (!origin || !isAllowedApiOrigin(origin)) return response;
+  if (!origin || !isAllowedApiOrigin(origin, request.url)) return response;
 
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", origin);
@@ -245,7 +219,7 @@ export default {
         "Access-Control-Max-Age": "86400",
       };
 
-      if (isAllowedApiOrigin(corsOrigin)) {
+      if (isAllowedApiOrigin(corsOrigin, request.url)) {
         corsHeaders["Access-Control-Allow-Origin"] = corsOrigin!;
         corsHeaders["Access-Control-Allow-Credentials"] = "true";
         corsHeaders["Vary"] = "Origin";

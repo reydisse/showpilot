@@ -1,5 +1,6 @@
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { networkInterfaces } from 'node:os'
 import { defineConfig } from 'vite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -13,6 +14,18 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 
 const cloudflareWorkersShim = path.resolve(__dirname, './src/lib/cloudflare-workers-shim.ts')
 const prismaClientShim = path.resolve(__dirname, './src/lib/prisma-client-shim.ts')
+const developmentHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+for (const addresses of Object.values(networkInterfaces())) {
+  for (const address of addresses ?? []) {
+    if (address.family === 'IPv4' && !address.internal) developmentHosts.add(address.address)
+  }
+}
+const developmentPorts = [3000, 3001, 5173, 8081]
+const credentialedDevOrigins = [
+  /^https:\/\/(?:[a-z0-9-]+\.)*showpilot\.tech$/,
+  'https://showpilot.reydisse.workers.dev',
+  ...[...developmentHosts].flatMap((host) => developmentPorts.map((port) => `http://${host}:${port}`)),
+]
 
 const config = defineConfig({
   server: {
@@ -21,7 +34,7 @@ const config = defineConfig({
     // Expo's web target talks to this server from Metro's dev origin. Reflect
     // that origin so credentialed Better Auth requests are valid in local QA.
     cors: {
-      origin: true,
+      origin: credentialedDevOrigins,
       credentials: true,
     },
     hmr: false,
