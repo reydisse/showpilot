@@ -96,13 +96,7 @@ function LoginPage() {
       </div>
 
       {/* Card */}
-      <div
-        className="rounded-2xl border border-white/[0.08] p-8 shadow-2xl backdrop-blur-xl"
-        style={{
-          background:
-            "linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)",
-        }}
-      >
+      <div className="rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
         <h2 className="mb-6 text-center text-xl font-semibold text-board-text">
           {isSignUp ? "Create your account" : "Welcome back"}
         </h2>
@@ -123,7 +117,7 @@ function LoginPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
             </div>
           )}
@@ -142,7 +136,7 @@ function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+              className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
             />
           </div>
 
@@ -172,7 +166,7 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 6 characters"
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
               <button
                 type="button"
@@ -191,7 +185,7 @@ function LoginPage() {
 
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-              <p className="text-sm text-red-300">{error}</p>
+              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
             </div>
           )}
 
@@ -229,11 +223,11 @@ function LoginPage() {
         </form>
 
         <div className="my-6 flex items-center gap-3">
-          <div className="h-px flex-1 bg-white/[0.06]" />
+          <div className="h-px flex-1 bg-board-border" />
           <span className="text-xs text-board-muted">
             {isSignUp ? "Already have an account?" : "New to ShowPilot?"}
           </span>
-          <div className="h-px flex-1 bg-white/[0.06]" />
+          <div className="h-px flex-1 bg-board-border" />
         </div>
 
         <button
@@ -242,7 +236,7 @@ function LoginPage() {
             setIsSignUp(!isSignUp);
             setError(null);
           }}
-          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/30 hover:bg-white/[0.05]"
+          className="w-full rounded-xl border border-board-border bg-board-bg/60 px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/40 hover:bg-board-bg"
         >
           {isSignUp ? "Sign in instead" : "Create an account"}
         </button>

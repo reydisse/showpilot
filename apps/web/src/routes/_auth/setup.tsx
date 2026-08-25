@@ -124,9 +124,12 @@ const WIZARD_CSS = `
 // ─── Persistent timecode clock — runs through every scene ────
 
 function Timecode() {
-  const [now, setNow] = useState(() => new Date());
+  // Keep the server and first client render identical. The live clock starts
+  // after hydration, so locale and render timing cannot produce mismatched HTML.
+  const [now, setNow] = useState(() => new Date(0));
   const [frame, setFrame] = useState(0);
   useEffect(() => {
+    setNow(new Date());
     const id = setInterval(() => {
       setNow(new Date());
       setFrame((f) => (f + 1) % 30);
