@@ -4,7 +4,15 @@
 	"type": "module",
 	"scripts": {
 		"build": "node build.mjs",
-		"preview": "node build.mjs && npx wrangler dev",
-		"deploy": "node build.mjs && npx wrangler deploy"
+		"preview": "node build.mjs && wrangler dev",
+		"deploy": "node build.mjs && wrangler deploy",
+		"cf-typegen": "wrangler types",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"typescript": "^5.7.2",
+		"vitest": "^3.0.5",
+		"wrangler": "^4.125.0"
 	}
 }

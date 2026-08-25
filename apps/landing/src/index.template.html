@@ -275,10 +275,54 @@
     .feature-icon.amber { background: rgba(255,193,7,0.12); }
     .feature-icon.blue { background: rgba(96,165,250,0.12); }
     .feature-icon.green { background: rgba(74,222,128,0.12); }
+    .feature-icon svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .feature-icon.amber { color: var(--fire-500); }
+    .feature-icon.blue { color: var(--blue); }
+    .feature-icon.green { color: var(--green); }
     .feature-card h3 { font-size: 1.0625rem; font-weight: 600; margin-bottom: 0.5rem; }
     .feature-card p { font-size: 0.875rem; color: var(--muted); line-height: 1.65; }
     .feature-card ul { margin-top: 0.875rem; list-style: none; display: grid; gap: 0.375rem; font-size: 0.8125rem; color: var(--muted); }
     .feature-card ul li::before { content: "·"; color: var(--fire-500); font-weight: 700; margin-right: 0.5rem; }
+
+    /* ── Downloads ── */
+    .download-grid { display: grid; gap: 1.25rem; align-items: stretch; }
+    @media (min-width: 720px) { .download-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .download-card {
+      display: flex; flex-direction: column; min-width: 0; padding: 1.5rem;
+      border: 1px solid var(--border); background: var(--surface); border-radius: 1rem;
+    }
+    .download-card.primary { border-color: rgba(255,193,7,0.3); background: rgba(255,193,7,0.035); }
+    .download-card-head { display: flex; align-items: flex-start; gap: 0.875rem; }
+    .download-card-icon {
+      display: flex; width: 2.5rem; height: 2.5rem; flex: 0 0 auto; align-items: center; justify-content: center;
+      border-radius: 0.625rem; background: rgba(255,193,7,0.1); color: var(--fire-500);
+    }
+    .download-card-icon svg, .mobile-note svg, .download-option > svg {
+      width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .download-card h3 { font-size: 1rem; font-weight: 700; line-height: 1.35; }
+    .download-status { margin-top: 0.2rem; color: var(--fire-500); font-family: var(--mono); font-size: 0.6875rem; line-height: 1.4; }
+    .download-copy { margin: 1rem 0 1.25rem; color: var(--muted); font-size: 0.875rem; line-height: 1.65; }
+    .download-options { display: grid; gap: 0.625rem; margin-top: auto; }
+    .download-option {
+      display: flex; min-height: 3.25rem; align-items: center; gap: 0.75rem; padding: 0.65rem 0.8rem;
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 0.65rem; color: var(--text); text-decoration: none;
+      transition: border-color 0.2s, background 0.2s, transform 0.2s;
+    }
+    .download-option:hover { border-color: rgba(255,193,7,0.35); background: rgba(255,193,7,0.06); transform: translateY(-1px); }
+    .download-option > svg { flex: 0 0 auto; color: var(--fire-500); }
+    .download-option span { display: block; min-width: 0; }
+    .download-option strong { display: block; font-size: 0.8125rem; font-weight: 600; }
+    .download-option small { display: block; margin-top: 0.1rem; color: var(--muted); font-family: var(--mono); font-size: 0.625rem; }
+    .download-option.is-unavailable { cursor: not-allowed; opacity: 0.45; }
+    .download-option.is-unavailable:hover { border-color: rgba(255,255,255,0.12); background: transparent; transform: none; }
+    .mobile-note {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1.25rem; padding: 1rem 1.25rem;
+      border: 1px solid var(--border); border-radius: 0.875rem; color: var(--muted); font-size: 0.8125rem;
+    }
+    .mobile-note > svg { flex: 0 0 auto; color: var(--fire-500); }
+    .mobile-note p { flex: 1 1 420px; }
+    .mobile-note a { color: var(--fire-500); font-weight: 600; text-decoration: none; }
 
     /* ── Pricing ── */
     .founding-banner {
@@ -355,6 +399,7 @@
       <div class="nav-links">
         <a href="#switch">Why switch</a>
         <a href="#features">Features</a>
+        <a href="#downloads">Downloads</a>
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
       </div>
@@ -477,7 +522,7 @@
       </div>
       <div class="features-grid">
         <div class="feature-card">
-          <div class="feature-icon amber">⏱</div>
+          <div class="feature-icon amber" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 2h6M12 2v3"/></svg></div>
           <h3>Rundowns &amp; show clock</h3>
           <p>Build the run of show once and run it live. Per-item timers, overtime alerts, hard stops, and a show clock every operator and stage display can see.</p>
           <ul>
@@ -487,7 +532,7 @@
           </ul>
         </div>
         <div class="feature-card">
-          <div class="feature-icon green">👥</div>
+          <div class="feature-icon green" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
           <h3>Crew &amp; check-in</h3>
           <p>Know who's in the building before doors. Crew check in by QR code — no accounts needed — and leads see their teams fill in live.</p>
           <ul>
@@ -497,7 +542,7 @@
           </ul>
         </div>
         <div class="feature-card">
-          <div class="feature-icon blue">🎛</div>
+          <div class="feature-icon blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
           <h3>Device control &amp; integrations</h3>
           <p>Bring your own stack — ShowPilot connects to it. ProPresenter, OBS, vMix, ATEM, X32, OnTime, Slack, and more. No stack? The native tools are built in.</p>
           <ul>
@@ -506,6 +551,75 @@
             <li>Works on 5 Mbps venue Wi-Fi</li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <hr class="divider" />
+
+    <!-- Downloads -->
+    <section id="downloads">
+      <div class="section-header">
+        <div class="section-label">Downloads</div>
+        <h2 class="section-title">Use ShowPilot wherever the show happens</h2>
+        <p class="section-sub">Run the full product in a browser, on desktop, or in the native mobile app. Add Bridge only when remote operators need secure access to equipment on the venue network.</p>
+      </div>
+      <div class="download-grid">
+        <article class="download-card primary">
+          <div class="download-card-head">
+            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+            <div><h3>Web app</h3><p class="download-status">AVAILABLE NOW</p></div>
+          </div>
+          <p class="download-copy">The complete ShowPilot product on any current browser. Nothing to install, and every operator stays in sync.</p>
+          <div class="download-options">
+            <a class="download-option" href="{{appUrl}}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+              <span><strong>Open ShowPilot</strong><small>WEB · PHONE · TABLET · COMPUTER</small></span>
+            </a>
+          </div>
+        </article>
+
+        <article class="download-card">
+          <div class="download-card-head">
+            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+            <div><h3>ShowPilot Desktop</h3><p class="download-status" data-product-status="desktop">CHECKING RELEASES</p></div>
+          </div>
+          <p class="download-copy">The full web app in a native desktop shell, with local device control, system notifications, and venue-ready capabilities.</p>
+          <div class="download-options">
+            <a class="download-option is-unavailable" data-download-id="desktop-macos-arm64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Apple Silicon</strong><small>CHECKING RELEASE</small></span></a>
+            <a class="download-option is-unavailable" data-download-id="desktop-macos-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Intel</strong><small>CHECKING RELEASE</small></span></a>
+            <a class="download-option is-unavailable" data-download-id="desktop-windows-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"/></svg><span><strong>Windows · 64-bit</strong><small>CHECKING RELEASE</small></span></a>
+          </div>
+        </article>
+
+        <article class="download-card">
+          <div class="download-card-head">
+            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 12h4a3 3 0 0 0 3-3V7M14 15v2a2 2 0 0 0 2 2h1"/></svg></div>
+            <div><h3>ShowPilot Bridge</h3><p class="download-status" data-product-status="bridge">CHECKING RELEASES</p></div>
+          </div>
+          <p class="download-copy">Install on one venue computer when off-site operators need to reach ATEM, Wing, ProPresenter, and other local equipment.</p>
+          <div class="download-options">
+            <a class="download-option is-unavailable" data-download-id="bridge-macos-arm64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Apple Silicon</strong><small>CHECKING RELEASE</small></span></a>
+            <a class="download-option is-unavailable" data-download-id="bridge-macos-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Intel</strong><small>CHECKING RELEASE</small></span></a>
+            <a class="download-option is-unavailable" data-download-id="bridge-windows-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"/></svg><span><strong>Windows · 64-bit</strong><small>CHECKING RELEASE</small></span></a>
+          </div>
+        </article>
+
+        <article class="download-card">
+          <div class="download-card-head">
+            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></div>
+            <div><h3>ShowPilot Mobile</h3><p class="download-status" data-product-status="mobile">CHECKING RELEASES</p></div>
+          </div>
+          <p class="download-copy">The native iOS and Android command app for live rundowns, crew calls, chat, incidents, notifications, and secure remote equipment control.</p>
+          <div class="download-options">
+            <a class="download-option is-unavailable" data-download-id="mobile-ios" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg><span><strong>iPhone &amp; iPad</strong><small>CHECKING APP STORE</small></span></a>
+            <a class="download-option is-unavailable" data-download-id="mobile-android" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6 6.5 3.5M16 6l1.5-2.5M6 9h12v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM4 10v7M20 10v7M9 20v2M15 20v2"/></svg><span><strong>Android phones &amp; tablets</strong><small>CHECKING GOOGLE PLAY</small></span></a>
+          </div>
+        </article>
+      </div>
+      <div class="mobile-note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg>
+        <p><strong style="color:var(--text)">Need access before the store release?</strong> The responsive web app remains available on every current phone and tablet. Native store buttons activate only after each reviewed build is public.</p>
+        <a href="{{appUrl}}">Open ShowPilot on mobile →</a>
       </div>
     </section>
 
@@ -613,6 +727,7 @@
         <a class="logo" href="/"><span class="logo-fire">Show</span>Pilot</a>
         <div class="footer-links">
           <a href="#features">Features</a>
+          <a href="#downloads">Downloads</a>
           <a href="#pricing">Pricing</a>
           <a href="{{appUrl}}/terms">Terms of Service</a>
           <a href="{{appUrl}}/privacy">Privacy Policy</a>
@@ -641,6 +756,62 @@
           a.href = url.toString();
         } catch (e) { /* leave non-URL hrefs alone */ }
       });
+    })();
+
+    // Download buttons stay inert until the Worker confirms a published R2
+    // release. This prevents private GitHub links and half-uploaded artifacts
+    // from becoming public 404s.
+    (function () {
+      var buttons = Array.prototype.slice.call(document.querySelectorAll("[data-download-id]"));
+      if (!buttons.length) return;
+
+      buttons.forEach(function (button) {
+        button.addEventListener("click", function (event) {
+          if (button.getAttribute("aria-disabled") === "true") event.preventDefault();
+        });
+      });
+
+      function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) return "DOWNLOAD";
+        return (bytes / 1024 / 1024).toFixed(bytes > 10 * 1024 * 1024 ? 0 : 1) + " MB";
+      }
+
+      fetch("/downloads/manifest.json", { headers: { Accept: "application/json" } })
+        .then(function (response) {
+          if (!response.ok) throw new Error("release manifest unavailable");
+          return response.json();
+        })
+        .then(function (manifest) {
+          var releases = Array.isArray(manifest.releases) ? manifest.releases : [];
+          var byId = new Map(releases.map(function (release) { return [release.id, release]; }));
+          buttons.forEach(function (button) {
+            var release = byId.get(button.getAttribute("data-download-id"));
+            var meta = button.querySelector("small");
+            if (!release || typeof release.downloadUrl !== "string") {
+              if (meta) meta.textContent = "NOT YET PUBLIC";
+              return;
+            }
+            button.href = release.downloadUrl;
+            button.classList.remove("is-unavailable");
+            button.removeAttribute("aria-disabled");
+            if (meta) meta.textContent = String(release.version).toUpperCase() + " · " + (release.kind === "store" ? (release.platform === "iOS" ? "APP STORE" : "GOOGLE PLAY") : formatBytes(release.size));
+          });
+          ["desktop", "bridge", "mobile"].forEach(function (product) {
+            var available = releases.filter(function (release) { return release.product === product; });
+            var status = document.querySelector('[data-product-status="' + product + '"]');
+            if (!status) return;
+            status.textContent = available.length ? String(available[0].status).toUpperCase() + " · " + String(available[0].version).toUpperCase() : "RELEASE IN REVIEW";
+          });
+        })
+        .catch(function () {
+          document.querySelectorAll("[data-product-status]").forEach(function (status) {
+            status.textContent = "RELEASE IN REVIEW";
+          });
+          buttons.forEach(function (button) {
+            var meta = button.querySelector("small");
+            if (meta) meta.textContent = "NOT YET PUBLIC";
+          });
+        });
     })();
   </script>
 </body>
