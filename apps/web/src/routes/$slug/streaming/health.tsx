@@ -19,6 +19,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -520,13 +521,15 @@ function StreamHealthPage() {
                   New Live Input
                 </h2>
                 <button
+                  type="button"
                   onClick={() => {
                     setShowAddForm(false);
                     setError("");
                   }}
+                  aria-label="Close live input editor"
                   className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
                 >
-                  ✕
+                  <X className="size-4" />
                 </button>
               </div>
               <form onSubmit={handleCreate} className="space-y-4">

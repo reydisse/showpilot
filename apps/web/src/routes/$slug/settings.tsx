@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect } from "react";
 import {
   Building2,
   Users,
@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
+import { useSettingAutosave } from "@/components/settings/useSettingAutosave";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
 import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
@@ -60,7 +61,6 @@ import {
   type OrgBillingInfo,
 } from "@/lib/billing";
 import { UpgradePrompt, isPlanLimitError } from "@/components/ui/upgrade-prompt";
-import { EmbeddedCheckoutModal } from "@/components/settings/EmbeddedCheckoutModal";
 import { getStripePublishableKey, resolveCheckoutUiMode } from "@/lib/checkout";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
@@ -79,6 +79,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const loadEmbeddedCheckoutModal = () => import("@/components/settings/EmbeddedCheckoutModal");
+const EmbeddedCheckoutModal = lazy(loadEmbeddedCheckoutModal);
 
 // ─── Route ──────────────────────────────────────────────────
 
@@ -181,24 +184,31 @@ const NAV_ITEMS: NavItem[] = [
   { id: "danger", label: "Danger Zone", icon: AlertTriangle },
 ];
 
-type SaveState =
-  | { kind: "saved" }
-  | { kind: "saving" }
-  | { kind: "error"; message: string };
-
 // ─── Main Component ─────────────────────────────────────────
 
 function SettingsPage() {
-  const { settings, members, billing, orgId, slug, org, role } = Route.useLoaderData();
+  const loaderData = Route.useLoaderData();
+  return <OrganizationSettingsPage key={loaderData.orgId} loaderData={loaderData} />;
+}
+
+function OrganizationSettingsPage({
+  loaderData,
+}: {
+  loaderData: ReturnType<typeof Route.useLoaderData>;
+}) {
+  const { settings, members, billing, orgId, slug, org, role } = loaderData;
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
-  const [localSettings, setLocalSettings] =
-    useState<Record<string, string>>(settings);
-  const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
-  const localSettingsRef = useRef(settings);
-  const saveRequestIds = useRef<Record<string, number>>({});
-  const pendingSaveCount = useRef(0);
+  const persistSetting = useCallback(
+    (key: string, value: string) =>
+      updateOrgSetting({ data: { orgId, key, value } }),
+    [orgId],
+  );
+  const { getSetting, saveSetting, saveState } = useSettingAutosave({
+    initialSettings: settings,
+    persist: persistSetting,
+  });
 
   const canManageMembers = hasPermission(role, "settings:members");
   const canViewBilling = hasPermission(role, "settings:billing");
@@ -231,44 +241,6 @@ function SettingsPage() {
     ? section
     : (visibleNavItems[0]?.id ?? "organization");
   const activeNavItem = visibleNavItems.find((item) => item.id === resolvedSection);
-
-  const saveSetting = useCallback(
-    async (key: string, value: string) => {
-      const previous = localSettingsRef.current[key] ?? "";
-      const requestId = (saveRequestIds.current[key] ?? 0) + 1;
-      saveRequestIds.current[key] = requestId;
-      pendingSaveCount.current += 1;
-      localSettingsRef.current = { ...localSettingsRef.current, [key]: value };
-      setLocalSettings(localSettingsRef.current);
-      setSaveState({ kind: "saving" });
-      try {
-        await updateOrgSetting({ data: { orgId, key, value } });
-      } catch (error) {
-        if (requestId === saveRequestIds.current[key]) {
-          if (localSettingsRef.current[key] === value) {
-            localSettingsRef.current = { ...localSettingsRef.current, [key]: previous };
-            setLocalSettings(localSettingsRef.current);
-          }
-          setSaveState({
-            kind: "error",
-            message: error instanceof Error ? error.message : "That setting could not be saved",
-          });
-        }
-        throw error;
-      } finally {
-        pendingSaveCount.current = Math.max(0, pendingSaveCount.current - 1);
-        if (pendingSaveCount.current === 0) {
-          setSaveState((current) => current.kind === "error" ? current : { kind: "saved" });
-        }
-      }
-    },
-    [orgId]
-  );
-
-  const getSetting = useCallback(
-    (key: string, fallback = "") => localSettings[key] ?? fallback,
-    [localSettings]
-  );
 
   const openBilling = useCallback(() => {
     void navigate({ search: { section: "billing" } });
@@ -347,7 +319,7 @@ function SettingsPage() {
         </Select>
       </div>
 
-      <main className="modern-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="safe-area-bottom mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-9">
           <div className="mb-4 flex min-h-6 items-center justify-end">
             {saveState.kind === "saving" ? <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span> : null}
@@ -389,7 +361,7 @@ function SettingsPage() {
           )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
@@ -868,6 +840,7 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
       // Embedded keeps payment on showpilot.tech; without the publishable
       // key the flow degrades to the original hosted redirect.
       const uiMode = resolveCheckoutUiMode(getStripePublishableKey());
+      if (uiMode === "embedded") void loadEmbeddedCheckoutModal();
       const result = await createCheckoutSession({
         data: { orgId: org.id, plan, uiMode },
       });
@@ -1065,11 +1038,22 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
       </p>
 
       {embeddedCheckout && (
-        <EmbeddedCheckoutModal
-          clientSecret={embeddedCheckout.clientSecret}
-          planName={embeddedCheckout.planName}
-          onClose={() => setEmbeddedCheckout(null)}
-        />
+        <Suspense
+          fallback={(
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div role="status" className="flex items-center gap-3 rounded-xl border border-board-border bg-board-card px-5 py-4 text-sm text-board-text shadow-2xl">
+                <LoaderCircle className="size-4 animate-spin text-fire-500" />
+                Preparing secure checkout...
+              </div>
+            </div>
+          )}
+        >
+          <EmbeddedCheckoutModal
+            clientSecret={embeddedCheckout.clientSecret}
+            planName={embeddedCheckout.planName}
+            onClose={() => setEmbeddedCheckout(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

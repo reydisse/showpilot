@@ -21,7 +21,7 @@ function getStripePromise() {
   return stripePromiseCache;
 }
 
-export function EmbeddedCheckoutModal({
+export default function EmbeddedCheckoutModal({
   clientSecret,
   planName,
   onClose,

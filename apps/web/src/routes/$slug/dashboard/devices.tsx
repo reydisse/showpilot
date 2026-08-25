@@ -372,10 +372,12 @@ function DeviceFormModal({
             {existing ? "Edit Device" : "Add Device"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close device editor"
             className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
           >
-            ✕
+            <X className="size-4" />
           </button>
         </div>
 

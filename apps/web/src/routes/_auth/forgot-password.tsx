@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
+import { Check } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth/forgot-password")({
@@ -74,18 +75,7 @@ function ForgotPasswordPage() {
         {sent ? (
           <div className="text-center space-y-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10 border border-green-500/20">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-6 w-6 text-green-400"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Check className="size-6 text-green-400" />
             </div>
             <h2 className="text-xl font-semibold text-board-text">
               Check your email

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Bell, BellRing, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ProfilePanel, ROLE_COLOURS } from "./ProfileModal";
-import { NotificationInbox } from "./NotificationCenter";
+import { ROLE_COLOURS } from "./account-role";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +12,26 @@ import {
   getDesktopNotificationPermission,
   isDesktopNotificationSupported,
 } from "@/lib/desktop-runtime";
+
+const ProfilePanel = lazy(() =>
+  import("./ProfileModal").then((module) => ({ default: module.ProfilePanel })),
+);
+const NotificationInbox = lazy(() =>
+  import("./NotificationCenter").then((module) => ({
+    default: module.NotificationInbox,
+  })),
+);
+
+function AccountPanelFallback() {
+  return (
+    <div
+      aria-label="Loading account view"
+      className="flex min-h-64 flex-1 items-center justify-center"
+    >
+      <span className="size-5 animate-spin rounded-full border-2 border-board-border border-t-fire-500" />
+    </div>
+  );
+}
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -265,11 +284,15 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
           ) : null}
 
           {accountView === "profile" ? (
-            <ProfilePanel user={localUser} role={role} orgName={orgName} onUserUpdated={handleUserUpdated} onSignOut={signOut} />
+            <Suspense fallback={<AccountPanelFallback />}>
+              <ProfilePanel user={localUser} role={role} orgName={orgName} onUserUpdated={handleUserUpdated} onSignOut={signOut} />
+            </Suspense>
           ) : null}
 
           {accountView === "notifications" ? (
-            <NotificationInbox orgId={orgId} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
+            <Suspense fallback={<AccountPanelFallback />}>
+              <NotificationInbox orgId={orgId} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
+            </Suspense>
           ) : null}
 
           {accountView === "menu" ? (

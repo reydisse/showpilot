@@ -15,6 +15,7 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  X,
   Link,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
@@ -281,10 +282,12 @@ function PlatformsPage() {
             <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
             <p className="text-xs text-red-400 flex-1">{actionError}</p>
             <button
+              type="button"
               onClick={() => setActionError(null)}
+              aria-label="Dismiss error"
               className="text-red-400/60 hover:text-red-400 transition-colors text-sm leading-none"
             >
-              ✕
+              <X className="size-3.5" />
             </button>
           </div>
         )}
@@ -575,10 +578,12 @@ function DestinationFormModal({
             {existing ? "Edit Destination" : "Add Destination"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close destination editor"
             className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
           >
-            ✕
+            <X className="size-4" />
           </button>
         </div>
 

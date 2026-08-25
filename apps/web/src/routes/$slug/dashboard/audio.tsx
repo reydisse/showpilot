@@ -18,6 +18,7 @@ import {
   Search,
   SlidersHorizontal,
   PlugZap,
+  X,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import {
@@ -354,10 +355,12 @@ function MicAssignmentForm({
             {existing ? "Edit Channel" : "Add Channel"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close channel editor"
             className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
           >
-            ✕
+            <X className="size-4" />
           </button>
         </div>
 
