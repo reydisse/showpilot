@@ -40,10 +40,12 @@ To roll back a bad deploy: Cloudflare dashboard → Workers & Pages →
 
 ## Landing page (apps/landing → www.showpilot.tech)
 
-The marketing page is a zero-dependency static site deployed as its own
-assets-only Worker (`showpilot-landing`) on the custom domain
-`www.showpilot.tech`. It is **not** part of the automatic pipeline — it
-changes rarely, so it deploys manually:
+The marketing page is a zero-dependency static site served by its own Worker
+(`showpilot-landing`) on the custom domain `www.showpilot.tech`. The Worker
+also streams approved Desktop and Bridge artifacts from the private
+`showpilot-downloads` R2 bucket; GitHub release links are not used because the
+repository is private. It is **not** part of the automatic pipeline, so it
+deploys manually:
 
 ```sh
 cd apps/landing
@@ -51,6 +53,13 @@ pnpm deploy          # = node build.mjs && wrangler deploy
 ```
 
 Notes:
+- Before the first download-enabled deploy, create the bucket with
+  `pnpm exec wrangler r2 bucket create showpilot-downloads`. Upload verified
+  artifacts and write `manifests/releases.json` last; see
+  `apps/landing/RELEASES.md`. Do not upload an unsigned or unverified build.
+- iOS and Android buttons are driven by the same manifest but link only to
+  allowlisted official App Store and Google Play listings. Keep them absent
+  until the store listing and reviewed production build are public.
 - `build.mjs` interpolates prices/links from `src/pricing.mjs` into
   `src/index.template.html` and writes `dist/` (gitignored). **All prices
   live in `src/pricing.mjs`** — keep them in sync with the Stripe prices
@@ -62,6 +71,9 @@ Notes:
   with `npx @resvg/resvg-js-cli og-source.svg static/og.png`.
 - Landing CTAs deep-link to `https://showpilot.tech/login?signup=1` and
   forward `utm_*` params for attribution.
+- Run `pnpm cf-typegen`, `pnpm typecheck`, `pnpm test`, and `pnpm build`
+  before deploying. The download buttons remain disabled when the public
+  release manifest is absent, so an incomplete upload cannot become a 404.
 
 ---
 
