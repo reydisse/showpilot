@@ -20,12 +20,13 @@ interface Env {
   DB: D1Database;
   STORAGE: R2Bucket;
   TIMECODE_RELAY: DurableObjectNamespace;
-  BRIDGE_RELAY: DurableObjectNamespace;
+  BRIDGE_RELAY: DurableObjectNamespace<import("./durable-objects/BridgeRelay").BridgeRelay>;
   RUNDOWN_RELAY: DurableObjectNamespace;
   CHAT_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   CUE_SHEET_RELAY: DurableObjectNamespace;
   KIOSK_SECRET?: string;
+  EXPO_ACCESS_TOKEN?: string;
 }
 
 interface D1Database {
@@ -313,7 +314,12 @@ export default {
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
       const canControl = canUse(access, "rundown:control");
-      const canObserveRundown = canUse(access, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
+      const canObserveRundown = canUse(access, [
+        "rundown:view",
+        "cuesheet:view",
+        "cuesheet:edit",
+        "cuesheet:add_notes",
+      ]);
       const isMutation = subpath === "command" || (subpath === "ws" && canControl);
       if (subpath === "command" && !canControl) {
         return new Response("Unauthorized", { status: 401 });
@@ -521,5 +527,9 @@ export default {
     // its fetch only takes (request, options?).
     const response = await handler.fetch(request);
     return withRuntimeCacheHeaders(request, withApiCorsHeaders(request, response));
+  },
+  async scheduled(_controller: ScheduledController, e: Env): Promise<void> {
+    const { checkExpoPushReceipts } = await import("./lib/expo-push-receipts.server");
+    await checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN });
   },
 };

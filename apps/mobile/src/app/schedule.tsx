@@ -25,6 +25,7 @@ export default function ScheduleScreen() {
     queryKey: ["mobile-schedule", organization?.id],
     queryFn: () => getMobileSchedule(organization!.id),
     enabled: Boolean(organization?.id),
+    refetchInterval: 30_000,
   });
   const responseMutation = useMutation({
     mutationFn: (input: { assignmentId: string; response: "confirmed" | "declined"; reason?: string }) => respondToMobileAssignment({ orgId: organization!.id, ...input }),
@@ -79,6 +80,8 @@ function AssignmentRow({ assignment, declining, reason, pending, onReason, onDec
 }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const responseClosed = assignment.status === "assigned" && assignment.responseWindow.status === "closed";
+  const displayStatus = responseClosed ? "closed" : assignment.status;
   return (
     <View style={styles.assignmentBlock}>
       <View style={styles.assignment}>
@@ -87,9 +90,10 @@ function AssignmentRow({ assignment, declining, reason, pending, onReason, onDec
           <Text style={styles.assignmentRole}>{assignment.role}</Text>
           <Text style={styles.assignmentText}>{assignment.crewName || "Open position"}{assignment.callTime ? ` · Call ${assignment.callTime}` : ""}</Text>
         </View>
-        <Text style={[styles.status, assignment.status === "confirmed" && styles.confirmed, assignment.status === "declined" && styles.declined]}>{assignment.status}</Text>
+        <Text style={[styles.status, assignment.status === "confirmed" && styles.confirmed, (assignment.status === "declined" || responseClosed) && styles.declined]}>{displayStatus}</Text>
       </View>
       {assignment.responseNote ? <Text style={styles.responseNote}>{assignment.responseNote}</Text> : null}
+      {responseClosed ? <Text style={styles.closedNote}>The response window closed when this service ended.</Text> : null}
       {assignment.canRespond && assignment.status === "assigned" && !declining ? (
         <View style={styles.responseActions}>
           <Pressable disabled={pending} onPress={() => onRespond("confirmed")} style={({ pressed }) => [styles.responseButton, styles.confirmButton, pressed && styles.pressed]}><Text style={styles.confirmText}>Accept</Text></Pressable>
@@ -132,6 +136,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   confirmed: { color: colors.green },
   declined: { color: colors.red },
   responseNote: { color: colors.textMuted, fontFamily, fontSize: 10, lineHeight: 16, overflow: "hidden", borderRadius: radii.small, backgroundColor: colors.redSoft, padding: 8 },
+  closedNote: { color: colors.red, fontFamily, fontSize: 10, lineHeight: 16 },
   responseActions: { flexDirection: "row", justifyContent: "flex-end", gap: 7 },
   responseButton: { minHeight: 34, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, paddingHorizontal: 13 },
   confirmButton: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },

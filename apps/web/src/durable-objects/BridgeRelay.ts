@@ -16,6 +16,25 @@ interface BridgeMessage {
   [key: string]: unknown;
 }
 
+export type BridgeDispatchMessage =
+  | {
+      type: "command";
+      id: string;
+      protocol: "atem" | "osc";
+      target: string;
+      command: string;
+    }
+  | {
+      type: "connect-device";
+      protocol: "atem" | "osc";
+      target: string;
+      settings: Record<string, unknown>;
+    }
+  | {
+      type: "disconnect-device";
+      target: string;
+    };
+
 interface Env {
   RUNDOWN_RELAY: DurableObjectNamespace;
   DB: D1Database;
@@ -140,15 +159,17 @@ export class BridgeRelay extends DurableObject<Env> {
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
-  async dispatchBridgeMessage(message: BridgeMessage): Promise<BridgeDispatchResult> {
-    if (!this.bridgeWs || !this.bridgeOnline) return { success: false, error: "Venue Bridge is offline" };
-    if (message.type !== "command" && message.type !== "connect-device" && message.type !== "disconnect-device") {
-      return { success: false, error: "Unsupported Bridge operation" };
-    }
+  async dispatchBridgeMessage(message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
+    const bridgeSocket = this.bridgeWs;
+    if (!bridgeSocket || !this.bridgeOnline) return { success: false, error: "Venue Bridge is offline" };
 
     if (message.type === "disconnect-device") {
-      this.bridgeWs.send(JSON.stringify(message));
-      return { success: true };
+      try {
+        bridgeSocket.send(JSON.stringify(message));
+        return { success: true };
+      } catch {
+        return { success: false, error: "Venue Bridge disconnected" };
+      }
     }
 
     const key = message.type === "command"
@@ -165,7 +186,7 @@ export class BridgeRelay extends DurableObject<Env> {
       }, message.type === "command" ? 10_000 : 8_000);
       pending.set(key, { resolve, timer });
       try {
-        this.bridgeWs!.send(JSON.stringify(message));
+        bridgeSocket.send(JSON.stringify(message));
       } catch {
         clearTimeout(timer);
         pending.delete(key);

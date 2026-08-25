@@ -2,7 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Hash, Send, Wifi, WifiOff } from "lucide-react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { Page } from "@/components/page";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
 import { authClient } from "@/lib/auth-client";
@@ -34,9 +45,12 @@ export default function ChatScreen() {
   const relay = useChatRelay(organization?.id, roomId);
   const [text, setText] = useState("");
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
+  const initialScrollDoneRef = useRef(false);
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
-    if (relay.messages.length) requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
-  }, [relay.messages.length]);
+    initialScrollDoneRef.current = false;
+    stickToBottomRef.current = true;
+  }, [roomId]);
   if (!organization) return <Redirect href="/organizations" />;
 
   function send() {
@@ -45,13 +59,43 @@ export default function ChatScreen() {
     void Haptics.selectionAsync();
   }
 
+  function trackScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    stickToBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 96;
+  }
+
+  function keepLatestMessageVisible() {
+    if (!relay.messages.length) return;
+    if (!initialScrollDoneRef.current || stickToBottomRef.current) {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: initialScrollDoneRef.current }));
+    }
+    initialScrollDoneRef.current = true;
+  }
+
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={88}>
       <Page scroll={false}>
         <View style={styles.roomHeader}><View style={styles.roomIcon}><Hash color={colors.amberText} size={19} /></View><View style={styles.roomCopy}><Text style={styles.roomTitle}>{roomId === "production" ? "Production Chat" : roomId === "planning" ? "Planning Room" : "Direct message"}</Text><Text style={styles.roomSubtitle}>{roomId === "planning" ? "Seven-day planning channel" : roomId.startsWith("dm:") ? "Private crew conversation" : "Live crew channel"}</Text></View>{relay.status === "connected" ? <Wifi color={colors.green} size={17} /> : <WifiOff color={colors.amberText} size={17} />}<Text style={[styles.connection, relay.status === "connected" && styles.connected]}>{relay.status}</Text></View>
         {relay.lastError ? <Text style={styles.error}>{relay.lastError}</Text> : null}
-        <FlatList ref={listRef} style={styles.list} contentContainerStyle={styles.listContent} data={relay.messages} keyExtractor={(item) => item.id} renderItem={({ item }) => <MessageCard message={item} own={item.senderId === session?.user.id} />} ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the production conversation." : "Connecting to the production room…"}</Text>} onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })} />
-        <View style={styles.composer}><TextInput accessibilityLabel="Message production chat" multiline maxLength={4000} value={text} onChangeText={setText} onSubmitEditing={send} placeholder={relay.status === "connected" ? "Message the crew…" : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} /><Pressable accessibilityRole="button" accessibilityLabel="Send message" disabled={!text.trim()} onPress={send} style={({ pressed }) => [styles.send, !text.trim() && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable></View>
+        <FlatList
+          ref={listRef}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          data={relay.messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <MessageCard message={item} own={item.senderId === session?.user.id} />}
+          ListHeaderComponent={relay.hasOlder ? (
+            <Pressable accessibilityRole="button" disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
+              <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
+            </Pressable>
+          ) : null}
+          ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the production conversation." : "Connecting to the production room…"}</Text>}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onContentSizeChange={keepLatestMessageVisible}
+          onScroll={trackScroll}
+          scrollEventThrottle={16}
+        />
+        <View style={styles.composer}><TextInput accessibilityLabel={`Message ${roomId} chat`} multiline maxLength={4000} value={text} onChangeText={setText} onSubmitEditing={send} placeholder={relay.status === "connected" ? "Message the crew…" : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} /><Pressable accessibilityRole="button" accessibilityLabel="Send message" disabled={!text.trim()} onPress={send} style={({ pressed }) => [styles.send, !text.trim() && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable></View>
       </Page>
     </KeyboardAvoidingView>
   );
@@ -79,6 +123,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageText: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 20 },
   deleted: { color: colors.textFaint, fontStyle: "italic" },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center", marginVertical: 50 },
+  olderButton: { alignSelf: "center", minHeight: 36, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 14, marginBottom: 8 },
+  olderText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 9, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.small },
   input: { flex: 1, maxHeight: 110, minHeight: 44, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 13, paddingVertical: 11 },
   send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },

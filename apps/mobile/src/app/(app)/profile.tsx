@@ -59,7 +59,7 @@ export default function ProfileScreen() {
         [{ resize: { width: 640, height: 640 } }],
         { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG },
       );
-      const uploaded = await uploadMobileAvatar({ uri: processed.uri, name: "avatar.jpg", type: "image/jpeg" });
+      const uploaded = await uploadMobileAvatar(processed.uri);
       const result = await authClient.updateUser({ image: uploaded.url });
       if (result.error) throw new Error(result.error.message || "Photo could not be saved.");
       await refetchSession();

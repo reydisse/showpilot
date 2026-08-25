@@ -13,6 +13,9 @@ KIOSK_SECRET=
 # Resend API key for transactional email (invites, password reset)
 RESEND_API_KEY=
 
+# Optional. Required only after enhanced push security is enabled in EAS.
+EXPO_ACCESS_TOKEN=
+
 # Cloudflare Stream (live inputs + Stream Connect simulcast).
 # Account ID from the dashboard; token needs Stream:Edit permission.
 # (The legacy name CLOUDFLARE_API_TOKEN is still read as a fallback during

@@ -63,7 +63,6 @@ describe("mobile push registration", () => {
       }),
       {
         DB: fakeDatabase(calls),
-        BRIDGE_RELAY: {} as DurableObjectNamespace,
       },
     );
 

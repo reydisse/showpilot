@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { authClient } from "@/lib/auth-client";
+import {
+  compareChatMessages,
+  mergeChatMessage,
+  parseChatHistoryPage,
+  parseChatMessage,
+  type ChatHistoryCursor,
+  type MobileChatMessage,
+} from "@/lib/chat-history";
 import { SHOWPILOT_URL } from "@/lib/env";
 
-export interface MobileChatMessage {
-  id: string;
-  senderId?: string;
-  senderName: string;
-  senderRole?: string;
-  text: string;
-  type: "text" | "alert" | "cue" | "system";
-  timestamp: number;
-  editedAt?: number;
-  deletedAt?: number;
-}
+export type { MobileChatMessage } from "@/lib/chat-history";
 
 type Status = "connecting" | "connected" | "reconnecting" | "offline";
 
@@ -23,18 +21,6 @@ type NativeWebSocketConstructor = new (
   options?: { headers: Record<string, string> } | null,
 ) => WebSocket;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMessage(value: unknown): value is MobileChatMessage {
-  if (!isRecord(value)) return false;
-  return typeof value.id === "string"
-    && typeof value.senderName === "string"
-    && typeof value.text === "string"
-    && typeof value.timestamp === "number";
-}
-
 function chatUrl(orgId: string, roomId: string) {
   const url = new URL(SHOWPILOT_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -43,25 +29,35 @@ function chatUrl(orgId: string, roomId: string) {
   return url.toString();
 }
 
-function mergeMessage(messages: MobileChatMessage[], message: MobileChatMessage) {
-  const existing = messages.findIndex((candidate) => candidate.id === message.id);
-  if (existing < 0) return [...messages, message].sort((left, right) => left.timestamp - right.timestamp).slice(-500);
-  const next = [...messages];
-  next[existing] = message;
-  return next;
+function historyUrl(orgId: string, roomId: string, cursor: ChatHistoryCursor) {
+  const url = new URL(SHOWPILOT_URL);
+  url.pathname = `/api/chat/${encodeURIComponent(orgId)}/history`;
+  url.search = new URLSearchParams({
+    room: roomId,
+    limit: "200",
+    beforeTimestamp: String(cursor.timestamp),
+    beforeId: cursor.id,
+  }).toString();
+  return url.toString();
 }
 
 export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const [messages, setMessages] = useState<MobileChatMessage[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<ChatHistoryCursor | null>(null);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const queueRef = useRef<string[]>([]);
 
   const flush = useCallback(() => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    while (queueRef.current.length) socket.send(queueRef.current.shift()!);
+    while (queueRef.current.length) {
+      const frame = queueRef.current.shift();
+      if (frame !== undefined) socket.send(frame);
+    }
   }, []);
 
   useEffect(() => {
@@ -70,6 +66,9 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     let disposed = false;
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    setMessages([]);
+    setHistoryCursor(null);
+    setHasOlder(false);
 
     function reconnect() {
       if (disposed || reconnectTimer || AppState.currentState !== "active") return;
@@ -97,11 +96,19 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
         if (disposed || socketRef.current !== socket || typeof event.data !== "string") return;
         try {
           const payload = JSON.parse(event.data) as unknown;
-          if (!isRecord(payload)) return;
-          if (payload.type === "hydrate" && Array.isArray(payload.messages)) {
-            setMessages(payload.messages.filter(isMessage).slice(-500));
-          } else if ((payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted") && isMessage(payload.message)) {
-            setMessages((current) => mergeMessage(current, payload.message as MobileChatMessage));
+          if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
+          if ("type" in payload && payload.type === "hydrate" && "messages" in payload && Array.isArray(payload.messages)) {
+            const hydratedMessages = payload.messages.flatMap((candidate) => {
+              const message = parseChatMessage(candidate);
+              return message ? [message] : [];
+            });
+            setMessages(hydratedMessages);
+            const oldest = hydratedMessages[0];
+            setHistoryCursor(oldest ? { timestamp: oldest.timestamp, id: oldest.id } : null);
+            setHasOlder(hydratedMessages.length >= 2_000);
+          } else if ("type" in payload && (payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted")) {
+            const message = "message" in payload ? parseChatMessage(payload.message) : null;
+            if (message) setMessages((current) => mergeChatMessage(current, message));
           }
         } catch {
           setLastError("A live chat update could not be read.");
@@ -145,5 +152,33 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     return true;
   }, []);
 
-  return { messages, status, lastError, send };
+  const loadOlder = useCallback(async () => {
+    if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
+    setLoadingOlder(true);
+    try {
+      const response = await fetch(historyUrl(orgId, roomId, historyCursor), {
+        headers: { Accept: "application/json", Cookie: authClient.getCookie() },
+      });
+      if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
+      const payload: unknown = await response.json();
+      const page = parseChatHistoryPage(payload);
+      if (!page) {
+        throw new Error("ShowPilot returned an invalid chat history page.");
+      }
+      setMessages((current) => {
+        const messagesById = new Map<string, MobileChatMessage>();
+        for (const message of [...page.messages, ...current]) messagesById.set(message.id, message);
+        return [...messagesById.values()].sort(compareChatMessages);
+      });
+      setHistoryCursor(page.nextCursor);
+      setHasOlder(page.nextCursor !== null);
+      setLastError(null);
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : "Earlier messages could not be loaded.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [hasOlder, historyCursor, loadingOlder, orgId, roomId]);
+
+  return { messages, status, lastError, send, hasOlder, loadingOlder, loadOlder };
 }

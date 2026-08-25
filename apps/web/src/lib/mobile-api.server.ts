@@ -1,8 +1,15 @@
 import { getAuth } from "./auth";
+import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
 import { resolveEffectiveAccess } from "./effective-access";
 import type { Permission } from "./permissions";
+import { readPhaseSettings } from "./service-phase";
 import { getTodayDateString } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
+import type {
+  BridgeDispatchMessage,
+  BridgeDispatchResult,
+  BridgeRelay,
+} from "../durable-objects/BridgeRelay";
 
 export interface MobileApiDatabase {
   prepare(sql: string): {
@@ -16,7 +23,7 @@ export interface MobileApiDatabase {
 
 export interface MobileApiEnvironment {
   DB: MobileApiDatabase;
-  BRIDGE_RELAY: DurableObjectNamespace;
+  BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
 }
 
 interface MobileIdentity {
@@ -85,6 +92,21 @@ interface MobileAssignmentRow {
   responseNote: string;
   crewName: string | null;
   crewEmail: string | null;
+  scheduledStartTime: string | null;
+  plannedDurationMs: number;
+}
+
+interface MobileAssignmentResponseRow {
+  id: string;
+  showId: string | null;
+  crewMemberId: string;
+  role: string;
+  serviceDate: string;
+  status: string;
+  crewName: string;
+  crewEmail: string;
+  scheduledStartTime: string | null;
+  plannedDurationMs: number;
 }
 
 interface MobileIncidentRow {
@@ -120,6 +142,16 @@ interface MobileDeviceListRow extends MobileDeviceRow {
   settings: string;
 }
 
+interface MobileTimerState {
+  playback: "stop" | "play" | "pause";
+  currentItemId: string | null;
+  elapsed: number;
+  startedAt: number | null;
+  pausedAt: number | null;
+  mode: "count-down" | "count-up" | "clock";
+  serverTime?: number;
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -130,12 +162,21 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function changedExactlyOneRow(value: unknown): boolean {
+  return isRecord(value)
+    && value.success === true
+    && isRecord(value.meta)
+    && value.meta.changes === 1;
+}
+
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : null;
+    const body: unknown = await request.json();
+    return isRecord(body) ? body : null;
   } catch {
     return null;
   }
@@ -146,7 +187,9 @@ function validId(value: unknown): value is string {
 }
 
 function validDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function shiftDate(date: string, days: number): string {
@@ -201,21 +244,38 @@ async function authorize(
   return { orgId, identity };
 }
 
-function parseTimer(value: string | null | undefined) {
-  const fallback = {
+function parseTimer(value: string | null | undefined): MobileTimerState {
+  const fallback = (): MobileTimerState => ({
     playback: "stop",
     currentItemId: null,
     elapsed: 0,
     startedAt: null,
     pausedAt: null,
     mode: "count-down",
-  };
-  if (!value) return fallback;
+  });
+  if (!value) return fallback();
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" ? parsed : fallback;
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) return fallback();
+    const playback = parsed.playback === "play" || parsed.playback === "pause"
+      ? parsed.playback
+      : "stop";
+    const mode = parsed.mode === "count-up" || parsed.mode === "clock"
+      ? parsed.mode
+      : "count-down";
+    return {
+      playback,
+      currentItemId: typeof parsed.currentItemId === "string" ? parsed.currentItemId : null,
+      elapsed: typeof parsed.elapsed === "number" && Number.isFinite(parsed.elapsed) ? parsed.elapsed : 0,
+      startedAt: typeof parsed.startedAt === "number" && Number.isFinite(parsed.startedAt) ? parsed.startedAt : null,
+      pausedAt: typeof parsed.pausedAt === "number" && Number.isFinite(parsed.pausedAt) ? parsed.pausedAt : null,
+      mode,
+      ...(typeof parsed.serverTime === "number" && Number.isFinite(parsed.serverTime)
+        ? { serverTime: parsed.serverTime }
+        : {}),
+    };
   } catch {
-    return fallback;
+    return fallback();
   }
 }
 
@@ -320,9 +380,15 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
   const canViewFull = hasAny(access.identity, ["schedule:view", "schedule:manage"]);
-  const timezone = await db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
-    .bind(access.orgId).first<{ value: string }>();
-  const today = getTodayDateString(timezone?.value || "Africa/Accra");
+  const settingsResult = await db.prepare(
+    "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
+  ).bind(access.orgId).all<{ key: string; value: string }>();
+  const settingMap = Object.fromEntries(
+    (settingsResult.results ?? []).map((setting) => [setting.key, setting.value]),
+  );
+  const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+  const timeZone = settingMap["org-timezone"] || "Africa/Accra";
+  const today = getTodayDateString(timeZone);
   const from = url.searchParams.get("from") || shiftDate(today, -7);
   const to = url.searchParams.get("to") || shiftDate(today, 45);
   if (!validDate(from) || !validDate(to) || from > to) return json({ error: "A valid date range is required." }, 400);
@@ -351,15 +417,22 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
     ).bind(access.orgId, from, to, canViewFull ? 1 : 0, access.identity.email).all<MobileScheduleRow>(),
     db.prepare(
       `SELECT a.id, a.showId, a.serviceDate, a.role, a.department, a.status,
-              a.callTime, a.notes, a.responseNote, c.name AS crewName, c.email AS crewEmail
+              a.callTime, a.notes, a.responseNote, c.name AS crewName, c.email AS crewEmail,
+              r.scheduledStartTime,
+              COALESCE((
+                SELECT SUM(ri.duration) FROM rundown_item ri
+                WHERE ri.orgId = a.orgId AND ri.showId = a.showId
+              ), 0) AS plannedDurationMs
        FROM service_assignment a
        LEFT JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
+       LEFT JOIN rundown r ON r.id = a.showId AND r.orgId = a.orgId
        WHERE a.orgId = ? AND a.serviceDate BETWEEN ? AND ?
          AND (? = 1 OR LOWER(c.email) = ?)
        ORDER BY a.serviceDate ASC, a.department ASC, a.role ASC`,
     ).bind(access.orgId, from, to, canViewFull ? 1 : 0, access.identity.email).all<MobileAssignmentRow>(),
   ]);
   const assignments = assignmentsResult.results ?? [];
+  const nowMs = Date.now();
   const services = (servicesResult.results ?? []).map((service) => {
     if (canViewFull) return service;
     const ownAssignments = assignments.filter((assignment) => assignment.showId === service.id);
@@ -377,10 +450,24 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
     canViewFull,
     canManage: access.identity.permissions.includes("schedule:manage"),
     services,
-    assignments: assignments.map((assignment) => ({
-      ...assignment,
-      canRespond: Boolean(assignment.crewEmail) && assignment.crewEmail!.toLowerCase() === access.identity.email,
-    })),
+    assignments: assignments.map((assignment) => {
+      const responseWindow = getCrewScheduleResponseWindow(
+        {
+          serviceDate: assignment.serviceDate,
+          scheduledStartTime: assignment.scheduledStartTime,
+          plannedDurationMs: assignment.showId ? assignment.plannedDurationMs : undefined,
+          serviceWindowMinutes,
+          timeZone,
+        },
+        nowMs,
+      );
+      const isOwner = assignment.crewEmail?.toLowerCase() === access.identity.email;
+      return {
+        ...assignment,
+        responseWindow,
+        canRespond: isOwner && assignment.status === "assigned" && responseWindow.status === "open",
+      };
+    }),
   });
 }
 
@@ -398,26 +485,54 @@ async function respondToAssignment(request: Request, db: MobileApiDatabase): Pro
   url.searchParams.set("orgId", body.orgId);
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
-  const assignment = await db.prepare(
-    `SELECT a.id, a.role, a.serviceDate, c.name AS crewName, c.email AS crewEmail
-     FROM service_assignment a
-     JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
-     WHERE a.id = ? AND a.orgId = ? LIMIT 1`,
-  ).bind(body.assignmentId, access.orgId).first<{
-    id: string;
-    role: string;
-    serviceDate: string;
-    crewName: string;
-    crewEmail: string;
-  }>();
+  const [assignment, settingsResult] = await Promise.all([
+    db.prepare(
+      `SELECT a.id, a.showId, a.crewMemberId, a.role, a.serviceDate, a.status,
+              c.name AS crewName, c.email AS crewEmail, r.scheduledStartTime,
+              COALESCE((
+                SELECT SUM(ri.duration) FROM rundown_item ri
+                WHERE ri.orgId = a.orgId AND ri.showId = a.showId
+              ), 0) AS plannedDurationMs
+       FROM service_assignment a
+       JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
+       LEFT JOIN rundown r ON r.id = a.showId AND r.orgId = a.orgId
+       WHERE a.id = ? AND a.orgId = ? LIMIT 1`,
+    ).bind(body.assignmentId, access.orgId).first<MobileAssignmentResponseRow>(),
+    db.prepare(
+      "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
+    ).bind(access.orgId).all<{ key: string; value: string }>(),
+  ]);
   if (!assignment || assignment.crewEmail.toLowerCase() !== access.identity.email) {
     return json({ error: "Assignment not found." }, 404);
   }
-  await db.prepare(
+  const settingMap = Object.fromEntries(
+    (settingsResult.results ?? []).map((setting) => [setting.key, setting.value]),
+  );
+  const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+  const responseWindow = getCrewScheduleResponseWindow(
+    {
+      serviceDate: assignment.serviceDate,
+      scheduledStartTime: assignment.scheduledStartTime,
+      plannedDurationMs: assignment.showId ? assignment.plannedDurationMs : undefined,
+      serviceWindowMinutes,
+      timeZone: settingMap["org-timezone"],
+    },
+    Date.now(),
+  );
+  if (assignment.status !== "assigned") {
+    return json({ error: "A response has already been recorded for this assignment." }, 409);
+  }
+  if (responseWindow.status === "closed") {
+    return json({ error: "This assignment is closed because the service has ended." }, 409);
+  }
+  const update = await db.prepare(
     `UPDATE service_assignment
      SET status = ?, responseNote = ?, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
-     WHERE id = ? AND orgId = ?`,
-  ).bind(response, reason, assignment.id, access.orgId).run();
+     WHERE id = ? AND orgId = ? AND crewMemberId = ? AND status = 'assigned'`,
+  ).bind(response, reason, assignment.id, access.orgId, assignment.crewMemberId).run();
+  if (!changedExactlyOneRow(update)) {
+    return json({ error: "A response has already been recorded for this assignment." }, 409);
+  }
 
   const { notifyOperationalEvent } = await import("./operational-notifications.server");
   const responseLabel = response === "confirmed" ? "accepted" : "declined";
@@ -506,8 +621,8 @@ async function devices(request: Request, url: URL, db: MobileApiDatabase): Promi
 
 function parsedSettings(value: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    const parsed: unknown = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -516,13 +631,16 @@ function parsedSettings(value: string): Record<string, unknown> | null {
 async function bridgeDispatch(
   env: MobileApiEnvironment,
   orgId: string,
-  message: Record<string, unknown>,
-): Promise<{ success: boolean; response?: string; error?: string }> {
+  message: BridgeDispatchMessage,
+): Promise<BridgeDispatchResult> {
+  if (!env.BRIDGE_RELAY) return { success: false, error: "Venue Bridge is unavailable" };
   const id = env.BRIDGE_RELAY.idFromName(orgId);
-  const stub = env.BRIDGE_RELAY.get(id) as unknown as {
-    dispatchBridgeMessage(message: Record<string, unknown>): Promise<{ success: boolean; response?: string; error?: string }>;
-  };
-  return stub.dispatchBridgeMessage(message);
+  const stub = env.BRIDGE_RELAY.get(id);
+  try {
+    return await stub.dispatchBridgeMessage(message);
+  } catch {
+    return { success: false, error: "Venue Bridge is unavailable" };
+  }
 }
 
 async function controlDevice(
@@ -549,8 +667,9 @@ async function controlDevice(
     return json({ error: "This device adapter does not yet expose safe mobile controls." }, 409);
   }
   const settings = parsedSettings(device.settings);
-  const host = typeof settings?.host === "string" ? settings.host.trim() : "";
-  const consoleType = String(settings?.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+  if (!settings) return json({ error: "The device settings are not configured correctly." }, 409);
+  const host = typeof settings.host === "string" ? settings.host.trim() : "";
+  const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
   const defaultPort = device.adapterType === "atem" ? 9910 : consoleType === "wing" ? 2223 : 10023;
   const port = Number(settings?.port || defaultPort);
   if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -568,9 +687,7 @@ async function controlDevice(
   }
 
   const actionId = typeof body.actionId === "string" ? body.actionId : "";
-  const params = body.params && typeof body.params === "object" && !Array.isArray(body.params)
-    ? body.params as Record<string, unknown>
-    : {};
+  const params = isRecord(body.params) ? body.params : {};
   let command: string;
   try {
     if (device.adapterType === "atem") command = buildMobileAtemCommand(actionId, params);
@@ -642,6 +759,16 @@ async function pushToken(request: Request, db: MobileApiDatabase): Promise<Respo
   return json({ ok: true });
 }
 
+function decodePathId(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value);
+    if (!validId(decoded) || /[\\/?#\u0000-\u001F\u007F]/.test(decoded)) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleMobileApi(request: Request, env: MobileApiEnvironment): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
@@ -654,8 +781,14 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/notifications/read" && request.method === "POST") return notificationRead(request, env.DB);
   if (url.pathname === "/api/mobile/v1/push-token" && request.method === "POST") return pushToken(request, env.DB);
   const deviceControlMatch = url.pathname.match(/^\/api\/mobile\/v1\/devices\/([^/]+)\/control$/);
-  if (deviceControlMatch && request.method === "POST") return controlDevice(request, url, decodeURIComponent(deviceControlMatch[1]), env);
+  if (deviceControlMatch && request.method === "POST") {
+    const deviceId = decodePathId(deviceControlMatch[1]);
+    return deviceId ? controlDevice(request, url, deviceId, env) : json({ error: "Not found." }, 404);
+  }
   const rundownMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)$/);
-  if (rundownMatch && request.method === "GET") return rundown(request, url, decodeURIComponent(rundownMatch[1]), env.DB);
+  if (rundownMatch && request.method === "GET") {
+    const showId = decodePathId(rundownMatch[1]);
+    return showId ? rundown(request, url, showId, env.DB) : json({ error: "Not found." }, 404);
+  }
   return json({ error: "Not found." }, 404);
 }

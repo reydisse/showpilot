@@ -1,10 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const mobileRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(mobileRoot, "../..");
+const runtimeVersions = {
+  expo: "54.0.37",
+  "react-native": "0.81.5",
+};
 const featureContract = [
   ["src/app/(app)/shows.tsx", "/api/mobile/v1/bootstrap"],
   ["src/app/schedule.tsx", "/api/mobile/v1/schedule"],
@@ -35,11 +40,24 @@ for (const [screen, endpoint] of featureContract) {
 for (const endpoint of apiContract) {
   if (!workerApi.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
 }
+for (const [packageName, expectedVersion] of Object.entries(runtimeVersions)) {
+  const packageJsonPath = realpathSync(resolve(mobileRoot, "node_modules", packageName, "package.json"));
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  if (packageJson.version !== expectedVersion) {
+    throw new Error(`Expected ${packageName} ${expectedVersion}, resolved ${String(packageJson.version)}`);
+  }
+}
+const resolveFromExpo = createRequire(realpathSync(resolve(mobileRoot, "node_modules", "expo", "package.json")));
+const expoModulesCoreEntry = resolveFromExpo.resolve("expo-modules-core");
+const expoModulesCorePackage = JSON.parse(readFileSync(resolve(dirname(expoModulesCoreEntry), "..", "package.json"), "utf8"));
+if (expoModulesCorePackage.version !== "3.0.30") {
+  throw new Error(`Expected expo-modules-core 3.0.30, resolved ${String(expoModulesCorePackage.version)}`);
+}
 
 const commands = [
   ["exec", "tsc", "--noEmit"],
   ["exec", "expo", "lint"],
-  ["exec", "expo", "export", "--platform", "all"],
+  ["exec", "expo", "export", "--platform", "all", "--clear"],
   ["dlx", "expo-doctor", "."],
 ];
 

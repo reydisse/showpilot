@@ -12,6 +12,7 @@ declare namespace Cloudflare {
 		VAPID_PUBLIC_KEY: string;
 		VAPID_PRIVATE_KEY: string;
 		VAPID_SUBJECT: string;
+		EXPO_ACCESS_TOKEN?: string;
 		STRIPE_SECRET_KEY: string;
 		STRIPE_WEBHOOK_SECRET: string;
 		STRIPE_PRICE_STARTER: string;

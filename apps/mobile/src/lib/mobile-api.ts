@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { fetch as expoFetch, type FetchRequestInit } from "expo/fetch";
+import { File } from "expo-file-system";
+import { Platform } from "react-native";
 import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
 
@@ -96,6 +99,10 @@ const scheduleSchema = z.object({
     crewName: z.string().nullable(),
     crewEmail: z.string().nullable(),
     canRespond: z.boolean(),
+    responseWindow: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("open"), closesAt: z.string().datetime() }),
+      z.object({ status: z.literal("closed"), closedAt: z.string().datetime().nullable() }),
+    ]),
   })),
 });
 
@@ -154,9 +161,9 @@ export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
 
-async function authenticatedFetch(path: string, init?: RequestInit) {
+async function authenticatedFetch(path: string, init?: FetchRequestInit) {
   const cookie = authClient.getCookie();
-  const response = await fetch(`${SHOWPILOT_URL}${path}`, {
+  const response = await expoFetch(`${SHOWPILOT_URL}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
@@ -169,8 +176,10 @@ async function authenticatedFetch(path: string, init?: RequestInit) {
     const body = await response.text();
     let apiError = "";
     try {
-      const parsed = JSON.parse(body) as { error?: unknown };
-      if (typeof parsed.error === "string") apiError = parsed.error.trim();
+      const parsed: unknown = JSON.parse(body);
+      if (typeof parsed === "object" && parsed !== null && "error" in parsed && typeof parsed.error === "string") {
+        apiError = parsed.error.trim();
+      }
     } catch {}
     if (apiError) throw new Error(apiError);
     throw new Error(body || `ShowPilot request failed (${response.status})`);
@@ -178,9 +187,21 @@ async function authenticatedFetch(path: string, init?: RequestInit) {
   return response;
 }
 
-export async function uploadMobileAvatar(file: { uri: string; name: string; type: "image/jpeg" }) {
+export async function uploadMobileAvatar(uri: string) {
   const form = new FormData();
-  form.append("file", file as unknown as Blob);
+  if (Platform.OS === "web") {
+    const fileResponse = await expoFetch(uri);
+    if (!fileResponse.ok) throw new Error("The selected photo could not be opened.");
+    const image = await fileResponse.blob();
+    if (image.size === 0) throw new Error("The selected photo is empty.");
+    if (image.type !== "image/jpeg") throw new Error("The prepared profile photo is not a JPEG image.");
+    form.append("file", image, "avatar.jpg");
+  } else {
+    const image = new File(uri);
+    if (!image.exists || image.size === 0) throw new Error("The selected photo could not be opened.");
+    if (image.type !== "image/jpeg") throw new Error("The prepared profile photo is not a JPEG image.");
+    form.append("file", image);
+  }
   const response = await authenticatedFetch("/api/user/avatar", { method: "POST", body: form });
   return z.object({ url: z.string().url() }).parse(await response.json());
 }
