@@ -1,11 +1,18 @@
 import { useEffect } from "react";
 import { useParams } from "@tanstack/react-router";
-import { isDesktopRuntime, showDesktopNotification } from "@/lib/desktop-runtime";
+import {
+  DESKTOP_NOTIFICATION_POLL_EVENT,
+  focusDesktopMainWindow,
+  isDesktopMainWindow,
+  isDesktopRuntime,
+  listenForDesktopNotificationActions,
+  showDesktopNotification,
+} from "@/lib/desktop-runtime";
+import { getNotificationPath } from "@/lib/notification-destination";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { getOrgRouteContext } from "@/lib/session";
 
 const HISTORY_LIMIT = 120;
-const NATIVE_POLL_EVENT = "showpilot-desktop-notification-poll";
 
 function storageKey(userId: string, orgId: string) {
   return `showpilot.desktop-notifications.v1:${userId}:${orgId}`;
@@ -41,7 +48,7 @@ export function DesktopNotificationController() {
   const { slug } = useParams({ strict: false });
 
   useEffect(() => {
-    if (!isDesktopRuntime() || !slug) return;
+    if (!isDesktopRuntime() || !isDesktopMainWindow() || !slug) return;
     let active = true;
     let inFlight = false;
     let context: Awaited<ReturnType<typeof getOrgRouteContext>> | null = null;
@@ -59,20 +66,32 @@ export function DesktopNotificationController() {
         const key = storageKey(context.user.id, context.org.id);
         const delivered = readHistory(key)
           ?? (memoryHistory?.key === key ? memoryHistory.ids : null);
+        const accepted = delivered ?? new Set(result.notifications.map((item) => item.id));
         if (delivered) {
           for (const item of [...result.notifications].reverse()) {
-            if (!item.readAt && !delivered.has(item.id)) {
-              await showDesktopNotification(item.title, item.message, {
+            if (item.readAt) {
+              accepted.add(item.id);
+            } else if (!accepted.has(item.id)) {
+              const shown = await showDesktopNotification(item.title, item.message, {
                 notificationId: item.id,
                 actionUrl: item.actionUrl,
                 orgSlug: slug,
               });
+              // Do not consume a notification while native permission is off.
+              // It will be retried after the operator enables notifications.
+              if (shown) accepted.add(item.id);
             }
           }
         }
         memoryHistory = {
           key,
-          ids: persistHistory(key, result.notifications.map((item) => item.id), delivered ?? new Set()),
+          ids: persistHistory(
+            key,
+            result.notifications
+              .filter((item) => accepted.has(item.id))
+              .map((item) => item.id),
+            accepted,
+          ),
         };
       } catch {
         // Desktop navigation and local device control must survive inbox outages.
@@ -83,13 +102,37 @@ export function DesktopNotificationController() {
 
     void refresh();
     const timer = window.setInterval(refresh, 15_000);
-    window.addEventListener(NATIVE_POLL_EVENT, refresh);
+    window.addEventListener(DESKTOP_NOTIFICATION_POLL_EVENT, refresh);
     return () => {
       active = false;
       window.clearInterval(timer);
-      window.removeEventListener(NATIVE_POLL_EVENT, refresh);
+      window.removeEventListener(DESKTOP_NOTIFICATION_POLL_EVENT, refresh);
     };
   }, [slug]);
+
+  useEffect(() => {
+    if (!isDesktopRuntime() || !isDesktopMainWindow()) return;
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    void listenForDesktopNotificationActions((payload) => {
+      const path = payload.actionUrl
+        ? getNotificationPath(payload.orgSlug, payload.actionUrl)
+        : payload.orgSlug.length <= 64 && /^[a-zA-Z0-9-]+$/.test(payload.orgSlug)
+          ? `/${payload.orgSlug}`
+          : null;
+      if (!path) return;
+      void focusDesktopMainWindow().finally(() => {
+        window.location.assign(path);
+      });
+    }).then((removeListener) => {
+      if (active) unlisten = removeListener;
+      else removeListener();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
 
   return null;
 }

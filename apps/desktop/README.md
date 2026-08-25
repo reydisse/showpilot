@@ -46,7 +46,10 @@ non-local URLs; release companion windows always use `https://showpilot.tech`.
 - The embedded, architecture-matched ShowPilot device engine provides the same
   ProPresenter, OBS, vMix and profile-driven device capabilities as the standalone Bridge.
 - The native notification plugin delivers personal ShowPilot notifications while
-  Desktop is running, including when its window is in the background.
+  Desktop is running, including when its window is in the background; clicking
+  one focuses the app and opens its validated organization destination.
+- The signed native updater checks ShowPilot's private-R2-backed release
+  manifest, downloads the correct platform bundle and restarts after install.
 
 Only bundled development content and the exact `https://showpilot.tech`
 origin receive native capability access.

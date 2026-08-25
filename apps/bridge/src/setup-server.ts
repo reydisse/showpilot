@@ -1,6 +1,7 @@
 import fs from "fs";
 import http from "http";
 import path from "path";
+import { randomUUID } from "crypto";
 
 export interface BridgeConfig {
   site: string;
@@ -22,14 +23,53 @@ export interface SetupState {
 
 const CONFIG_FILES = ["showpilot-bridge.config.json", "bridge.config.json"];
 
-export function loadConfigFile(): BridgeConfig | null {
+export function validateBridgeConfig(config: BridgeConfig): string | null {
+  const normalizedSite = config.site.startsWith("http://") || config.site.startsWith("https://")
+    ? config.site
+    : `https://${config.site}`;
+  let siteUrl: URL;
+  try {
+    siteUrl = new URL(normalizedSite);
+  } catch {
+    return "Enter a valid ShowPilot site URL";
+  }
+  const localDevelopment = siteUrl.protocol === "http:"
+    && (siteUrl.hostname === "localhost" || siteUrl.hostname === "127.0.0.1")
+    && Boolean(siteUrl.port);
+  if ((siteUrl.protocol !== "https:" && !localDevelopment) || siteUrl.username || siteUrl.password) {
+    return "The ShowPilot site must use HTTPS or an explicit localhost development port";
+  }
+
+  const org = config.org.trim();
+  if (
+    !org
+    || org.length > 64
+    || !/^[A-Za-z0-9-]+$/.test(org)
+  ) {
+    return "Enter a valid organization slug";
+  }
+
+  const key = config.key?.trim();
+  if (!key || !key.startsWith("sp_") || key.length > 256) {
+    return "Enter the Bridge API key from ShowPilot Settings";
+  }
+
+  for (const port of [config.propresenterPort, config.propresenterApiPort]) {
+    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65_535)) {
+      return "ProPresenter ports must be between 1 and 65535";
+    }
+  }
+  return null;
+}
+
+export function loadConfigFile(directory = process.cwd()): BridgeConfig | null {
   for (const file of CONFIG_FILES) {
-    const fullPath = path.join(process.cwd(), file);
+    const fullPath = path.join(directory, file);
     if (!fs.existsSync(fullPath)) continue;
     try {
       const parsed = JSON.parse(fs.readFileSync(fullPath, "utf8")) as Partial<BridgeConfig>;
       if (parsed.site && parsed.org) {
-        return {
+        const config = {
           site: parsed.site,
           org: parsed.org,
           key: parsed.key,
@@ -39,6 +79,10 @@ export function loadConfigFile(): BridgeConfig | null {
           propresenterPassword: parsed.propresenterPassword,
           propresenterApiPort: parsed.propresenterApiPort,
         };
+        if (!validateBridgeConfig(config)) {
+          if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
+          return config;
+        }
       }
     } catch {
       // Ignore malformed config and fall through to setup UI
@@ -48,9 +92,26 @@ export function loadConfigFile(): BridgeConfig | null {
   return null;
 }
 
-export function saveConfigFile(config: BridgeConfig): void {
-  const fullPath = path.join(process.cwd(), CONFIG_FILES[0]);
-  fs.writeFileSync(fullPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+export function saveConfigFile(config: BridgeConfig, directory = process.cwd()): void {
+  const validationError = validateBridgeConfig(config);
+  if (validationError) throw new Error(validationError);
+
+  const fullPath = path.join(directory, CONFIG_FILES[0]);
+  const temporaryPath = `${fullPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    fs.renameSync(temporaryPath, fullPath);
+    if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
+  } finally {
+    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+  }
+}
+
+export function isTrustedSetupOrigin(origin: string | undefined, port: number): boolean {
+  return origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}`;
 }
 
 function toBridgeUrl(siteUrl: string, org: string): string {
@@ -92,29 +153,35 @@ export function startSetupServer(
     const url = new URL(req.url ?? "/", "http://localhost");
 
     if (req.method === "POST" && url.pathname === "/save") {
+      if (!isTrustedSetupOrigin(req.headers.origin, port)) {
+        res.writeHead(403, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+        res.end("Open the local Bridge setup page before saving settings");
+        return;
+      }
       const body = await readBody(req);
       const form = new URLSearchParams(body);
       const config: BridgeConfig = {
         site: (form.get("site") || "").trim(),
-        org: (form.get("org") || "").trim(),
+        org: (form.get("org") || "").trim().replace(/^\/+|\/+$/g, ""),
         key: (form.get("key") || "").trim() || undefined,
         propresenterHost: (form.get("propresenterHost") || "").trim() || undefined,
         propresenterPassword: (form.get("propresenterPassword") || "").trim() || undefined,
       };
 
       const propresenterPort = Number.parseInt((form.get("propresenterPort") || "").trim(), 10);
-      if (Number.isFinite(propresenterPort) && propresenterPort > 0) {
+      if (Number.isInteger(propresenterPort) && propresenterPort > 0 && propresenterPort <= 65_535) {
         config.propresenterPort = propresenterPort;
       }
 
       const propresenterApiPort = Number.parseInt((form.get("propresenterApiPort") || "").trim(), 10);
-      if (Number.isFinite(propresenterApiPort) && propresenterApiPort > 0) {
+      if (Number.isInteger(propresenterApiPort) && propresenterApiPort > 0 && propresenterApiPort <= 65_535) {
         config.propresenterApiPort = propresenterApiPort;
       }
 
-      if (!config.site || !config.org) {
+      const validationError = validateBridgeConfig(config);
+      if (validationError) {
         res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("Site and org are required");
+        res.end(validationError);
         return;
       }
 
@@ -181,7 +248,7 @@ export function startSetupServer(
             </div>
           </div>
           <label for="key">API key</label>
-          <input id="key" name="key" placeholder="sp_..." value="${escapeHtml(config?.key ?? "")}" />
+          <input id="key" name="key" type="password" autocomplete="off" placeholder="sp_..." value="${escapeHtml(config?.key ?? "")}" />
           <div class="muted" style="margin-top:18px">ProPresenter</div>
           <p class="muted">Optional. If set, the bridge connects to ProPresenter automatically.</p>
           <label for="propresenterHost">ProPresenter host</label>
@@ -197,7 +264,7 @@ export function startSetupServer(
             </div>
           </div>
           <label for="propresenterPassword">Stage app password</label>
-          <input id="propresenterPassword" name="propresenterPassword" placeholder="Password from PP" value="${escapeHtml(config?.propresenterPassword ?? "")}" />
+          <input id="propresenterPassword" name="propresenterPassword" type="password" autocomplete="off" placeholder="Password from PP" value="${escapeHtml(config?.propresenterPassword ?? "")}" />
           <button type="submit">Start Bridge</button>
         </form>
       </div>
@@ -209,7 +276,14 @@ export function startSetupServer(
   </body>
 </html>`;
 
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+    });
     res.end(html);
   });
 

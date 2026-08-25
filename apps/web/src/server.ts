@@ -3,6 +3,7 @@ import { getAuth } from "./lib/auth";
 import { resolveEffectiveAccess } from "./lib/effective-access";
 import type { Permission } from "./lib/permissions";
 import { verifyCrewChatPass } from "./lib/crew-chat-pass";
+import { chatRelayKey } from "./lib/chat-relay-key";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
@@ -422,7 +423,7 @@ export default {
           size: file.size,
         });
       }
-      const id = e.CHAT_RELAY.idFromName(`${orgId}:${roomId}`);
+			const id = e.CHAT_RELAY.idFromName(chatRelayKey(orgId, roomId));
       const stub = e.CHAT_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;

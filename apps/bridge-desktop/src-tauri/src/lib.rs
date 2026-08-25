@@ -43,6 +43,13 @@ struct BridgeProcess {
     connection: Arc<Mutex<BridgeConnection>>,
 }
 
+impl Drop for BridgeProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 struct BridgeRuntime {
     process: Mutex<Option<BridgeProcess>>,
     auto_restart: AtomicBool,
@@ -97,6 +104,34 @@ fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnectio
     }
 }
 
+fn validate_bridge_config(config: &BridgeConfig) -> Result<(), String> {
+    let site = config.site.trim().trim_end_matches('/');
+    let trusted_site = site.starts_with("https://")
+        || site.starts_with("http://localhost:")
+        || site.starts_with("http://127.0.0.1:");
+    if !trusted_site {
+        return Err(
+            "ShowPilot site must use HTTPS or an explicit localhost development port".into(),
+        );
+    }
+    if config.org.is_empty()
+        || config.org.len() > 64
+        || !config
+            .org
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    {
+        return Err("Invalid organization slug".into());
+    }
+    if !config.key.starts_with("sp_") || config.key.len() > 256 {
+        return Err("A valid ShowPilot Bridge API key is required".into());
+    }
+    if config.propresenter_port == Some(0) || config.propresenter_api_port == Some(0) {
+        return Err("ProPresenter ports must be between 1 and 65535".into());
+    }
+    Ok(())
+}
+
 fn bridge_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -111,10 +146,16 @@ fn read_bridge_config(app: &tauri::AppHandle) -> Result<Option<BridgeConfig>, St
     if !path.exists() {
         return Ok(None);
     }
-    let payload = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&payload)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let payload = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
+    let config: BridgeConfig = serde_json::from_str(&payload).map_err(|error| error.to_string())?;
+    validate_bridge_config(&config)?;
+    Ok(Some(config))
 }
 
 fn append_log(logs: &Arc<Mutex<VecDeque<String>>>, line: String) {
@@ -150,28 +191,35 @@ fn capture_output<R: Read + Send + 'static>(
 }
 
 fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Command, String> {
+    validate_bridge_config(config)?;
     // Production installers can ship a compiled `showpilot-bridge` sidecar.
     // Development falls back to the TypeScript bridge with the local Node runtime.
-    let resource_binary = app.path().resource_dir().ok().and_then(|path| {
+    let adjacent_binary = std::env::current_exe().ok().and_then(|path| {
+        let directory = path.parent()?;
         [
-            path.join("binaries/showpilot-bridge"),
-            path.join("binaries/showpilot-bridge.exe"),
-            path.join("showpilot-bridge"),
-            path.join("showpilot-bridge.exe"),
+            directory.join("showpilot-bridge"),
+            directory.join("showpilot-bridge.exe"),
         ]
         .into_iter()
         .find(|candidate| candidate.exists())
     });
-
-    if config.site.trim().is_empty() || config.org.trim().is_empty() || config.key.trim().is_empty()
-    {
-        return Err("Site, organization, and bridge key are required".to_string());
-    }
+    let packaged_binary = adjacent_binary.or_else(|| {
+        app.path().resource_dir().ok().and_then(|path| {
+            [
+                path.join("binaries/showpilot-bridge"),
+                path.join("binaries/showpilot-bridge.exe"),
+                path.join("showpilot-bridge"),
+                path.join("showpilot-bridge.exe"),
+            ]
+            .into_iter()
+            .find(|candidate| candidate.exists())
+        })
+    });
 
     // Both the packaged sidecar and the development Node process need the
     // same configuration. Keep this setup after command selection so a
     // packaged install does not start briefly and then exit in configure mode.
-    let mut command = if let Some(path) = resource_binary.filter(|path| path.exists()) {
+    let mut command = if let Some(path) = packaged_binary {
         let mut command = Command::new(path);
         command.args(["--no-open", "--desktop"]);
         command
@@ -205,7 +253,8 @@ fn bridge_command(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<Comma
     command
         .env("SHOWPILOT_SITE_URL", config.site.trim())
         .env("SHOWPILOT_ORG", config.org.trim())
-        .env("SHOWPILOT_BRIDGE_KEY", config.key.trim());
+        .env("SHOWPILOT_BRIDGE_KEY", config.key.trim())
+        .env("SHOWPILOT_PARENT_PID", std::process::id().to_string());
     if let Some(host) = &config.propresenter_host {
         command.env("SHOWPILOT_PROPRESENTER_HOST", host);
     }
@@ -243,10 +292,7 @@ fn get_bridge_config(app: tauri::AppHandle) -> Result<Option<BridgeConfig>, Stri
 
 #[tauri::command]
 fn save_bridge_config(app: tauri::AppHandle, config: BridgeConfig) -> Result<(), String> {
-    if config.site.trim().is_empty() || config.org.trim().is_empty() || config.key.trim().is_empty()
-    {
-        return Err("Site, organization, and bridge key are required".to_string());
-    }
+    validate_bridge_config(&config)?;
     let path = bridge_config_path(&app)?;
     let temporary = path.with_extension("json.tmp");
     let payload = serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?;
@@ -298,10 +344,7 @@ fn restart_configured_bridge(
         .process
         .lock()
         .map_err(|_| "Bridge state unavailable".to_string())?;
-    if let Some(mut active) = process.take() {
-        let _ = active.child.kill();
-        let _ = active.child.wait();
-    }
+    *process = None;
     let active = spawn_bridge_process(app, &config)?;
     *process = Some(active);
     runtime.auto_restart.store(true, Ordering::Relaxed);
@@ -394,10 +437,7 @@ fn start_bridge(
         .process
         .lock()
         .map_err(|_| "Bridge state unavailable".to_string())?;
-    if let Some(mut active) = process.take() {
-        let _ = active.child.kill();
-        let _ = active.child.wait();
-    }
+    *process = None;
 
     let active = spawn_bridge_process(&app, &config)?;
     let pid = active.child.id();
@@ -425,10 +465,7 @@ fn stop_bridge(runtime: tauri::State<'_, BridgeRuntime>) -> Result<(), String> {
         .process
         .lock()
         .map_err(|_| "Bridge state unavailable".to_string())?;
-    if let Some(mut active) = process.take() {
-        let _ = active.child.kill();
-        let _ = active.child.wait();
-    }
+    *process = None;
     Ok(())
 }
 
@@ -565,7 +602,22 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{child_has_exited, connection_from_log, BridgeConnection};
+    use super::{
+        child_has_exited, connection_from_log, validate_bridge_config, BridgeConfig,
+        BridgeConnection,
+    };
+
+    fn config(site: &str, org: &str, key: &str) -> BridgeConfig {
+        BridgeConfig {
+            site: site.into(),
+            org: org.into(),
+            key: key.into(),
+            propresenter_host: None,
+            propresenter_port: None,
+            propresenter_api_port: None,
+            propresenter_password: None,
+        }
+    }
 
     #[test]
     fn running_child_is_not_mistaken_for_an_exited_child() {
@@ -611,5 +663,41 @@ mod tests {
         assert_eq!(state, BridgeConnection::Error);
         let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
         assert_eq!(state, BridgeConnection::Error);
+    }
+
+    #[test]
+    fn accepts_production_and_explicit_local_bridge_config() {
+        assert!(validate_bridge_config(&config(
+            "https://showpilot.tech",
+            "faithfire-production",
+            "sp_test"
+        ))
+        .is_ok());
+        assert!(
+            validate_bridge_config(&config("http://localhost:3001", "test-peeps", "sp_test"))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_insecure_sites_invalid_slugs_and_invalid_keys() {
+        assert!(validate_bridge_config(&config(
+            "http://showpilot.tech",
+            "faithfire-production",
+            "sp_test"
+        ))
+        .is_err());
+        assert!(validate_bridge_config(&config(
+            "https://showpilot.tech",
+            "../faithfire",
+            "sp_test"
+        ))
+        .is_err());
+        assert!(validate_bridge_config(&config(
+            "https://showpilot.tech",
+            "faithfire-production",
+            "wrong"
+        ))
+        .is_err());
     }
 }

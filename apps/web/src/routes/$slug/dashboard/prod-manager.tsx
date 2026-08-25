@@ -9,6 +9,7 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import {
   PM_WIDGETS,
   type PmWidgetModel,
@@ -146,11 +147,7 @@ function ProdManagerPage() {
               >
                 {shows.map((show) => (
                   <option key={show.id} value={show.id}>
-                    {show.name ? `${show.name} · ` : ""}{new Date(`${show.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                    {formatServicePickerLabel(show)}
                   </option>
                 ))}
               </select>

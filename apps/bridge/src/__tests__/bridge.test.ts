@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { bridgeWebSocketOptions } from "../bridge.js";
+import {
+  bridgeWebSocketOptions,
+  isSupportedConnectProtocol,
+} from "../bridge.js";
 
 describe("bridge WebSocket authentication", () => {
   it("sends the Bridge key in the API header used by production", () => {
@@ -26,5 +29,11 @@ describe("bridge WebSocket authentication", () => {
       "wss://showpilot.tech/api/bridge/org/ws?role=bridge",
     );
     expect(connection.options).toBeUndefined();
+  });
+
+  it("rejects device protocols the Bridge cannot connect", () => {
+    expect(isSupportedConnectProtocol("atem")).toBe(true);
+    expect(isSupportedConnectProtocol("propresenter")).toBe(true);
+    expect(isSupportedConnectProtocol("made-up-protocol")).toBe(false);
   });
 });
