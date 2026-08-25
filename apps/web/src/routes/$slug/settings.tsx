@@ -1,5 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Building2,
@@ -2308,7 +2309,11 @@ function DangerSection({
                     >
                       {availableDates.map((entry) => (
                         <option key={entry.showId} value={entry.showId}>
-                          {entry.name || entry.date}{entry.scheduledStartTime ? ` · ${new Date(entry.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""} ({entry.itemCount} items)
+                          {formatServicePickerLabel({
+                            name: entry.name,
+                            serviceDate: entry.date,
+                            scheduledStartTime: entry.scheduledStartTime,
+                          })} ({entry.itemCount} items)
                         </option>
                       ))}
                     </select>

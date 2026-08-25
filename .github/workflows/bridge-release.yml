@@ -90,6 +90,11 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Require updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY) { console.error('Missing TAURI_SIGNING_PRIVATE_KEY'); process.exit(1) }"
+
       - name: Build and publish release assets
         uses: tauri-apps/tauri-action@v0
         env:
@@ -104,7 +109,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/bridge-desktop
-          args: --ci
+          args: >-
+            --ci --config '{"bundle":{"createUpdaterArtifacts":true}}'
           tagName: bridge-v__VERSION__
           releaseName: ShowPilot Bridge v__VERSION__
           releaseBody: |
@@ -117,3 +123,8 @@ jobs:
             macOS downloads are Developer ID signed and Apple-notarized. Do not install the Intel (`x64`) Mac build on an Apple Silicon Mac. See `apps/bridge-desktop/RELEASE.md` for installation and update details.
           releaseDraft: true
           prerelease: false
+
+      - name: Verify macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/verify-macos-release.sh apps/bridge-desktop/src-tauri/target/release/bundle "ShowPilot Bridge"

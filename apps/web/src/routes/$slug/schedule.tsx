@@ -172,7 +172,13 @@ export const Route = createFileRoute("/$slug/schedule")({
 type Assignment = Awaited<
   ReturnType<typeof getSchedule>
 >["assignments"][number];
-type ResponseFilter = "all" | "assigned" | "confirmed" | "declined" | "open";
+type ResponseFilter =
+  | "all"
+  | "assigned"
+  | "confirmed"
+  | "declined"
+  | "closed"
+  | "open";
 
 function SchedulePage() {
   const data = Route.useLoaderData();
@@ -249,11 +255,26 @@ function SchedulePage() {
   const assignments = useMemo(
     () =>
       selectedAssignments.filter(
-        (assignment) =>
-          filter === "all" ||
-          (filter === "open"
-            ? !assignment.crewMemberId
-            : assignment.status === filter),
+        (assignment) => {
+          const responseOpen = assignment.responseWindow.status === "open";
+          if (filter === "all") return true;
+          if (filter === "open") return !assignment.crewMemberId;
+          if (filter === "closed") {
+            return (
+              assignment.status === "assigned" &&
+              Boolean(assignment.crewMemberId) &&
+              !responseOpen
+            );
+          }
+          if (filter === "assigned") {
+            return (
+              assignment.status === "assigned" &&
+              Boolean(assignment.crewMemberId) &&
+              responseOpen
+            );
+          }
+          return assignment.status === filter;
+        },
       ),
     [selectedAssignments, filter],
   );
@@ -261,7 +282,10 @@ function SchedulePage() {
     filled: selectedAssignments.filter((item) => item.crewMemberId).length,
     open: selectedAssignments.filter((item) => !item.crewMemberId).length,
     awaiting: selectedAssignments.filter(
-      (item) => item.status === "assigned" && item.crewMemberId,
+      (item) =>
+        item.status === "assigned" &&
+        item.crewMemberId &&
+        item.responseWindow.status === "open",
     ).length,
     declined: selectedAssignments.filter((item) => item.status === "declined")
       .length,
@@ -504,6 +528,7 @@ function SchedulePage() {
                     <option value="all">All responses</option>
                     <option value="confirmed">Confirmed</option>
                     <option value="assigned">Awaiting</option>
+                    <option value="closed">Closed</option>
                     <option value="declined">Declined</option>
                     <option value="open">Open</option>
                   </select>
@@ -892,13 +917,29 @@ function RosterMobileCard({
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
   const [busy, setBusy] = useState(false);
-  const pending = assignment.status === "assigned" && Boolean(assignment.crewMemberId);
+  const responseOpen = assignment.responseWindow.status === "open";
+  const closed =
+    assignment.status === "assigned" &&
+    Boolean(assignment.crewMemberId) &&
+    !responseOpen;
+  const pending =
+    assignment.status === "assigned" &&
+    Boolean(assignment.crewMemberId) &&
+    responseOpen;
   const responseLabel = assignment.crewMemberId
-    ? assignment.status === "assigned" ? "Awaiting response" : assignment.status
+    ? assignment.status === "assigned"
+      ? closed
+        ? "Closed"
+        : "Awaiting response"
+      : assignment.status
     : "Open position";
   const statusClass = assignment.status === "confirmed"
     ? "text-green-400"
-    : assignment.status === "declined" ? "text-red-400" : "text-yellow-300";
+    : assignment.status === "declined"
+      ? "text-red-400"
+      : closed
+        ? "text-board-muted"
+        : "text-yellow-300";
   const remove = async () => {
     const approved = await confirm({
       title: "Remove assignment?",
@@ -962,13 +1003,23 @@ function RosterRow({
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
   const [busy, setBusy] = useState(false);
-  const pending = assignment.status === "assigned" && assignment.crewMemberId;
+  const responseOpen = assignment.responseWindow.status === "open";
+  const closed =
+    assignment.status === "assigned" &&
+    Boolean(assignment.crewMemberId) &&
+    !responseOpen;
+  const pending =
+    assignment.status === "assigned" &&
+    Boolean(assignment.crewMemberId) &&
+    responseOpen;
   const statusColor =
     assignment.status === "confirmed"
       ? "text-green-400"
       : assignment.status === "declined"
         ? "text-red-400"
-        : "text-yellow-300";
+        : closed
+          ? "text-board-muted"
+          : "text-yellow-300";
   return (
     <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
       <button
@@ -1012,7 +1063,9 @@ function RosterRow({
           )}
           <span>{assignment.crewMemberId
             ? assignment.status === "assigned"
-              ? "Awaiting"
+              ? closed
+                ? "Closed"
+                : "Awaiting"
               : assignment.status
             : "Open"}</span>
           {pending && canManage ? (

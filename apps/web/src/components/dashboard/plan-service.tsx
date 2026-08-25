@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { CalendarPlus } from "lucide-react";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 
 /** The next Sunday strictly after today — the common case for a church. */
 export function nextSunday(from: Date = new Date()): string {
@@ -147,11 +148,7 @@ export function PlanServicePanel({
                 <option value="">Start blank</option>
                 {shows.slice(0, 12).map((existing) => (
                   <option key={existing.id} value={existing.id}>
-                    {existing.name || new Date(`${existing.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                    {formatServicePickerLabel(existing)}
                   </option>
                 ))}
               </select>

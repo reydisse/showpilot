@@ -26,6 +26,20 @@ export interface PPBridgeDebugState {
   lastForwardAt: number;
 }
 
+interface SlideSnapshot {
+  text: string;
+  notes: string;
+  presentationName: string;
+  slideIndex: number;
+  isScripture: boolean;
+  signature: string;
+}
+
+interface PollResult {
+  reachable: boolean;
+  slide: SlideSnapshot | null;
+}
+
 export class ProPresenterBridge {
   private static readonly POLL_INTERVAL_MS = 400;
   private ws: WebSocket | null = null;
@@ -41,6 +55,13 @@ export class ProPresenterBridge {
   private lastForwardAt = 0;
   private useWebSocket = true;
   private noSlideSince = 0;
+  private pollInFlight = false;
+  private lastReportedConnected = false;
+  private readyWaiters = new Set<{
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+  }>();
 
   constructor(options: PPBridgeOptions) {
     this.options = options;
@@ -52,7 +73,8 @@ export class ProPresenterBridge {
     // If stage + API ports are the same, treat this as REST-only mode.
     // PP 21.x often exposes slide state on the API port but doesn't keep a
     // stable stage-display websocket there.
-    this.useWebSocket = this.options.port !== (this.options.apiPort ?? this.options.port);
+    this.useWebSocket =
+      this.options.port !== (this.options.apiPort ?? this.options.port);
 
     if (this.useWebSocket) {
       const url = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
@@ -71,7 +93,7 @@ export class ProPresenterBridge {
             pwd: this.options.password || "",
             ptl: 610,
             acn: "ath",
-          })
+          }),
         );
       });
 
@@ -100,7 +122,7 @@ export class ProPresenterBridge {
       });
     } else {
       console.log(
-        `[pp-bridge] REST polling only (api port ${this.options.apiPort ?? this.options.port})`
+        `[pp-bridge] REST polling only (api port ${this.options.apiPort ?? this.options.port})`,
       );
       this.emitStatus();
     }
@@ -126,6 +148,31 @@ export class ProPresenterBridge {
     }
     this.wsConnected = false;
     this.emitStatus();
+    for (const waiter of this.readyWaiters) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("ProPresenter connection was closed"));
+    }
+    this.readyWaiters.clear();
+  }
+
+  waitUntilReady(timeoutMs = 6000): Promise<void> {
+    if (this.wsConnected || this.pollingActive) return Promise.resolve();
+
+    return new Promise<void>((resolve, reject) => {
+      const waiter = {
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.readyWaiters.delete(waiter);
+          reject(
+            new Error(
+              "ProPresenter did not respond before the connection timeout",
+            ),
+          );
+        }, timeoutMs),
+      };
+      this.readyWaiters.add(waiter);
+    });
   }
 
   replayCurrentSlide(): void {
@@ -214,9 +261,14 @@ export class ProPresenterBridge {
     if (this.pollTimer || this.destroyed) return;
 
     const doPoll = async () => {
-      if (this.destroyed) return;
+      if (this.destroyed || this.pollInFlight) return;
+      this.pollInFlight = true;
       try {
-        const slide = await this.pollSlide();
+        const result = await this.pollSlide();
+        this.setPollingActive(result.reachable);
+        if (!result.reachable) return;
+
+        const slide = result.slide;
         if (!slide?.text) {
           if (this.lastSlideEvent) {
             if (!this.noSlideSince) {
@@ -253,12 +305,16 @@ export class ProPresenterBridge {
           this.options.onSlideChange({ ...this.lastSlideEvent });
         }
       } catch (err) {
-        console.error("[pp-bridge] Polling failed:", err instanceof Error ? err.message : String(err));
+        console.error(
+          "[pp-bridge] Polling failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+        this.setPollingActive(false);
+      } finally {
+        this.pollInFlight = false;
       }
     };
 
-    this.pollingActive = true;
-    this.emitStatus();
     void doPoll();
     this.pollTimer = setInterval(() => {
       void doPoll();
@@ -274,11 +330,32 @@ export class ProPresenterBridge {
   }
 
   private emitStatus(): void {
-    this.options.onStatusChange(this.wsConnected || this.pollingActive);
+    const connected = this.wsConnected || this.pollingActive;
+    if (connected === this.lastReportedConnected) return;
+
+    this.lastReportedConnected = connected;
+    this.options.onStatusChange(connected);
+    if (connected) {
+      for (const waiter of this.readyWaiters) {
+        clearTimeout(waiter.timer);
+        waiter.resolve();
+      }
+      this.readyWaiters.clear();
+    }
+  }
+
+  private setPollingActive(active: boolean): void {
+    if (this.pollingActive === active) return;
+    this.pollingActive = active;
+    this.emitStatus();
   }
 
   private clearActiveSlide(): void {
-    if (!this.lastSlideEvent && !this.lastSlideSignature && !this.lastPollText) {
+    if (
+      !this.lastSlideEvent &&
+      !this.lastSlideSignature &&
+      !this.lastPollText
+    ) {
       this.noSlideSince = 0;
       return;
     }
@@ -291,7 +368,7 @@ export class ProPresenterBridge {
     this.options.onSlideChange(null);
   }
 
-  private async pollSlide(): Promise<{ text: string; notes: string; presentationName: string; slideIndex: number; isScripture: boolean; signature: string } | null> {
+  private async pollSlide(): Promise<PollResult> {
     const timeout = 2000;
     const endpoints = [
       "/v1/stage/current_slide",
@@ -301,23 +378,38 @@ export class ProPresenterBridge {
       "/v1/stage/layout_map",
     ];
 
+    let reachable = false;
     for (const port of this.getApiPorts()) {
       const base = `http://${this.options.host}:${port}`;
       for (const endpoint of endpoints) {
         try {
-          const res = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(timeout) });
+          const res = await fetch(`${base}${endpoint}`, {
+            signal: AbortSignal.timeout(timeout),
+          });
           if (!res.ok) continue;
+          reachable = true;
           const payload = (await res.json()) as Record<string, unknown>;
           const text = this.extractTextFromResponse(payload);
           if (text) {
-            const signature = JSON.stringify(this.normalizeSlidePayload(payload));
+            const signature = JSON.stringify(
+              this.normalizeSlidePayload(payload),
+            );
             return {
-              text,
-              notes: (payload.notes as string) || "",
-              presentationName: (payload.presentation_name as string) || (payload.presentation as string) || "",
-              slideIndex: typeof payload.current_index === "number" ? payload.current_index : 0,
-              isScripture: false,
-              signature,
+              reachable: true,
+              slide: {
+                text,
+                notes: (payload.notes as string) || "",
+                presentationName:
+                  (payload.presentation_name as string) ||
+                  (payload.presentation as string) ||
+                  "",
+                slideIndex:
+                  typeof payload.current_index === "number"
+                    ? payload.current_index
+                    : 0,
+                isScripture: false,
+                signature,
+              },
             };
           }
         } catch {
@@ -326,14 +418,15 @@ export class ProPresenterBridge {
       }
     }
 
-    return null;
+    return { reachable, slide: null };
   }
 
   private extractTextFromMessage(data: Record<string, unknown>): string {
     const acn = data.acn as string | undefined;
     if (acn === "ath" || acn === "tmr" || acn === "sys") return "";
 
-    if (typeof data.text === "string" && data.text.trim()) return data.text.trim();
+    if (typeof data.text === "string" && data.text.trim())
+      return data.text.trim();
     if (typeof data.txt === "string" && data.txt.trim()) return data.txt.trim();
 
     if (data.cs && typeof data.cs === "object") {
@@ -345,7 +438,12 @@ export class ProPresenterBridge {
     if (Array.isArray(data.ary)) {
       const texts: string[] = [];
       for (const field of data.ary as Array<Record<string, unknown>>) {
-        const txt = typeof field.txt === "string" ? field.txt : typeof field.text === "string" ? field.text : "";
+        const txt =
+          typeof field.txt === "string"
+            ? field.txt
+            : typeof field.text === "string"
+              ? field.text
+              : "";
         const trimmed = txt.trim();
         if (!trimmed || /^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) continue;
         texts.push(trimmed);
@@ -358,7 +456,8 @@ export class ProPresenterBridge {
 
   private extractTextFromResponse(data: Record<string, unknown>): string {
     if (typeof data.text === "string" && data.text) return data.text;
-    if (typeof data.slide_text === "string" && data.slide_text) return data.slide_text;
+    if (typeof data.slide_text === "string" && data.slide_text)
+      return data.slide_text;
 
     if (data.slide && typeof data.slide === "object") {
       const slide = data.slide as Record<string, unknown>;
@@ -371,7 +470,8 @@ export class ProPresenterBridge {
     }
 
     if (Array.isArray(data.slides)) {
-      const idx = typeof data.current_index === "number" ? data.current_index : 0;
+      const idx =
+        typeof data.current_index === "number" ? data.current_index : 0;
       const slide = (data.slides as Array<Record<string, unknown>>)[idx];
       if (slide && typeof slide.text === "string") return slide.text;
     }
@@ -391,7 +491,9 @@ export class ProPresenterBridge {
     return "";
   }
 
-  private normalizeSlidePayload(data: Record<string, unknown>): Record<string, unknown> {
+  private normalizeSlidePayload(
+    data: Record<string, unknown>,
+  ): Record<string, unknown> {
     if (data.current && typeof data.current === "object") {
       return data.current as Record<string, unknown>;
     }
@@ -416,7 +518,9 @@ export class ProPresenterBridge {
     return "";
   }
 
-  private commandEndpoints(command: string): Array<{ path: string; method: string }> {
+  private commandEndpoints(
+    command: string,
+  ): Array<{ path: string; method: string }> {
     switch (command) {
       case "next":
         return [
@@ -443,7 +547,9 @@ export class ProPresenterBridge {
   }
 
   private getApiPorts(): number[] {
-    const ports = [this.options.apiPort ?? 1025, this.options.port].filter((port) => Number.isFinite(port) && port > 0) as number[];
+    const ports = [this.options.apiPort ?? 1025, this.options.port].filter(
+      (port) => Number.isFinite(port) && port > 0,
+    ) as number[];
     return Array.from(new Set(ports));
   }
 }

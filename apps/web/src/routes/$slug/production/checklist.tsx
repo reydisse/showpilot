@@ -23,6 +23,7 @@ import {
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
@@ -267,8 +268,7 @@ function ChecklistPage() {
                 {!showId && <option value="">No planned show</option>}
                 {shows.map((show) => (
                   <option key={show.id} value={show.id}>
-                    {show.name || formatDisplayDate(show.serviceDate)}
-                    {show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                    {formatServicePickerLabel(show, { timeZone: orgTimezone })}
                   </option>
                 ))}
               </select>

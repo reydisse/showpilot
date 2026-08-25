@@ -224,6 +224,31 @@ export const getOrgSettings = createServerFn({ method: "GET" })
     return map;
   });
 
+const DESKTOP_BRIDGE_SETTING_KEYS = [
+  "api-key",
+  "propresenter-host",
+  "propresenter-port",
+  "propresenter-api-port",
+  "propresenter-password",
+] as const;
+
+/** Returns native device credentials only to members allowed to manage API keys. */
+export const getDesktopBridgeSettings = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:api_keys");
+    const settings = await getPrisma().appSetting.findMany({
+      where: {
+        orgId: data.orgId,
+        key: { in: [...DESKTOP_BRIDGE_SETTING_KEYS] },
+      },
+      select: { key: true, value: true },
+    });
+    return Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
+  });
+
 export const updateOrgSetting = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(

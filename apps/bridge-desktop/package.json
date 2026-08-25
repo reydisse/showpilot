@@ -1,14 +1,14 @@
 {
   "name": "@showpilot/bridge-desktop",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "type": "module",
   "scripts": {
     "dev": "vite --port 1430",
     "build": "tsc && vite build",
     "bridge:build": "node scripts/build-bridge.mjs",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
+    "desktop:dev": "pnpm bridge:build && tauri dev",
     "desktop:build": "tauri build"
   },
   "dependencies": {
