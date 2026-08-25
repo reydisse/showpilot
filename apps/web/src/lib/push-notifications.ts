@@ -38,7 +38,7 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     await getD1().prepare(
       `INSERT INTO push_subscription (id, orgId, userId, endpoint, p256dh, auth, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT(endpoint) DO UPDATE SET orgId = excluded.orgId, userId = excluded.userId,
+       ON CONFLICT(endpoint, orgId) DO UPDATE SET userId = excluded.userId,
          p256dh = excluded.p256dh, auth = excluded.auth, updatedAt = CURRENT_TIMESTAMP`,
     ).bind(crypto.randomUUID(), data.orgId, userId, data.endpoint, data.keys.p256dh, data.keys.auth).run();
     return { ok: true as const };

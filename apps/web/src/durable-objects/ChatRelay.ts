@@ -37,6 +37,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         payload TEXT NOT NULL
       )`);
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_idx ON chat_messages(timestamp)");
+      ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_id_idx ON chat_messages(timestamp, id)");
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_reads (
         user_id TEXT PRIMARY KEY,
         read_at INTEGER NOT NULL
@@ -49,7 +50,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     this.historyLoaded = true;
 
     const rows = this.ctx.storage.sql.exec<{ payload: string }>(
-      "SELECT payload FROM chat_messages ORDER BY timestamp DESC LIMIT ?",
+      "SELECT payload FROM chat_messages ORDER BY timestamp DESC, id DESC LIMIT ?",
       this.HYDRATION_MESSAGE_LIMIT,
     ).toArray().reverse();
     if (rows.length) {
@@ -136,8 +137,37 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     }
 
     if (url.pathname === "/history") {
-      const limit = parseInt(url.searchParams.get("limit") ?? "50");
-      return Response.json(this.recentMessages.slice(-limit));
+      const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(requestedLimit, 200))
+        : 100;
+      const beforeTimestamp = Number(url.searchParams.get("beforeTimestamp"));
+      const beforeId = url.searchParams.get("beforeId") ?? "";
+      const hasCursor = Number.isFinite(beforeTimestamp) && beforeTimestamp > 0 && beforeId.length > 0 && beforeId.length <= 128;
+      const rows = hasCursor
+        ? this.ctx.storage.sql.exec<{ payload: string }>(
+            `SELECT payload FROM chat_messages
+             WHERE timestamp < ? OR (timestamp = ? AND id < ?)
+             ORDER BY timestamp DESC, id DESC LIMIT ?`,
+            beforeTimestamp,
+            beforeTimestamp,
+            beforeId,
+            limit,
+          ).toArray()
+        : this.ctx.storage.sql.exec<{ payload: string }>(
+            "SELECT payload FROM chat_messages ORDER BY timestamp DESC, id DESC LIMIT ?",
+            limit,
+          ).toArray();
+      const messages = rows.flatMap((row) => {
+        try { return [JSON.parse(row.payload) as ChatMessage]; } catch { return []; }
+      }).reverse();
+      const oldest = messages[0];
+      return Response.json({
+        messages,
+        nextCursor: rows.length === limit && oldest
+          ? { timestamp: oldest.timestamp, id: oldest.id }
+          : null,
+      });
     }
 
     return new Response("Not found", { status: 404 });
@@ -312,9 +342,15 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   private async addMessage(message: ChatMessage) {
-    const nextMessages = [...this.recentMessages, message].slice(-this.HYDRATION_MESSAGE_LIMIT);
     this.persistMessage(message);
-    this.recentMessages = nextMessages;
+    const existing = this.recentMessages.findIndex((candidate) => candidate.id === message.id);
+    if (existing >= 0) {
+      const nextMessages = [...this.recentMessages];
+      nextMessages[existing] = message;
+      this.recentMessages = nextMessages;
+      return;
+    }
+    this.recentMessages = [...this.recentMessages, message].slice(-this.HYDRATION_MESSAGE_LIMIT);
   }
 
   private cleanReply(reply: ChatMessage["replyTo"]): ChatMessage["replyTo"] {
