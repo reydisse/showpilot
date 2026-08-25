@@ -2,7 +2,9 @@
 
 import { spawn } from "child_process";
 import { Bridge } from "./bridge.js";
+import { startParentProcessMonitor } from "./parent-process.js";
 import { loadConfigFile, resolveBridgeUrl, startSetupServer, type BridgeConfig } from "./setup-server.js";
+import { BRIDGE_VERSION } from "./version.js";
 
 const args = process.argv.slice(2);
 
@@ -35,6 +37,14 @@ const propresenterPassword =
 
 let bridge: Bridge | null = null;
 let currentConfig: BridgeConfig | null = config ?? null;
+const parentMonitor = startParentProcessMonitor(
+  process.env.SHOWPILOT_PARENT_PID,
+  () => {
+    console.log("[bridge] Desktop parent closed; shutting down local device engine.");
+    bridge?.stop();
+    process.exit(0);
+  },
+);
 
 function openBrowser(targetUrl: string): void {
   if (noOpen) return;
@@ -112,7 +122,7 @@ if (!directUrl && !site && !org) {
   };
   console.log(`
   ┌─────────────────────────────────┐
-  │   ShowPilot Bridge v0.1.7       │
+  │   ${`ShowPilot Bridge v${BRIDGE_VERSION}`.padEnd(30)}│
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);
@@ -121,11 +131,13 @@ if (!directUrl && !site && !org) {
 
 process.on("SIGINT", () => {
   console.log("\n[bridge] Shutting down...");
+  if (parentMonitor) clearInterval(parentMonitor);
   bridge?.stop();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
+  if (parentMonitor) clearInterval(parentMonitor);
   bridge?.stop();
   process.exit(0);
 });

@@ -59,12 +59,22 @@ export function App() {
         if (!automatic) setUpdateMessage("You are up to date.");
         return;
       }
-      if (automatic || window.confirm(`ShowPilot Bridge ${update.version} is available. Download and install it now?`)) {
+      if (automatic) {
+        setUpdateMessage(`ShowPilot Bridge ${update.version} is available. Use Check for updates when it is safe to install.`);
+        await update.close();
+        return;
+      }
+      if (window.confirm(`ShowPilot Bridge ${update.version} is available. Download and install it now?`)) {
         setUpdateMessage(`Downloading ShowPilot Bridge ${update.version}…`);
-        await update.downloadAndInstall();
-        setUpdateMessage(`Update ${update.version} installed. Quit and reopen ShowPilot Bridge to finish.`);
+        try {
+          await update.downloadAndInstall();
+          setUpdateMessage(`Update ${update.version} installed. Quit and reopen ShowPilot Bridge to finish.`);
+        } finally {
+          await update.close();
+        }
       } else {
         setUpdateMessage(`Update ${update.version} is available.`);
+        await update.close();
       }
     } catch (reason) {
       if (!automatic) {

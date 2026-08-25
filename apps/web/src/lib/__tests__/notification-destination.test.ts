@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getNotificationDestination } from "../notification-destination";
+import { getNotificationDestination, getNotificationPath } from "../notification-destination";
 
 describe("notification destinations", () => {
   it("routes dashboard and incident assignments", () => {
@@ -26,5 +26,19 @@ describe("notification destinations", () => {
     expect(getNotificationDestination("chat?room=dm%3Abob%3Aalice")).toBeNull();
     expect(getNotificationDestination("chat?room=unknown")).toBeNull();
     expect(getNotificationDestination("")).toBeNull();
+  });
+
+  it("builds only organization-scoped paths for native notification actions", () => {
+    expect(getNotificationPath("faithfire-production", "chat?room=production")).toBe(
+      "/faithfire-production/chat?room=production",
+    );
+    expect(
+      getNotificationPath(
+        "faithfire-production",
+        "production/incidents?incident=fault%2012&date=2026-08-18",
+      ),
+    ).toBe("/faithfire-production/production/incidents?incident=fault+12&date=2026-08-18");
+    expect(getNotificationPath("../admin", "schedule")).toBeNull();
+    expect(getNotificationPath("faithfire-production", "https://example.com")).toBeNull();
   });
 });

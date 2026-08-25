@@ -8,7 +8,7 @@
     "desktop:build": "pnpm --filter @showpilot/desktop desktop:build",
     "bridge-desktop:dev": "pnpm --filter @showpilot/bridge-desktop desktop:dev",
     "bridge-desktop:build": "pnpm --filter @showpilot/bridge-desktop desktop:build",
-    "deploy": "pnpm --filter @showpilot/web deploy",
+    "deploy": "pnpm --filter @showpilot/web run deploy",
     "db:generate": "pnpm --filter @showpilot/web db:generate",
     "db:migrate": "pnpm --filter @showpilot/web db:migrate"
   },
@@ -20,6 +20,9 @@
       "esbuild",
       "workerd",
       "sharp"
-    ]
+    ],
+    "patchedDependencies": {
+      "atem-connection@3.9.0": "patches/atem-connection@3.9.0.patch"
+    }
   }
 }

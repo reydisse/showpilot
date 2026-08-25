@@ -5,6 +5,8 @@ import { getPrisma } from "@/lib/db";
 import { parseOrThrow } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
+import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
+import { readPhaseSettings } from "@/lib/service-phase";
 
 const publicTokenSchema = z
   .string()
@@ -43,10 +45,10 @@ export async function sendCrewScheduleInvite(input: {
   const prisma = getPrisma();
   const assignment = await prisma.serviceAssignment.findFirst({
     where: { id: input.assignmentId, orgId: input.orgId, crewMemberId: input.crewMemberId },
-    select: { showId: true, serviceDate: true, role: true, callTime: true },
+    select: { showId: true, serviceDate: true, role: true, callTime: true, status: true },
   });
   if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
-  const [crew, org, rundown, terminologySetting, timezoneSetting] = await Promise.all([
+  const [crew, org, rundown, terminologySetting, timezoneSetting, serviceWindowSetting] = await Promise.all([
     prisma.crewMember.findFirst({
       where: { id: input.crewMemberId, orgId: input.orgId },
       select: { name: true, email: true },
@@ -59,7 +61,12 @@ export async function sendCrewScheduleInvite(input: {
       where: assignment.showId
         ? { id: assignment.showId, orgId: input.orgId }
         : { orgId: input.orgId, serviceDate: assignment.serviceDate },
-      select: { name: true, scheduledStartTime: true, location: true },
+      select: {
+        name: true,
+        scheduledStartTime: true,
+        location: true,
+        items: { select: { duration: true } },
+      },
     }),
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: input.orgId, key: "terminology-profile" } },
@@ -69,9 +76,38 @@ export async function sendCrewScheduleInvite(input: {
       where: { orgId_key: { orgId: input.orgId, key: "org-timezone" } },
       select: { value: true },
     }),
+    prisma.appSetting.findUnique({
+      where: {
+        orgId_key: {
+          orgId: input.orgId,
+          key: "default-service-window-minutes",
+        },
+      },
+      select: { value: true },
+    }),
   ]);
   if (!crew?.email || !org)
     return { delivered: false, reason: "missing-email" as const };
+  const { serviceWindowMinutes } = readPhaseSettings({
+    "default-service-window-minutes": serviceWindowSetting?.value ?? "",
+  });
+  const responseWindow = getCrewScheduleResponseWindow(
+    {
+      serviceDate: assignment.serviceDate,
+      scheduledStartTime: assignment.showId
+        ? rundown?.scheduledStartTime?.toISOString()
+        : null,
+      plannedDurationMs: assignment.showId
+        ? rundown?.items.reduce((sum, item) => sum + item.duration, 0)
+        : undefined,
+      serviceWindowMinutes,
+      timeZone: timezoneSetting?.value,
+    },
+    Date.now(),
+  );
+  if (assignment.status !== "assigned" || responseWindow.status === "closed") {
+    return { delivered: false, reason: "assignment-expired" as const };
+  }
 
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -261,7 +297,13 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       prisma.appSetting.findMany({
         where: {
           orgId: access.orgId,
-          key: { in: ["terminology-profile", "org-timezone"] },
+          key: {
+            in: [
+              "terminology-profile",
+              "org-timezone",
+              "default-service-window-minutes",
+            ],
+          },
         },
         select: { key: true, value: true },
       }),
@@ -294,6 +336,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
             name: true,
             scheduledStartTime: true,
             location: true,
+            items: { select: { duration: true } },
           },
         })
       : [];
@@ -303,10 +346,13 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     const parsedTerminology = orgTerminologyProfileSchema.safeParse(
       settingMap["terminology-profile"],
     );
+    const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+    const nowMs = Date.now();
     return {
       crewName: crew?.name ?? "Crew member",
       orgName: org?.name ?? "Organization",
       today,
+      responseAsOf: nowMs,
       orgTimezone: settingMap["org-timezone"],
       terminologyProfile: parsedTerminology.success
         ? parsedTerminology.data
@@ -320,6 +366,19 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
             rundown?.scheduledStartTime?.toISOString() ?? null,
           callTime: assignment.callTime,
           location: rundown?.location ?? "",
+          responseWindow: getCrewScheduleResponseWindow(
+            {
+              serviceDate: assignment.serviceDate,
+              scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+              plannedDurationMs: rundown?.items.reduce(
+                (sum, item) => sum + item.duration,
+                0,
+              ),
+              serviceWindowMinutes,
+              timeZone: settingMap["org-timezone"],
+            },
+            nowMs,
+          ),
         };
       }),
     };
@@ -339,19 +398,64 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const access = await resolvePortal(data.token);
-    const assignment = await getD1()
-      .prepare(
-        `SELECT a.id, a.role, a.serviceDate, c.name AS crewName
-         FROM service_assignment a
-         LEFT JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
-         WHERE a.id = ? AND a.orgId = ? AND a.crewMemberId = ?`,
-      )
-      .bind(data.assignmentId, access.orgId, access.crewMemberId)
-      .first<{ id: string; role: string; serviceDate: string; crewName: string | null }>();
+    const prisma = getPrisma();
+    const assignment = await prisma.serviceAssignment.findFirst({
+      where: {
+        id: data.assignmentId,
+        orgId: access.orgId,
+        crewMemberId: access.crewMemberId,
+      },
+      select: {
+        id: true,
+        showId: true,
+        role: true,
+        serviceDate: true,
+        status: true,
+        crewMember: { select: { name: true } },
+      },
+    });
     if (!assignment) throw new Error("Assignment not found");
+    const [rundown, settings] = await Promise.all([
+      assignment.showId
+        ? prisma.rundown.findFirst({
+            where: { id: assignment.showId, orgId: access.orgId },
+            select: {
+              scheduledStartTime: true,
+              items: { select: { duration: true } },
+            },
+          })
+        : Promise.resolve(null),
+      prisma.appSetting.findMany({
+        where: {
+          orgId: access.orgId,
+          key: { in: ["org-timezone", "default-service-window-minutes"] },
+        },
+        select: { key: true, value: true },
+      }),
+    ]);
+    const settingMap = Object.fromEntries(
+      settings.map((setting) => [setting.key, setting.value]),
+    );
+    const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+    const responseWindow = getCrewScheduleResponseWindow(
+      {
+        serviceDate: assignment.serviceDate,
+        scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+        plannedDurationMs: rundown?.items.reduce((sum, item) => sum + item.duration, 0),
+        serviceWindowMinutes,
+        timeZone: settingMap["org-timezone"],
+      },
+      Date.now(),
+    );
+    if (assignment.status !== "assigned") {
+      throw new Error("A response has already been recorded for this assignment");
+    }
+    if (responseWindow.status === "closed") {
+      throw new Error("This assignment is closed because the service has ended");
+    }
     const result = await getD1()
       .prepare(
-        "UPDATE service_assignment SET status = ?, responseNote = ?, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND crewMemberId = ?",
+        "UPDATE service_assignment SET status = ?, responseNote = ?, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND crewMemberId = ? AND status = 'assigned'",
       )
       .bind(
         data.response,
@@ -362,7 +466,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       )
       .run();
     if (!result.success || result.meta.changes !== 1)
-      throw new Error("Assignment not found");
+      throw new Error("A response has already been recorded for this assignment");
     const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
     const responseLabel = data.response === "confirmed" ? "accepted" : "declined";
     await notifyOperationalEvent({
@@ -370,7 +474,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       includeLeadership: true,
       type: `assignment-${data.response}`,
       severity: data.response === "declined" ? "warning" : "info",
-      title: `${assignment.crewName || "Crew member"} ${responseLabel} an assignment`,
+      title: `${assignment.crewMember?.name || "Crew member"} ${responseLabel} an assignment`,
       message: `${assignment.role} · ${assignment.serviceDate}${data.reason ? ` · ${data.reason}` : ""}`,
       actionUrl: `schedule?date=${encodeURIComponent(assignment.serviceDate)}&assignment=${encodeURIComponent(assignment.id)}`,
       source: assignment.id,

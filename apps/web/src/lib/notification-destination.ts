@@ -37,3 +37,35 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
 
   return null;
 }
+
+export function getNotificationPath(orgSlug: string, actionUrl: string): string | null {
+  if (
+    !orgSlug
+    || orgSlug.length > 64
+    || !/^[a-zA-Z0-9-]+$/.test(orgSlug)
+  ) {
+    return null;
+  }
+
+  const destination = getNotificationDestination(actionUrl);
+  if (!destination) return null;
+  const base = `/${orgSlug}`;
+  if (destination.kind === "tech-manager") return `${base}/dashboard/tech-manager`;
+
+  const search = new URLSearchParams();
+  if (destination.kind === "incident") {
+    if (destination.incident) search.set("incident", destination.incident);
+    if (destination.date) search.set("date", destination.date);
+    if (destination.show) search.set("show", destination.show);
+    return `${base}/production/incidents${search.size ? `?${search}` : ""}`;
+  }
+  if (destination.kind === "schedule") {
+    if (destination.date) search.set("date", destination.date);
+    if (destination.assignment) search.set("assignment", destination.assignment);
+    return `${base}/schedule${search.size ? `?${search}` : ""}`;
+  }
+
+  search.set("room", destination.room);
+  if (destination.message) search.set("message", destination.message);
+  return `${base}/chat?${search}`;
+}

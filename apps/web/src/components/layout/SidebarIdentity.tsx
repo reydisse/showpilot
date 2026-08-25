@@ -7,6 +7,7 @@ import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
 import {
+  DESKTOP_NOTIFICATION_POLL_EVENT,
   getDesktopNotificationPermission,
   isDesktopNotificationSupported,
 } from "@/lib/desktop-runtime";
@@ -86,6 +87,9 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       const permission = await enablePushForOrg(orgId);
       setPushPermission(permission);
       setPushEnabled(permission === "granted");
+      if (permission === "granted" && isDesktopNotificationSupported()) {
+        window.dispatchEvent(new Event(DESKTOP_NOTIFICATION_POLL_EVENT));
+      }
       setPushError(null);
     } catch (error) {
       const permission = isDesktopNotificationSupported()

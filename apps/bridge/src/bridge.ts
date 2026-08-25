@@ -3,7 +3,11 @@ import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
-import { ProPresenterBridge, type PPBridgeDebugState } from "./protocols/propresenter.js";
+import {
+  ProPresenterBridge,
+  type PPBridgeDebugState,
+} from "./protocols/propresenter.js";
+import { BRIDGE_VERSION } from "./version.js";
 
 interface BridgeOptions {
   url: string;
@@ -33,7 +37,25 @@ interface ConnectDeviceMessage {
   settings: Record<string, unknown>;
 }
 
-type IncomingMessage = CommandMessage | ConnectDeviceMessage | { type: string; [k: string]: unknown };
+const CONNECT_DEVICE_PROTOCOLS = new Set([
+  "propresenter",
+  "http-command",
+  "atem",
+  "tcp-command",
+  "pjlink",
+  "osc",
+  "udp",
+  "visca-ip",
+]);
+
+export function isSupportedConnectProtocol(protocol: string): boolean {
+  return CONNECT_DEVICE_PROTOCOLS.has(protocol);
+}
+
+type IncomingMessage =
+  | CommandMessage
+  | ConnectDeviceMessage
+  | { type: string; [k: string]: unknown };
 
 export function bridgeWebSocketOptions(
   url: string,
@@ -44,9 +66,7 @@ export function bridgeWebSocketOptions(
   wsUrlObject.searchParams.delete("key");
   return {
     url: wsUrlObject.toString(),
-    options: key
-      ? { headers: { "x-showpilot-api-key": key } }
-      : undefined,
+    options: key ? { headers: { "x-showpilot-api-key": key } } : undefined,
   };
 }
 
@@ -119,7 +139,12 @@ export class Bridge {
     this.ws.on("open", () => {
       console.log("[bridge] Connected to ShowPilot");
       this.sendStatus();
-      void this.ensureProPresenterConnection();
+      void this.ensureProPresenterConnection().catch((error) => {
+        console.error(
+          "[bridge] ProPresenter connection failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
       for (const pp of this.ppConnections.values()) {
         pp.replayCurrentSlide();
       }
@@ -157,7 +182,9 @@ export class Bridge {
         );
         return;
       }
-      const responseMatch = err.message.match(/Unexpected server response: (\d+)/);
+      const responseMatch = err.message.match(
+        /Unexpected server response: (\d+)/,
+      );
       if (responseMatch) {
         console.error(
           `[bridge] Connection rejected (HTTP ${responseMatch[1]}). Check the ShowPilot site URL and organization slug.`,
@@ -177,7 +204,9 @@ export class Bridge {
         await this.handleConnectDevice(msg as ConnectDeviceMessage);
         break;
       case "disconnect-device":
-        this.handleDisconnectDevice({ target: (msg as { target?: string }).target || "" });
+        this.handleDisconnectDevice({
+          target: (msg as { target?: string }).target || "",
+        });
         break;
       case "ping":
         this.send({ type: "pong" });
@@ -239,6 +268,10 @@ export class Bridge {
     const port = parseInt(portStr || "0", 10);
 
     try {
+      if (!isSupportedConnectProtocol(msg.protocol)) {
+        throw new Error(`Unknown protocol: ${msg.protocol}`);
+      }
+
       if (msg.protocol === "propresenter") {
         await this.connectProPresenter(key, msg.settings);
         this.send({ type: "device-status", target: key, connected: true });
@@ -266,7 +299,11 @@ export class Bridge {
           await conn.connect(host, port);
           this.tcpConnections.set(key, conn);
         }
-      } else if (msg.protocol === "osc" || msg.protocol === "udp" || msg.protocol === "visca-ip") {
+      } else if (
+        msg.protocol === "osc" ||
+        msg.protocol === "udp" ||
+        msg.protocol === "visca-ip"
+      ) {
         if (!this.udpConnections.has(key)) {
           const conn = new UdpConnection();
           await conn.connect(host, port);
@@ -313,20 +350,27 @@ export class Bridge {
 
   // ─── Protocol Execution ─────────────────────────────────
 
-  private async executePPCommand(target: string, command: string): Promise<void> {
+  private async executePPCommand(
+    target: string,
+    command: string,
+  ): Promise<void> {
     const pp = this.ppConnections.get(target);
     if (pp) {
       await pp.sendCommand(command);
     }
   }
 
-  private async connectAtem(target: string, settings: Record<string, unknown>): Promise<void> {
+  private async connectAtem(
+    target: string,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
     if (this.atemConnections.has(target)) return;
 
     const [fallbackHost, fallbackPort] = target.split(":");
-    const host = typeof settings.host === "string" && settings.host.trim()
-      ? settings.host.trim()
-      : fallbackHost;
+    const host =
+      typeof settings.host === "string" && settings.host.trim()
+        ? settings.host.trim()
+        : fallbackHost;
     const port = Number(settings.port || fallbackPort || 9910);
     if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) {
       throw new Error("ATEM host and port are required");
@@ -363,14 +407,20 @@ export class Bridge {
         programInput: mixEffect.programInput,
         previewInput: mixEffect.previewInput,
         transitionPosition: mixEffect.transitionPosition.handlePosition,
-        ftbActive: Boolean(mixEffect.fadeToBlack?.isFullyBlack || mixEffect.fadeToBlack?.inTransition),
+        ftbActive: Boolean(
+          mixEffect.fadeToBlack?.isFullyBlack ||
+          mixEffect.fadeToBlack?.inTransition,
+        ),
         tallyProgram: atem.listVisibleInputs("program"),
         tallyPreview: atem.listVisibleInputs("preview"),
       }),
     });
   }
 
-  private async executeAtemCommand(target: string, command: string): Promise<void> {
+  private async executeAtemCommand(
+    target: string,
+    command: string,
+  ): Promise<void> {
     const atem = this.atemConnections.get(target);
     if (!atem) throw new Error("ATEM is not connected");
 
@@ -380,13 +430,16 @@ export class Bridge {
     } catch {
       throw new Error("Invalid ATEM command payload");
     }
-    if (typeof payload.actionId !== "string") throw new Error("ATEM action is required");
-    const params = payload.params && typeof payload.params === "object"
-      ? payload.params as Record<string, unknown>
-      : {};
+    if (typeof payload.actionId !== "string")
+      throw new Error("ATEM action is required");
+    const params =
+      payload.params && typeof payload.params === "object"
+        ? (payload.params as Record<string, unknown>)
+        : {};
     const integer = (name: string, minimum = 0) => {
       const value = Number(params[name]);
-      if (!Number.isInteger(value) || value < minimum) throw new Error(`Invalid ATEM ${name}`);
+      if (!Number.isInteger(value) || value < minimum)
+        throw new Error(`Invalid ATEM ${name}`);
       return value;
     };
 
@@ -428,7 +481,8 @@ export class Bridge {
       return;
     }
 
-    const effectivePort = this.propresenter.port ?? this.propresenter.apiPort ?? 1025;
+    const effectivePort =
+      this.propresenter.port ?? this.propresenter.apiPort ?? 1025;
     const target = `propresenter:${this.propresenter.host}:${effectivePort}`;
     if (this.ppConnections.has(target)) return;
 
@@ -440,14 +494,22 @@ export class Bridge {
     });
   }
 
-  private async connectProPresenter(target: string, settings?: Record<string, unknown>): Promise<void> {
-    if (this.ppConnections.has(target)) return;
+  private async connectProPresenter(
+    target: string,
+    settings?: Record<string, unknown>,
+  ): Promise<void> {
+    const existing = this.ppConnections.get(target);
+    if (existing) {
+      await existing.waitUntilReady();
+      return;
+    }
 
     const [fallbackHost, fallbackPort] = target.split(":").slice(-2);
     const ppHost = (settings?.host as string) || fallbackHost;
     const ppPortRaw = settings?.port ?? settings?.apiPort ?? fallbackPort;
     const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
-    const apiPortRaw = settings?.apiPort ?? settings?.api_port ?? settings?.["api-port"];
+    const apiPortRaw =
+      settings?.apiPort ?? settings?.api_port ?? settings?.["api-port"];
     const ppApiPort = Number.parseInt(String(apiPortRaw || ""), 10);
     if (!ppHost || !Number.isFinite(ppPort) || ppPort <= 0) {
       throw new Error("ProPresenter host and port are required");
@@ -457,27 +519,50 @@ export class Bridge {
     const pp = new ProPresenterBridge({
       host: ppHost,
       port: ppPort,
-      apiPort: Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
+      apiPort:
+        Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
       password,
       onSlideChange: (data) => {
         if (!data) {
           console.log("[pp-bridge] Clearing forwarded slide");
-          this.send({ type: "device-event", target, eventName: "slide", data: "null" });
+          this.send({
+            type: "device-event",
+            target,
+            eventName: "slide",
+            data: "null",
+          });
           return;
         }
         const text = typeof data.text === "string" ? data.text : "";
-        console.log(`[pp-bridge] Forwarding slide: ${text.slice(0, 80).replace(/\s+/g, " ")}`);
-        this.send({ type: "device-event", target, eventName: "slide", data: JSON.stringify(data) });
+        console.log(
+          `[pp-bridge] Forwarding slide: ${text.slice(0, 80).replace(/\s+/g, " ")}`,
+        );
+        this.send({
+          type: "device-event",
+          target,
+          eventName: "slide",
+          data: JSON.stringify(data),
+        });
       },
       onStatusChange: (connected) => {
         this.send({ type: "device-status", target, connected });
       },
     });
-    pp.connect();
     this.ppConnections.set(target, pp);
+    pp.connect();
+    try {
+      await pp.waitUntilReady();
+    } catch (error) {
+      pp.disconnect();
+      this.ppConnections.delete(target);
+      throw error;
+    }
   }
 
-  private async executeTcpCommand(target: string, command: string): Promise<string> {
+  private async executeTcpCommand(
+    target: string,
+    command: string,
+  ): Promise<string> {
     let conn = this.tcpConnections.get(target);
     if (!conn || !conn.isConnected()) {
       // Auto-connect
@@ -489,7 +574,10 @@ export class Bridge {
     return await conn.sendCommand(command);
   }
 
-  private async executeOscCommand(target: string, command: string): Promise<void> {
+  private async executeOscCommand(
+    target: string,
+    command: string,
+  ): Promise<void> {
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
       const [host, portStr] = target.split(":");
@@ -513,7 +601,10 @@ export class Bridge {
     await conn.send(buf);
   }
 
-  private async executeUdpCommand(target: string, command: string): Promise<void> {
+  private async executeUdpCommand(
+    target: string,
+    command: string,
+  ): Promise<void> {
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
       const [host, portStr] = target.split(":");
@@ -527,19 +618,26 @@ export class Bridge {
     await conn.send(buf);
   }
 
-  private async executeHttpCommand(target: string, command: string): Promise<string> {
+  private async executeHttpCommand(
+    target: string,
+    command: string,
+  ): Promise<string> {
     const settings = this.httpDeviceSettings.get(target) ?? {};
     const authToken = settings.authToken as string | undefined;
 
     const trimmed = command.trim();
     const methodMatch = trimmed.match(/^(GET|POST|PUT|DELETE|PATCH)\s+/i);
     const method = methodMatch ? methodMatch[1].toUpperCase() : "GET";
-    const remainder = methodMatch ? trimmed.slice(methodMatch[0].length) : trimmed;
+    const remainder = methodMatch
+      ? trimmed.slice(methodMatch[0].length)
+      : trimmed;
     const spaceIdx = remainder.indexOf(" ");
     const path = spaceIdx > 0 ? remainder.slice(0, spaceIdx) : remainder;
     const body = spaceIdx > 0 ? remainder.slice(spaceIdx + 1) : undefined;
 
-    const baseUrl = /^https?:\/\//i.test(target) ? target.replace(/\/+$/, "") : `http://${target.replace(/\/+$/, "")}`;
+    const baseUrl = /^https?:\/\//i.test(target)
+      ? target.replace(/\/+$/, "")
+      : `http://${target.replace(/\/+$/, "")}`;
     const url = `${baseUrl}${path}`;
 
     const res = await fetch(url, {
@@ -589,8 +687,12 @@ export class Bridge {
   private sendStatus(): void {
     this.send({
       type: "bridge-status",
-      version: "0.1.0",
-      devices: this.tcpConnections.size + this.udpConnections.size + this.ppConnections.size + this.atemConnections.size,
+      version: BRIDGE_VERSION,
+      devices:
+        this.tcpConnections.size +
+        this.udpConnections.size +
+        this.ppConnections.size +
+        this.atemConnections.size,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     });
   }

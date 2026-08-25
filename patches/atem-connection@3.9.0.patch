@@ -1,0 +1,28 @@
+diff --git a/dist/lib/multiviewLabel.js b/dist/lib/multiviewLabel.js
+index d7e79729121961ab32f3f9cab56846890b07064f..ac8bd0f0850bdcd57738f8dcb30ba1b80e510b33 100644
+--- a/dist/lib/multiviewLabel.js
++++ b/dist/lib/multiviewLabel.js
+@@ -1,7 +1,13 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.hasInternalMultiviewerLabelGeneration = exports.loadFont = exports.calculateGenerateMultiviewerLabelProps = exports.generateMultiviewerLabel = void 0;
+-const freetype2_1 = require("@julusian/freetype2");
++let freetype2;
++function getFreetype2() {
++    if (!freetype2) {
++        freetype2 = require("@julusian/freetype2");
++    }
++    return freetype2;
++}
+ const enums_1 = require("../enums");
+ const videoMode_1 = require("./videoMode");
+ const promises_1 = require("fs/promises");
+@@ -276,7 +282,7 @@ async function loadFont(fontPath) {
+     if (!fontPath)
+         fontPath = path.join(__dirname, '../../assets/roboto/Roboto-Regular.ttf');
+     const fontFile = await (0, promises_1.readFile)(fontPath);
+-    return (0, freetype2_1.NewMemoryFace)(fontFile);
++    return getFreetype2().NewMemoryFace(fontFile);
+ }
+ exports.loadFont = loadFont;
+ function hasInternalMultiviewerLabelGeneration(modelId) {

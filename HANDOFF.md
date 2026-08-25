@@ -1,6 +1,6 @@
 # ShowPilot development handoff
 
-Updated: 2026-08-21 (Africa/Accra)
+Updated: 2026-08-23 (Africa/Accra)
 
 Read this file, `CLAUDE.md`, and the live Git state before making changes. Always
 check whether the intended branch/worktree already exists before creating one.
@@ -10,32 +10,28 @@ check whether the intended branch/worktree already exists before creating one.
 - Repository: `reydisse/showpilot`
 - Production branch: `main`
 - Current checkout: `/Users/aopare/faithfire-cf`
-- Base release: `e48ecd3` (`release/desktop-production-ready`)
-- Integration PR [#38](https://github.com/reydisse/showpilot/pull/38) merged into
-  the release candidate; release PR
-  [#39](https://github.com/reydisse/showpilot/pull/39) merged into `main`.
-- Product release commit `4098024a` passed three GitHub CI runs, passed the D1
-  migration-manifest gate, and deployed successfully to `showpilot.tech` on
-  2026-08-21. The health endpoint reported that exact commit after deployment.
-- The merged remote integration branch was deleted; its local branch remains
-  available for historical comparison.
-- The former temporary integration worktree was removed after this branch was
-  moved into the clean primary checkout.
+- Production commit: `44a60a6`, merged by
+  [PR #44](https://github.com/reydisse/showpilot/pull/44).
+- GitHub CI and the D1 migration-manifest gate passed for `44a60a6`.
+- The protected deploy workflow released Cloudflare version
+  `e7f6b767-bdc8-4aa7-9b7b-51ea62821948` on 2026-08-23.
+- `https://showpilot.tech/api/health` reports `44a60a6f429c86979a4adc77aefb24a9a5d635fc`.
+- The root checkout is clean on `main`. The merged remote feature branch was
+  deleted.
 
-Commits added above the release candidate:
+Commits in the 2026-08-23 release:
 
-- `7269755` — multi-operator rundown synchronization and authoritative runtime
-  persistence.
-- `9a5341d` — targeted Planning Room collaboration, message destinations, and
-  notification behavior.
-- `08d47bc` — completed production workflows: grouped Assets, check-in,
-  checklist attribution, reports/exports, templates, and accessibility.
-- `c40230c` — completed remote Bridge command/event routing and ProPresenter
-  slide import.
+- `3c8c314`: Desktop and Bridge release hardening, native notifications,
+  updater support, and explicit local-device ownership.
+- `4430389`: web rundown drag ordering, dated service pickers, and persistent
+  native chat history.
+- `47b708a`: rundown automation routing to the Production Chat Durable Object.
+- `3edd7f4`: generated Cloudflare binding types and the separate secret-binding
+  declaration.
 
-The release base already contains the completed multiple-show foundation,
-comfortable light mode, profile-photo saving, timer additions beyond assigned
-duration, full desktop host, and Bridge sidecar packaging work.
+This release also contains the earlier multiple-show foundation, comfortable
+light mode, profile-photo saving, timer additions beyond assigned duration,
+weekly access grants, custom call times, and multi-operator rundown sync.
 
 ## Rundown synchronization
 
@@ -69,15 +65,31 @@ timer adjustment beyond assigned duration, and live kiosk updates.
   clients; the prior behavior could show Bridge online while equipment commands
   timed out.
 - Responsive Check-in header and the accessibility findings from the smoke WIP.
+- Rundown row drag ordering on the web and Desktop-hosted web UI.
+- Service date labels on shared service pickers.
+- Native chat history in Durable Object SQLite storage.
+- Desktop notification delivery and notification-click routing.
+- Desktop local-device mode with explicit venue-computer confirmation. Remote
+  Desktop operators continue to use the venue Bridge.
+- Standalone Bridge parent-process supervision, connection diagnostics, safer
+  config storage, and ProPresenter readiness checks.
 
 ## Verification completed
 
-- Web tests: 39 files, 481 tests passed.
-- Bridge tests: 3 files, 15 tests passed.
+- Web tests: 48 files, 514 tests passed.
+- Bridge tests: 6 files, 29 tests passed.
 - TypeScript: `pnpm --filter @showpilot/web exec tsc --noEmit` passed.
+- Cloudflare types: `pnpm exec wrangler types --check` passed from `apps/web`.
 - Production web client/SSR build passed without `.dev.vars` in output.
-- Native macOS desktop `.app` and ARM64 `.dmg` builds passed using the Bun 1.4.0
-  executable pinned by `.github/workflows/desktop-release.yml`.
+- Desktop Rust tests: 12 passed. Standalone Bridge Desktop Rust tests: 6 passed.
+- Desktop `0.1.1` and standalone Bridge `0.1.8` ARM64 app and DMG builds passed.
+- The installed `/Applications/ShowPilot Desktop.app` is Desktop `0.1.1`. The
+  prior install remains at
+  `/Applications/ShowPilot Desktop 0.1.0 Pre-0.1.1 Backup.app`.
+- The local macOS builds use ad-hoc signatures. Do not publish or tag them.
+  Wait for the Apple Developer ID certificate and notarization secrets.
+- Wrangler strict dry-run passed. The final rendered production login smoke
+  passed on both production domains without page or console errors.
 - Rendered local QA passed for Assets bulk grouping/per-unit editing, Planning
   Room messaging, profile-photo upload/save, ProPresenter connection states,
   mobile Check-in layout, and real CSV/PDF downloads.
@@ -97,7 +109,7 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 ## Database and release boundary
 
 - The migration manifest records migrations through
-  `0027_enable_multiple_show_instances.sql`.
+  `0029_weekly_access_grants.sql`.
 - This integration adds no new migration.
 - Do not run a remote migration merely for local testing.
 - Future code changes must start on a checked, purpose-specific feature/fix
@@ -112,3 +124,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - `apps/bridge` is the local device engine.
 - `apps/bridge-desktop` is the standalone Bridge supervisor/tray installer.
 - Do not confuse the full desktop product with the standalone Bridge app.
+
+## Separate React Native work
+
+- `/private/tmp/showpilot-react-native-mobile` remains on
+  `feature/react-native-mobile`.
+- That worktree contains uncommitted React Native source, mobile API changes,
+  and `0030_multitenant_push_subscriptions.sql`.
+- The branch still starts at `9a1bfe5`. Merge current `main` into the feature
+  branch and resolve its overlapping Worker files before release validation.
+- Do not apply migration `0030` or deploy the mobile API until that branch has
+  passed its mobile, web, and migration checks.
+- Existing web, Desktop `0.1.0`, Desktop `0.1.1`, and Bridge `0.1.7` clients
+  remain compatible with the current production protocol. Older Desktop builds
+  do not have the new native updater, notification, or local-device controls.

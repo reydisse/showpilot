@@ -29,6 +29,7 @@ import {
 } from "@/lib/data";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate } from "@/lib/rundown";
 
@@ -51,11 +52,6 @@ const GROUP_CONFIG: Record<ChannelGroup, { label: string; icon: React.ElementTyp
   sfx: { label: "SFX", icon: Zap, color: "text-yellow-400" },
   other: { label: "Other", icon: Cable, color: "text-board-muted" },
 };
-
-function formatDisplayDate(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
 
 export const Route = createFileRoute("/$slug/dashboard/audio")({
   pendingComponent: () => <PageSkeleton />,
@@ -186,7 +182,7 @@ function AudioPage() {
                 className="rounded-lg border border-board-border bg-board-card px-3 py-1 text-xs font-medium text-board-text"
               >
                 {!showId && <option value="">No planned show</option>}
-                {shows.map((show) => <option key={show.id} value={show.id}>{show.name || formatDisplayDate(show.serviceDate)}{show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}</option>)}
+                {shows.map((show) => <option key={show.id} value={show.id}>{formatServicePickerLabel(show, { timeZone: orgTimezone })}</option>)}
               </select>
               <button
                 onClick={() => handleDateChange(1)}

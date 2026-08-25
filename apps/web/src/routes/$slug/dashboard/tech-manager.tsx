@@ -41,6 +41,7 @@ import {
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getTmDashboard } from "@/lib/tm-dashboard";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
+import { formatServicePickerLabel } from "@/lib/service-picker";
 import {
   TM_WIDGETS,
   type TmWidget,
@@ -333,11 +334,7 @@ function TechManagerPage() {
             {!showId && <option value="">No planned show</option>}
             {shows.map((show) => (
               <option key={show.id} value={show.id}>
-                {show.name || new Date(`${show.serviceDate}T12:00:00`).toLocaleDateString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}{show.scheduledStartTime ? ` · ${new Date(show.scheduledStartTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
+                {formatServicePickerLabel(show)}
               </option>
             ))}
           </select>
