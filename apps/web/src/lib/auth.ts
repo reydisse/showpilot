@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { expo } from "@better-auth/expo";
 import { organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { prismaAdapter } from "better-auth/adapters/prisma";
@@ -88,7 +89,7 @@ const emailPasswordConfig = {
 // Do NOT use this at runtime — use getAuth() instead.
 export const auth = betterAuth({
   database: prismaAdapter(undefined as any, { provider: "sqlite" }),
-  plugins: [organization(orgConfig)],
+  plugins: [expo(), organization(orgConfig)],
   emailAndPassword: emailPasswordConfig,
 });
 
@@ -137,6 +138,7 @@ export function getAuth() {
       "https://admin.showpilot.tech",
       "https://*.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",
+      "showpilot://",
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
     emailVerification: {
@@ -151,6 +153,7 @@ export function getAuth() {
       },
     },
     plugins: [
+      expo(),
       organization(orgConfig),
       tanstackStartCookies(), // must be last
     ],

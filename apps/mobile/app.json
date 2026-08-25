@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "ShowPilot",
+    "slug": "showpilot",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "../web/public/logo512.png",
+    "scheme": "showpilot",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "../web/public/logo512.png",
+      "bundleIdentifier": "tech.showpilot.mobile",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "tech.showpilot.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0B0D",
+        "foregroundImage": "../web/public/logo-maskable-512.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "../web/public/logo192.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ShowPilot uses the photo you choose as your profile picture."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#11100E",
+          "image": "../web/public/logo512.png",
+          "imageWidth": 140
+        }
+      ],
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

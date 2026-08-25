@@ -5,6 +5,7 @@ import type { Permission } from "./lib/permissions";
 import { verifyCrewChatPass } from "./lib/crew-chat-pass";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
+import { handleMobileApi } from "./lib/mobile-api.server";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -27,7 +28,13 @@ interface Env {
 }
 
 interface D1Database {
-  prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
+  prepare(sql: string): {
+    bind(...params: unknown[]): {
+      first<T>(): Promise<T | null>;
+      all<T>(): Promise<{ results?: T[] }>;
+      run(): Promise<unknown>;
+    };
+  };
 }
 
 function isAllowedApiOrigin(origin: string | null): boolean {
@@ -262,6 +269,9 @@ export default {
       const auth = getAuth();
       return await auth.handler(request);
     }
+
+    const mobileResponse = await handleMobileApi(request, e);
+    if (mobileResponse) return mobileResponse;
 
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
     if (tcMatch) {
