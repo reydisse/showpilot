@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -69,6 +70,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     setMessages([]);
     setHistoryCursor(null);
     setHasOlder(false);
+    queueRef.current = [];
 
     function reconnect() {
       if (disposed || reconnectTimer || AppState.currentState !== "active") return;
@@ -138,6 +140,8 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       const socket = socketRef.current;
       socketRef.current = null;
+      // Never carry an offline message across a room or organization boundary.
+      queueRef.current = [];
       socket?.close();
     };
   }, [flush, orgId, roomId]);
@@ -156,7 +160,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
     setLoadingOlder(true);
     try {
-      const response = await fetch(historyUrl(orgId, roomId, historyCursor), {
+      const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
         headers: { Accept: "application/json", Cookie: authClient.getCookie() },
       });
       if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);

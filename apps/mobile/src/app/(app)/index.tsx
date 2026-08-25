@@ -35,7 +35,7 @@ export default function HomeScreen() {
           </View>
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>{liveShow ? "ACTIVE SHOW" : "NEXT SHOW"}</Text>
-            {nextShow ? <ShowCard show={nextShow} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: nextShow.id } } as unknown as Href)} /> : <Text style={styles.empty}>No upcoming shows. Create one on web or desktop and it will appear here.</Text>}
+            {nextShow ? <ShowCard show={nextShow} timeZone={data.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: nextShow.id } } as unknown as Href)} /> : <Text style={styles.empty}>No upcoming shows. Create one on web or desktop and it will appear here.</Text>}
           </View>
           <View style={styles.syncNote}>
             <Text style={styles.syncTitle}>One live source of truth</Text>

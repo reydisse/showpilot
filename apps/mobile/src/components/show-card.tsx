@@ -1,6 +1,7 @@
 import { CalendarDays, ChevronRight, Clock3, MapPin } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileBootstrap } from "@/lib/mobile-api";
+import { formatServiceTime } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type Show = MobileBootstrap["shows"][number];
@@ -9,13 +10,7 @@ function showLabel(show: Show) {
   return show.name.trim() || "Untitled show";
 }
 
-function timeLabel(value: string | null) {
-  if (!value) return "Time not set";
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? "Time not set" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-export function ShowCard({ show, onPress }: { show: Show; onPress?: () => void }) {
+export function ShowCard({ show, timeZone, onPress }: { show: Show; timeZone: string; onPress?: () => void }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const live = show.status === "running" || show.status === "paused";
@@ -33,7 +28,7 @@ export function ShowCard({ show, onPress }: { show: Show; onPress?: () => void }
       </View>
       <View style={styles.meta}>
         <View style={styles.metaItem}><CalendarDays size={14} color={colors.textFaint} /><Text style={styles.metaText}>{show.serviceDate}</Text></View>
-        <View style={styles.metaItem}><Clock3 size={14} color={colors.textFaint} /><Text style={styles.metaText}>{timeLabel(show.scheduledStartTime)}</Text></View>
+        <View style={styles.metaItem}><Clock3 size={14} color={colors.textFaint} /><Text style={styles.metaText}>{formatServiceTime(show.scheduledStartTime, timeZone)}</Text></View>
         {show.location ? <View style={styles.metaItem}><MapPin size={14} color={colors.textFaint} /><Text numberOfLines={1} style={styles.metaText}>{show.location}</Text></View> : null}
       </View>
       <Text style={styles.items}>{show.itemCount} rundown {show.itemCount === 1 ? "item" : "items"}</Text>

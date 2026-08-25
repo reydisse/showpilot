@@ -22,6 +22,7 @@ export default function ProfileScreen() {
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const name = nameDraft ?? session?.user.name ?? "";
   const appVersion = Constants.expoConfig?.version ?? "development";
 
@@ -87,13 +88,21 @@ export default function ProfileScreen() {
   }
 
   async function signOut() {
-    const token = await getNativePushToken().catch(() => null);
-    if (token && organization?.id && (Platform.OS === "ios" || Platform.OS === "android")) {
-      await saveMobilePushToken(organization.id, token, Platform.OS, false).catch(() => undefined);
+    setSigningOut(true);
+    try {
+      const token = await getNativePushToken().catch(() => null);
+      if (token && organization?.id && (Platform.OS === "ios" || Platform.OS === "android")) {
+        await saveMobilePushToken(organization.id, token, Platform.OS, false).catch(() => undefined);
+      }
+      const result = await authClient.signOut();
+      if (result.error) throw new Error(result.error.message || "Sign out could not be completed.");
+      await Haptics.selectionAsync();
+      router.replace("/sign-in");
+    } catch (error) {
+      Alert.alert("Could not sign out", error instanceof Error ? error.message : "Check your connection and try again.");
+    } finally {
+      setSigningOut(false);
     }
-    await authClient.signOut();
-    await Haptics.selectionAsync();
-    router.replace("/sign-in");
   }
 
   return (
@@ -124,7 +133,7 @@ export default function ProfileScreen() {
       <Pressable onPress={enableNotifications} disabled={enablingNotifications} style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
         <BellRing size={20} color={colors.amberText} /><View style={styles.actionCopy}><Text style={styles.actionTitle}>{enablingNotifications ? "Enabling…" : "Enable native notifications"}</Text><Text style={styles.actionHint}>Assignments, mentions, and operational alerts</Text></View>
       </Pressable>
-      <AppButton label="Sign out" variant="danger" onPress={signOut} />
+      <AppButton label="Sign out" loading={signingOut} variant="danger" onPress={signOut} />
       <View style={styles.version}><LogOut size={14} color={colors.textFaint} /><Text style={styles.versionText}>ShowPilot Mobile {appVersion}</Text></View>
     </Page>
   );

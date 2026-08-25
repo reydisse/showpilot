@@ -48,6 +48,7 @@ function fakeDatabase(input: {
   assignment?: AssignmentFixture;
   calls?: StatementCall[];
   scheduleAssignments?: ScheduleAssignmentFixture[];
+  timeZone?: string;
   updateChanges?: number;
 } = {}): MobileApiDatabase {
   return {
@@ -58,6 +59,12 @@ function fakeDatabase(input: {
           return {
             async first<T>() {
               if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
+              if (sql.startsWith("SELECT id, name, slug FROM organization")) {
+                return { id: "org-1", name: "Test Organization", slug: "test-org" } as T;
+              }
+              if (sql.includes("key = 'org-timezone'")) {
+                return { value: input.timeZone ?? "Africa/Accra" } as T;
+              }
               if (sql.includes("FROM service_assignment a")) return (input.assignment ?? null) as T | null;
               return null;
             },
@@ -65,7 +72,7 @@ function fakeDatabase(input: {
               if (sql.startsWith("SELECT key, value FROM app_setting")) {
                 return {
                   results: [
-                    { key: "org-timezone", value: "Africa/Accra" },
+                    { key: "org-timezone", value: input.timeZone ?? "Africa/Accra" },
                     { key: "default-service-window-minutes", value: "120" },
                   ] as T[],
                 };
@@ -213,11 +220,26 @@ describe("mobile assignment responses", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload).toMatchObject({
+      timeZone: "Africa/Accra",
       assignments: [{
         id: "assignment-1",
         canRespond: false,
         responseWindow: { status: "closed" },
       }],
+    });
+  });
+
+  it("returns the venue timezone in the native bootstrap payload", async () => {
+    const response = await handleMobileApi(
+      new Request("https://showpilot.tech/api/mobile/v1/bootstrap?orgId=org-1"),
+      { DB: fakeDatabase({ timeZone: "America/New_York" }) },
+    );
+    if (!response) throw new Error("Mobile API did not handle the bootstrap route");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      organization: { id: "org-1", slug: "test-org" },
+      timeZone: "America/New_York",
     });
   });
 });

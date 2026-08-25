@@ -315,6 +315,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   const notifications = notificationsResult.results ?? [];
   return json({
     organization,
+    timeZone: timezone?.value || "Africa/Accra",
     identity: {
       userId: identity.userId,
       name: identity.name,
@@ -447,6 +448,7 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
   return json({
     from,
     to,
+    timeZone,
     canViewFull,
     canManage: access.identity.permissions.includes("schedule:manage"),
     services,

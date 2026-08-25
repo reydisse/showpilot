@@ -18,7 +18,7 @@ export default function ShowsScreen() {
       {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
       <View style={styles.list}>
         {data?.shows.map((show) => (
-          <ShowCard key={show.id} show={show} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } } as unknown as Href)} />
+          <ShowCard key={show.id} show={show} timeZone={data.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } } as unknown as Href)} />
         ))}
       </View>
       {data && data.shows.length === 0 ? <Text style={styles.empty}>There are no upcoming shows in this workspace.</Text> : null}

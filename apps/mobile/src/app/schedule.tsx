@@ -7,12 +7,8 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
 import { getMobileSchedule, respondToMobileAssignment, type MobileSchedule } from "@/lib/mobile-api";
+import { formatServiceTime } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
-
-function timeLabel(value: string | null) {
-  if (!value) return "Time not set";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 export default function ScheduleScreen() {
   const { colors } = useAppTheme();
@@ -55,7 +51,7 @@ export default function ScheduleScreen() {
               <View style={styles.dateBlock}><Text style={styles.dateDay}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { day: "2-digit" })}</Text><Text style={styles.dateMonth}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { month: "short" }).toUpperCase()}</Text></View>
               <View style={styles.cardCopy}>
                 <Text style={styles.title}>{service.name || "Untitled show"}</Text>
-                <View style={styles.meta}><Clock3 size={13} color={colors.textFaint} /><Text style={styles.metaText}>{timeLabel(service.scheduledStartTime)}</Text>{service.location ? <><MapPin size={13} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></> : null}</View>
+                <View style={styles.meta}><Clock3 size={13} color={colors.textFaint} /><Text style={styles.metaText}>{formatServiceTime(service.scheduledStartTime, query.data.timeZone)}</Text>{service.location ? <><MapPin size={13} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></> : null}</View>
                 <View style={styles.metrics}><Text style={styles.metric}>{service.completedItems}/{service.itemCount} rundown</Text><Text style={styles.metric}>{service.crewConfirmed}/{service.crewTotal} confirmed</Text>{service.crewOpen ? <Text style={styles.warning}>{service.crewOpen} open</Text> : null}</View>
                 {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} declining={decliningId === assignment.id} reason={reason} pending={responseMutation.isPending} onReason={setReason} onDecline={() => { setReason(""); setDecliningId(assignment.id); }} onCancel={() => { setReason(""); setDecliningId(null); }} onRespond={(response) => respond(assignment.id, response)} />)}</View> : null}
               </View>

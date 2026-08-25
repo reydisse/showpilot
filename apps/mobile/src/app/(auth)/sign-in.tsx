@@ -24,15 +24,17 @@ export default function SignInScreen() {
     }
     setError("");
     setLoading(true);
-    const result = await authClient.signIn.email({ email: email.trim(), password });
-    setLoading(false);
-    if (result.error) {
-      setError(result.error.message || "Invalid email or password.");
+    try {
+      const result = await authClient.signIn.email({ email: email.trim(), password });
+      if (result.error) throw new Error(result.error.message || "Invalid email or password.");
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace("/organizations");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "ShowPilot could not be reached. Check your connection and try again.");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
+    } finally {
+      setLoading(false);
     }
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.replace("/organizations");
   }
 
   return (

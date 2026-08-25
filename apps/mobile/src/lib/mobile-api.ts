@@ -29,6 +29,7 @@ const notificationSchema = z.object({
 
 export const bootstrapSchema = z.object({
   organization: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
+  timeZone: z.string().min(1),
   identity: z.object({ userId: z.string(), name: z.string(), role: z.string(), permissions: z.array(z.string()) }),
   shows: z.array(rundownSchema),
   notifications: z.array(notificationSchema),
@@ -77,6 +78,7 @@ export type RundownTimer = z.infer<typeof timerSchema>;
 const scheduleSchema = z.object({
   from: z.string(),
   to: z.string(),
+  timeZone: z.string().min(1),
   canViewFull: z.boolean(),
   canManage: z.boolean(),
   services: z.array(rundownSchema.extend({

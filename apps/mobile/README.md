@@ -5,9 +5,11 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 ## Native coverage
 
 - Email/password authentication and organization switching
+- Recoverable network errors plus foreground/reconnect refresh
 - Command center, upcoming shows, and permission-aware live rundown controls
 - Multi-operator timer synchronization with reconnect and queued commands
 - Crew schedule, custom call times, and assignment accept/decline responses
+- Venue-timezone service labels for remote operators
 - Production and planning chat rooms plus direct-message routing
 - Incident reporting plus permission-checked ATEM and X32/WING control through the venue Bridge
 - Scrollable inbox with destination-aware notification and push navigation

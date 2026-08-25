@@ -139,7 +139,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - Store-safe icon sources and 1024x1024 platform PNGs live in
   `apps/mobile/assets`. The verifier rejects transparent iOS icons, changed
   package IDs, and unused camera or microphone permissions.
-- Full launch-candidate verification passed: 554 web tests, 19 landing tests,
+- Native query refresh follows device connectivity and foreground state. Offline
+  chat queues are discarded at organization/room boundaries, and service times
+  are rendered in the venue timezone rather than the phone timezone.
+- Full launch-candidate verification passed: 557 web tests, 19 landing tests,
   web production build, both Wrangler dry runs, all-platform mobile export, and
   Expo Doctor 18/18.
 - Native push delivery still needs an EAS project ID, platform credentials, and
