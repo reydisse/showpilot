@@ -43,7 +43,13 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <div
+      className="flex min-h-dvh items-center justify-center bg-board-bg py-8 text-board-text"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at top, color-mix(in srgb, var(--color-fire-500) 8%, transparent), transparent 42%)",
+      }}
+    >
       <div className="w-full max-w-md px-4">
         <Outlet />
       </div>

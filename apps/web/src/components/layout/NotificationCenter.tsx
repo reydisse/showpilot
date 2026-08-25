@@ -1,27 +1,42 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Bell, CheckCheck, CircleAlert, ExternalLink, Inbox } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { getPersonalNotifications, markAllPersonalNotificationsRead, markPersonalNotificationRead, type PersonalNotification } from "@/lib/personal-notifications";
+import { BellRing, CheckCheck, ExternalLink, Inbox, Info, TriangleAlert } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  getPersonalNotifications,
+  markAllPersonalNotificationsRead,
+  markPersonalNotificationRead,
+  type PersonalNotification,
+} from "@/lib/personal-notifications";
 import { getNotificationDestination } from "@/lib/notification-destination";
 
-export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onNavigate, placement = "sidebar" }: { orgId: string; slug: string; collapsed: boolean; onUnreadChange?: (count: number) => void; onNavigate?: () => void; placement?: "sidebar" | "account" }) {
+interface NotificationInboxProps {
+  orgId: string;
+  slug: string;
+  onUnreadChange?: (count: number) => void;
+  onNavigate?: () => void;
+}
+
+export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: NotificationInboxProps) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PersonalNotification[]>([]);
   const [unread, setUnread] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const root = useRef<HTMLDivElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
+
   const refresh = useCallback(async () => {
     try {
       const result = await getPersonalNotifications({ data: { orgId } });
       setItems(result.notifications);
       setUnread(result.unread);
       onUnreadChange?.(result.unread);
+      setActionError(null);
+    } catch {
+      setActionError("Notifications could not be refreshed. Check your connection and try again.");
+    } finally {
+      setLoaded(true);
     }
-    catch { /* Navigation must remain usable if inbox retrieval fails. */ }
   }, [orgId, onUnreadChange]);
 
   useEffect(() => {
@@ -36,82 +51,145 @@ export function NotificationCenter({ orgId, slug, collapsed, onUnreadChange, onN
       window.removeEventListener("focus", onFocus);
     };
   }, [refresh]);
+
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    const onMessage = (event: MessageEvent) => { if (event.data?.type === "showpilot-notification") void refresh(); };
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "showpilot-notification") void refresh();
+    };
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, [refresh]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!root.current?.contains(target) && !panel.current?.contains(target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
 
-  const read = async (id: string) => {
-    setItems((current) => current.map((item) => item.id === id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item));
-    setUnread((current) => { const next = Math.max(0, current - (items.find((item) => item.id === id)?.readAt ? 0 : 1)); onUnreadChange?.(next); return next; });
-    await markPersonalNotificationRead({ data: { orgId, id } });
+  const markRead = async (item: PersonalNotification) => {
+    const wasUnread = !item.readAt;
+    if (wasUnread) {
+      setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, readAt: new Date().toISOString() } : entry));
+      setUnread((current) => {
+        const next = Math.max(0, current - 1);
+        onUnreadChange?.(next);
+        return next;
+      });
+    }
+    try {
+      await markPersonalNotificationRead({ data: { orgId, id: item.id } });
+    } catch {
+      setActionError("That notification could not be marked as read.");
+      await refresh();
+    }
   };
-  const readAll = async () => {
-    setLoading(true); setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }))); setUnread(0); onUnreadChange?.(0);
+
+  const markAllRead = async () => {
+    setMarkingAll(true);
+    setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+    setUnread(0);
+    onUnreadChange?.(0);
     try {
       await markAllPersonalNotificationsRead({ data: { orgId } });
       setActionError(null);
     } catch {
-      setActionError("Could not mark notifications read. Please try again.");
+      setActionError("Notifications could not be marked as read. Please try again.");
       await refresh();
-    } finally { setLoading(false); }
+    } finally {
+      setMarkingAll(false);
+    }
   };
 
-  const notificationPanel = (
-    <div
-      ref={panel}
-      role={placement === "account" ? "dialog" : undefined}
-      aria-modal={placement === "account" ? true : undefined}
-      className={placement === "account"
-        ? "relative z-[60] mt-2 flex min-h-0 max-h-[min(470px,55dvh)] w-full flex-col overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl"
-        : `pointer-events-auto fixed z-[10000] flex max-h-[min(560px,82dvh)] min-h-0 flex-col overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl left-3 right-3 bottom-20 lg:right-auto lg:bottom-4 ${collapsed ? "lg:left-[72px]" : "lg:left-[244px]"} w-auto lg:w-[360px]`}
-    >
-      <header className="flex items-center gap-2 border-b border-board-border px-4 py-3">
-        <div><h2 className="text-sm font-semibold text-board-text">Notifications</h2><p className="text-[10px] text-board-muted">Assignments and operational updates</p></div>
-        {unread ? <button type="button" disabled={loading} onClick={() => void readAll()} className="ml-auto inline-flex items-center gap-1 text-[10px] text-board-muted hover:text-board-text disabled:opacity-50"><CheckCheck className="h-3.5 w-3.5" />Mark all read</button> : null}
-      </header>
-      {actionError ? <p role="alert" className="border-b border-red-500/20 bg-red-500/[0.06] px-4 py-2 text-[10px] text-red-300">{actionError}</p> : null}
-      <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/60 overflow-y-auto overscroll-contain">
-        {items.length ? items.map((item) => <NotificationRow key={item.id} item={item} onOpen={async () => {
-          setOpen(false);
-          onNavigate?.();
-          void read(item.id).catch(() => { /* Reading is best-effort and must never block the destination. */ });
-          await navigateToNotification(navigate, slug, item.actionUrl);
-        }} />) : <div className="px-4 py-10 text-center"><Inbox className="mx-auto h-7 w-7 text-board-muted/50" /><p className="mt-2 text-xs text-board-muted">Nothing waiting for you.</p></div>}
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {unread > 0 ? (
+        <div className="flex shrink-0 items-center justify-end border-b border-board-border px-5 py-2 sm:px-6">
+          <Button type="button" variant="ghost" size="sm" disabled={markingAll} onClick={() => void markAllRead()}>
+            <CheckCheck data-icon="inline-start" />
+            Mark all read
+          </Button>
+        </div>
+      ) : null}
+
+      {actionError ? <p role="alert" className="shrink-0 border-b border-red-500/20 bg-red-500/[0.06] px-5 py-2 text-xs text-red-700 dark:text-red-300 sm:px-6">{actionError}</p> : null}
+
+      <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/70 overflow-y-auto overscroll-contain">
+        {!loaded ? <NotificationSkeleton /> : null}
+        {loaded && items.length === 0 ? (
+          <div className="flex min-h-64 flex-col items-center justify-center px-6 py-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-xl border border-board-border bg-board-bg/40 text-board-muted">
+              <Inbox className="size-6" />
+            </span>
+            <p className="mt-4 text-sm font-medium text-board-text">Nothing waiting for you.</p>
+            <p className="mt-1 max-w-64 text-xs leading-5 text-board-muted">Assignments, mentions, and operational alerts will appear here.</p>
+          </div>
+        ) : null}
+        {loaded ? items.map((item) => (
+          <NotificationRow
+            key={item.id}
+            item={item}
+            onOpen={async () => {
+              onNavigate?.();
+              void markRead(item);
+              await navigateToNotification(navigate, slug, item.actionUrl);
+            }}
+          />
+        )) : null}
       </div>
     </div>
   );
+}
 
-  return <div ref={root} className="relative">
-    <button type="button" aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`} aria-expanded={open} onClick={() => { const nextOpen = !open; setOpen(nextOpen); if (nextOpen) void refresh(); }} className={`relative flex min-h-11 items-center rounded-lg transition-colors ${collapsed ? "w-full justify-center p-2.5" : "w-full gap-3 px-3 py-2.5"} ${open ? "bg-board-border/60 text-board-text" : "text-board-muted hover:bg-board-border/50 hover:text-board-text"}`}>
-      <Bell className="h-[18px] w-[18px] shrink-0" />{!collapsed ? <span className="text-sm font-medium">Notifications</span> : null}{unread > 0 ? <span className={`${collapsed ? "absolute right-1 top-1" : "ml-auto"} flex h-5 min-w-5 items-center justify-center rounded-full bg-fire-500 px-1 text-[10px] font-semibold tabular-nums text-white`}>{unread > 99 ? "99+" : unread}</span> : null}
-    </button>
-    {open ? placement === "account" ? notificationPanel : typeof document !== "undefined" ? createPortal(<>{notificationPanel}</>, document.body) : null : null}
-  </div>;
+function NotificationSkeleton() {
+  return (
+    <div aria-label="Loading notifications" className="flex flex-col gap-0">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="flex gap-3 border-b border-board-border/70 px-5 py-4 sm:px-6">
+          <SkeletonBlock className="size-9 shrink-0 rounded-lg" />
+          <div className="flex flex-1 flex-col gap-2">
+            <SkeletonBlock className="h-3 w-2/5" />
+            <SkeletonBlock className="h-3 w-full" />
+            <SkeletonBlock className="h-2.5 w-16" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SkeletonBlock({ className }: { className: string }) {
+  return <div aria-hidden="true" className={`animate-pulse bg-board-border/70 ${className}`} />;
 }
 
 function NotificationRow({ item, onOpen }: { item: PersonalNotification; onOpen(): Promise<void> }) {
-  const content = <><span className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${item.severity === "critical" ? "bg-red-500/15 text-red-400" : "bg-yellow-400/10 text-yellow-300"}`}><CircleAlert className="w-3.5 h-3.5" /></span><span className="min-w-0 flex-1"><span className="flex items-start gap-2"><strong className="text-xs font-medium text-board-text">{item.title}</strong>{!item.readAt ? <span className="mt-1 w-1.5 h-1.5 rounded-full bg-fire-500 shrink-0" /> : null}</span><span className="block text-[11px] leading-relaxed text-board-muted mt-1">{item.message}</span><span className="block text-[9px] text-board-muted/60 mt-1.5">{relativeTime(item.createdAt)}</span></span>{item.actionUrl ? <ExternalLink className="w-3 h-3 text-board-muted shrink-0" /> : null}</>;
-  const className = `flex items-start gap-3 px-4 py-3 text-left hover:bg-board-border/30 transition-colors ${item.readAt ? "opacity-75" : "bg-fire-500/[.025]"}`;
-  return <button type="button" onClick={() => void onOpen()} className={`w-full ${className}`}>{content}</button>;
+  const critical = item.severity === "critical" || item.severity === "high";
+  const warning = item.severity === "warning" || item.severity === "medium";
+  const Icon = critical ? TriangleAlert : warning ? BellRing : Info;
+  const iconLabel = critical ? "Critical" : warning ? "Warning" : "Information";
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onOpen()}
+      className={`flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-board-border/30 sm:px-6 ${item.readAt ? "opacity-75" : "bg-fire-500/[.035]"}`}
+    >
+      <span
+        aria-label={iconLabel}
+        className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border ${critical ? "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-400" : warning ? "border-amber-400/25 bg-amber-400/10 text-amber-700 dark:text-amber-300" : "border-board-border bg-board-bg/45 text-board-muted"}`}
+      >
+        <Icon className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-start gap-2">
+          <strong className="min-w-0 flex-1 text-sm font-medium text-board-text">{item.title}</strong>
+          <span className="shrink-0 text-[10px] text-board-muted/70">{relativeTime(item.createdAt)}</span>
+        </span>
+        <span className="mt-1 block break-words text-xs leading-5 text-board-muted [overflow-wrap:anywhere]">{item.message}</span>
+        {!item.readAt ? <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-medium text-fire-800 dark:text-fire-500"><span className="size-1.5 rounded-full bg-fire-500" />Unread</span> : null}
+      </span>
+      {item.actionUrl ? <ExternalLink aria-label="Open notification" className="mt-1 size-3.5 shrink-0 text-board-muted" /> : null}
+    </button>
+  );
 }
 
 type Navigate = ReturnType<typeof useNavigate>;
+
 async function navigateToNotification(navigate: Navigate, slug: string, actionUrl: string) {
-  // Notification URLs are data, not trusted router destinations. Map the
-  // supported actions explicitly so a database value cannot navigate users
-  // outside their organization or to an unintended external URL.
   const destination = getNotificationDestination(actionUrl);
   if (!destination) return;
   if (destination.kind === "tech-manager") {
@@ -129,4 +207,12 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
   await navigate({ to: "/$slug/chat", params: { slug }, search: { room: destination.room, message: destination.message } });
 }
 
-function relativeTime(value: string) { const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000)); if (seconds < 60) return "just now"; const minutes = Math.round(seconds / 60); if (minutes < 60) return `${minutes}m ago`; const hours = Math.round(minutes / 60); if (hours < 24) return `${hours}h ago`; return `${Math.round(hours / 24)}d ago`; }
+function relativeTime(value: string) {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}

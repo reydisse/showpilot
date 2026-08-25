@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import "@/lib/device-modules/register-all";
 import { moduleRegistry } from "@/lib/device-modules/registry";
 import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
 import type {

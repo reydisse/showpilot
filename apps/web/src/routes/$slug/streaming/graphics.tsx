@@ -15,6 +15,7 @@ import {
   Copy,
   Check,
   Sparkles,
+  X,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { hasEffectivePermission } from "@/lib/app-permissions";
@@ -686,7 +687,7 @@ function GraphicFormModal({
             className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
             aria-label="Close graphic editor"
           >
-            ✕
+            <X className="size-4" />
           </button>
         </div>
 

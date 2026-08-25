@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, ChevronDown } from "lucide-react";
+import { AlertCircle, ChevronDown, LoaderCircle, X } from "lucide-react";
 import { PhotoUpload } from "./PhotoUpload";
 import { addCrewMember, updateCrewMember } from "@/lib/data";
 import { fileToBase64 } from "@/lib/storage";
@@ -120,7 +120,9 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close member editor"
             className="p-2 -mr-1 rounded-lg hover:bg-board-border transition-colors text-board-muted hover:text-board-text"
           >
             <X className="w-5 h-5" />
@@ -242,17 +244,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
           {/* Error */}
           {error && (
             <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-              <svg
-                className="mt-0.5 h-4 w-4 shrink-0 text-red-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
               <p className="text-sm text-red-300">{error}</p>
             </div>
           )}
@@ -276,10 +268,7 @@ export function MemberForm({ orgId, member, onClose, onSaved }: MemberFormProps)
             >
               {saving ? (
                 <span className="flex items-center justify-center gap-2">
-                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                  <LoaderCircle className="size-4 animate-spin" />
                   Saving...
                 </span>
               ) : isEditing ? (

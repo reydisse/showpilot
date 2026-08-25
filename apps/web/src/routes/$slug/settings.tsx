@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
-import { useState, useCallback, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect } from "react";
 import {
   Building2,
   Users,
@@ -29,9 +29,17 @@ import {
   FlaskConical,
   ExternalLink,
   Gamepad2,
+  CircleCheck,
+  CircleAlert,
+  LoaderCircle,
+  Mail,
+  MonitorSmartphone,
+  Volume2,
+  X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
+import { useSettingAutosave } from "@/components/settings/useSettingAutosave";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
 import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
@@ -53,7 +61,6 @@ import {
   type OrgBillingInfo,
 } from "@/lib/billing";
 import { UpgradePrompt, isPlanLimitError } from "@/components/ui/upgrade-prompt";
-import { EmbeddedCheckoutModal } from "@/components/settings/EmbeddedCheckoutModal";
 import { getStripePublishableKey, resolveCheckoutUiMode } from "@/lib/checkout";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
@@ -64,11 +71,25 @@ import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
 import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
 import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const loadEmbeddedCheckoutModal = () => import("@/components/settings/EmbeddedCheckoutModal");
+const EmbeddedCheckoutModal = lazy(loadEmbeddedCheckoutModal);
 
 // ─── Route ──────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/settings")({
   pendingComponent: () => <PageSkeleton />,
+  validateSearch: (search: Record<string, unknown>): { section?: SectionId } => ({
+    section: parseSectionId(search.section),
+  }),
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, [
@@ -122,6 +143,26 @@ type SectionId =
   | "api"
   | "danger";
 
+function parseSectionId(value: unknown): SectionId | undefined {
+  switch (value) {
+    case "organization":
+    case "team":
+    case "people":
+    case "billing":
+    case "integrations":
+    case "production":
+    case "lowerthirds":
+    case "kiosk":
+    case "companion":
+    case "notifications":
+    case "api":
+    case "danger":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 interface NavItem {
   id: SectionId;
   label: string;
@@ -146,12 +187,28 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Main Component ─────────────────────────────────────────
 
 function SettingsPage() {
-  const { settings, members, billing, orgId, slug, org, role } = Route.useLoaderData();
+  const loaderData = Route.useLoaderData();
+  return <OrganizationSettingsPage key={loaderData.orgId} loaderData={loaderData} />;
+}
+
+function OrganizationSettingsPage({
+  loaderData,
+}: {
+  loaderData: ReturnType<typeof Route.useLoaderData>;
+}) {
+  const { settings, members, billing, orgId, slug, org, role } = loaderData;
+  const { section } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const router = useRouter();
-  const [activeSection, setActiveSection] = useState<SectionId>("organization");
-  const [localSettings, setLocalSettings] =
-    useState<Record<string, string>>(settings);
-  const [toast, setToast] = useState<string | null>(null);
+  const persistSetting = useCallback(
+    (key: string, value: string) =>
+      updateOrgSetting({ data: { orgId, key, value } }),
+    [orgId],
+  );
+  const { getSetting, saveSetting, saveState } = useSettingAutosave({
+    initialSettings: settings,
+    persist: persistSetting,
+  });
 
   const canManageMembers = hasPermission(role, "settings:members");
   const canViewBilling = hasPermission(role, "settings:billing");
@@ -180,73 +237,96 @@ function SettingsPage() {
     return false;
   });
 
-  const resolvedSection = visibleNavItems.some((item) => item.id === activeSection)
-    ? activeSection
+  const resolvedSection = section && visibleNavItems.some((item) => item.id === section)
+    ? section
     : (visibleNavItems[0]?.id ?? "organization");
+  const activeNavItem = visibleNavItems.find((item) => item.id === resolvedSection);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
-  }, []);
-
-  const saveSetting = useCallback(
-    async (key: string, value: string) => {
-      setLocalSettings((prev) => ({ ...prev, [key]: value }));
-      await updateOrgSetting({ data: { orgId, key, value } });
-      showToast("Setting saved");
-    },
-    [orgId, showToast]
-  );
-
-  const getSetting = useCallback(
-    (key: string, fallback = "") => localSettings[key] ?? fallback,
-    [localSettings]
-  );
-
-  const openBilling = useCallback(() => setActiveSection("billing"), []);
+  const openBilling = useCallback(() => {
+    void navigate({ search: { section: "billing" } });
+  }, [navigate]);
 
   const sectionProps = { orgId, slug, role, org, getSetting, saveSetting, members, openBilling };
 
   return (
-    <div className="h-full min-h-0 flex flex-col lg:flex-row overflow-hidden">
-      {/* Settings nav — horizontal scroll on mobile, vertical sidebar on desktop */}
-      <nav className="shrink-0 border-b lg:border-b-0 lg:border-r border-board-border bg-board-bg lg:w-56 lg:overflow-y-auto">
-        <div className="p-3 md:p-4">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
+      <aside className="hidden w-72 shrink-0 border-r border-board-border bg-board-bg/75 lg:flex lg:min-h-0 lg:flex-col">
+        <div className="shrink-0 border-b border-board-border px-5 py-5">
           <button
+            type="button"
             onClick={() => router.history.back()}
-            className="flex items-center gap-2 text-sm text-board-muted hover:text-board-text transition-colors mb-3 md:mb-4 min-h-[44px] md:min-h-0"
+            className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="size-4" />
             <span>Back</span>
           </button>
-          <div className="flex lg:flex-col gap-1.5 lg:gap-0.5 overflow-x-auto hide-scrollbar pb-1 lg:pb-0">
+          <div className="mt-4 px-2">
+            <h1 className="text-lg font-semibold text-board-text">Settings</h1>
+            <p className="mt-1 text-xs leading-5 text-board-muted">Organization, production, and integrations</p>
+          </div>
+        </div>
+        <nav aria-label="Settings sections" className="modern-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="flex flex-col gap-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = resolvedSection === item.id;
               return (
                 <button
+                  type="button"
                   key={item.id}
-                  onClick={() => setActiveSection(item.id)}
-                  className={`flex items-center gap-2 lg:gap-2.5 px-3 py-2 rounded-lg text-xs md:text-sm transition-colors whitespace-nowrap min-h-[44px] lg:min-h-0 lg:w-full ${
+                  onClick={() => void navigate({ search: { section: item.id } })}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex min-h-11 w-full items-center gap-3 rounded-lg border-l-2 px-3 py-2.5 text-left text-sm transition-colors ${
                     isActive
-                      ? "bg-fire-500/15 text-fire-500"
+                      ? "border-fire-500 bg-fire-500/10 text-fire-500"
                       : item.id === "danger"
-                        ? "text-red-400/70 hover:text-red-400 hover:bg-red-500/10"
-                        : "text-board-muted hover:text-board-text hover:bg-board-border/50"
+                        ? "border-transparent text-red-400/80 hover:bg-red-500/10 hover:text-red-400"
+                        : "border-transparent text-board-muted hover:bg-board-border/40 hover:text-board-text"
                   }`}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <Icon className="size-[18px] shrink-0" />
+                  <span>{item.label}</span>
                 </button>
               );
             })}
           </div>
-        </div>
-      </nav>
+        </nav>
+      </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto min-h-0">
-        <div className="max-w-3xl mx-auto p-4 md:p-6 safe-area-bottom">
+      <div className="shrink-0 border-b border-board-border bg-board-bg/90 px-4 py-3 lg:hidden">
+        <button type="button" onClick={() => router.history.back()} className="flex min-h-10 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
+          <ArrowLeft className="size-4" />
+          Back
+        </button>
+        <Select
+          value={resolvedSection}
+          onValueChange={(value) => {
+            const item = visibleNavItems.find((candidate) => candidate.id === value);
+            if (item) void navigate({ search: { section: item.id } });
+          }}
+        >
+          <SelectTrigger aria-label="Settings section" className="mt-2 h-12 w-full border-board-border bg-board-card px-4 text-board-text">
+            <SelectValue placeholder="Choose a settings section">{activeNavItem?.label}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="border-board-border bg-board-card text-board-text">
+            <SelectGroup>
+              {visibleNavItems.map((item) => {
+                const Icon = item.icon;
+                return <SelectItem key={item.id} value={item.id}><Icon />{item.label}</SelectItem>;
+              })}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto">
+        <div className="safe-area-bottom mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-9">
+          <div className="mb-4 flex min-h-6 items-center justify-end">
+            {saveState.kind === "saving" ? <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span> : null}
+            {saveState.kind === "saved" ? <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />Changes save automatically</span> : null}
+            {saveState.kind === "error" ? <span role="alert" title={saveState.message} className="inline-flex items-center gap-2 text-xs text-red-400"><CircleAlert className="size-4" />Save failed. Try again.</span> : null}
+          </div>
+          <div className="max-w-4xl">
           {resolvedSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}
@@ -279,15 +359,9 @@ function SettingsPage() {
           {resolvedSection === "danger" && (
             <DangerSection {...sectionProps} router={router} />
           )}
+          </div>
         </div>
-      </main>
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-2 rounded-lg bg-green-500/20 border border-green-500/30 text-green-400 text-xs font-medium animate-in fade-in slide-in-from-bottom-2 duration-200">
-          {toast}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -318,12 +392,39 @@ function SectionHeader({
   description: string;
 }) {
   return (
-    <div className="mb-6">
-      <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
+    <div className="mb-7">
+      <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-board-text">
         {title}
       </h1>
-      <p className="text-xs text-board-muted mt-0.5">{description}</p>
+      <p className="mt-1 text-sm leading-6 text-board-muted">{description}</p>
     </div>
+  );
+}
+
+function SettingsGroup({
+  title,
+  description,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="overflow-hidden rounded-xl border border-board-border bg-board-card/45">
+      <header className="flex items-start gap-3 border-b border-board-border px-4 py-4 sm:px-5">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-500">
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-board-text">{title}</h2>
+          <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p>
+        </div>
+      </header>
+      <div className="divide-y divide-board-border/70">{children}</div>
+    </section>
   );
 }
 
@@ -380,6 +481,8 @@ function SettingToggle({
   saveSetting,
   warning,
   defaultEnabled = false,
+  description,
+  row = false,
 }: {
   settingKey: string;
   label: string;
@@ -387,30 +490,38 @@ function SettingToggle({
   saveSetting: SectionProps["saveSetting"];
   warning?: string;
   defaultEnabled?: boolean;
+  description?: string;
+  row?: boolean;
 }) {
   const savedValue = getSetting(settingKey);
   const enabled = savedValue === "true" || (savedValue === "" && defaultEnabled);
   return (
-    <div>
-      <label className="flex items-center gap-3 cursor-pointer">
+    <div className={row ? "px-4 py-3.5 sm:px-5" : undefined}>
+      <div className="flex min-h-8 items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-board-text">{label}</p>
+          {description ? <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p> : null}
+        </div>
         <button
           type="button"
           onClick={() => saveSetting(settingKey, enabled ? "false" : "true")}
-          className={`relative w-9 h-5 rounded-full transition-colors ${
+          role="switch"
+          aria-checked={enabled}
+          aria-label={label}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 focus-visible:ring-offset-2 focus-visible:ring-offset-board-bg ${
             enabled ? "bg-fire-500" : "bg-board-border"
           }`}
         >
           <span
-            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-              enabled ? "translate-x-4" : ""
+            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform ${
+              enabled ? "translate-x-5" : ""
             }`}
           />
         </button>
-        <span className="text-sm text-board-text">{label}</span>
-      </label>
+      </div>
       {warning && enabled && (
-        <p className="mt-1.5 ml-12 text-[10px] text-amber-400 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
+        <p className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-amber-400">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           {warning}
         </p>
       )}
@@ -555,18 +666,18 @@ function TeamSection({ members, orgId, openBilling }: SectionProps) {
           <UserPlus className="w-3.5 h-3.5" />
           Invite a new member
         </p>
-          <div className="flex gap-2">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)_auto]">
             <input
             type="email"
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             placeholder="email@example.com"
-            className="flex-1 px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+            className="min-w-0 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
           />
           <select
             value={inviteRole}
             onChange={(e) => setInviteRole(e.target.value)}
-            className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text text-sm appearance-none focus:outline-none focus:border-fire-500"
+            className="min-w-0 w-full px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text text-sm appearance-none focus:outline-none focus:border-fire-500"
           >
             {ASSIGNABLE_ROLES.map((r) => {
               const roleMeta = ROLE_META[r];
@@ -581,7 +692,7 @@ function TeamSection({ members, orgId, openBilling }: SectionProps) {
               type="button"
               onClick={handleInvite}
               disabled={inviting || !inviteEmail.trim()}
-              className="px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
             >
             {inviting ? "Inviting..." : "Invite"}
             </button>
@@ -729,6 +840,7 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
       // Embedded keeps payment on showpilot.tech; without the publishable
       // key the flow degrades to the original hosted redirect.
       const uiMode = resolveCheckoutUiMode(getStripePublishableKey());
+      if (uiMode === "embedded") void loadEmbeddedCheckoutModal();
       const result = await createCheckoutSession({
         data: { orgId: org.id, plan, uiMode },
       });
@@ -926,11 +1038,22 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
       </p>
 
       {embeddedCheckout && (
-        <EmbeddedCheckoutModal
-          clientSecret={embeddedCheckout.clientSecret}
-          planName={embeddedCheckout.planName}
-          onClose={() => setEmbeddedCheckout(null)}
-        />
+        <Suspense
+          fallback={(
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+              <div role="status" className="flex items-center gap-3 rounded-xl border border-board-border bg-board-card px-5 py-4 text-sm text-board-text shadow-2xl">
+                <LoaderCircle className="size-4 animate-spin text-fire-500" />
+                Preparing secure checkout...
+              </div>
+            </div>
+          )}
+        >
+          <EmbeddedCheckoutModal
+            clientSecret={embeddedCheckout.clientSecret}
+            planName={embeddedCheckout.planName}
+            onClose={() => setEmbeddedCheckout(null)}
+          />
+        </Suspense>
       )}
     </div>
   );
@@ -1614,79 +1737,29 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
         title="Notifications"
         description="Configure how you receive alerts and notifications"
       />
-      <div className="space-y-5">
-        <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50">
-          Email Notifications
-        </p>
-        <SettingToggle
-          settingKey="notify-email-service-reminder"
-          label="Service reminders"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-        <SettingToggle
-          settingKey="notify-email-team-changes"
-          label="Team membership changes"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-        <SettingToggle
-          settingKey="notify-email-incidents"
-          label="Incident reports"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
+      <div className="space-y-4">
+        <SettingsGroup title="Email" description="Updates delivered to the email on your account." icon={Mail}>
+          <SettingToggle row settingKey="notify-email-service-reminder" label="Service reminders" description="Upcoming services and call-time reminders." getSetting={getSetting} saveSetting={saveSetting} />
+          <SettingToggle row settingKey="notify-email-team-changes" label="Team membership changes" description="Invitations, role changes, and removals." getSetting={getSetting} saveSetting={saveSetting} />
+          <SettingToggle row settingKey="notify-email-incidents" label="Incident reports" description="New and updated production incidents." getSetting={getSetting} saveSetting={saveSetting} />
+        </SettingsGroup>
 
-        <div className="border-t border-board-border pt-5" />
+        <SettingsGroup title="In-app" description="Live operational alerts while ShowPilot is open." icon={MonitorSmartphone}>
+          <SettingToggle row settingKey="notify-app-chat" label="New chat messages" description="Messages and mentions in show chat." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
+          <SettingToggle row settingKey="notify-app-cue" label="Cue alerts" description="Cues that need your attention during a show." getSetting={getSetting} saveSetting={saveSetting} />
+          <SettingToggle row settingKey="notify-app-timer" label="Timer warnings" description="Warnings when an item runs overtime." getSetting={getSetting} saveSetting={saveSetting} />
+        </SettingsGroup>
 
-        <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50">
-          In-App Notifications
-        </p>
-        <SettingToggle
-          settingKey="notify-app-chat"
-          label="New chat messages"
-          defaultEnabled
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-        <SettingToggle
-          settingKey="notify-app-cue"
-          label="Cue alerts"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-        <SettingToggle
-          settingKey="notify-app-timer"
-          label="Timer warnings (overtime)"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-
-        <div className="border-t border-board-border pt-5" />
-
-        <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50">
-          Sound
-        </p>
-        <SettingToggle
-          settingKey="notify-sound-enabled"
-          label="Chat alert sound"
-          getSetting={getSetting}
-          saveSetting={saveSetting}
-        />
-        {getSetting("notify-sound-enabled") === "true" && (
-          <FieldGroup label="Alert Volume">
-            <SettingSelect
-              settingKey="notify-sound-volume"
-              getSetting={getSetting}
-              saveSetting={saveSetting}
-              options={[
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High" },
-              ]}
-            />
-          </FieldGroup>
-        )}
+        <SettingsGroup title="Sound" description="Audio feedback for time-sensitive activity." icon={Volume2}>
+          <SettingToggle row settingKey="notify-sound-enabled" label="Chat alert sound" description="Play a sound for new chat messages." getSetting={getSetting} saveSetting={saveSetting} />
+          {getSetting("notify-sound-enabled") === "true" ? (
+            <div className="px-4 py-4 sm:px-5">
+              <FieldGroup label="Alert volume">
+                <SettingSelect settingKey="notify-sound-volume" getSetting={getSetting} saveSetting={saveSetting} options={[{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }]} />
+              </FieldGroup>
+            </div>
+          ) : null}
+        </SettingsGroup>
       </div>
     </div>
   );
@@ -1761,7 +1834,9 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
             </code>
             {apiKey && (
               <button
+                type="button"
                 onClick={() => setShowKey(!showKey)}
+                aria-label={showKey ? "Hide API key" : "Show API key"}
                 className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 {showKey ? (
@@ -1773,6 +1848,7 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
             )}
           </div>
           <button
+            type="button"
             onClick={handleRegenerate}
             disabled={regenerating}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
@@ -1878,6 +1954,8 @@ function DangerSection({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
+  const [confirmingDangerAction, setConfirmingDangerAction] = useState<null | "lowerthirds" | "chat">(null);
+  const [dangerActionError, setDangerActionError] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -1906,8 +1984,12 @@ function DangerSection({
 
   const handleResetLowerThirds = async () => {
     setBusy("lowerthirds");
+    setDangerActionError(null);
     try {
       await resetLowerThirdLibrary({ data: { orgId: org.id } });
+      setConfirmingDangerAction(null);
+    } catch (error) {
+      setDangerActionError(error instanceof Error ? error.message : "Lower thirds could not be reset.");
     } finally {
       setBusy(null);
     }
@@ -1915,8 +1997,12 @@ function DangerSection({
 
   const handleClearChat = async () => {
     setBusy("chat");
+    setDangerActionError(null);
     try {
       await clearChatHistory({ data: { orgId: org.id } });
+      setConfirmingDangerAction(null);
+    } catch (error) {
+      setDangerActionError(error instanceof Error ? error.message : "Chat history could not be cleared.");
     } finally {
       setBusy(null);
     }
@@ -2073,43 +2159,85 @@ function DangerSection({
       />
       <div className="space-y-4">
         {/* Reset lower thirds */}
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-board-text">
-              Reset all lower thirds
-            </p>
-            <p className="text-xs text-board-muted">
-              Clear all saved graphic templates
-            </p>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-board-text">
+                Reset all lower thirds
+              </p>
+              <p className="text-xs text-board-muted">
+                Clear all saved graphic templates
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDangerActionError(null);
+                setConfirmingDangerAction("lowerthirds");
+              }}
+              disabled={busy !== null}
+              className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Reset
+            </button>
           </div>
-          <button
-            onClick={handleResetLowerThirds}
-            disabled={busy !== null}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="w-3 h-3" />
-            {busy === "lowerthirds" ? "Resetting..." : "Reset"}
-          </button>
+          {confirmingDangerAction === "lowerthirds" ? (
+            <div role="alertdialog" aria-labelledby="confirm-reset-lower-thirds" className="mt-4 border-t border-red-500/20 pt-4">
+              <p id="confirm-reset-lower-thirds" className="text-xs leading-5 text-board-muted">
+                This removes every saved lower-third template. Continue?
+              </p>
+              {dangerActionError ? <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p> : null}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
+                <button type="button" disabled={busy !== null} onClick={() => void handleResetLowerThirds()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
+                  <RefreshCw className={`w-3 h-3 ${busy === "lowerthirds" ? "animate-spin" : ""}`} />
+                  {busy === "lowerthirds" ? "Resetting..." : "Reset lower thirds"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Clear chat history */}
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-board-text">
-              Clear chat history
-            </p>
-            <p className="text-xs text-board-muted">
-              Remove all chat messages from native chat
-            </p>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-board-text">
+                Clear chat history
+              </p>
+              <p className="text-xs text-board-muted">
+                Remove all chat messages from native chat
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDangerActionError(null);
+                setConfirmingDangerAction("chat");
+              }}
+              disabled={busy !== null}
+              className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3 h-3" />
+              Clear
+            </button>
           </div>
-          <button
-            onClick={handleClearChat}
-            disabled={busy !== null}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
-          >
-            <Trash2 className="w-3 h-3" />
-            {busy === "chat" ? "Clearing..." : "Clear"}
-          </button>
+          {confirmingDangerAction === "chat" ? (
+            <div role="alertdialog" aria-labelledby="confirm-clear-chat" className="mt-4 border-t border-red-500/20 pt-4">
+              <p id="confirm-clear-chat" className="text-xs leading-5 text-board-muted">
+                This permanently removes the organization’s native chat history. Continue?
+              </p>
+              {dangerActionError ? <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p> : null}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
+                <button type="button" disabled={busy !== null} onClick={() => void handleClearChat()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
+                  <Trash2 className="w-3 h-3" />
+                  {busy === "chat" ? "Clearing..." : "Clear chat history"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Export data */}
@@ -2134,14 +2262,16 @@ function DangerSection({
 
         {showExportModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="w-full max-w-xl rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div role="dialog" aria-modal="true" aria-labelledby="export-show-data-title" className="w-full max-w-xl rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-semibold text-board-text">Export Show Data</h3>
+                <h3 id="export-show-data-title" className="text-lg font-semibold text-board-text">Export Show Data</h3>
                 <button
+                  type="button"
                   onClick={() => setShowExportModal(false)}
+                  aria-label="Close export dialog"
                   className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
                 >
-                  ✕
+                  <X className="size-4" />
                 </button>
               </div>
 

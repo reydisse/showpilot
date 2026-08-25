@@ -9,7 +9,6 @@ import { DesktopBridgeController } from "@/components/layout/DesktopBridgeContro
 import { DesktopNotificationController } from "@/components/layout/DesktopNotificationController";
 import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
-import "@/lib/device-modules/register-all";
 
 const THEME_BOOTSTRAP = `(function(){try{var saved=localStorage.getItem("showpilot-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.classList.remove("light","dark");document.documentElement.classList.add(theme)}catch(_){}})();`;
 

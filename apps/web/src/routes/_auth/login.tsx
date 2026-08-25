@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth/login")({
@@ -9,44 +10,6 @@ export const Route = createFileRoute("/_auth/login")({
     search.signup === "1" || search.signup === 1 ? { signup: 1 } : {},
   component: LoginPage,
 });
-
-function EyeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function EyeOffIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-      <line x1="2" x2="22" y1="2" y2="22" />
-    </svg>
-  );
-}
 
 function LoginPage() {
   const { signup } = Route.useSearch();
@@ -96,13 +59,7 @@ function LoginPage() {
       </div>
 
       {/* Card */}
-      <div
-        className="rounded-2xl border border-white/[0.08] p-8 shadow-2xl backdrop-blur-xl"
-        style={{
-          background:
-            "linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)",
-        }}
-      >
+      <div className="rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
         <h2 className="mb-6 text-center text-xl font-semibold text-board-text">
           {isSignUp ? "Create your account" : "Welcome back"}
         </h2>
@@ -123,7 +80,7 @@ function LoginPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
             </div>
           )}
@@ -142,7 +99,7 @@ function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+              className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
             />
           </div>
 
@@ -172,18 +129,18 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 6 characters"
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted/60 hover:text-board-muted transition-colors"
-                tabIndex={-1}
               >
                 {showPassword ? (
-                  <EyeOffIcon className="h-4.5 w-4.5" />
+                  <EyeOff className="size-[18px]" />
                 ) : (
-                  <EyeIcon className="h-4.5 w-4.5" />
+                  <Eye className="size-[18px]" />
                 )}
               </button>
             </div>
@@ -191,7 +148,7 @@ function LoginPage() {
 
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-              <p className="text-sm text-red-300">{error}</p>
+              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
             </div>
           )}
 
@@ -229,11 +186,11 @@ function LoginPage() {
         </form>
 
         <div className="my-6 flex items-center gap-3">
-          <div className="h-px flex-1 bg-white/[0.06]" />
+          <div className="h-px flex-1 bg-board-border" />
           <span className="text-xs text-board-muted">
             {isSignUp ? "Already have an account?" : "New to ShowPilot?"}
           </span>
-          <div className="h-px flex-1 bg-white/[0.06]" />
+          <div className="h-px flex-1 bg-board-border" />
         </div>
 
         <button
@@ -242,7 +199,7 @@ function LoginPage() {
             setIsSignUp(!isSignUp);
             setError(null);
           }}
-          className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/30 hover:bg-white/[0.05]"
+          className="w-full rounded-xl border border-board-border bg-board-bg/60 px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/40 hover:bg-board-bg"
         >
           {isSignUp ? "Sign in instead" : "Create an account"}
         </button>

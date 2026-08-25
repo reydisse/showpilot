@@ -42,7 +42,7 @@ import {
   type Permission,
 } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
-import { ROLE_COLOURS } from "./ProfileModal";
+import { ROLE_COLOURS } from "./account-role";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
 
 interface NavItem {
@@ -244,6 +244,8 @@ export function Sidebar() {
         )}
         {/* Slide-in drawer */}
         <aside
+          aria-hidden={!mobileOpen}
+          inert={!mobileOpen}
           className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}

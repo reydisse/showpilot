@@ -1,14 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { env } from "cloudflare:workers";
-import Stripe from "stripe";
+import type Stripe from "stripe";
 import { getPrisma } from "@/lib/db";
-import { getStripe, getStripePriceIds } from "@/lib/billing";
 import { planFromPriceId } from "@/lib/plan-limits";
 
 // Stripe → ShowPilot billing sync. Signature-verified; no auth session.
 // Keep handlers fast — Stripe retries on non-2xx.
-
-const cryptoProvider = Stripe.createSubtleCryptoProvider();
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -40,12 +37,19 @@ async function findOrgId(
   return null;
 }
 
-function subscriptionPlan(subscription: Stripe.Subscription) {
+function subscriptionPlan(
+  subscription: Stripe.Subscription,
+  priceIds: Parameters<typeof planFromPriceId>[1],
+) {
   const priceId = subscription.items.data[0]?.price?.id;
-  return priceId ? planFromPriceId(priceId, getStripePriceIds()) : null;
+  return priceId ? planFromPriceId(priceId, priceIds) : null;
 }
 
-async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+  priceIds: Parameters<typeof planFromPriceId>[1],
+) {
   const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
   const orgId = await findOrgId(session.client_reference_id, customerId);
   if (!orgId) {
@@ -61,7 +65,7 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
   }
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  const mapped = subscriptionPlan(subscription);
+  const mapped = subscriptionPlan(subscription, priceIds);
   if (!mapped) {
     console.error("[stripe] checkout.session.completed: unknown price", subscription.id);
     return;
@@ -80,7 +84,10 @@ async function handleCheckoutCompleted(stripe: Stripe, session: Stripe.Checkout.
   });
 }
 
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+async function handleSubscriptionUpdated(
+  subscription: Stripe.Subscription,
+  priceIds: Parameters<typeof planFromPriceId>[1],
+) {
   const prisma = getPrisma();
   const customerId =
     typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id ?? null;
@@ -100,7 +107,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
 
-  const mapped = subscriptionPlan(subscription);
+  const mapped = subscriptionPlan(subscription, priceIds);
   await prisma.organization.update({
     where: { id: org.id },
     data: {
@@ -140,7 +147,13 @@ export const Route = createFileRoute("/api/stripe/webhook")({
         const signature = request.headers.get("stripe-signature");
         if (!signature) return json(400, { error: "Missing stripe-signature header" });
 
+        const {
+          createStripeCryptoProvider,
+          getStripe,
+          getStripePriceIds,
+        } = await import("@/lib/stripe.server");
         const stripe = getStripe();
+        const priceIds = getStripePriceIds();
         let event: Stripe.Event;
         try {
           // Async variant — required on Workers (SubtleCrypto).
@@ -149,7 +162,7 @@ export const Route = createFileRoute("/api/stripe/webhook")({
             signature,
             webhookSecret,
             undefined,
-            cryptoProvider,
+            createStripeCryptoProvider(),
           );
         } catch (err) {
           console.error("[stripe] webhook signature verification failed:", err);
@@ -159,10 +172,10 @@ export const Route = createFileRoute("/api/stripe/webhook")({
         try {
           switch (event.type) {
             case "checkout.session.completed":
-              await handleCheckoutCompleted(stripe, event.data.object);
+              await handleCheckoutCompleted(stripe, event.data.object, priceIds);
               break;
             case "customer.subscription.updated":
-              await handleSubscriptionUpdated(event.data.object);
+              await handleSubscriptionUpdated(event.data.object, priceIds);
               break;
             case "customer.subscription.deleted":
               await handleSubscriptionDeleted(event.data.object);

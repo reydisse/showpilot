@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
-import Stripe from "stripe";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
@@ -10,31 +9,6 @@ import { getEffectivePlan, getPublicLaunchDate, type Plan } from "@/lib/plan-lim
 import { buildCheckoutSessionParams } from "@/lib/checkout";
 
 export { getPublicLaunchDate };
-
-// ─── Env / Stripe client ─────────────────────────────────────
-
-// Fail closed: billing cannot run without its secrets. Set via
-// `wrangler secret put <NAME>` (and .dev.vars locally).
-function requireEnv(name: string): string {
-  const value = (env as unknown as Record<string, unknown>)[name] as string | undefined;
-  if (!value) throw new Error(`${name} is not configured`);
-  return value;
-}
-
-// Workers has no Node http — Stripe must use the fetch client.
-export function getStripe(): Stripe {
-  return new Stripe(requireEnv("STRIPE_SECRET_KEY"), {
-    httpClient: Stripe.createFetchHttpClient(),
-  });
-}
-
-export function getStripePriceIds(): { starter: string; pro: string; founding: string } {
-  return {
-    starter: requireEnv("STRIPE_PRICE_STARTER"),
-    pro: requireEnv("STRIPE_PRICE_PRO"),
-    founding: requireEnv("STRIPE_PRICE_FOUNDING"),
-  };
-}
 
 function getBaseUrl(): string {
   const cfEnv = env as unknown as Record<string, unknown>;
@@ -144,6 +118,7 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
       }
     }
 
+    const { getStripe, getStripePriceIds } = await import("@/lib/stripe.server");
     const stripe = getStripe();
 
     let customerId = org.stripeCustomerId;
@@ -194,6 +169,7 @@ export const createPortalSession = createServerFn({ method: "POST" })
     if (!org) throw new Error("Organization not found");
     if (!org.stripeCustomerId) throw new Error("No billing account yet — subscribe to a plan first");
 
+    const { getStripe } = await import("@/lib/stripe.server");
     const stripe = getStripe();
     const session = await stripe.billingPortal.sessions.create({
       customer: org.stripeCustomerId,

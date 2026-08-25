@@ -1,11 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
-import Stripe from "stripe";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { idSchema, parseOrThrow } from "@/lib/validation";
-import { getStripe } from "@/lib/billing";
 import {
   assertCanDeleteOrg,
   deleteOrganizationCore,
@@ -17,16 +15,13 @@ import {
 // shared with scripts/delete-org.ts.
 
 async function cancelStripeSubscription(subscriptionId: string): Promise<void> {
+  const { getStripe, isMissingStripeResource } = await import("@/lib/stripe.server");
   const stripe = getStripe();
   try {
     await stripe.subscriptions.cancel(subscriptionId);
   } catch (err) {
     // Re-runs land here: already-cancelled or deleted subscriptions are fine.
-    if (
-      err instanceof Stripe.errors.StripeError &&
-      (err.code === "resource_missing" ||
-        /canceled subscription/i.test(err.message))
-    ) {
+    if (isMissingStripeResource(err)) {
       return;
     }
     throw err;
