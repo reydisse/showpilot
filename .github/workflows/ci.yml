@@ -1,6 +1,7 @@
 # CI for the ShowPilot monorepo.
 #
-# STEP ORDER IS CRITICAL: install → prisma generate → typecheck → test.
+# STEP ORDER IS CRITICAL: install → Prisma generate → typecheck → test →
+# landing Worker verification.
 # The Prisma client is generated into apps/web/src/generated/prisma, which is
 # gitignored (see /.gitignore: **/src/generated/). If the "Generate Prisma
 # client" step is removed or moved after typechecking, `tsc --noEmit` fails
@@ -52,3 +53,6 @@ jobs:
 
       - name: Test bridge
         run: pnpm --filter @showpilot/bridge test
+
+      - name: Verify landing release Worker
+        run: pnpm --filter @showpilot/landing run verify

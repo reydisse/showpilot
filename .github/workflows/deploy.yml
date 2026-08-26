@@ -1,4 +1,4 @@
-# Production deploy of apps/web to Cloudflare Workers (showpilot.tech).
+# Production deploy of apps/web and apps/landing to Cloudflare Workers.
 #
 # Runs only after the CI workflow completes successfully for a push to main
 # (workflow_run trigger). Never deploys from pull requests or feature
@@ -14,7 +14,7 @@
 # file is unapplied. See DEPLOY.md → "D1 migrations" for the full procedure.
 #
 # Required repo secrets:
-#   CLOUDFLARE_API_TOKEN  — Workers deploy token (see DEPLOY.md)
+#   CLOUDFLARE_API_TOKEN  — Workers/R2 deploy token (see DEPLOY.md)
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare account id
 
 name: Deploy
@@ -87,6 +87,25 @@ jobs:
           fi
           echo "OK: every numbered migration file is recorded as applied."
 
+      # Check this before either Worker is changed. The landing Worker has a
+      # required private R2 binding, and a missing bucket would otherwise make
+      # the second deployment fail after the product Worker was already live.
+      - name: Check landing release storage
+        working-directory: apps/landing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NO_COLOR: "1"
+        run: |
+          bucket_list="$(pnpm exec wrangler r2 bucket list)"
+          printf '%s\n' "$bucket_list"
+          if ! grep -Eq '^name:[[:space:]]+showpilot-downloads$' <<<"$bucket_list"; then
+            echo "::error::Required private R2 bucket showpilot-downloads does not exist."
+            echo "Create it once from apps/landing, then rerun this workflow:"
+            echo "  pnpm exec wrangler r2 bucket create showpilot-downloads"
+            exit 1
+          fi
+
       # Runs the @showpilot/web `deploy` script: vite build && wrangler deploy
       # VITE_* values are build-time publics (repo *variables*, not secrets):
       # unset is fine — analytics no-ops and checkout degrades to hosted.
@@ -99,3 +118,12 @@ jobs:
           VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
           VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Deploy apps/landing
+        run: pnpm --filter @showpilot/landing run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Smoke-test landing downloads
+        run: pnpm --filter @showpilot/landing run smoke -- https://www.showpilot.tech

@@ -8,7 +8,9 @@
 		"deploy": "node build.mjs && wrangler deploy",
 		"cf-typegen": "wrangler types",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run"
+		"test": "vitest run",
+		"verify": "wrangler types --check && tsc -p tsconfig.json --noEmit && vitest run && node build.mjs && wrangler deploy --dry-run",
+		"smoke": "node scripts/smoke-release-site.mjs"
 	},
 	"devDependencies": {
 		"typescript": "^5.7.2",

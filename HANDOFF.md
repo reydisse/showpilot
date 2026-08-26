@@ -189,6 +189,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   strict Wrangler dry-run. Rendered desktop and 390x844 QA covered Settings,
   the account menu, the full profile/security panel, and a real 1200x630 photo
   upload that produced a correctly served 256x256 avatar.
+- Stacked follow-up branch `fix/landing-release-pipeline` is local-only on top
+  of the web settings/notification branch. It adds landing type/test/build/
+  Worker dry-run gates to CI, deploys the landing Worker from the exact
+  CI-validated `main` commit, blocks both production deployments when the
+  private downloads bucket is missing, and smoke-tests the live download
+  center and manifest after deployment. The reusable smoke tool passes against
+  the real local Worker at desktop and 390x844 widths.
+- A read-only production audit on 2026-08-26 found that `www.showpilot.tech`
+  still serves the June landing deployment without the download center and
+  that the `showpilot-downloads` R2 bucket does not exist. Do not create the
+  bucket or deploy this branch without fresh authorization. After approval,
+  create the private bucket first; the pipeline will then deploy and prove the
+  new `www` surface. Signed/notarized installers and reviewed store listings
+  remain separate publication gates before their buttons can activate.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

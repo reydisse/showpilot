@@ -2,7 +2,7 @@
 
 ShowPilot's product app (`apps/web`) deploys to Cloudflare Workers and serves
 https://showpilot.tech and https://admin.showpilot.tech. Bindings (D1
-`showpilot-db`, R2 `showpilot-storage`, five Durable Object relays) are
+`showpilot-db`, R2 `showpilot-storage`, six Durable Object relays) are
 defined in `apps/web/wrangler.jsonc` — that file is the source of truth.
 
 **Golden rules** (from CLAUDE.md): commit before deploying; never deploy with
@@ -14,11 +14,11 @@ path (login → org page).
 ## How deploys happen
 
 **Automatic (the normal path).** Push to `main` → the CI workflow
-(`.github/workflows/ci.yml`) runs typechecks and tests → on success, the
-Deploy workflow (`.github/workflows/deploy.yml`) checks for unapplied D1
-migrations and then runs `wrangler deploy` for `apps/web`. The deploy **fails
-loudly without deploying** if any migration file is not recorded as applied
-(see [D1 migrations](#d1-migrations)). PRs and feature branches never deploy.
+(`.github/workflows/ci.yml`) runs typechecks, tests, builds, and Worker dry-runs
+→ on success, the Deploy workflow (`.github/workflows/deploy.yml`) checks for
+unapplied D1 migrations and the required private downloads bucket, then deploys
+`apps/web` and `apps/landing`. The deploy **fails loudly without deploying** if
+either precondition is missing. PRs and feature branches never deploy.
 
 **Manual (fallback).** From the repo root, with `wrangler login` done (or
 `CLOUDFLARE_API_TOKEN` exported):
@@ -44,8 +44,8 @@ The marketing page is a zero-dependency static site served by its own Worker
 (`showpilot-landing`) on the custom domain `www.showpilot.tech`. The Worker
 also streams approved Desktop and Bridge artifacts from the private
 `showpilot-downloads` R2 bucket; GitHub release links are not used because the
-repository is private. It is **not** part of the automatic pipeline, so it
-deploys manually:
+repository is private. It deploys automatically after CI succeeds on `main`.
+For a manual fallback:
 
 ```sh
 cd apps/landing
@@ -71,9 +71,10 @@ Notes:
   with `npx @resvg/resvg-js-cli og-source.svg static/og.png`.
 - Landing CTAs deep-link to `https://showpilot.tech/login?signup=1` and
   forward `utm_*` params for attribution.
-- Run `pnpm cf-typegen`, `pnpm typecheck`, `pnpm test`, and `pnpm build`
-  before deploying. The download buttons remain disabled when the public
-  release manifest is absent, so an incomplete upload cannot become a 404.
+- Run `pnpm verify` before deploying, then run
+  `pnpm smoke -- https://www.showpilot.tech` afterward. The download buttons
+  remain disabled when the public release manifest is absent, so an incomplete
+  upload cannot become a 404.
 
 ---
 
@@ -162,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0008_crew_member_email.sql`). They deliberately do **not** use wrangler's
+`0031_expo_push_receipts.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -190,19 +191,13 @@ For local development use `--local` instead of `--remote`.
 
 ### Current state
 
-All migrations through `0008_crew_member_email.sql` were applied to
-production and verified (via read-only `sqlite_master` /
-`pragma_table_info` queries) — 0001–0007 on 2026-06-10, 0008 on
-2026-06-11. The manifest is up to date.
-
-`0010_companion_tokens.sql` (Companion/Stream Deck control tokens —
-`companion_token` table) is **not yet applied**. Apply it before deploying
-the Companion feature, then append it to `applied-remote.txt`:
-
-```
-pnpm exec wrangler d1 execute showpilot-db --remote \
-  --file=prisma/migrations/0010_companion_tokens.sql
-```
+The production manifest records every migration through
+`0029_weekly_access_grants.sql`. Migrations
+`0030_multitenant_push_subscriptions.sql` and
+`0031_expo_push_receipts.sql` are intentionally pending until the native
+mobile launch stack is authorized for production. Apply them in order through
+the protected procedure above before deploying code that depends on signed
+device push delivery.
 
 ---
 
@@ -212,7 +207,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 
 | Repo secret | How to create |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template, scoped to this account. (Deploy-only: the workflow never touches D1, so no D1 permission is needed. Distinct from the runtime Stream token `CLOUDFLARE_STREAM_API_TOKEN` — same dashboard, different permissions and different place.) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → create a token scoped to this account with Workers Scripts: Edit, Workers R2 Storage: Edit, and zone Workers Routes: Edit. The workflow lists the private downloads bucket and deploys both Workers, but never mutates D1. Distinct from the runtime Stream token `CLOUDFLARE_STREAM_API_TOKEN` — same dashboard, different permissions and different place. |
 | `CLOUDFLARE_ACCOUNT_ID` | Workers & Pages overview → right sidebar → Account ID. |
 
 Repository **variables** (same page, "Variables" tab) — build-time publics
@@ -228,14 +223,15 @@ analytics no-op / checkout falls back to the hosted Stripe page.
 Workflow summary:
 
 - **`ci.yml`** — PRs and pushes to `main`. Order is load-bearing:
-  install → `db:generate` → typecheck → test. The generated Prisma client is
-  gitignored, so skipping the generate step makes `tsc --noEmit` fail with
-  ~61 cascading errors. The bridge typecheck is temporarily non-blocking
-  (pre-existing `@types/ws` error — see the comment in the workflow).
+  install → `db:generate` → typecheck → test → landing verification. The
+  generated Prisma client is gitignored, so skipping the generate step makes
+  `tsc --noEmit` fail with cascading errors. Web and Bridge typechecks are
+  both blocking.
 - **`deploy.yml`** — runs only after CI succeeds on a push to `main`. Fails
-  before deploying if any numbered migration file is missing from
-  `applied-remote.txt`, printing the exact `wrangler d1 execute` commands to
-  run.
+  before deploying if any numbered migration is missing from
+  `applied-remote.txt` or the private downloads bucket does not exist. It then
+  deploys the product and landing Workers and smoke-tests the live landing
+  download API.
 
 ---
 
