@@ -13,13 +13,14 @@ import { fontFamily, useAppTheme } from "@/theme/tokens";
 export default function AppLayout() {
   const { colors } = useAppTheme();
   const { data: session, isPending } = authClient.useSession();
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: bootstrap } = useMobileBootstrap({ enabled: Boolean(session), poll: true });
   const unreadCount = bootstrap?.unreadNotifications ?? 0;
   const unreadBadge = unreadCount > 99 ? "99+" : unreadCount || undefined;
   useNativePushRegistration(organization?.id);
-  if (isPending) return <LoadingView />;
+  if (isPending || organizationPending) return <LoadingView />;
   if (!session) return <Redirect href="/sign-in" />;
+  if (!organization) return <Redirect href="/organizations" />;
 
   return (
     <Tabs

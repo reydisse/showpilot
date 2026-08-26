@@ -1,30 +1,51 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Clock3 from "lucide-react-native/icons/clock-3";
 import MapPin from "lucide-react-native/icons/map-pin";
 import Users from "lucide-react-native/icons/users";
-import { Redirect } from "expo-router";
+import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Page } from "@/components/page";
+import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
 import { getMobileSchedule, respondToMobileAssignment, type MobileSchedule } from "@/lib/mobile-api";
-import { formatServiceTime } from "@/lib/service-time";
+import { formatServiceTime, isServiceDate } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 export default function ScheduleScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const { data: organization } = authClient.useActiveOrganization();
+  const params = useLocalSearchParams<{ date?: string; assignment?: string }>();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const queryClient = useQueryClient();
   const [decliningId, setDecliningId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const requestedDate = isServiceDate(params.date) ? params.date : undefined;
+  const requestedAssignmentId =
+    typeof params.assignment === "string" && params.assignment.length > 0 && params.assignment.length <= 64
+      ? params.assignment
+      : undefined;
   const query = useQuery({
-    queryKey: ["mobile-schedule", organization?.id],
-    queryFn: () => getMobileSchedule(organization!.id),
+    queryKey: ["mobile-schedule", organization?.id, requestedDate, requestedAssignmentId],
+    queryFn: () => getMobileSchedule(organization!.id, {
+      serviceDate: requestedDate,
+      assignmentId: requestedAssignmentId,
+    }),
     enabled: Boolean(organization?.id),
     refetchInterval: 30_000,
   });
+  const focusedShowId = query.data?.assignments.find(
+    (assignment) => assignment.id === requestedAssignmentId,
+  )?.showId;
+  const schedule = query.data;
+  const services = useMemo(() => {
+    const rows = schedule?.services ?? [];
+    if (!focusedShowId) return rows;
+    return [...rows].sort((left, right) =>
+      Number(right.id === focusedShowId) - Number(left.id === focusedShowId),
+    );
+  }, [focusedShowId, schedule?.services]);
   const responseMutation = useMutation({
     mutationFn: (input: { assignmentId: string; response: "confirmed" | "declined"; reason?: string }) => respondToMobileAssignment({ orgId: organization!.id, ...input }),
     onSuccess: async () => {
@@ -35,6 +56,7 @@ export default function ScheduleScreen() {
     },
     onError: (error) => Alert.alert("Response not saved", error.message),
   });
+  if (organizationPending) return <LoadingView label="Opening schedule…" />;
   if (!organization) return <Redirect href="/organizations" />;
 
   function respond(assignmentId: string, response: "confirmed" | "declined") {
@@ -46,16 +68,16 @@ export default function ScheduleScreen() {
       {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
       {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
       <View style={styles.list}>
-        {query.data?.services.map((service) => {
-          const assignments = query.data.assignments.filter((assignment) => assignment.showId === service.id);
+        {services.map((service) => {
+          const assignments = (schedule?.assignments ?? []).filter((assignment) => assignment.showId === service.id);
           return (
             <View key={service.id} style={styles.card}>
               <View style={styles.dateBlock}><Text style={styles.dateDay}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { day: "2-digit" })}</Text><Text style={styles.dateMonth}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { month: "short" }).toUpperCase()}</Text></View>
               <View style={styles.cardCopy}>
                 <Text style={styles.title}>{service.name || "Untitled show"}</Text>
-                <View style={styles.meta}><Clock3 size={13} color={colors.textFaint} /><Text style={styles.metaText}>{formatServiceTime(service.scheduledStartTime, query.data.timeZone)}</Text>{service.location ? <><MapPin size={13} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></> : null}</View>
+                <View style={styles.meta}><Clock3 size={13} color={colors.textFaint} /><Text style={styles.metaText}>{formatServiceTime(service.scheduledStartTime, schedule?.timeZone ?? "UTC")}</Text>{service.location ? <><MapPin size={13} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></> : null}</View>
                 <View style={styles.metrics}><Text style={styles.metric}>{service.completedItems}/{service.itemCount} rundown</Text><Text style={styles.metric}>{service.crewConfirmed}/{service.crewTotal} confirmed</Text>{service.crewOpen ? <Text style={styles.warning}>{service.crewOpen} open</Text> : null}</View>
-                {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} declining={decliningId === assignment.id} reason={reason} pending={responseMutation.isPending} onReason={setReason} onDecline={() => { setReason(""); setDecliningId(assignment.id); }} onCancel={() => { setReason(""); setDecliningId(null); }} onRespond={(response) => respond(assignment.id, response)} />)}</View> : null}
+                {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} focused={assignment.id === requestedAssignmentId} declining={decliningId === assignment.id} reason={reason} pending={responseMutation.isPending} onReason={setReason} onDecline={() => { setReason(""); setDecliningId(assignment.id); }} onCancel={() => { setReason(""); setDecliningId(null); }} onRespond={(response) => respond(assignment.id, response)} />)}</View> : null}
               </View>
             </View>
           );
@@ -66,8 +88,9 @@ export default function ScheduleScreen() {
   );
 }
 
-function AssignmentRow({ assignment, declining, reason, pending, onReason, onDecline, onCancel, onRespond }: {
+function AssignmentRow({ assignment, focused, declining, reason, pending, onReason, onDecline, onCancel, onRespond }: {
   assignment: MobileSchedule["assignments"][number];
+  focused: boolean;
   declining: boolean;
   reason: string;
   pending: boolean;
@@ -81,7 +104,7 @@ function AssignmentRow({ assignment, declining, reason, pending, onReason, onDec
   const responseClosed = assignment.status === "assigned" && assignment.responseWindow.status === "closed";
   const displayStatus = responseClosed ? "closed" : assignment.status;
   return (
-    <View style={styles.assignmentBlock}>
+    <View accessibilityLabel={focused ? `Selected assignment: ${assignment.role}` : undefined} style={[styles.assignmentBlock, focused && styles.assignmentBlockFocused]}>
       <View style={styles.assignment}>
         <Users size={12} color={colors.textFaint} />
         <View style={styles.assignmentCopy}>
@@ -126,6 +149,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   warning: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "800", paddingHorizontal: 7, paddingVertical: 4 },
   assignments: { gap: 6, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
   assignmentBlock: { gap: 7, borderRadius: radii.small, backgroundColor: colors.panel, padding: 9 },
+  assignmentBlockFocused: { borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   assignment: { flexDirection: "row", alignItems: "center", gap: 7 },
   assignmentCopy: { flex: 1, minWidth: 0, gap: 2 },
   assignmentRole: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },

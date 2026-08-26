@@ -269,8 +269,14 @@ export async function createMobileRundown(input: {
   return createMobileRundownResponseSchema.parse(await response.json());
 }
 
-export async function getMobileSchedule(orgId: string): Promise<MobileSchedule> {
-  const response = await authenticatedFetch(`/api/mobile/v1/schedule?orgId=${encodeURIComponent(orgId)}`);
+export async function getMobileSchedule(
+  orgId: string,
+  selection: { serviceDate?: string; assignmentId?: string } = {},
+): Promise<MobileSchedule> {
+  const query = new URLSearchParams({ orgId });
+  if (selection.serviceDate) query.set("date", selection.serviceDate);
+  if (selection.assignmentId) query.set("assignment", selection.assignmentId);
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule?${query}`);
   return scheduleSchema.parse(await response.json());
 }
 

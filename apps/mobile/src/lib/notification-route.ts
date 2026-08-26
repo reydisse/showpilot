@@ -1,7 +1,9 @@
+import { isServiceDate } from "./service-time";
+
 export type MobileNotificationRoute =
   | { screen: "devices" }
   | { screen: "incidents" }
-  | { screen: "schedule" }
+  | { screen: "schedule"; date?: string; assignmentId?: string }
   | { screen: "chat"; room: string }
   | { screen: "show"; showId: string };
 
@@ -40,7 +42,16 @@ export function notificationRoute(actionUrl: string): MobileNotificationRoute | 
   const path = withoutOrganizationPrefix(internalPath(actionUrl));
   if (path === "dashboard/tech-manager" || path.startsWith("dashboard/devices")) return { screen: "devices" };
   if (path === "production/incidents" || path.startsWith("production/incidents?")) return { screen: "incidents" };
-  if (path === "schedule" || path.startsWith("schedule?")) return { screen: "schedule" };
+  if (path === "schedule" || path.startsWith("schedule?")) {
+    const search = searchFor(path);
+    const date = search.get("date");
+    const assignmentId = search.get("assignment");
+    return {
+      screen: "schedule",
+      ...(isServiceDate(date) ? { date } : {}),
+      ...(assignmentId && assignmentId.length <= 64 ? { assignmentId } : {}),
+    };
+  }
   if (path === "chat" || path.startsWith("chat?")) {
     const room = searchFor(path).get("room") || "production";
     const parts = room.split(":");

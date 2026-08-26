@@ -6,6 +6,7 @@ import RadioTower from "lucide-react-native/icons/radio-tower";
 import { Redirect, router } from "expo-router";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Page } from "@/components/page";
+import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
 import { getMobileDevices } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
@@ -13,8 +14,9 @@ import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/t
 export default function DevicesScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const query = useQuery({ queryKey: ["mobile-devices", organization?.id], queryFn: () => getMobileDevices(organization!.id), enabled: Boolean(organization?.id), refetchInterval: 20_000 });
+  if (organizationPending) return <LoadingView label="Opening devices…" />;
   if (!organization) return <Redirect href="/organizations" />;
   return (
     <Page eyebrow="EQUIPMENT" title="Devices" refreshing={query.isRefetching} onRefresh={query.refetch}>

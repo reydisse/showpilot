@@ -249,6 +249,61 @@ describe("mobile assignment responses", () => {
     });
   });
 
+  it("opens a notified assignment outside the default schedule range", async () => {
+    const calls: StatementCall[] = [];
+    const serviceDate = "2028-12-24";
+    const response = await handleMobileApi(
+      new Request(
+        "https://showpilot.tech/api/mobile/v1/schedule?orgId=org-1&assignment=assignment-1",
+      ),
+      {
+        DB: fakeDatabase({
+          assignment: assignment({ serviceDate }),
+          calls,
+        }),
+      },
+    );
+    if (!response) throw new Error("Mobile API did not handle the schedule route");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      from: serviceDate,
+      to: serviceDate,
+    });
+    const serviceQuery = calls.find((call) => call.sql.includes("FROM rundown r"));
+    expect(serviceQuery?.params.slice(1, 3)).toEqual([serviceDate, serviceDate]);
+    const selectionQuery = calls.find(
+      (call) => call.sql.includes("SELECT a.serviceDate"),
+    );
+    expect(selectionQuery?.sql).toContain("(? = 1 OR LOWER(c.email) = ?)");
+    expect(selectionQuery?.params).toEqual([
+      "org-1",
+      "assignment-1",
+      0,
+      "test@example.com",
+    ]);
+  });
+
+  it("keeps an exact notification selection outside caller-supplied ranges", async () => {
+    const calls: StatementCall[] = [];
+    const serviceDate = "2028-12-24";
+    const response = await handleMobileApi(
+      new Request(
+        "https://showpilot.tech/api/mobile/v1/schedule?orgId=org-1&date=2028-12-24&from=2026-01-01&to=2026-01-02",
+      ),
+      { DB: fakeDatabase({ calls }) },
+    );
+    if (!response) throw new Error("Mobile API did not handle the schedule route");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      from: serviceDate,
+      to: serviceDate,
+    });
+    const serviceQuery = calls.find((call) => call.sql.includes("FROM rundown r"));
+    expect(serviceQuery?.params.slice(1, 3)).toEqual([serviceDate, serviceDate]);
+  });
+
   it("returns the venue timezone in the native bootstrap payload", async () => {
     const response = await handleMobileApi(
       new Request("https://showpilot.tech/api/mobile/v1/bootstrap?orgId=org-1"),
@@ -317,5 +372,19 @@ describe("mobile API boundary parsing", () => {
     );
 
     expect(response?.status).toBe(400);
+  });
+
+  it("rejects malformed exact schedule selections at the API boundary", async () => {
+    const invalidDate = await handleMobileApi(
+      new Request("https://showpilot.tech/api/mobile/v1/schedule?orgId=org-1&date=2026-02-31"),
+      { DB: fakeDatabase() },
+    );
+    const invalidAssignment = await handleMobileApi(
+      new Request(`https://showpilot.tech/api/mobile/v1/schedule?orgId=org-1&assignment=${"a".repeat(129)}`),
+      { DB: fakeDatabase() },
+    );
+
+    expect(invalidDate?.status).toBe(400);
+    expect(invalidAssignment?.status).toBe(400);
   });
 });

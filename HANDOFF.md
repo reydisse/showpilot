@@ -292,12 +292,28 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   390x844 and 1280x800, reloaded it, and then deleted it. Follow-up local D1
   queries confirmed that both temporary QA shows and their related records were
   gone.
-- Current verification passes 66 web test files and 589 tests, web and mobile
+- Native schedule notifications now preserve their exact service date and
+  assignment through the notification parser, Expo Router destination, native
+  query, and tenant-scoped Worker API. The selected assignment is resolved only
+  for full schedule operators or its assignee, and its day takes precedence
+  over the ordinary bounded schedule range. The native Schedule brings that
+  show to the top and highlights the selected assignment. Invalid dates and IDs
+  are discarded at the notification boundary and rejected again at the API.
+- Native cold starts now wait for active-organization loading before redirecting
+  from Schedule, Chat, Incidents, Devices, individual Device controls, or the
+  tab shell. Rendered 390x844 QA cold-opened a notification for a December 24,
+  2028 assignment outside the default window and retained the exact URL, show,
+  and highlighted assignment. Direct cold opens of Production Chat, Incidents,
+  and Devices also retained their destinations; Chat loaded its persisted
+  history. The temporary show and assignment were deleted afterward and local
+  D1 queries confirmed both IDs were gone. The mobile verifier now locks the
+  organization-loading and exact-schedule-routing source contracts.
+- Current verification passes 66 web test files and 593 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 494,025 bytes raw
-  and 155,560 bytes gzip. The iOS and Android Hermes bundles are 5,896,829 and
-  5,897,498 bytes, respectively, below the enforced 6.5 MB ceiling.
+  and 155,560 bytes gzip. The iOS and Android Hermes bundles are 5,901,611 and
+  5,902,279 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

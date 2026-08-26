@@ -439,17 +439,42 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
   const canViewFull = hasAny(access.identity, ["schedule:view", "schedule:manage"]);
-  const settingsResult = await db.prepare(
-    "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
-  ).bind(access.orgId).all<{ key: string; value: string }>();
+  const requestedDate = url.searchParams.get("date");
+  const requestedAssignmentId = url.searchParams.get("assignment");
+  if (
+    (requestedDate !== null && !validDate(requestedDate))
+    || (requestedAssignmentId !== null && !validId(requestedAssignmentId))
+  ) {
+    return json({ error: "Choose a valid service date and assignment." }, 400);
+  }
+  const [settingsResult, selectedAssignment] = await Promise.all([
+    db.prepare(
+      "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
+    ).bind(access.orgId).all<{ key: string; value: string }>(),
+    requestedAssignmentId
+      ? db.prepare(
+        `SELECT a.serviceDate
+         FROM service_assignment a
+         LEFT JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
+         WHERE a.orgId = ? AND a.id = ? AND (? = 1 OR LOWER(c.email) = ?)
+         LIMIT 1`,
+      ).bind(
+        access.orgId,
+        requestedAssignmentId,
+        canViewFull ? 1 : 0,
+        access.identity.email,
+      ).first<{ serviceDate: string }>()
+      : Promise.resolve(null),
+  ]);
   const settingMap = Object.fromEntries(
     (settingsResult.results ?? []).map((setting) => [setting.key, setting.value]),
   );
   const { serviceWindowMinutes } = readPhaseSettings(settingMap);
   const timeZone = settingMap["org-timezone"] || "Africa/Accra";
   const today = getTodayDateString(timeZone);
-  const from = url.searchParams.get("from") || shiftDate(today, -7);
-  const to = url.searchParams.get("to") || shiftDate(today, 45);
+  const selectedDate = selectedAssignment?.serviceDate ?? requestedDate;
+  const from = selectedDate ?? url.searchParams.get("from") ?? shiftDate(today, -7);
+  const to = selectedDate ?? url.searchParams.get("to") ?? shiftDate(today, 45);
   if (!validDate(from) || !validDate(to) || from > to) return json({ error: "A valid date range is required." }, 400);
 
   const [servicesResult, assignmentsResult] = await Promise.all([

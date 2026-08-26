@@ -22,7 +22,7 @@ import { Page } from "@/components/page";
 import { ShowCard } from "@/components/show-card";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { createMobileRundown } from "@/lib/mobile-api";
-import { getServiceDateForTimeZone } from "@/lib/service-time";
+import { getServiceDateForTimeZone, isServiceDate } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 interface CreateShowDraft {
@@ -30,12 +30,6 @@ interface CreateShowDraft {
   name: string;
   startTime: string;
   location: string;
-}
-
-function isServiceDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export default function ShowsScreen() {

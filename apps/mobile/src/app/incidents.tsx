@@ -10,6 +10,7 @@ import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
+import { LoadingView } from "@/components/loading-view";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { authClient } from "@/lib/auth-client";
 import { getMobileIncidents, reportMobileIncident } from "@/lib/mobile-api";
@@ -22,7 +23,7 @@ const severities = ["low", "medium", "high"] as const;
 export default function IncidentsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: bootstrap } = useMobileBootstrap();
   const queryClient = useQueryClient();
   const [reporting, setReporting] = useState(false);
@@ -52,6 +53,7 @@ export default function IncidentsScreen() {
     },
     onError: (error) => Alert.alert("Incident not reported", error.message),
   });
+  if (organizationPending) return <LoadingView label="Opening incidents…" />;
   if (!organization) return <Redirect href="/organizations" />;
   const openCount = query.data?.incidents.filter((incident) => incident.status === "open").length ?? 0;
 

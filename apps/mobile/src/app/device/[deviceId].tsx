@@ -10,6 +10,7 @@ import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
+import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
 import { controlMobileDevice, getMobileDevices, type MobileDeviceAction } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
@@ -94,7 +95,7 @@ export default function DeviceControlScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const [connected, setConnected] = useState(false);
   const query = useQuery({
     queryKey: ["mobile-devices", organization?.id],
@@ -116,6 +117,7 @@ export default function DeviceControlScreen() {
     onError: (error) => Alert.alert("Command failed", error.message),
   });
 
+  if (organizationPending) return <LoadingView label="Opening device…" />;
   if (!organization) return <Redirect href="/organizations" />;
   if (query.isPending) return <Page><ActivityIndicator color={colors.amber} size="large" /></Page>;
   if (query.error) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text></Page>;

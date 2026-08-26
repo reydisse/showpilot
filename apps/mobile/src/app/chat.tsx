@@ -19,6 +19,7 @@ import {
   type ListRenderItem,
 } from "react-native";
 import { Page } from "@/components/page";
+import { LoadingView } from "@/components/loading-view";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
 import { authClient } from "@/lib/auth-client";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
@@ -38,7 +39,7 @@ export default function ChatScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const params = useLocalSearchParams<{ room?: string }>();
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: session } = authClient.useSession();
   const requestedRoom = typeof params.room === "string" ? params.room : "production";
   const roomParts = requestedRoom.split(":");
@@ -79,6 +80,7 @@ export default function ChatScreen() {
     [session?.user.id],
   );
 
+  if (organizationPending) return <LoadingView label="Opening chat…" />;
   if (!organization) return <Redirect href="/organizations" />;
 
   return (

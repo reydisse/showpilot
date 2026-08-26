@@ -40,7 +40,11 @@ const sourceContract = [
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
   ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
   ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
+  ["src/app/(app)/_layout.tsx", "isPending || organizationPending"],
   ["src/app/chat.tsx", "memo(function MessageCard"],
+  ["src/app/schedule.tsx", "useLocalSearchParams"],
+  ["src/app/schedule.tsx", "requestedAssignmentId"],
+  ["src/lib/notification-route.ts", "assignmentId"],
 ];
 const forbiddenSourceContract = [
   ["src/app/(app)/profile.tsx", "requestMediaLibraryPermissionsAsync"],

@@ -6,7 +6,15 @@ export function notificationHref(actionUrl: string): Href | null {
   if (!route) return null;
   if (route.screen === "devices") return "/devices";
   if (route.screen === "incidents") return "/incidents";
-  if (route.screen === "schedule") return "/schedule";
+  if (route.screen === "schedule") {
+    return {
+      pathname: "/schedule",
+      params: {
+        ...(route.date ? { date: route.date } : {}),
+        ...(route.assignmentId ? { assignment: route.assignmentId } : {}),
+      },
+    };
+  }
   if (route.screen === "chat") return { pathname: "/chat", params: { room: route.room } };
   return { pathname: "/show/[showId]", params: { showId: route.showId } };
 }
