@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Cable, ChevronRight, CirclePower, RadioTower } from "lucide-react-native";
+import Cable from "lucide-react-native/icons/cable";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import CirclePower from "lucide-react-native/icons/circle-power";
+import RadioTower from "lucide-react-native/icons/radio-tower";
 import { Redirect, router, type Href } from "expo-router";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Page } from "@/components/page";

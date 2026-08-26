@@ -1,6 +1,5 @@
-import type { ComponentType } from "react";
-import type { LucideProps } from "lucide-react-native";
-import { ChevronRight } from "lucide-react-native";
+import type { ComponentProps, ComponentType } from "react";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
@@ -11,7 +10,7 @@ export function FeatureLink({
   badge,
   onPress,
 }: {
-  icon: ComponentType<LucideProps>;
+  icon: ComponentType<ComponentProps<typeof ChevronRight>>;
   title: string;
   description: string;
   badge?: string;

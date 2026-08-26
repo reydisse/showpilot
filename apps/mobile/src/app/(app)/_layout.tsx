@@ -1,4 +1,8 @@
-import { Bell, CalendarDays, Gauge, SlidersHorizontal, UserRound } from "lucide-react-native";
+import Bell from "lucide-react-native/icons/bell";
+import CalendarDays from "lucide-react-native/icons/calendar-days";
+import Gauge from "lucide-react-native/icons/gauge";
+import SlidersHorizontal from "lucide-react-native/icons/sliders-horizontal";
+import UserRound from "lucide-react-native/icons/user-round";
 import { Redirect, Tabs } from "expo-router";
 import { LoadingView } from "@/components/loading-view";
 import { useNativePushRegistration } from "@/hooks/use-native-push-registration";

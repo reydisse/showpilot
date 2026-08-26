@@ -1,4 +1,4 @@
-import { ChevronLeft } from "lucide-react-native";
+import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Pressable } from "react-native";

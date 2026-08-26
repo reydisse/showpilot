@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { BadgeCheck, Building2, Camera, ChevronRight, Mail, Save, Settings2, UserRound } from "lucide-react-native";
+import BadgeCheck from "lucide-react-native/icons/badge-check";
+import Building2 from "lucide-react-native/icons/building-2";
+import Camera from "lucide-react-native/icons/camera";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import Mail from "lucide-react-native/icons/mail";
+import Save from "lucide-react-native/icons/save";
+import Settings2 from "lucide-react-native/icons/settings-2";
+import UserRound from "lucide-react-native/icons/user-round";
 import { Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as Haptics from "@/lib/haptics";

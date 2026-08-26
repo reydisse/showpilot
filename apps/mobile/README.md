@@ -51,11 +51,16 @@ pnpm --filter @showpilot/mobile verify
 ```
 
 That command checks native screen/API contracts, TypeScript, lint,
-iOS/Android/web bundles, and Expo Doctor. For local native compilation, use
-Android Studio's bundled JDK for Gradle and install the iOS platform version
-required by the active Xcode release. On macOS, keep Android worktrees outside
-`/tmp`: its `/private/tmp` alias can give Android Gradle Plugin prefab metadata
-two paths for the same Worklets artifact and break a clean Reanimated link.
+iOS/Android/web bundles, native bundle-size ceilings, and Expo Doctor. Mobile
+icons must use direct `lucide-react-native/icons/*` imports; the verifier rejects
+the package barrel because it pulls the complete icon catalog into Metro. Both
+Hermes bundles must remain at or below 6.5 MB unless a reviewed feature and a
+new artifact measurement justify changing that budget. For local native
+compilation, use Android Studio's bundled JDK for Gradle and install the iOS
+platform version required by the active Xcode release. On macOS, keep Android
+worktrees outside `/tmp`: its `/private/tmp` alias can give Android Gradle Plugin
+prefab metadata two paths for the same Worklets artifact and break a clean
+Reanimated link.
 
 The normal verifier allows the intentionally unlinked local state. The signed-
 release gate requires the approved Expo owner, EAS project ID and matching

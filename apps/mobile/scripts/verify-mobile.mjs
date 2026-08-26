@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,7 @@ const runtimeVersions = {
   "expo-updates": "29.0.20",
   "react-native": "0.81.5",
 };
+const maximumNativeBundleBytes = 6_500_000;
 const featureContract = [
   ["src/app/(app)/shows.tsx", "/api/mobile/v1/bootstrap"],
   ["src/app/schedule.tsx", "/api/mobile/v1/schedule"],
@@ -82,6 +83,14 @@ const workflowContracts = [
   },
 ];
 
+function sourceFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.[jt]sx?$/.test(entry.name) ? [path] : [];
+  });
+}
+
 function readPngHeader(relativePath) {
   const bytes = readFileSync(resolve(mobileRoot, relativePath));
   if (bytes.length < 26 || bytes.toString("ascii", 1, 4) !== "PNG") {
@@ -108,6 +117,13 @@ for (const [file, marker] of sourceContract) {
 for (const [file, marker] of forbiddenSourceContract) {
   const source = readFileSync(resolve(mobileRoot, file), "utf8");
   if (source.includes(marker)) throw new Error(`Unexpected ${marker} in ${file}`);
+}
+for (const file of sourceFiles(resolve(mobileRoot, "src"))) {
+  if (/from ["']lucide-react-native["']/.test(readFileSync(file, "utf8"))) {
+    throw new Error(
+      `Native icons must use direct lucide-react-native/icons/* imports to preserve tree shaking: ${file}`,
+    );
+  }
 }
 for (const endpoint of apiContract) {
   if (!workerApi.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
@@ -244,6 +260,22 @@ const commands = [
 
 for (const args of commands) {
   execFileSync("pnpm", args, { cwd: mobileRoot, stdio: "inherit" });
+}
+
+for (const platform of ["ios", "android"]) {
+  const bundleDirectory = resolve(mobileRoot, "dist", "_expo", "static", "js", platform);
+  const bundles = readdirSync(bundleDirectory).filter((name) => name.endsWith(".hbc"));
+  if (bundles.length !== 1) {
+    throw new Error(`Expected one ${platform} Hermes bundle, found ${bundles.length}.`);
+  }
+  const bundleBytes = statSync(resolve(bundleDirectory, bundles[0])).size;
+  if (bundleBytes > maximumNativeBundleBytes) {
+    throw new Error(
+      `${platform} Hermes bundle is ${bundleBytes} bytes; maximum is ${maximumNativeBundleBytes}. ` +
+      "Inspect imports for package barrels or unused native dependencies.",
+    );
+  }
+  console.log(`${platform} Hermes bundle: ${bundleBytes} / ${maximumNativeBundleBytes} bytes.`);
 }
 
 const releaseState = projectId

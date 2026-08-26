@@ -223,6 +223,22 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   component. The release gate intentionally remains red until the owner links
   the real EAS project. No Expo project, credential, cloud build, update, or
   submission was created.
+- Stacked follow-up branch `fix/launch-audit-findings` is local-only on top of
+  mobile release readiness. It fixes Durable Object hibernation recovery for
+  chat mutations, lower-thirds subscribers, and timecode subscribers; adds a
+  safe all-numbered-migrations local D1 runner; and gives rundown timer
+  adjustments distinct accessible names. Real browser QA covered onboarding,
+  profile-photo save, notification scrolling, chat mentions and persistence,
+  two-operator rundown/timer sync, drag ordering, and time additions beyond the
+  assigned duration. The same branch reduces the iOS/Android Hermes bundle from
+  about 7.72 MB to 5.88 MB by replacing the Lucide package barrel with direct
+  icon imports. CI now rejects barrel regressions and native bundles above 6.5
+  MB. The all-platform native verifier and Expo Doctor 18/18 pass, and rendered
+  mobile QA confirmed the optimized Home, Operations, Inbox, and Profile icons.
+- A live Core Web Vitals trace is still outstanding because the current agent
+  environment does not expose the Chrome DevTools MCP required by the
+  performance-audit workflow. Production web bundle budgets and browser smoke
+  tests pass, but they are not substitutes for that trace.
 - A read-only production audit on 2026-08-26 found that `www.showpilot.tech`
   still serves the June landing deployment without the download center and
   that the `showpilot-downloads` R2 bucket does not exist. Do not create the

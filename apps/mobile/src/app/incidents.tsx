@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleDot, Plus, UserRound } from "lucide-react-native";
+import AlertTriangle from "lucide-react-native/icons/triangle-alert";
+import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
+import CircleDot from "lucide-react-native/icons/circle-dot";
+import Plus from "lucide-react-native/icons/plus";
+import UserRound from "lucide-react-native/icons/user-round";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";

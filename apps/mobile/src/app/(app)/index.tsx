@@ -1,6 +1,8 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { Redirect, router, type Href } from "expo-router";
-import { BellRing, Radio, ShieldCheck } from "lucide-react-native";
+import BellRing from "lucide-react-native/icons/bell-ring";
+import Radio from "lucide-react-native/icons/radio";
+import ShieldCheck from "lucide-react-native/icons/shield-check";
 import { Page } from "@/components/page";
 import { ShowCard } from "@/components/show-card";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";

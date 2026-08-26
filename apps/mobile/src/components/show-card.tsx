@@ -1,4 +1,7 @@
-import { CalendarDays, ChevronRight, Clock3, MapPin } from "lucide-react-native";
+import CalendarDays from "lucide-react-native/icons/calendar-days";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import Clock3 from "lucide-react-native/icons/clock-3";
+import MapPin from "lucide-react-native/icons/map-pin";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileBootstrap } from "@/lib/mobile-api";
 import { formatServiceTime } from "@/lib/service-time";

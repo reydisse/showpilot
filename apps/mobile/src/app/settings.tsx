@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Constants from "expo-constants";
 import { Redirect, useFocusEffect } from "expo-router";
-import {
-  BellRing,
-  Check,
-  ExternalLink,
-  FileText,
-  KeyRound,
-  Moon,
-  Server,
-  ShieldCheck,
-  Smartphone,
-  Sun,
-} from "lucide-react-native";
+import BellRing from "lucide-react-native/icons/bell-ring";
+import Check from "lucide-react-native/icons/check";
+import ExternalLink from "lucide-react-native/icons/external-link";
+import FileText from "lucide-react-native/icons/file-text";
+import KeyRound from "lucide-react-native/icons/key-round";
+import Moon from "lucide-react-native/icons/moon";
+import Server from "lucide-react-native/icons/server";
+import ShieldCheck from "lucide-react-native/icons/shield-check";
+import Smartphone from "lucide-react-native/icons/smartphone";
+import Sun from "lucide-react-native/icons/sun";
 import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";

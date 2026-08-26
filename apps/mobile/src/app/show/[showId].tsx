@@ -2,19 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, Stack, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
-import {
-  CircleStop,
-  Clock3,
-  Minus,
-  Pause,
-  Play,
-  Plus,
-  RotateCcw,
-  SkipBack,
-  SkipForward,
-  Wifi,
-  WifiOff,
-} from "lucide-react-native";
+import CircleStop from "lucide-react-native/icons/circle-stop";
+import Clock3 from "lucide-react-native/icons/clock-3";
+import Minus from "lucide-react-native/icons/minus";
+import Pause from "lucide-react-native/icons/pause";
+import Play from "lucide-react-native/icons/play";
+import Plus from "lucide-react-native/icons/plus";
+import RotateCcw from "lucide-react-native/icons/rotate-ccw";
+import SkipBack from "lucide-react-native/icons/skip-back";
+import SkipForward from "lucide-react-native/icons/skip-forward";
+import Wifi from "lucide-react-native/icons/wifi";
+import WifiOff from "lucide-react-native/icons/wifi-off";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";

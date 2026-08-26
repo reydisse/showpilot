@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Building2, Check, ChevronRight, MailCheck, Plus, RefreshCw } from "lucide-react-native";
+import Building2 from "lucide-react-native/icons/building-2";
+import Check from "lucide-react-native/icons/check";
+import ChevronRight from "lucide-react-native/icons/chevron-right";
+import MailCheck from "lucide-react-native/icons/mail-check";
+import Plus from "lucide-react-native/icons/plus";
+import RefreshCw from "lucide-react-native/icons/refresh-cw";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router } from "expo-router";
 import * as Haptics from "@/lib/haptics";

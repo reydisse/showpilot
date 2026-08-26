@@ -1,5 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Hash, Send, Wifi, WifiOff } from "lucide-react-native";
+import Hash from "lucide-react-native/icons/hash";
+import Send from "lucide-react-native/icons/send";
+import Wifi from "lucide-react-native/icons/wifi";
+import WifiOff from "lucide-react-native/icons/wifi-off";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import {

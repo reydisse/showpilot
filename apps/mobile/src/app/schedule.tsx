@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, MapPin, Users } from "lucide-react-native";
+import Clock3 from "lucide-react-native/icons/clock-3";
+import MapPin from "lucide-react-native/icons/map-pin";
+import Users from "lucide-react-native/icons/users";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";

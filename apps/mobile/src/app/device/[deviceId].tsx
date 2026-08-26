@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Cable, CheckCircle2, CirclePower, RadioTower, ShieldAlert } from "lucide-react-native";
+import Cable from "lucide-react-native/icons/cable";
+import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
+import CirclePower from "lucide-react-native/icons/circle-power";
+import RadioTower from "lucide-react-native/icons/radio-tower";
+import ShieldAlert from "lucide-react-native/icons/shield-alert";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, StyleSheet, Switch, Text, TextInput, View } from "react-native";

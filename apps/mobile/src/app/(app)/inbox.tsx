@@ -1,5 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Bell, CalendarCheck2, CheckCheck, Info } from "lucide-react-native";
+import AlertTriangle from "lucide-react-native/icons/triangle-alert";
+import Bell from "lucide-react-native/icons/bell";
+import CalendarCheck2 from "lucide-react-native/icons/calendar-check-2";
+import CheckCheck from "lucide-react-native/icons/check-check";
+import Info from "lucide-react-native/icons/info";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";

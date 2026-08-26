@@ -1,4 +1,7 @@
-import { AlertTriangle, Cable, CalendarClock, MessageSquareText } from "lucide-react-native";
+import AlertTriangle from "lucide-react-native/icons/triangle-alert";
+import Cable from "lucide-react-native/icons/cable";
+import CalendarClock from "lucide-react-native/icons/calendar-clock";
+import MessageSquareText from "lucide-react-native/icons/message-square-text";
 import { router, type Href } from "expo-router";
 import { Text, StyleSheet, View } from "react-native";
 import { FeatureLink } from "@/components/feature-link";
