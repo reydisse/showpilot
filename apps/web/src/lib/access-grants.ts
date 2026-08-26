@@ -28,6 +28,7 @@ async function createGrantNotification(
   userId: string,
   title: string,
   message: string,
+  actionUrl: string,
 ) {
   try {
     await getPrisma().notification.create({
@@ -40,7 +41,7 @@ async function createGrantNotification(
         message,
         target: "personal",
         source: "access-control",
-        actionUrl: "team",
+        actionUrl,
       },
     });
   } catch {
@@ -196,6 +197,7 @@ export const grantMemberAccess = createServerFn({ method: "POST" })
       data.userId,
       "Access granted",
       `${user.name} granted you ${capability.label} access ${durationLabel}.`,
+      capability.notificationPath,
     );
     return grant;
   });
@@ -238,6 +240,7 @@ export const revokeMemberAccess = createServerFn({ method: "POST" })
       grant.userId,
       "Access revoked",
       `${user.name} revoked your ${capability?.label ?? "custom"} access.`,
+      "",
     );
     return { ok: true as const };
   });

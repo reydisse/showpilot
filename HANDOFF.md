@@ -323,12 +323,22 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   layer. Five tests cover admission, rejection, cleanup failure, storage
   outage, and trusted client-IP extraction. An isolated real local D1 run with
   a five-request cap accepted IDs 1–5 and rejected ID 6.
-- Current verification passes 68 web test files and 601 tests, web and mobile
+- Temporary access-grant notifications now open the exact feature granted
+  instead of the Team page, which some recipients cannot access. Every
+  capability destination is a closed TypeScript union and a tested internal
+  notification route. Web and Desktop open the exact organization-scoped tool;
+  native maps exact Schedule, Incident, and Device grants to those screens and
+  sends the remaining web-only controls to Shows or Operations. Revocation
+  alerts intentionally have no action because the destination is no longer
+  authorized. Rendered QA opened a Graphics access alert at
+  `/showpilot-qa-workspace/streaming/graphics`; the temporary notification was
+  deleted afterward and local D1 confirmed no matching record remained.
+- Current verification passes 68 web test files and 603 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
-  Expo Doctor 18/18, and native lint. The web main bundle is 494,025 bytes raw
-  and 155,560 bytes gzip. The iOS and Android Hermes bundles are 5,901,611 and
-  5,902,279 bytes, respectively, below the enforced 6.5 MB ceiling.
+  Expo Doctor 18/18, and native lint. The web main bundle is 494,319 bytes raw
+  and 155,642 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
+  5,902,629 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

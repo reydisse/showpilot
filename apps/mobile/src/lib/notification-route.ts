@@ -3,6 +3,8 @@ import { isServiceDate } from "./service-time";
 export type MobileNotificationRoute =
   | { screen: "devices" }
   | { screen: "incidents" }
+  | { screen: "operations" }
+  | { screen: "shows" }
   | { screen: "schedule"; date?: string; assignmentId?: string }
   | { screen: "chat"; room: string }
   | { screen: "show"; showId: string };
@@ -26,7 +28,7 @@ function withoutOrganizationPrefix(path: string) {
   const pathname = separator < 0 ? path : path.slice(0, separator);
   const search = separator < 0 ? "" : path.slice(separator);
   const segments = pathname.split("/").filter(Boolean);
-  const knownRoots = new Set(["dashboard", "production", "schedule", "chat", "rundown", "show"]);
+  const knownRoots = new Set(["dashboard", "production", "schedule", "chat", "rundown", "show", "board", "checkin", "timecode", "streaming"]);
   if (segments.length > 1 && !knownRoots.has(segments[0]) && knownRoots.has(segments[1])) {
     return `${segments.slice(1).join("/")}${search}`;
   }
@@ -41,6 +43,17 @@ function searchFor(path: string) {
 export function notificationRoute(actionUrl: string): MobileNotificationRoute | null {
   const path = withoutOrganizationPrefix(internalPath(actionUrl));
   if (path === "dashboard/tech-manager" || path.startsWith("dashboard/devices")) return { screen: "devices" };
+  if (path === "rundown" || path === "board") return { screen: "shows" };
+  if (
+    path === "production/cue-sheets"
+    || path === "production/checklist"
+    || path === "checkin"
+    || path === "timecode"
+    || path === "streaming/graphics"
+    || path === "streaming/health"
+    || path === "production/assets"
+    || path === "dashboard/prod-manager"
+  ) return { screen: "operations" };
   if (path === "production/incidents" || path.startsWith("production/incidents?")) return { screen: "incidents" };
   if (path === "schedule" || path.startsWith("schedule?")) {
     const search = searchFor(path);
@@ -59,7 +72,7 @@ export function notificationRoute(actionUrl: string): MobileNotificationRoute | 
       || (parts.length === 3 && parts[0] === "dm" && Boolean(parts[1]) && parts[1] < parts[2]);
     return validRoom ? { screen: "chat", room } : null;
   }
-  if (path === "rundown" || path.startsWith("rundown?") || path === "show" || path.startsWith("show?")) {
+  if (path.startsWith("rundown?") || path === "show" || path.startsWith("show?")) {
     const showId = searchFor(path).get("show") || searchFor(path).get("showId");
     return showId ? { screen: "show", showId } : null;
   }

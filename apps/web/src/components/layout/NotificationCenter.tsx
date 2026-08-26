@@ -219,6 +219,45 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
     await navigate({ to: "/$slug/schedule", params: { slug }, search: { date: destination.date, assignment: destination.assignment } });
     return;
   }
+  if (destination.kind === "feature") {
+    switch (destination.path) {
+      case "rundown":
+        await navigate({ to: "/$slug/rundown", params: { slug } });
+        break;
+      case "board":
+        await navigate({ to: "/$slug/board", params: { slug } });
+        break;
+      case "production/cue-sheets":
+        await navigate({ to: "/$slug/production/cue-sheets", params: { slug } });
+        break;
+      case "production/checklist":
+        await navigate({ to: "/$slug/production/checklist", params: { slug } });
+        break;
+      case "checkin":
+        await navigate({ to: "/$slug/checkin", params: { slug } });
+        break;
+      case "timecode":
+        await navigate({ to: "/$slug/timecode", params: { slug } });
+        break;
+      case "streaming/graphics":
+        await navigate({ to: "/$slug/streaming/graphics", params: { slug } });
+        break;
+      case "streaming/health":
+        await navigate({ to: "/$slug/streaming/health", params: { slug } });
+        break;
+      case "production/assets":
+        await navigate({ to: "/$slug/production/assets", params: { slug } });
+        break;
+      case "dashboard/prod-manager":
+        await navigate({ to: "/$slug/dashboard/prod-manager", params: { slug }, search: { date: undefined, show: undefined } });
+        break;
+      default: {
+        const exhaustivePath: never = destination.path;
+        return exhaustivePath;
+      }
+    }
+    return;
+  }
   await navigate({ to: "/$slug/chat", params: { slug }, search: { room: destination.room, message: destination.message } });
 }
 

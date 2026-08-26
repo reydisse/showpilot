@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getNotificationDestination, getNotificationPath } from "../notification-destination";
+import { ACCESS_CAPABILITIES } from "../access-capabilities";
 
 describe("notification destinations", () => {
   it("routes dashboard and incident assignments", () => {
@@ -40,5 +41,13 @@ describe("notification destinations", () => {
     ).toBe("/faithfire-production/production/incidents?incident=fault+12&date=2026-08-18");
     expect(getNotificationPath("../admin", "schedule")).toBeNull();
     expect(getNotificationPath("faithfire-production", "https://example.com")).toBeNull();
+  });
+
+  it("accepts every access-grant destination and keeps it organization-scoped", () => {
+    for (const capability of ACCESS_CAPABILITIES) {
+      expect(getNotificationPath("faithfire-production", capability.notificationPath)).toBe(
+        `/faithfire-production/${capability.notificationPath}`,
+      );
+    }
   });
 });

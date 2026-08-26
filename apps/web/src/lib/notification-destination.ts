@@ -2,11 +2,38 @@ export type NotificationDestination =
   | { kind: "tech-manager" }
   | { kind: "incident"; incident?: string; date?: string; show?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
-  | { kind: "chat"; room: string; message?: string };
+  | { kind: "chat"; room: string; message?: string }
+  | { kind: "feature"; path: NotificationFeaturePath };
+
+export const NOTIFICATION_FEATURE_PATHS = [
+  "rundown",
+  "board",
+  "production/cue-sheets",
+  "production/checklist",
+  "checkin",
+  "timecode",
+  "streaming/graphics",
+  "streaming/health",
+  "production/assets",
+  "dashboard/prod-manager",
+] as const;
+
+export type NotificationFeaturePath = (typeof NOTIFICATION_FEATURE_PATHS)[number];
+
+export type AccessGrantNotificationPath =
+  | "schedule"
+  | "production/incidents"
+  | "dashboard/tech-manager"
+  | NotificationFeaturePath;
+
+function isNotificationFeaturePath(value: string): value is NotificationFeaturePath {
+  return (NOTIFICATION_FEATURE_PATHS as readonly string[]).includes(value);
+}
 
 /** Resolve only the internal destinations notifications are allowed to open. */
 export function getNotificationDestination(actionUrl: string): NotificationDestination | null {
   if (actionUrl === "dashboard/tech-manager") return { kind: "tech-manager" };
+  if (isNotificationFeaturePath(actionUrl)) return { kind: "feature", path: actionUrl };
 
   if (actionUrl === "production/incidents" || actionUrl.startsWith("production/incidents?")) {
     const search = actionUrl.includes("?")
@@ -64,6 +91,7 @@ export function getNotificationPath(orgSlug: string, actionUrl: string): string 
     if (destination.assignment) search.set("assignment", destination.assignment);
     return `${base}/schedule${search.size ? `?${search}` : ""}`;
   }
+  if (destination.kind === "feature") return `${base}/${destination.path}`;
 
   search.set("room", destination.room);
   if (destination.message) search.set("message", destination.message);
