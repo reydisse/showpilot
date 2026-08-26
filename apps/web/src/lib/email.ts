@@ -10,14 +10,8 @@ interface SendEmailOptions {
 export async function sendEmail({ to, subject, html }: SendEmailOptions) {
   const apiKey: string | undefined = env.RESEND_API_KEY;
 
-  console.log("[email] sendEmail called:", {
-    to,
-    subject,
-    hasApiKey: !!apiKey,
-  });
-
   if (!apiKey) {
-    console.error("[email] RESEND_API_KEY not set");
+    console.error("[email] service configuration is missing");
     throw new Error("Email service not configured");
   }
 
@@ -32,11 +26,12 @@ export async function sendEmail({ to, subject, html }: SendEmailOptions) {
     body: JSON.stringify({ from, to, subject, html }),
   });
 
-  const body = await res.text();
-  console.log("[email] Resend response:", res.status, body);
-
   if (!res.ok) {
-    throw new Error(`Email send failed: ${res.status} — ${body}`);
+    console.error("[email] provider rejected delivery", {
+      status: res.status,
+      requestId: res.headers.get("x-request-id") ?? undefined,
+    });
+    throw new Error(`Email send failed with status ${res.status}.`);
   }
 }
 

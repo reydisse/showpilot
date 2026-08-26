@@ -308,7 +308,14 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   history. The temporary show and assignment were deleted afterward and local
   D1 queries confirmed both IDs were gone. The mobile verifier now locks the
   organization-loading and exact-schedule-routing source contracts.
-- Current verification passes 66 web test files and 593 tests, web and mobile
+- Authentication and transactional email delivery no longer write recipient
+  addresses, subjects, verification/reset URLs, reset tokens, or raw Resend
+  response bodies to application logs or propagated errors. Provider failures
+  retain only the HTTP status and request ID needed for operations. Three
+  privacy tests cover success, provider rejection, and missing configuration;
+  the production-build boundary verifier rejects ordinary auth/email logging
+  and raw provider-body reads so the leak cannot silently return.
+- Current verification passes 67 web test files and 596 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 494,025 bytes raw

@@ -74,15 +74,8 @@ const emailPasswordConfig = {
     url: string;
     token: string;
   }) => {
-    console.log("[auth] sendResetPassword called for:", data.user.email, "url:", data.url);
-    try {
-      const { subject, html } = passwordResetEmail(data.url);
-      await sendEmail({ to: data.user.email, subject, html });
-      console.log("[auth] sendResetPassword succeeded");
-    } catch (err) {
-      console.error("[auth] sendResetPassword FAILED:", err);
-      throw err;
-    }
+    const { subject, html } = passwordResetEmail(data.url);
+    await sendEmail({ to: data.user.email, subject, html });
   },
 };
 

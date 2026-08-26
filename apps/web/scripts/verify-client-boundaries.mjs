@@ -33,4 +33,27 @@ if (violations.length > 0) {
   );
 }
 
+const sensitiveLoggingContracts = [
+  {
+    path: "src/lib/auth.ts",
+    pattern: /console\.log\s*\(/,
+    message: "Authentication flows must not log account identifiers, verification URLs, or reset tokens.",
+  },
+  {
+    path: "src/lib/email.ts",
+    pattern: /console\.log\s*\(/,
+    message: "Email delivery must not log recipients, subjects, or provider response bodies.",
+  },
+  {
+    path: "src/lib/email.ts",
+    pattern: /\b(?:res|response)\.text\s*\(/,
+    message: "Email delivery must not read raw provider error bodies into application diagnostics.",
+  },
+];
+
+for (const contract of sensitiveLoggingContracts) {
+  const source = readFileSync(resolve(webRoot, contract.path), "utf8");
+  if (contract.pattern.test(source)) throw new Error(contract.message);
+}
+
 console.log("Client boundary check passed.");
