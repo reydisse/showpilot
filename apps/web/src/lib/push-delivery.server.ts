@@ -3,7 +3,13 @@ import webpush from "web-push";
 import { getD1 } from "@/lib/d1";
 import { expoPushHeaders } from "@/lib/expo-push-receipts.server";
 
-type PushPayload = { title: string; body: string; url: string; tag: string };
+type PushPayload = {
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  notificationId?: string;
+};
 type PushRow = { id: string; endpoint: string; p256dh: string; auth: string };
 
 type ExpoPushTicket =
@@ -47,7 +53,7 @@ function statusCodeFromError(error: unknown): number | null {
   return isRecord(error) && typeof error.statusCode === "number" ? error.statusCode : null;
 }
 
-async function deliverExpoPush(row: PushRow, payload: PushPayload): Promise<boolean> {
+async function deliverExpoPush(row: PushRow, orgId: string, payload: PushPayload): Promise<boolean> {
   try {
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
@@ -56,7 +62,12 @@ async function deliverExpoPush(row: PushRow, payload: PushPayload): Promise<bool
         to: row.endpoint,
         title: payload.title,
         body: payload.body,
-        data: { url: payload.url, tag: payload.tag },
+        data: {
+          orgId,
+          url: payload.url,
+          tag: payload.tag,
+          ...(payload.notificationId ? { notificationId: payload.notificationId } : {}),
+        },
         sound: "default",
         priority: "high",
         channelId: "show-operations",
@@ -97,7 +108,7 @@ export async function deliverPushToUser(orgId: string, userId: string, payload: 
   let sent = 0;
   await Promise.all((rows.results ?? []).map(async (row) => {
     if (isExpoPushToken(row.endpoint)) {
-      if (await deliverExpoPush(row, payload)) sent += 1;
+      if (await deliverExpoPush(row, orgId, payload)) sent += 1;
       return;
     }
     if (!publicKey || !privateKey) return;

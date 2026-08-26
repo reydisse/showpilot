@@ -154,6 +154,13 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   tab, profile-name save, chat send/echo, and live rundown connection. Its full
   verification passes 563 web tests, the production web build, all-platform
   mobile export, and Expo Doctor 18/18.
+- Stacked follow-up branch `fix/mobile-notification-integrity` is local-only on
+  top of `fix/mobile-api-cors`. It makes unread totals independent of inbox page
+  limits, adds the native tab badge and pull-to-refresh, refreshes foreground
+  pushes, and carries the notification and organization IDs through Expo push.
+  Tapping an alert now activates its workspace before routing and marks that
+  inbox record read. Verification passes 564 web tests, the production build,
+  iOS/Android/web exports, mobile TypeScript/lint, and Expo Doctor 18/18.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

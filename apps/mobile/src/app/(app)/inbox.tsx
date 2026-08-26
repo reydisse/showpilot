@@ -13,7 +13,7 @@ export default function InboxScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
-  const { organization, data, isPending, error, refetch } = useMobileBootstrap();
+  const { organization, data, isPending, isRefetching, error, refetch } = useMobileBootstrap();
   const organizationId = organization?.id;
   const unreadCount = data?.unreadNotifications ?? 0;
   if (!organizationId) return <Redirect href="/organizations" />;
@@ -43,7 +43,7 @@ export default function InboxScreen() {
   }
 
   return (
-    <Page eyebrow="ACTIVITY" title="Inbox" action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
+    <Page eyebrow="ACTIVITY" title="Inbox" refreshing={isRefetching} onRefresh={refetch} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
       <Text style={styles.intro}>{unreadCount} unread notifications</Text>
       {isPending ? <Text style={styles.muted}>Syncing notifications…</Text> : null}
       {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message} · Tap to retry</Text> : null}
@@ -52,7 +52,7 @@ export default function InboxScreen() {
           const read = Boolean(notification.readAt);
           const Icon = notification.severity === "critical" || notification.severity === "warning" ? AlertTriangle : notification.type === "assignment" ? CheckCheck : Info;
           return (
-            <Pressable key={notification.id} onPress={() => openNotification(notification.id, read, notification.actionUrl)} style={({ pressed }) => [styles.card, !read && styles.unread, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${read ? "Read" : "Unread"} notification: ${notification.title}`} key={notification.id} onPress={() => openNotification(notification.id, read, notification.actionUrl)} style={({ pressed }) => [styles.card, !read && styles.unread, pressed && styles.pressed]}>
               <View style={styles.icon}><Icon size={19} color={!read ? colors.amberText : colors.textFaint} /></View>
               <View style={styles.copy}>
                 <View style={styles.titleRow}><Text style={styles.title}>{notification.title}</Text>{!read ? <View style={styles.dot} /> : null}</View>

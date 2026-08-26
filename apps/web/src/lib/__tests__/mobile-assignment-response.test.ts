@@ -39,6 +39,18 @@ interface ScheduleAssignmentFixture extends AssignmentFixture {
   responseNote: string;
 }
 
+interface NotificationFixture {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  message: string;
+  actionUrl: string;
+  source: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
 interface StatementCall {
   sql: string;
   params: unknown[];
@@ -48,6 +60,8 @@ function fakeDatabase(input: {
   assignment?: AssignmentFixture;
   calls?: StatementCall[];
   scheduleAssignments?: ScheduleAssignmentFixture[];
+  notifications?: NotificationFixture[];
+  unreadNotifications?: number;
   timeZone?: string;
   updateChanges?: number;
 } = {}): MobileApiDatabase {
@@ -65,6 +79,9 @@ function fakeDatabase(input: {
               if (sql.includes("key = 'org-timezone'")) {
                 return { value: input.timeZone ?? "Africa/Accra" } as T;
               }
+              if (sql.includes("CAST(COUNT(*) AS INTEGER) AS count") && sql.includes("FROM notification")) {
+                return { count: input.unreadNotifications ?? 0 } as T;
+              }
               if (sql.includes("FROM service_assignment a")) return (input.assignment ?? null) as T | null;
               return null;
             },
@@ -79,6 +96,9 @@ function fakeDatabase(input: {
               }
               if (sql.includes("FROM service_assignment a")) {
                 return { results: (input.scheduleAssignments ?? []) as T[] };
+              }
+              if (sql.includes("FROM notification")) {
+                return { results: (input.notifications ?? []) as T[] };
               }
               return { results: [] as T[] };
             },
@@ -240,6 +260,35 @@ describe("mobile assignment responses", () => {
     await expect(response.json()).resolves.toMatchObject({
       organization: { id: "org-1", slug: "test-org" },
       timeZone: "America/New_York",
+    });
+  });
+
+  it("returns the complete unread count independently of the notification page", async () => {
+    const response = await handleMobileApi(
+      new Request("https://showpilot.tech/api/mobile/v1/bootstrap?orgId=org-1"),
+      {
+        DB: fakeDatabase({
+          notifications: [{
+            id: "notification-1",
+            type: "assignment",
+            severity: "info",
+            title: "New assignment",
+            message: "Camera 1",
+            actionUrl: "schedule",
+            source: "schedule",
+            createdAt: "2026-08-26T00:00:00.000Z",
+            readAt: null,
+          }],
+          unreadNotifications: 74,
+        }),
+      },
+    );
+    if (!response) throw new Error("Mobile API did not handle the bootstrap route");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      notifications: [{ id: "notification-1" }],
+      unreadNotifications: 74,
     });
   });
 });

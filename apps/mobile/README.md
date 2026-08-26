@@ -13,7 +13,8 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 - Venue-timezone service labels for remote operators
 - Production and planning chat rooms plus direct-message routing
 - Incident reporting plus permission-checked ATEM and X32/WING control through the venue Bridge
-- Scrollable inbox with destination-aware notification and push navigation
+- Scrollable, refreshable inbox with exact unread badges and destination-aware
+  notification routing across workspaces
 - Profile name, profile photo, workspace, sign-out, and push settings
 
 Native-only notification and haptic modules are not evaluated by the web

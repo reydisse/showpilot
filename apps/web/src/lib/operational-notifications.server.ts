@@ -50,6 +50,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
   await Promise.all(
     [...recipients].map(async (userId) => {
       try {
+        const notificationId = crypto.randomUUID();
         await getD1()
           .prepare(
             `INSERT INTO notification
@@ -57,7 +58,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
           )
           .bind(
-            crypto.randomUUID(),
+            notificationId,
             input.orgId,
             userId,
             input.type,
@@ -75,6 +76,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
           body: input.message,
           url,
           tag: input.pushTag,
+          notificationId,
         });
       } catch (error) {
         console.error("[Notifications] Operational delivery failed", error);

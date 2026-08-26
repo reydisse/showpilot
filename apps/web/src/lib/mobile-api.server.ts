@@ -292,7 +292,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   const timezone = await db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
     .bind(orgId).first<{ value: string }>();
   const today = getTodayDateString(timezone?.value || "Africa/Accra");
-  const [showsResult, notificationsResult] = await Promise.all([
+  const [showsResult, notificationsResult, unreadResult] = await Promise.all([
     db.prepare(
       `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status,
               CAST(COUNT(i.id) AS INTEGER) AS itemCount
@@ -311,6 +311,11 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
        ORDER BY createdAt DESC
        LIMIT 50`,
     ).bind(orgId, identity.userId).all<MobileNotificationRow>(),
+    db.prepare(
+      `SELECT CAST(COUNT(*) AS INTEGER) AS count
+       FROM notification
+       WHERE orgId = ? AND userId = ? AND dismissed = 0 AND readAt IS NULL`,
+    ).bind(orgId, identity.userId).first<{ count: number }>(),
   ]);
   const notifications = notificationsResult.results ?? [];
   return json({
@@ -324,7 +329,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
     },
     shows: showsResult.results ?? [],
     notifications,
-    unreadNotifications: notifications.filter((notification) => !notification.readAt).length,
+    unreadNotifications: unreadResult?.count ?? 0,
   });
 }
 

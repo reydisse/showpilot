@@ -73,12 +73,13 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     await Promise.all(validMembers.map(async ({ userId }) => {
       const kind = recipients.get(userId) ?? "mention";
       const title = kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`;
+      const notificationId = crypto.randomUUID();
       await getD1().prepare(
         `INSERT INTO notification
          (id, orgId, userId, type, severity, title, message, target, source, actionUrl, dismissed, createdAt)
          VALUES (?, ?, ?, ?, 'info', ?, ?, ?, 'chat', ?, 0, CURRENT_TIMESTAMP)`,
       ).bind(
-        crypto.randomUUID(), data.orgId, userId,
+        notificationId, data.orgId, userId,
         kind === "dm" ? "chat-direct-message" : "chat-mention",
         title,
         cleanText, `user:${userId}`, actionUrl,
@@ -89,6 +90,7 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
         body: cleanText,
         url: `/${encodeURIComponent(data.orgSlug)}/${actionUrl}`,
         tag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
+        notificationId,
       });
     }));
     return { notified: validMembers.length };

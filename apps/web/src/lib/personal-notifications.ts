@@ -32,13 +32,21 @@ export const getPersonalNotifications = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }): Promise<{ notifications: PersonalNotification[]; unread: number }> => {
     const userId = await assertInboxAccess(data.orgId);
-    const rows = await getD1().prepare(
-      `SELECT id, type, severity, title, message, actionUrl, source, createdAt, readAt
-       FROM notification WHERE orgId = ? AND userId = ? AND dismissed = 0
-       ORDER BY createdAt DESC LIMIT 30`,
-    ).bind(data.orgId, userId).all<PersonalNotification>();
+    const db = getD1();
+    const [rows, unreadRow] = await Promise.all([
+      db.prepare(
+        `SELECT id, type, severity, title, message, actionUrl, source, createdAt, readAt
+         FROM notification WHERE orgId = ? AND userId = ? AND dismissed = 0
+         ORDER BY createdAt DESC LIMIT 30`,
+      ).bind(data.orgId, userId).all<PersonalNotification>(),
+      db.prepare(
+        `SELECT CAST(COUNT(*) AS INTEGER) AS count
+         FROM notification
+         WHERE orgId = ? AND userId = ? AND dismissed = 0 AND readAt IS NULL`,
+      ).bind(data.orgId, userId).first<{ count: number }>(),
+    ]);
     const notifications = rows.results ?? [];
-    return { notifications, unread: notifications.filter((item) => !item.readAt).length };
+    return { notifications, unread: unreadRow?.count ?? 0 };
   });
 
 export const markPersonalNotificationRead = createServerFn({ method: "POST" })

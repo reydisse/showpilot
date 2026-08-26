@@ -49,6 +49,7 @@ const payload = {
   body: "Your call time is now 07:30.",
   url: "/faithfire/schedule",
   tag: "assignment-1",
+  notificationId: "notification-1",
 };
 
 describe("push delivery", () => {
@@ -66,7 +67,7 @@ describe("push delivery", () => {
       p256dh: "",
       auth: "",
     });
-    const fetcher = vi.fn(async () => Response.json({
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({
       data: { status: "ok", id: "ticket-1" },
     }));
     vi.stubGlobal("fetch", fetcher);
@@ -82,6 +83,13 @@ describe("push delivery", () => {
         headers: expect.objectContaining({ Authorization: "Bearer expo-access-token" }),
       }),
     );
+    const requestBody = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(requestBody.data).toEqual({
+      orgId: "org-1",
+      url: "/faithfire/schedule",
+      tag: "assignment-1",
+      notificationId: "notification-1",
+    });
     const receiptInsert = mocks.calls.find((call) => call.sql.includes("INSERT INTO expo_push_receipt"));
     expect(receiptInsert?.params).toEqual([expect.any(String), "ticket-1", "subscription-1"]);
   });
