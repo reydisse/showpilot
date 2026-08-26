@@ -641,15 +641,15 @@ function ShowPageWithNative({
     items: syncedItems,
     timer: syncedTimer,
     hydrated: syncHydrated,
-    seedState,
+    stateInitialized: syncedInitialized,
   } = useRundownSync(orgId, serviceDate, showId);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])
-  const items: RundownItem[] = (syncHydrated && syncedItems.length > 0
+  const items: RundownItem[] = (syncHydrated && syncedInitialized
     ? syncedItems
     : initialRundown?.items ?? []) as RundownItem[];
-  const timer: NativeTimerState = syncHydrated
+  const timer: NativeTimerState = syncHydrated && syncedInitialized
     ? {
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
@@ -663,18 +663,6 @@ function ShowPageWithNative({
         playback: "stop", currentItemId: null, elapsed: 0,
         startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
       };
-
-  // Seed DO if it's empty but we have initial data from DB
-  const hasSeededRef = useRef(false);
-  useEffect(() => {
-    if (!syncHydrated || hasSeededRef.current) return;
-    if (syncedItems.length === 0 && initialRundown && initialRundown.items.length > 0) {
-      hasSeededRef.current = true;
-      seedState(initialRundown.items as any[], initialRundown.timer as any);
-    } else if (syncedItems.length > 0) {
-      hasSeededRef.current = true;
-    }
-  }, [syncHydrated, syncedItems.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [displayTime, setDisplayTime] = useState(0);
   const isPlaying = timer.playback === "play";

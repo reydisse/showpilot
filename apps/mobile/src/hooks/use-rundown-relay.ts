@@ -15,6 +15,7 @@ interface QueuedCommand {
 }
 
 interface RelayState {
+  initialized: boolean;
   items: RundownItem[];
   timer: RundownTimer;
   serviceDate: string | null;
@@ -48,6 +49,7 @@ function relayUrl(orgId: string, serviceDate: string, showId: string) {
 
 export function useRundownRelay(orgId: string, serviceDate: string, showId: string) {
   const [state, setState] = useState<RelayState>({
+    initialized: false,
     items: [],
     timer: EMPTY_TIMER,
     serviceDate: null,
@@ -145,6 +147,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         revisionRef.current = Math.max(revisionRef.current, value.revision);
       }
       setState((current) => ({
+        initialized: "initialized" in value ? value.initialized === true : current.initialized,
         items: "items" in value ? normalizeRelayItems(value.items) : current.items,
         timer: "timer" in value ? normalizeRelayTimer(value.timer) : current.timer,
         serviceDate: "serviceDate" in value ? incomingServiceDate : current.serviceDate,

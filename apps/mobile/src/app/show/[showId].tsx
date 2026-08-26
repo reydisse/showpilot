@@ -34,18 +34,19 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
   // Once the relay identifies this room, its empty list is authoritative.
   // Falling back to the HTTP snapshot would resurrect items deleted elsewhere.
-  const items = relay.hydrated && sameRoom ? relay.items : detail.items;
-  const timer = relay.hydrated && sameRoom ? relay.timer : detail.timer;
+  const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
+  const items = relayIsAuthoritative ? relay.items : detail.items;
+  const timer = relayIsAuthoritative ? relay.timer : detail.timer;
   const currentItem = items.find((item) => item.id === timer.currentItemId) ?? null;
   const [elapsed, setElapsed] = useState(() => timerElapsed(timer));
   const controlsEnabled = detail.canControl && relay.status === "connected" && relay.hydrated && sameRoom;
 
   useEffect(() => {
     if (!relay.hydrated || seededRef.current) return;
-    if (sameRoom && relay.items.length === 0 && detail.items.length > 0 && detail.canControl) {
+    if (sameRoom && !relay.initialized && detail.canControl) {
       seededRef.current = true;
       relay.seedState(detail.items, detail.timer);
-    } else if (sameRoom && (relay.items.length > 0 || !detail.canControl)) {
+    } else if (sameRoom && (relay.initialized || !detail.canControl)) {
       seededRef.current = true;
     }
   }, [detail, relay, sameRoom]);
@@ -148,7 +149,8 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
             <Pressable
               key={item.id}
               accessibilityRole={!header && detail.canControl ? "button" : undefined}
-              disabled={header || !detail.canControl}
+              accessibilityState={!header && detail.canControl ? { disabled: !controlsEnabled } : undefined}
+              disabled={header || !controlsEnabled}
               onPress={() => startItem(item)}
               style={({ pressed }) => [
                 header ? styles.itemHeader : styles.item,

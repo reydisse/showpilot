@@ -7,6 +7,10 @@ import {
   type WebhookEventInput,
 } from "@/lib/settings";
 import { classifyRelayCommand } from "@/lib/rundown-command-protocol";
+import {
+  inferRundownRelayInitialized,
+  shouldAcceptRundownSeed,
+} from "@/lib/rundown-relay-initialization";
 
 interface D1Database {
   prepare(sql: string): {
@@ -74,6 +78,7 @@ interface PPSlideState {
 }
 
 interface RundownState {
+  initialized: boolean;
   items: RundownItem[];
   timer: TimerState;
   ppSlide: PPSlideState | null;
@@ -96,6 +101,7 @@ const DEFAULT_TIMER: TimerState = {
 
 export class RundownRelay extends DurableObject {
   private state: RundownState = {
+    initialized: false,
     items: [],
     timer: { ...DEFAULT_TIMER },
     ppSlide: null,
@@ -116,6 +122,7 @@ export class RundownRelay extends DurableObject {
         const stored = await this.ctx.storage.get<RundownState>("state");
         if (stored) {
           this.state = {
+            initialized: inferRundownRelayInitialized(stored),
             items: stored.items ?? [],
             timer: stored.timer ?? { ...DEFAULT_TIMER },
             ppSlide: stored.ppSlide ?? null,
@@ -298,6 +305,7 @@ export class RundownRelay extends DurableObject {
       // two services. Empty first; the editor then seeds this date's D1 rows.
       this.state.serviceDate = serviceDate ?? undefined;
       this.state.showId = showId ?? undefined;
+      this.state.initialized = false;
       this.state.items = [];
       this.state.timer = { ...DEFAULT_TIMER };
       this.state.revision += 1;
@@ -440,27 +448,29 @@ export class RundownRelay extends DurableObject {
 
     switch (action) {
       case "seed": {
-        // Seed DO with DB-loaded state
-        // Only accept if DO is empty OR force flag is set (e.g. load template)
-        const force = payload?.force as boolean;
-        if ((this.state.items.length === 0 || force) && payload?.items) {
-          this.state.items = payload.items as RundownItem[];
-          const t = payload.timer as TimerState | undefined;
-          if (t) {
-            this.state.timer = {
-              playback: t.playback ?? "stop",
-              currentItemId: t.currentItemId ?? null,
-              elapsed: t.elapsed ?? 0,
-              startedAt: t.startedAt ?? null,
-              pausedAt: t.pausedAt ?? null,
-              mode: normalizeTimerMode(t.mode),
-            };
-          }
+        const force = payload?.force === true;
+        if (!Array.isArray(payload?.items)) return false;
+        // Empty is valid, authoritative state after clear-all. Only a room
+        // that has never been initialized may accept an ordinary loader seed.
+        if (!shouldAcceptRundownSeed(this.state.initialized, force)) return true;
+        this.state.items = payload.items as RundownItem[];
+        this.state.initialized = true;
+        const t = payload.timer as TimerState | undefined;
+        if (t) {
+          this.state.timer = {
+            playback: t.playback ?? "stop",
+            currentItemId: t.currentItemId ?? null,
+            elapsed: t.elapsed ?? 0,
+            startedAt: t.startedAt ?? null,
+            pausedAt: t.pausedAt ?? null,
+            mode: normalizeTimerMode(t.mode),
+          };
         }
         break;
       }
 
       case "add-item": {
+        this.state.initialized = true;
         const item: RundownItem = {
           id: (payload?.id as string) ?? crypto.randomUUID(),
           title: (payload?.title as string) ?? "Untitled",
@@ -740,6 +750,7 @@ export class RundownRelay extends DurableObject {
       }
 
       case "clear-all": {
+        this.state.initialized = true;
         this.state.items = [];
         this.state.timer = {
           playback: "stop",
@@ -1080,6 +1091,7 @@ export class RundownRelay extends DurableObject {
       // is even about the service on screen.
       serviceDate: this.state.serviceDate ?? null,
       showId: this.state.showId ?? null,
+      initialized: this.state.initialized,
       revision: this.state.revision,
       items: this.state.items,
       timer: {
@@ -1097,6 +1109,7 @@ export class RundownRelay extends DurableObject {
     return {
       serviceDate: this.state.serviceDate ?? null,
       showId: this.state.showId ?? null,
+      initialized: this.state.initialized,
       revision: this.state.revision,
       items: this.state.items.map((item) => ({
         id: item.id,

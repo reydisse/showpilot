@@ -65,6 +65,7 @@ import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/run
 import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,6 +79,7 @@ import {
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
@@ -259,6 +261,7 @@ function RundownPage() {
     hydrated: syncHydrated,
     stateServiceDate: syncedServiceDate,
     stateShowId: syncedShowId,
+    stateInitialized: syncedInitialized,
     ppPreviewSlide: syncedPpSlide,
     sendCommand,
     seedState,
@@ -307,7 +310,7 @@ function RundownPage() {
     // The relay wins whenever it already has state. A joining operator's D1
     // loader can be a fraction behind a live edit; forcing that snapshot into
     // the room is exactly how a second operator used to roll the show back.
-    if (sameRoom && syncedItems.length === 0 && databaseItems.length > 0) {
+    if (sameRoom && !syncedInitialized) {
       hasSeededRef.current = true;
       seedState(databaseItems, {
         playback: timer.playback,
@@ -317,10 +320,10 @@ function RundownPage() {
         pausedAt: null,
         mode: timer.mode,
       });
-    } else if (sameRoom) {
+    } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
     }
-  }, [syncHydrated, syncedItems, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
     formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
@@ -430,16 +433,8 @@ function RundownPage() {
   const loadingRef = useRef(false);
   loadingRef.current = loading;
   useEffect(() => {
-    if (!syncHydrated) return;
+    if (!syncHydrated || !syncedInitialized) return;
     if (loadingRef.current) return; // Date load in progress — don't overwrite
-    const relayIsEmpty =
-      syncedItems.length === 0 &&
-      syncedTimer.playback === "stop" &&
-      syncedTimer.currentItemId === null &&
-      syncedTimer.elapsed === 0;
-
-    // Keep the DB-loaded rundown visible until the relay has real state.
-    if (relayIsEmpty && items.length > 0) return;
 
     setItems(syncedItems as RundownItem[]);
     setTimer({
@@ -449,7 +444,7 @@ function RundownPage() {
       startedAt: syncedTimer.startedAt,
       mode: syncedTimer.mode,
     });
-  }, [syncHydrated, syncedItems, syncedTimer]);
+  }, [syncHydrated, syncedInitialized, syncedItems, syncedTimer]);
 
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customAdjust, setCustomAdjust] = useState("1:00");
@@ -472,11 +467,9 @@ function RundownPage() {
   const progressResetRef = useRef(false);
   const relayNeedsPriming =
     syncHydrated &&
-    syncedItems.length === 0 &&
-    syncedTimer.playback === "stop" &&
-    syncedTimer.currentItemId === null &&
-    syncedTimer.elapsed === 0 &&
-    items.length > 0;
+    !syncedInitialized &&
+    syncedServiceDate === serviceDate &&
+    (!showId || syncedShowId === showId);
 
   // Load PP settings from org config
   useEffect(() => {
@@ -889,43 +882,17 @@ function RundownPage() {
     sendRundownCommand("reset");
   }, [canEditRundown, sendRundownCommand, timer.mode]);
 
-  const [clearPhase, setClearPhase] = useState<"idle" | "confirm">("idle");
-  const clearCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [clearCountdown, setClearCountdown] = useState(3);
-  useEffect(() => {
-    if (clearPhase !== "confirm") {
-      if (clearCountdownRef.current) clearInterval(clearCountdownRef.current);
-      setClearCountdown(3);
-      return;
-    }
-    setClearCountdown(3);
-    clearCountdownRef.current = setInterval(() => {
-      setClearCountdown((n) => {
-        if (n <= 1) {
-          clearInterval(clearCountdownRef.current!);
-          setClearPhase("idle");
-          return 3;
-        }
-        return n - 1;
-      });
-    }, 1000);
-    return () => { if (clearCountdownRef.current) clearInterval(clearCountdownRef.current); };
-  }, [clearPhase]);
+  const [showClearConfirmation, setShowClearConfirmation] = useState(false);
 
   const handleClearAll = useCallback(() => {
     if (!canEditRundown) return;
-    if (clearPhase === "idle") {
-      setClearPhase("confirm");
-      return;
-    }
-    setClearPhase("idle");
     const clearedTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode };
     setItems([]);
     setTimer(clearedTimer);
     // The relay arbitrates and persists this destructive change so a stale
     // operator cannot clear D1 after another operator has already advanced.
     sendRundownCommand("clear-all");
-  }, [canEditRundown, clearPhase, setTimer, sendRundownCommand, timer.mode]);
+  }, [canEditRundown, setTimer, sendRundownCommand, timer.mode]);
 
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
@@ -950,7 +917,7 @@ function RundownPage() {
   const handleAddItem = async (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
     const item: RundownItem = {
-      id: crypto.randomUUID(),
+      id: createBrowserId(),
       title, type,
       duration: parseDurationInput(durationStr),
       notes, assignee,
@@ -1047,7 +1014,7 @@ function RundownPage() {
     if (!canEditRundown) return;
     const fresh = loaded.items.map((item, idx) => ({
       ...item,
-      id: crypto.randomUUID(),
+      id: createBrowserId(),
       status: "upcoming" as ItemStatus,
       sortOrder: idx,
     }));
@@ -1340,15 +1307,10 @@ function RundownPage() {
                     <DropdownMenuItem
                       variant="destructive"
                       disabled={items.length === 0}
-                      // Clear All is two-phase. Keep the menu open so the
-                      // confirm step is visible rather than firing blind.
-                      onSelect={(event) => {
-                        if (clearPhase !== "confirm") event.preventDefault();
-                        handleClearAll();
-                      }}
+                      onSelect={() => setShowClearConfirmation(true)}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      {clearPhase === "confirm" ? `Confirm clear (${clearCountdown})` : "Clear all items"}
+                      Clear all items
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -2126,6 +2088,15 @@ function RundownPage() {
           onClose={() => setShowSaveModal(false)}
         />
       )}
+      <ConfirmDialog
+        open={showClearConfirmation}
+        onOpenChange={setShowClearConfirmation}
+        title="Clear this rundown?"
+        description="This removes every rundown item and stops the timer for all connected operators. This action cannot be undone."
+        confirmLabel="Clear rundown"
+        variant="danger"
+        onConfirm={handleClearAll}
+      />
       </div>
     </div>
   );

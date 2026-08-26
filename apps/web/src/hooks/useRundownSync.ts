@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createBrowserId } from "@/lib/browser-id";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 
 const isObject = (value: unknown): value is Record<string, unknown> => {
@@ -164,6 +165,8 @@ interface UseRundownSyncReturn {
    */
   stateServiceDate: string | null;
   stateShowId: string | null;
+  /** False only for a brand-new room that still needs its D1 seed. */
+  stateInitialized: boolean;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
   /** Current stage message broadcast to kiosk (empty string = none active) */
@@ -191,6 +194,7 @@ export function useRundownSync(
   const [hydrated, setHydrated] = useState(false);
   const [stateServiceDate, setStateServiceDate] = useState<string | null>(null);
   const [stateShowId, setStateShowId] = useState<string | null>(null);
+  const [stateInitialized, setStateInitialized] = useState(false);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -233,6 +237,7 @@ export function useRundownSync(
     pendingCommandRef.current = null;
     setStateServiceDate(null);
     setStateShowId(null);
+    setStateInitialized(false);
     setItems([]);
     setTimer({
       playback: "stop",
@@ -322,6 +327,9 @@ export function useRundownSync(
           if ("showId" in state) {
             setStateShowId(typeof state.showId === "string" ? state.showId : null);
           }
+          if ("initialized" in state) {
+            setStateInitialized(state.initialized === true);
+          }
           if ("timer" in state) setTimer(normalizeTimerState(state.timer));
           if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
             setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
@@ -370,7 +378,7 @@ export function useRundownSync(
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
       commandQueue.current.push({
-        id: crypto.randomUUID(),
+        id: createBrowserId(),
         action,
         payload,
       });
@@ -397,6 +405,7 @@ export function useRundownSync(
     hydrated,
     stateServiceDate,
     stateShowId,
+    stateInitialized,
     ppPreviewSlide,
     stageMessage,
     sendCommand,

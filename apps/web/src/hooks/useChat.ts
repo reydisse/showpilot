@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createBrowserId } from "@/lib/browser-id";
 import type { ChatAdapter, ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import type { ChatAdapterType } from "@/lib/settings";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
@@ -192,7 +193,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
       const nativeSidecar = pollAdapterRef.current;
       const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
-      const clientMessageId = usesNativeAdapter ? crypto.randomUUID() : undefined;
+      const clientMessageId = usesNativeAdapter ? createBrowserId() : undefined;
       const messageOptions = clientMessageId ? { ...options, clientMessageId } : options;
       if (messageOptions?.poll && nativeSidecar) {
         void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);

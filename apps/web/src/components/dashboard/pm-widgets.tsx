@@ -67,7 +67,7 @@ const controlPadWidget: PmWidget = {
 };
 
 function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: string; serviceDate: string; showId: string | null; initialState: RundownState }) {
-  const { items, timer, hydrated, stateServiceDate, stateShowId, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
+  const { items, timer, hydrated, stateServiceDate, stateShowId, stateInitialized, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -77,14 +77,16 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
   useEffect(() => {
     if (!hydrated || seededRef.current) return;
     const sameRoom = stateServiceDate === serviceDate && (!showId || stateShowId === showId);
-    if (sameRoom && items.length === 0 && initialState.items.length > 0) {
+    if (sameRoom && !stateInitialized) {
       seedState(initialState.items, initialState.timer);
     }
     if (sameRoom) seededRef.current = true;
-  }, [hydrated, initialState, items, seedState, serviceDate, showId, stateServiceDate, stateShowId]);
+  }, [hydrated, initialState, seedState, serviceDate, showId, stateInitialized, stateServiceDate, stateShowId]);
 
-  const playable = items.filter((item) => !isHeaderItem(item));
-  const current = playable.find((item) => item.id === timer.currentItemId) ?? null;
+  const activeItems = stateInitialized ? items : initialState.items;
+  const activeTimer = stateInitialized ? timer : initialState.timer;
+  const playable = activeItems.filter((item) => !isHeaderItem(item));
+  const current = playable.find((item) => item.id === activeTimer.currentItemId) ?? null;
   const first = playable.find((item) => item.status !== "complete") ?? playable[0];
   const command = (action: string, payload?: Record<string, unknown>) => {
     sendCommand(action, payload);
@@ -102,8 +104,8 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
   const stop = () => command("timer-stop");
   const adjust = (deltaMs: number) => command("timer-adjust", { deltaMs });
   const now = useNow(1_000);
-  const elapsedMs = timer.elapsed + (timer.playback === "play" && timer.startedAt ? now - timer.startedAt : 0);
-  const remainingMs = current && timer.mode === "count-down" ? current.duration - elapsedMs : null;
+  const elapsedMs = activeTimer.elapsed + (activeTimer.playback === "play" && activeTimer.startedAt ? now - activeTimer.startedAt : 0);
+  const remainingMs = current && activeTimer.mode === "count-down" ? current.duration - elapsedMs : null;
   const displayedTime = formatDuration(remainingMs ?? elapsedMs);
   const displayedTimeLabel = remainingMs === null ? "Elapsed" : "Remaining";
   const controlClass = "min-h-[72px] rounded-lg border border-board-border bg-board-bg/40 p-3 text-left text-board-text transition-colors hover:border-fire-500/35 hover:bg-board-bg disabled:opacity-40";

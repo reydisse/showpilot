@@ -254,6 +254,24 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   landing verify/dry-run, seven release-contract tests, empty/outage/published
   browser states, real artifact and byte-range responses, and 1440x900 plus
   390x844 layouts without overflow or console errors.
+- The launch-audit branch now separates a new RundownRelay room from an
+  authoritative empty rundown with a persisted `initialized` flag. An ordinary
+  loader seed can initialize a room once. Later stale clients cannot restore
+  items after `clear-all`; a forced template load can still replace the state.
+  Legacy relay snapshots infer initialization from their items and revision so
+  existing rooms stay compatible. Web, PM dashboard, Show display, and React
+  Native clients now use the same contract. Browser-generated rundown and chat
+  IDs also work on private-LAN HTTP origins where `crypto.randomUUID()` is not
+  available.
+- Real two-client LAN QA created and cleared a rundown, then sent a stale seed
+  at the accepted revision. The relay kept revision 3 and both clients stayed
+  empty after reload. A separate chat message completed send, edit, and delete
+  on the same HTTP origin. The rundown's fragile timed second-click clear action
+  is now an accessible confirmation dialog; rendered 1280x800 and 390x844 QA
+  covered both Cancel and Clear rundown. Fresh page-error logs were empty.
+  Verification passes 580 web tests, web and mobile TypeScript, the production
+  web build, Desktop/Bridge readiness, all-platform Expo export, Expo Doctor
+  18/18, and the 6.5 MB native bundle budgets.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke
