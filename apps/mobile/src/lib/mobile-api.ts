@@ -5,6 +5,35 @@ import { Platform } from "react-native";
 import { getAuthenticatedFetchCredentials, getNativeCookieHeader } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
 
+const managedAvatarPath = /^\/api\/user\/avatar\/[^/?#]+\.jpg$/;
+
+export function resolveMobileAvatarUrl(value: string | null | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+
+  if (candidate.startsWith("/")) {
+    const parsed = new URL(candidate, SHOWPILOT_URL);
+    return managedAvatarPath.test(parsed.pathname)
+      ? `${SHOWPILOT_URL}${parsed.pathname}${parsed.search}`
+      : null;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (managedAvatarPath.test(parsed.pathname)) {
+      return `${SHOWPILOT_URL}${parsed.pathname}${parsed.search}`;
+    }
+    if (parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+const avatarUploadSchema = z.object({
+  url: z.string().refine((value) => resolveMobileAvatarUrl(value) !== null, "Invalid avatar URL"),
+});
+
 const rundownSchema = z.object({
   id: z.string(),
   serviceDate: z.string(),
@@ -205,7 +234,7 @@ export async function uploadMobileAvatar(uri: string) {
     form.append("file", image);
   }
   const response = await authenticatedFetch("/api/user/avatar", { method: "POST", body: form });
-  return z.object({ url: z.string().url() }).parse(await response.json());
+  return avatarUploadSchema.parse(await response.json());
 }
 
 export async function getMobileBootstrap(orgId: string): Promise<MobileBootstrap> {

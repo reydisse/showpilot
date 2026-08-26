@@ -15,7 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
-import { saveMobilePushToken, uploadMobileAvatar } from "@/lib/mobile-api";
+import { resolveMobileAvatarUrl, saveMobilePushToken, uploadMobileAvatar } from "@/lib/mobile-api";
 import { getNativePushToken } from "@/lib/native-notifications";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
@@ -28,7 +28,12 @@ export default function ProfileScreen() {
   const [savingName, setSavingName] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const name = nameDraft ?? session?.user.name ?? "";
+  const resolvedAvatarUrl = resolveMobileAvatarUrl(session?.user.image);
+  const avatarUrl = resolvedAvatarUrl && resolvedAvatarUrl !== failedAvatarUrl
+    ? resolvedAvatarUrl
+    : null;
 
   async function saveName() {
     const clean = name.trim();
@@ -65,6 +70,7 @@ export default function ProfileScreen() {
       const uploaded = await uploadMobileAvatar(processed.uri);
       const result = await authClient.updateUser({ image: uploaded.url });
       if (result.error) throw new Error(result.error.message || "Photo could not be saved.");
+      setFailedAvatarUrl(null);
       await refetchSession();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -97,7 +103,7 @@ export default function ProfileScreen() {
       <View style={styles.profileCard}>
         <View style={styles.identity}>
           <Pressable accessibilityRole="button" accessibilityLabel="Change profile photo" accessibilityState={{ busy: savingAvatar }} disabled={savingAvatar} onPress={chooseAvatar} style={({ pressed }) => [styles.avatar, pressed && styles.pressed, savingAvatar && styles.disabled]}>
-            {session?.user.image ? <Image source={{ uri: session.user.image }} style={styles.avatarImage} /> : <UserRound size={31} color={colors.black} />}
+            {avatarUrl ? <Image source={{ uri: avatarUrl }} onError={() => setFailedAvatarUrl(avatarUrl)} style={styles.avatarImage} /> : <UserRound size={31} color={colors.black} />}
             <View style={styles.cameraBadge}><Camera size={12} color={colors.black} /></View>
           </Pressable>
           <View style={styles.identityCopy}>

@@ -4,6 +4,7 @@ import { Check, ChevronDown, Clock3, KeyRound, ShieldCheck, X } from "lucide-rea
 import { ACCESS_CAPABILITIES, getAccessCapability } from "@/lib/access-capabilities";
 import { grantMemberAccess, revokeMemberAccess } from "@/lib/access-grants";
 import { ROLE_META } from "@/lib/permissions";
+import { getPortableAvatarUrl } from "@/lib/avatar-image";
 
 interface AccessMember {
   userId: string;
@@ -252,11 +253,12 @@ export function AccessManagementTab({
           {members.map((member) => {
             const memberGrants = grantsByMember.get(member.userId) ?? [];
             if (memberGrants.length === 0) return null;
+            const avatarUrl = getPortableAvatarUrl(member.user.image);
             return (
               <div key={member.userId} className="rounded-xl border border-board-border bg-board-card p-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-board-border text-sm font-semibold text-fire-400">
-                    {member.user.image ? <img src={member.user.image} alt="" className="h-full w-full object-cover" /> : member.user.name.charAt(0)}
+                    {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : member.user.name.charAt(0)}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-board-text">{member.user.name}</p>

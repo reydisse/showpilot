@@ -235,6 +235,11 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   icon imports. CI now rejects barrel regressions and native bundles above 6.5
   MB. The all-platform native verifier and Expo Doctor 18/18 pass, and rendered
   mobile QA confirmed the optimized Home, Operations, Inbox, and Profile icons.
+  Profile name changes now refresh route-owned crew and duty data immediately.
+  ShowPilot-managed avatar uploads store same-origin paths instead of the upload
+  machine's origin. Web, kiosk, and native clients also normalize old absolute
+  avatar records. A real browser upload stored the portable path, served a
+  256x256 image through the LAN origin, and survived a full reload.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

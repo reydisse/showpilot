@@ -455,8 +455,8 @@ export default {
       const arrayBuffer = await file.arrayBuffer();
       const key = `avatars/${session.user.id}.jpg`;
       await e.STORAGE.put(key, arrayBuffer, { httpMetadata: { contentType: "image/jpeg" } });
-      const avatarUrl = `${url.origin}/api/user/avatar/${session.user.id}.jpg?v=${Date.now()}`;
-      return Response.json({ url: avatarUrl });
+      const avatarPath = `/api/user/avatar/${session.user.id}.jpg?v=${Date.now()}`;
+      return Response.json({ url: avatarPath });
     }
 
     // Avatar serve — GET /api/user/avatar/:userId.jpg

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { verifyToken, getKioskSecret } from "@/lib/kiosk";
 import { interpretBlankedValue } from "@/lib/kiosk-display";
+import { getPortableAvatarUrl } from "@/lib/avatar-image";
 
 // ─────────────────────────────────────────────────────────────
 // Kiosk API — read-only endpoints behind a kiosk Bearer token.
@@ -117,15 +118,19 @@ interface PersonRow {
   name: string;
   image: string | null;
 }
-function person(r: PersonRow) {
-  return { id: r.id, name: r.name, initials: initials(r.name), avatarUrl: r.image ?? null };
+function kioskAvatarUrl(value: string | null, origin: string) {
+  const avatarUrl = getPortableAvatarUrl(value);
+  return avatarUrl?.startsWith("/") ? new URL(avatarUrl, origin).toString() : avatarUrl;
+}
+function person(r: PersonRow, origin: string) {
+  return { id: r.id, name: r.name, initials: initials(r.name), avatarUrl: kioskAvatarUrl(r.image, origin) };
 }
 
 const nullable = (s: string | null | undefined) => (s && s.length ? s : null);
 
 // ─── Endpoint 1: Org structure ───────────────────────────────
 
-export async function getOrgStructure(orgId: string) {
+export async function getOrgStructure(orgId: string, origin: string) {
   const org = await db()
     .prepare("SELECT id, name FROM organization WHERE id = ? LIMIT 1")
     .bind(orgId)
@@ -174,8 +179,8 @@ export async function getOrgStructure(orgId: string) {
       name: t.name,
       color: t.color,
       sortOrder: t.sortOrder,
-      lead: leadRow ? person(leadRow) : null,
-      members: mem.filter((x) => x.role !== "lead").map(person),
+      lead: leadRow ? person(leadRow, origin) : null,
+      members: mem.filter((x) => x.role !== "lead").map((member) => person(member, origin)),
     });
   }
 
@@ -195,7 +200,7 @@ export async function getOrgStructure(orgId: string) {
           name: tm.name,
           title: ROLE_TITLE[tm.role] ?? "Technical Manager",
           initials: initials(tm.name),
-          avatarUrl: tm.image ?? null,
+          avatarUrl: kioskAvatarUrl(tm.image, origin),
         }
       : null,
     teams,

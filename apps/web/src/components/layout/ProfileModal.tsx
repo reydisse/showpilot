@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { BadgeCheck, Camera, Check, CircleCheck, KeyRound, LoaderCircle, LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { getSquareAvatarGeometry } from "@/lib/avatar-image";
+import { getPortableAvatarUrl, getSquareAvatarGeometry } from "@/lib/avatar-image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,7 +65,7 @@ async function resizeImageToBlob(file: File, maxPx = 256): Promise<Blob> {
 function avatarUrlFrom(value: unknown): string | null {
   if (!value || typeof value !== "object" || !("url" in value)) return null;
   const url = value.url;
-  return typeof url === "string" && url.length > 0 ? url : null;
+  return typeof url === "string" ? getPortableAvatarUrl(url) : null;
 }
 
 interface ProfilePanelProps {
@@ -78,7 +78,7 @@ interface ProfilePanelProps {
 
 export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: ProfilePanelProps) {
   const [displayName, setDisplayName] = useState(user.name);
-  const [avatarUrl, setAvatarUrl] = useState(user.image ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(getPortableAvatarUrl(user.image) ?? "");
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -179,7 +179,14 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
             style={{ backgroundColor: roleColour }}
             aria-label="Change profile photo"
           >
-            {avatarUrl ? <img src={avatarUrl} alt={displayName} className="size-full object-cover" /> : initials}
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                className="size-full object-cover"
+                onError={() => setAvatarUrl("")}
+              />
+            ) : initials}
             <span className="absolute inset-0 flex items-center justify-center bg-black/55 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
               {uploadingPhoto ? <LoaderCircle className="size-5 animate-spin" /> : <Camera className="size-5" />}
             </span>

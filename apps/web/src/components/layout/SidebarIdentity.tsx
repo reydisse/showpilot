@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Bell, BellRing, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS } from "./account-role";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
+import { getPortableAvatarUrl } from "@/lib/avatar-image";
 import {
   PERSONAL_NOTIFICATION_COUNT_EVENT,
   readPersonalNotificationCount,
@@ -67,9 +68,11 @@ interface SidebarIdentityProps {
 
 export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, canAccessSettings }: SidebarIdentityProps) {
   const navigate = useNavigate();
+  const router = useRouter();
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountView, setAccountView] = useState<AccountView>("menu");
   const [localUser, setLocalUser] = useState(user);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [pushSupported, setPushSupported] = useState(false);
@@ -82,6 +85,10 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
   const initials = getInitials(localUser.name);
   const roleLabel = ROLE_LABELS[role] ?? role;
+  const portableAvatarUrl = getPortableAvatarUrl(localUser.image);
+  const avatarUrl = portableAvatarUrl && portableAvatarUrl !== failedAvatarUrl
+    ? portableAvatarUrl
+    : null;
 
   const refreshUnread = useCallback(async () => {
     try {
@@ -167,11 +174,16 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   };
 
   const handleUserUpdated = (updates: { name?: string; image?: string }) => {
+    if (updates.image !== undefined) setFailedAvatarUrl(null);
     setLocalUser((current) => ({
       ...current,
       ...(updates.name !== undefined ? { name: updates.name } : {}),
       ...(updates.image !== undefined ? { image: updates.image } : {}),
     }));
+    // Names and photos also appear in route-owned crew, duty, schedule, and
+    // assignment data. Refresh those loaders after the optimistic account UI
+    // update so the open workspace never shows two identities for one user.
+    void router.invalidate();
   };
 
   const signOut = async () => {
@@ -195,7 +207,14 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
         className="flex size-7 items-center justify-center overflow-hidden rounded-full text-[9px] font-bold text-white ring-2 ring-board-card"
         style={{ backgroundColor: roleColour }}
       >
-        {localUser.image ? <img src={localUser.image} alt={localUser.name} className="size-full object-cover" /> : initials}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={localUser.name}
+            className="size-full object-cover"
+            onError={() => setFailedAvatarUrl(avatarUrl)}
+          />
+        ) : initials}
       </div>
       {unread > 0 ? (
         <span
@@ -261,7 +280,14 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                   className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-bold text-white"
                   style={{ backgroundColor: roleColour }}
                 >
-                  {localUser.image ? <img src={localUser.image} alt="" className="size-full object-cover" /> : initials}
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt=""
+                      className="size-full object-cover"
+                      onError={() => setFailedAvatarUrl(avatarUrl)}
+                    />
+                  ) : initials}
                 </div>
               ) : (
                 <button type="button" onClick={() => setAccountView("menu")} className="flex size-10 shrink-0 items-center justify-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text" aria-label="Back to account">

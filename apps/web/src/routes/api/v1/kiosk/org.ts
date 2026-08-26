@@ -15,7 +15,7 @@ export const Route = createFileRoute("/api/v1/kiosk/org")({
         if ("error" in auth) {
           return kioskError(auth.error.code, auth.error.message, auth.error.status);
         }
-        const data = await getOrgStructure(auth.orgId);
+        const data = await getOrgStructure(auth.orgId, new URL(request.url).origin);
         if (!data) return kioskError("not_found", "Organization not found", 404);
         return kioskJson(data);
       },
