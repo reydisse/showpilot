@@ -77,7 +77,7 @@ export default function SignInScreen() {
           />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <AppButton label="Sign in" loading={loading} onPress={signIn} />
-          <Pressable onPress={() => Linking.openURL(`${SHOWPILOT_URL}/forgot-password`)} hitSlop={10}>
+          <Pressable accessibilityRole="link" accessibilityLabel="Forgot password" onPress={() => Linking.openURL(`${SHOWPILOT_URL}/forgot-password`)} hitSlop={10}>
             <Text style={styles.link}>Forgot password?</Text>
           </Pressable>
         </View>

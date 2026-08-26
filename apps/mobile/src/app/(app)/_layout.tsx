@@ -1,4 +1,4 @@
-import { Bell, CalendarDays, Gauge, PanelsTopLeft, UserRound } from "lucide-react-native";
+import { Bell, CalendarDays, Gauge, SlidersHorizontal, UserRound } from "lucide-react-native";
 import { Redirect, Tabs } from "expo-router";
 import { LoadingView } from "@/components/loading-view";
 import { useNativePushRegistration } from "@/hooks/use-native-push-registration";
@@ -10,7 +10,7 @@ export default function AppLayout() {
   const { colors } = useAppTheme();
   const { data: session, isPending } = authClient.useSession();
   const { data: organization } = authClient.useActiveOrganization();
-  const { data: bootstrap } = useMobileBootstrap(Boolean(session));
+  const { data: bootstrap } = useMobileBootstrap({ enabled: Boolean(session), poll: true });
   const unreadCount = bootstrap?.unreadNotifications ?? 0;
   const unreadBadge = unreadCount > 99 ? "99+" : unreadCount || undefined;
   useNativePushRegistration(organization?.id);
@@ -29,7 +29,7 @@ export default function AppLayout() {
     >
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: ({ color, size }) => <Gauge color={color} size={size} /> }} />
       <Tabs.Screen name="shows" options={{ title: "Shows", tabBarIcon: ({ color, size }) => <CalendarDays color={color} size={size} /> }} />
-      <Tabs.Screen name="operations" options={{ title: "Operate", tabBarIcon: ({ color, size }) => <PanelsTopLeft color={color} size={size} /> }} />
+      <Tabs.Screen name="operations" options={{ title: "Operate", tabBarIcon: ({ color, size }) => <SlidersHorizontal color={color} size={size} /> }} />
       <Tabs.Screen
         name="inbox"
         options={{

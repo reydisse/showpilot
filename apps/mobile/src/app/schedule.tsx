@@ -92,16 +92,16 @@ function AssignmentRow({ assignment, declining, reason, pending, onReason, onDec
       {responseClosed ? <Text style={styles.closedNote}>The response window closed when this service ended.</Text> : null}
       {assignment.canRespond && assignment.status === "assigned" && !declining ? (
         <View style={styles.responseActions}>
-          <Pressable disabled={pending} onPress={() => onRespond("confirmed")} style={({ pressed }) => [styles.responseButton, styles.confirmButton, pressed && styles.pressed]}><Text style={styles.confirmText}>Accept</Text></Pressable>
-          <Pressable disabled={pending} onPress={onDecline} style={({ pressed }) => [styles.responseButton, styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>Decline</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Accept ${assignment.role} assignment`} accessibilityState={{ busy: pending, disabled: pending }} disabled={pending} onPress={() => onRespond("confirmed")} style={({ pressed }) => [styles.responseButton, styles.confirmButton, pressed && styles.pressed]}><Text style={styles.confirmText}>Accept</Text></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Decline ${assignment.role} assignment`} accessibilityState={{ busy: pending, disabled: pending }} disabled={pending} onPress={onDecline} style={({ pressed }) => [styles.responseButton, styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>Decline</Text></Pressable>
         </View>
       ) : null}
       {declining ? (
         <View style={styles.declineForm}>
           <TextInput accessibilityLabel={`Reason for declining ${assignment.role}`} multiline maxLength={500} value={reason} onChangeText={onReason} placeholder="Tell the team why you cannot serve (optional)" placeholderTextColor={colors.textFaint} style={styles.reasonInput} />
           <View style={styles.responseActions}>
-            <Pressable disabled={pending} onPress={onCancel} style={({ pressed }) => [styles.responseButton, styles.cancelButton, pressed && styles.pressed]}><Text style={styles.cancelText}>Cancel</Text></Pressable>
-            <Pressable disabled={pending} onPress={() => onRespond("declined")} style={({ pressed }) => [styles.responseButton, styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>{pending ? "Saving…" : "Confirm decline"}</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel decline" accessibilityState={{ disabled: pending }} disabled={pending} onPress={onCancel} style={({ pressed }) => [styles.responseButton, styles.cancelButton, pressed && styles.pressed]}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Confirm declining ${assignment.role} assignment`} accessibilityState={{ busy: pending, disabled: pending }} disabled={pending} onPress={() => onRespond("declined")} style={({ pressed }) => [styles.responseButton, styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>{pending ? "Saving…" : "Confirm decline"}</Text></Pressable>
           </View>
         </View>
       ) : null}
@@ -134,7 +134,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   responseNote: { color: colors.textMuted, fontFamily, fontSize: 10, lineHeight: 16, overflow: "hidden", borderRadius: radii.small, backgroundColor: colors.redSoft, padding: 8 },
   closedNote: { color: colors.red, fontFamily, fontSize: 10, lineHeight: 16 },
   responseActions: { flexDirection: "row", justifyContent: "flex-end", gap: 7 },
-  responseButton: { minHeight: 34, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, paddingHorizontal: 13 },
+  responseButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, paddingHorizontal: 13 },
   confirmButton: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
   confirmText: { color: colors.green, fontFamily, fontSize: 10, fontWeight: "900" },
   declineButton: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },

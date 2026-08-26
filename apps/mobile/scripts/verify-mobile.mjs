@@ -24,6 +24,9 @@ const sourceContract = [
   ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
   ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
+  ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
+  ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
+  ["src/app/chat.tsx", "memo(function MessageCard"],
 ];
 const apiContract = [
   "/api/mobile/v1/bootstrap",

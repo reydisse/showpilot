@@ -107,7 +107,7 @@ export default function ProfileScreen() {
         <Text style={styles.editorLabel}>DISPLAY NAME</Text>
         <View style={styles.editorRow}>
           <TextInput accessibilityLabel="Display name" autoCapitalize="words" maxLength={80} value={name} onChangeText={setNameDraft} placeholder="Your name" placeholderTextColor={colors.textFaint} style={styles.nameInput} />
-          <Pressable accessibilityRole="button" accessibilityLabel="Save display name" disabled={savingName || !name.trim() || name.trim() === session?.user.name} onPress={saveName} style={({ pressed }) => [styles.saveButton, (savingName || !name.trim() || name.trim() === session?.user.name) && styles.disabled, pressed && styles.pressed]}><Save size={18} color={colors.black} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Save display name" accessibilityState={{ busy: savingName, disabled: savingName || !name.trim() || name.trim() === session?.user.name }} disabled={savingName || !name.trim() || name.trim() === session?.user.name} onPress={saveName} style={({ pressed }) => [styles.saveButton, (savingName || !name.trim() || name.trim() === session?.user.name) && styles.disabled, pressed && styles.pressed]}><Save size={18} color={colors.black} /></Pressable>
         </View>
       </View>
       <View style={styles.section}>

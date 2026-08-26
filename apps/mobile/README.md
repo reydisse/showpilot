@@ -19,6 +19,8 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 - Profile name, profile photo, workspace, and sign-out
 - Persisted system/light/dark appearance plus device notification permission,
   password recovery, legal, and connection diagnostics in native settings
+- One shared foreground bootstrap poll, virtualized memoized chat rows, and
+  reconnect/focus refresh without duplicate per-tab timers
 
 Native-only notification and haptic modules are not evaluated by the web
 target. Browser authentication uses credentialed cookies, while iOS and Android

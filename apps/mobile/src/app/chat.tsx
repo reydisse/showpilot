@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Hash, Send, Wifi, WifiOff } from "lucide-react-native";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
@@ -13,13 +13,14 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type ListRenderItem,
 } from "react-native";
 import { Page } from "@/components/page";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
 import { authClient } from "@/lib/auth-client";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
-function MessageCard({ message, own }: { message: MobileChatMessage; own: boolean }) {
+const MessageCard = memo(function MessageCard({ message, own }: { message: MobileChatMessage; own: boolean }) {
   const styles = useStyles();
   const deleted = Boolean(message.deletedAt);
   return (
@@ -28,7 +29,7 @@ function MessageCard({ message, own }: { message: MobileChatMessage; own: boolea
       <Text style={[styles.messageText, deleted && styles.deleted]}>{deleted ? "Message deleted" : message.text}</Text>
     </View>
   );
-}
+});
 
 export default function ChatScreen() {
   const { colors } = useAppTheme();
@@ -51,8 +52,6 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = false;
     stickToBottomRef.current = true;
   }, [roomId]);
-  if (!organization) return <Redirect href="/organizations" />;
-
   function send() {
     if (!relay.send(text)) return;
     setText("");
@@ -72,6 +71,13 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = true;
   }
 
+  const renderMessage = useCallback<ListRenderItem<MobileChatMessage>>(
+    ({ item }) => <MessageCard message={item} own={item.senderId === session?.user.id} />,
+    [session?.user.id],
+  );
+
+  if (!organization) return <Redirect href="/organizations" />;
+
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={88}>
       <Page scroll={false}>
@@ -83,9 +89,12 @@ export default function ChatScreen() {
           contentContainerStyle={styles.listContent}
           data={relay.messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageCard message={item} own={item.senderId === session?.user.id} />}
+          renderItem={renderMessage}
+          initialNumToRender={18}
+          maxToRenderPerBatch={12}
+          windowSize={7}
           ListHeaderComponent={relay.hasOlder ? (
-            <Pressable accessibilityRole="button" disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder }} disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
               <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
             </Pressable>
           ) : null}
@@ -95,7 +104,7 @@ export default function ChatScreen() {
           onScroll={trackScroll}
           scrollEventThrottle={16}
         />
-        <View style={styles.composer}><TextInput accessibilityLabel={`Message ${roomId} chat`} multiline maxLength={4000} value={text} onChangeText={setText} onSubmitEditing={send} placeholder={relay.status === "connected" ? "Message the crew…" : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} /><Pressable accessibilityRole="button" accessibilityLabel="Send message" disabled={!text.trim()} onPress={send} style={({ pressed }) => [styles.send, !text.trim() && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable></View>
+        <View style={styles.composer}><TextInput accessibilityLabel={`Message ${roomId} chat`} multiline maxLength={4000} value={text} onChangeText={setText} onSubmitEditing={send} placeholder={relay.status === "connected" ? "Message the crew…" : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} /><Pressable accessibilityRole="button" accessibilityLabel="Send message" accessibilityState={{ disabled: !text.trim() }} disabled={!text.trim()} onPress={send} style={({ pressed }) => [styles.send, !text.trim() && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable></View>
       </Page>
     </KeyboardAvoidingView>
   );

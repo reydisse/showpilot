@@ -47,9 +47,9 @@ export default function IncidentsScreen() {
         <View style={styles.form}>
           <Text style={styles.formTitle}>Report what happened</Text>
           <Text style={styles.label}>CATEGORY</Text>
-          <View style={styles.choices}>{categories.map((value) => <Pressable key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+          <View accessibilityRole="radiogroup" style={styles.choices}>{categories.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: category === value }} key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
           <Text style={styles.label}>SEVERITY</Text>
-          <View style={styles.choices}>{severities.map((value) => <Pressable key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+          <View accessibilityRole="radiogroup" style={styles.choices}>{severities.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: severity === value }} key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
           <Text style={styles.label}>DESCRIPTION</Text>
           <TextInput accessibilityLabel="Incident description" multiline maxLength={2000} value={description} onChangeText={setDescription} placeholder="What failed, what is affected, and what has already been tried?" placeholderTextColor={colors.textFaint} style={styles.input} />
           <AppButton label={mutation.isPending ? "Reporting…" : "Report incident"} disabled={mutation.isPending || description.trim().length < 2} onPress={() => mutation.mutate()} />
@@ -75,7 +75,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   formTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800" },
   label: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  choice: { borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, paddingHorizontal: 10, paddingVertical: 7 },
+  choice: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, paddingHorizontal: 12, paddingVertical: 8 },
   choiceActive: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
   choiceText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   choiceTextActive: { color: colors.amberText },

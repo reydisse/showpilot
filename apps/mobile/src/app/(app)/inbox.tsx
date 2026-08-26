@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Bell, CheckCheck, Info } from "lucide-react-native";
+import { AlertTriangle, Bell, CalendarCheck2, CheckCheck, Info } from "lucide-react-native";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
@@ -50,7 +50,7 @@ export default function InboxScreen() {
       <View style={styles.list}>
         {data?.notifications.map((notification) => {
           const read = Boolean(notification.readAt);
-          const Icon = notification.severity === "critical" || notification.severity === "warning" ? AlertTriangle : notification.type === "assignment" ? CheckCheck : Info;
+          const Icon = notification.severity === "critical" || notification.severity === "warning" ? AlertTriangle : notification.type === "assignment" ? CalendarCheck2 : Info;
           return (
             <Pressable accessibilityRole="button" accessibilityLabel={`${read ? "Read" : "Unread"} notification: ${notification.title}`} key={notification.id} onPress={() => openNotification(notification.id, read, notification.actionUrl)} style={({ pressed }) => [styles.card, !read && styles.unread, pressed && styles.pressed]}>
               <View style={styles.icon}><Icon size={19} color={!read ? colors.amberText : colors.textFaint} /></View>

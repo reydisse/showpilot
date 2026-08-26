@@ -173,6 +173,11 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   persisted system/light/dark appearance choice, exposes the real notification
   permission state, and gives mobile users password recovery, legal links, and
   non-sensitive app/service diagnostics from a dedicated Settings screen.
+- Stacked follow-up branch `fix/mobile-launch-polish` is local-only on top of
+  the settings/profile branch. It owns the shared bootstrap polling interval in
+  the tab shell instead of every mounted screen, memoizes and bounds chat row
+  rendering, aligns device/operation/assignment icons with their actions, and
+  fixes mobile assignment and incident touch/accessibility targets.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

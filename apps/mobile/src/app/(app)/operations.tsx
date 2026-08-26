@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarClock, MessageSquareText, Network } from "lucide-react-native";
+import { AlertTriangle, Cable, CalendarClock, MessageSquareText } from "lucide-react-native";
 import { router, type Href } from "expo-router";
 import { Text, StyleSheet, View } from "react-native";
 import { FeatureLink } from "@/components/feature-link";
@@ -21,7 +21,7 @@ export default function OperationsScreen() {
         <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule" as Href)} />
         {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat" as Href)} /> : null}
         {canIncidents ? <FeatureLink icon={AlertTriangle} title="Incidents" description="Report faults and follow ownership through resolution." onPress={() => router.push("/incidents" as Href)} /> : null}
-        {canDevices ? <FeatureLink icon={Network} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices" as Href)} /> : null}
+        {canDevices ? <FeatureLink icon={Cable} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices" as Href)} /> : null}
       </View>
     </Page>
   );
