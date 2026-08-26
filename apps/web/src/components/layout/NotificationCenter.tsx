@@ -9,6 +9,11 @@ import {
   type PersonalNotification,
 } from "@/lib/personal-notifications";
 import { getNotificationDestination } from "@/lib/notification-destination";
+import {
+  PERSONAL_NOTIFICATION_COUNT_EVENT,
+  readPersonalNotificationCount,
+} from "@/lib/notification-events";
+import { isDesktopRuntime } from "@/lib/desktop-runtime";
 
 interface NotificationInboxProps {
   orgId: string;
@@ -41,16 +46,28 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 20_000);
+    const timer = isDesktopRuntime()
+      ? undefined
+      : window.setInterval(() => {
+        if (document.visibilityState === "visible") void refresh();
+      }, 20_000);
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
     return () => {
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    const onNotificationCount = (event: Event) => {
+      const detail = readPersonalNotificationCount(event);
+      if (detail?.orgId === orgId && detail.unread !== unread) void refresh();
+    };
+    window.addEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
+    return () => window.removeEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
+  }, [orgId, refresh, unread]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -65,11 +82,9 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
     const wasUnread = !item.readAt;
     if (wasUnread) {
       setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, readAt: new Date().toISOString() } : entry));
-      setUnread((current) => {
-        const next = Math.max(0, current - 1);
-        onUnreadChange?.(next);
-        return next;
-      });
+      const nextUnread = Math.max(0, unread - 1);
+      setUnread(nextUnread);
+      onUnreadChange?.(nextUnread);
     }
     try {
       await markPersonalNotificationRead({ data: { orgId, id: item.id } });

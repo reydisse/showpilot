@@ -178,6 +178,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   the tab shell instead of every mounted screen, memoizes and bounds chat row
   rendering, aligns device/operation/assignment icons with their actions, and
   fixes mobile assignment and incident touch/accessibility targets.
+- Stacked follow-up branch `fix/web-settings-notification-integrity` is
+  local-only on top of the mobile launch-polish branch. Web and Desktop now
+  show only notification controls that are actually enforced, explain the
+  always-on operational alert policy, keep per-device notification permission
+  visible, and share unread counts without competing Desktop polling loops.
+  The account profile adds email-verification and password-reset status, and
+  wide profile photos are cropped from the full square source before scaling.
+  Verification passes 570 web tests, TypeScript, the production build, and a
+  strict Wrangler dry-run. Rendered desktop and 390x844 QA covered Settings,
+  the account menu, the full profile/security panel, and a real 1200x630 photo
+  upload that produced a correctly served 256x256 avatar.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

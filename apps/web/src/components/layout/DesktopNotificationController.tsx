@@ -10,6 +10,7 @@ import {
 } from "@/lib/desktop-runtime";
 import { getNotificationPath } from "@/lib/notification-destination";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
+import { announcePersonalNotificationCount } from "@/lib/notification-events";
 import { getOrgRouteContext } from "@/lib/session";
 
 const HISTORY_LIMIT = 120;
@@ -62,6 +63,7 @@ export function DesktopNotificationController() {
         if (!active || !context) return;
         const result = await getPersonalNotifications({ data: { orgId: context.org.id } });
         if (!active) return;
+        announcePersonalNotificationCount(context.org.id, result.unread);
 
         const key = storageKey(context.user.id, context.org.id);
         const delivered = readHistory(key)

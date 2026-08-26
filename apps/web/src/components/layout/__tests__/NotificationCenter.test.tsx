@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationInbox } from "../NotificationCenter";
 
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   markAllRead: vi.fn(),
   markRead: vi.fn(),
   navigate: vi.fn(),
+  isDesktop: false,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -19,9 +20,14 @@ vi.mock("@/lib/personal-notifications", () => ({
   markPersonalNotificationRead: mocks.markRead,
 }));
 
+vi.mock("@/lib/desktop-runtime", () => ({
+  isDesktopRuntime: () => mocks.isDesktop,
+}));
+
 describe("NotificationInbox", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mocks.isDesktop = false;
   });
 
   it("keeps long assignment responses readable and clears unread state", async () => {
@@ -65,5 +71,24 @@ describe("NotificationInbox", () => {
 
     expect(await screen.findByText("Nothing waiting for you.")).not.toBe(undefined);
     expect(screen.getByText(/Assignments, mentions, and operational alerts/)).not.toBe(undefined);
+  });
+
+  it("uses the Desktop controller count event instead of starting another polling interval", async () => {
+    mocks.isDesktop = true;
+    mocks.getNotifications
+      .mockResolvedValueOnce({ notifications: [], unread: 1 })
+      .mockResolvedValueOnce({ notifications: [], unread: 2 });
+    const intervalSpy = vi.spyOn(window, "setInterval");
+
+    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    await waitFor(() => expect(mocks.getNotifications).toHaveBeenCalledTimes(1));
+    expect(intervalSpy.mock.calls.some(([, delay]) => delay === 20_000)).toBe(false);
+
+    act(() => window.dispatchEvent(new CustomEvent("showpilot-personal-notification-count", {
+      detail: { orgId: "org-1", unread: 2 },
+    })));
+
+    await waitFor(() => expect(mocks.getNotifications).toHaveBeenCalledTimes(2));
+    intervalSpy.mockRestore();
   });
 });

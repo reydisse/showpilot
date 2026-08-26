@@ -34,7 +34,6 @@ import {
   LoaderCircle,
   Mail,
   MonitorSmartphone,
-  Volume2,
   X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -1735,32 +1734,46 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
     <div>
       <SectionHeader
         title="Notifications"
-        description="Configure how you receive alerts and notifications"
+        description="Control optional chat alerts and understand how ShowPilot delivers critical updates."
       />
       <div className="space-y-4">
-        <SettingsGroup title="Email" description="Updates delivered to the email on your account." icon={Mail}>
-          <SettingToggle row settingKey="notify-email-service-reminder" label="Service reminders" description="Upcoming services and call-time reminders." getSetting={getSetting} saveSetting={saveSetting} />
-          <SettingToggle row settingKey="notify-email-team-changes" label="Team membership changes" description="Invitations, role changes, and removals." getSetting={getSetting} saveSetting={saveSetting} />
-          <SettingToggle row settingKey="notify-email-incidents" label="Incident reports" description="New and updated production incidents." getSetting={getSetting} saveSetting={saveSetting} />
+        <SettingsGroup title="Alert policy" description="These organization-wide rules keep time-sensitive production updates reliable." icon={Bell}>
+          <SettingToggle row settingKey="notify-app-chat" label="Chat mentions, direct messages, and reactions" description="Show personal in-app alerts for chat activity that directly involves a member." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
+          <NotificationPolicyRow label="Assignments and schedule responses" description="New assignments, reminders, acceptances, and declines remain visible to the people responsible." status="Always on" />
+          <NotificationPolicyRow label="Incidents and access changes" description="Operational incidents, duty grants, and permission changes cannot be muted organization-wide." status="Always on" />
         </SettingsGroup>
 
-        <SettingsGroup title="In-app" description="Live operational alerts while ShowPilot is open." icon={MonitorSmartphone}>
-          <SettingToggle row settingKey="notify-app-chat" label="New chat messages" description="Messages and mentions in show chat." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
-          <SettingToggle row settingKey="notify-app-cue" label="Cue alerts" description="Cues that need your attention during a show." getSetting={getSetting} saveSetting={saveSetting} />
-          <SettingToggle row settingKey="notify-app-timer" label="Timer warnings" description="Warnings when an item runs overtime." getSetting={getSetting} saveSetting={saveSetting} />
-        </SettingsGroup>
-
-        <SettingsGroup title="Sound" description="Audio feedback for time-sensitive activity." icon={Volume2}>
-          <SettingToggle row settingKey="notify-sound-enabled" label="Chat alert sound" description="Play a sound for new chat messages." getSetting={getSetting} saveSetting={saveSetting} />
-          {getSetting("notify-sound-enabled") === "true" ? (
-            <div className="px-4 py-4 sm:px-5">
-              <FieldGroup label="Alert volume">
-                <SettingSelect settingKey="notify-sound-volume" getSetting={getSetting} saveSetting={saveSetting} options={[{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }]} />
-              </FieldGroup>
-            </div>
-          ) : null}
+        <SettingsGroup title="Delivery" description="Each member chooses whether their signed-in device may show background alerts." icon={MonitorSmartphone}>
+          <NotificationPolicyRow label="Personal inbox" description="Available from the account menu on web and Desktop, with unread status shared across the workspace." status="Included" />
+          <NotificationPolicyRow label="Device notifications" description="Enable or review permission for this browser or computer from the account menu." status="Per device" />
+          <NotificationPolicyRow label="Assignment email" description="Send or resend a crew member’s assignment email from Schedule when the roster is ready." status="From Schedule" icon={Mail} />
         </SettingsGroup>
       </div>
+    </div>
+  );
+}
+
+function NotificationPolicyRow({
+  label,
+  description,
+  status,
+  icon: Icon,
+}: {
+  label: string;
+  description: string;
+  status: string;
+  icon?: React.ElementType;
+}) {
+  return (
+    <div className="flex min-h-16 items-start gap-3 px-4 py-3.5 sm:px-5">
+      {Icon ? <Icon className="mt-0.5 size-4 shrink-0 text-board-muted" /> : null}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-board-text">{label}</p>
+        <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p>
+      </div>
+      <span className="shrink-0 rounded-full border border-board-border bg-board-bg/55 px-2.5 py-1 text-[10px] font-semibold text-board-muted">
+        {status}
+      </span>
     </div>
   );
 }

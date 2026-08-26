@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { Camera, Check, CircleCheck, LoaderCircle, LogOut } from "lucide-react";
+import { BadgeCheck, Camera, Check, CircleCheck, KeyRound, LoaderCircle, LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { getSquareAvatarGeometry } from "@/lib/avatar-image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,18 +29,26 @@ async function resizeImageToBlob(file: File, maxPx = 256): Promise<Blob> {
     const objectUrl = URL.createObjectURL(file);
     image.onload = () => {
       URL.revokeObjectURL(objectUrl);
-      const size = Math.min(image.width, image.height, maxPx);
+      const geometry = getSquareAvatarGeometry(image.width, image.height, maxPx);
       const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = geometry.outputSize;
+      canvas.height = geometry.outputSize;
       const context = canvas.getContext("2d");
       if (!context) {
         reject(new Error("Your browser could not prepare that image"));
         return;
       }
-      const sourceX = (image.width - size) / 2;
-      const sourceY = (image.height - size) / 2;
-      context.drawImage(image, sourceX, sourceY, size, size, 0, 0, size, size);
+      context.drawImage(
+        image,
+        geometry.sourceX,
+        geometry.sourceY,
+        geometry.sourceSize,
+        geometry.sourceSize,
+        0,
+        0,
+        geometry.outputSize,
+        geometry.outputSize,
+      );
       canvas.toBlob((blob) => {
         if (blob) resolve(blob);
         else reject(new Error("Your browser could not prepare that image"));
@@ -60,7 +69,7 @@ function avatarUrlFrom(value: unknown): string | null {
 }
 
 interface ProfilePanelProps {
-  user: { id: string; name: string; email: string; image?: string | null };
+  user: { id: string; name: string; email: string; emailVerified: boolean; image?: string | null };
   role: string;
   orgName: string;
   onUserUpdated: (updates: { name?: string; image?: string }) => void;
@@ -75,6 +84,8 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
   const [profileError, setProfileError] = useState("");
   const [saved, setSaved] = useState(true);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
+  const [passwordResetSent, setPasswordResetSent] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
@@ -138,6 +149,24 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
     await onSignOut();
   };
 
+  const sendPasswordReset = async () => {
+    if (sendingPasswordReset || passwordResetSent) return;
+    setSendingPasswordReset(true);
+    setProfileError("");
+    try {
+      const result = await authClient.requestPasswordReset({
+        email: user.email,
+        redirectTo: "/reset-password",
+      });
+      if (result.error) throw new Error(result.error.message ?? "Could not send the reset email");
+      setPasswordResetSent(true);
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "Could not send the reset email");
+    } finally {
+      setSendingPasswordReset(false);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
@@ -157,7 +186,7 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
           </button>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-board-text">Profile photo</p>
-            <p className="mt-1 text-xs leading-5 text-board-muted">JPG, PNG, WebP, or GIF up to 10 MB. Photos save automatically.</p>
+            <p className="mt-1 text-xs leading-5 text-board-muted">JPG, PNG, or WebP up to 10 MB. Photos save automatically.</p>
             <Button type="button" variant="outline" size="sm" className="mt-3" disabled={uploadingPhoto} onClick={() => fileInputRef.current?.click()}>
               <Camera data-icon="inline-start" />
               {uploadingPhoto ? "Saving photo" : "Choose photo"}
@@ -166,7 +195,7 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -215,6 +244,34 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
               <dd className="mt-1 truncate text-sm font-medium text-board-text">{orgName}</dd>
             </div>
           </dl>
+        </section>
+
+        <Separator className="my-6" />
+
+        <section aria-labelledby="profile-security-heading">
+          <h3 id="profile-security-heading" className="text-sm font-semibold text-board-text">Security</h3>
+          <div className="mt-4 overflow-hidden rounded-xl border border-board-border bg-board-bg/35">
+            <div className="flex items-center gap-3 border-b border-board-border px-4 py-3.5">
+              <BadgeCheck className={user.emailVerified ? "size-4 text-green-500" : "size-4 text-fire-500"} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-board-text">Email verification</p>
+                <p className="mt-0.5 text-xs text-board-muted">{user.emailVerified ? "Verified" : "Verification is still required"}</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <KeyRound className="size-4 shrink-0 text-board-muted" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-board-text">Password</p>
+                  <p className="mt-0.5 text-xs leading-5 text-board-muted">Send a secure reset link to {user.email}.</p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="shrink-0" disabled={sendingPasswordReset || passwordResetSent} onClick={() => void sendPasswordReset()}>
+                {sendingPasswordReset ? <LoaderCircle data-icon="inline-start" className="animate-spin" /> : passwordResetSent ? <CircleCheck data-icon="inline-start" /> : <KeyRound data-icon="inline-start" />}
+                {sendingPasswordReset ? "Sending" : passwordResetSent ? "Reset email sent" : "Reset password"}
+              </Button>
+            </div>
+          </div>
         </section>
 
         {profileError ? <p role="alert" className="mt-5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-400">{profileError}</p> : null}

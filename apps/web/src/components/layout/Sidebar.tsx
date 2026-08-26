@@ -196,6 +196,7 @@ export function Sidebar() {
     id: string;
     name: string;
     email: string;
+    emailVerified: boolean;
     image?: string | null;
   } | null = null;
   try {
@@ -322,6 +323,7 @@ function renderSidebarContent({
     id: string;
     name: string;
     email: string;
+    emailVerified: boolean;
     image?: string | null;
   } | null;
 }) {

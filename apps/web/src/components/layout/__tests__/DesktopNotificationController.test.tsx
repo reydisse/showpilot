@@ -52,7 +52,7 @@ describe("DesktopNotificationController", () => {
     window.localStorage.clear();
     mocks.getNotifications.mockReset();
     mocks.showNotification.mockReset();
-    mocks.getNotifications.mockResolvedValue({ notifications: [oldNotification] });
+    mocks.getNotifications.mockResolvedValue({ notifications: [oldNotification], unread: 1 });
   });
 
   it("retries an unread notification when native permission initially prevents delivery", async () => {
@@ -62,7 +62,7 @@ describe("DesktopNotificationController", () => {
     await waitFor(() => expect(window.localStorage.getItem(historyKey)).toContain(oldNotification.id));
     expect(mocks.showNotification).not.toHaveBeenCalled();
 
-    mocks.getNotifications.mockResolvedValue({ notifications: [newNotification, oldNotification] });
+    mocks.getNotifications.mockResolvedValue({ notifications: [newNotification, oldNotification], unread: 2 });
     mocks.showNotification.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     act(() => window.dispatchEvent(new Event("showpilot-desktop-notification-poll")));

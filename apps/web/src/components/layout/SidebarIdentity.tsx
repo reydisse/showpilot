@@ -1,16 +1,21 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Bell, BellRing, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
+import { Bell, BellRing, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ROLE_COLOURS } from "./account-role";
 import { getPersonalNotifications } from "@/lib/personal-notifications";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
+import {
+  PERSONAL_NOTIFICATION_COUNT_EVENT,
+  readPersonalNotificationCount,
+} from "@/lib/notification-events";
 import { cn } from "@/lib/utils";
 import {
   DESKTOP_NOTIFICATION_POLL_EVENT,
   getDesktopNotificationPermission,
   isDesktopNotificationSupported,
+  isDesktopRuntime,
 } from "@/lib/desktop-runtime";
 
 const ProfilePanel = lazy(() =>
@@ -52,7 +57,7 @@ type AccountView = "menu" | "profile" | "notifications";
 
 interface SidebarIdentityProps {
   collapsed: boolean;
-  user: { id: string; name: string; email: string; image?: string | null };
+  user: { id: string; name: string; email: string; emailVerified: boolean; image?: string | null };
   role: string;
   orgName: string;
   orgId: string;
@@ -69,6 +74,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
   const [pushSupported, setPushSupported] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushStatusReady, setPushStatusReady] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [enablingPush, setEnablingPush] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -87,25 +93,56 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   }, [orgId]);
 
   useEffect(() => {
+    const onNotificationCount = (event: Event) => {
+      const detail = readPersonalNotificationCount(event);
+      if (detail?.orgId === orgId) setUnread(detail.unread);
+    };
+    window.addEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
+    return () => window.removeEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
+  }, [orgId]);
+
+  useEffect(() => {
+    if (accountView === "notifications" || isDesktopRuntime()) return;
     void refreshUnread();
     const timer = window.setInterval(refreshUnread, 20_000);
     return () => window.clearInterval(timer);
-  }, [refreshUnread]);
+  }, [accountView, refreshUnread]);
 
   useEffect(() => {
-    setPushSupported(isPushSupported());
-    if (isDesktopNotificationSupported()) {
-      void getDesktopNotificationPermission().then((permission) => {
+    let active = true;
+    const supported = isPushSupported();
+    setPushSupported(supported);
+    setPushEnabled(false);
+    setPushError(null);
+    setPushStatusReady(!supported);
+    if (!supported) return () => { active = false; };
+
+    const resolveStatus = async () => {
+      if (isDesktopNotificationSupported()) {
+        const permission = await getDesktopNotificationPermission();
+        if (!active) return;
         setPushPermission(permission);
         setPushEnabled(permission === "granted");
-      });
-      return;
-    }
-    if (typeof Notification === "undefined") return;
-    setPushPermission(Notification.permission);
-    if (Notification.permission === "granted") {
-      void enablePushForOrg(orgId, false).then(() => setPushEnabled(true)).catch(() => setPushEnabled(false));
-    }
+        setPushStatusReady(true);
+        return;
+      }
+
+      const permission = Notification.permission;
+      if (!active) return;
+      setPushPermission(permission);
+      if (permission === "granted") {
+        try {
+          await enablePushForOrg(orgId, false);
+          if (active) setPushEnabled(true);
+        } catch {
+          if (active) setPushEnabled(false);
+        }
+      }
+      if (active) setPushStatusReady(true);
+    };
+
+    void resolveStatus();
+    return () => { active = false; };
   }, [orgId]);
 
   const enablePush = async () => {
@@ -251,12 +288,25 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 {unread > 0 ? <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fire-500 px-1 text-[10px] font-semibold text-black">{unread > 99 ? "99+" : unread}</span> : <ChevronRight className="ml-auto size-3.5 opacity-40" />}
               </button>
 
-              {pushSupported && !pushEnabled ? (
-                <button type="button" disabled={enablingPush || pushPermission === "denied"} onClick={() => void enablePush()} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text disabled:opacity-50">
-                  <BellRing className="size-[18px]" />
-                  <span className="text-left text-sm font-medium">{pushPermission === "denied" ? "Push blocked in browser settings" : enablingPush ? "Enabling device notifications" : "Enable device notifications"}</span>
-                  <ChevronRight className="ml-auto size-3.5 opacity-40" />
-                </button>
+              {pushSupported && pushStatusReady ? (
+                pushEnabled || pushPermission === "denied" ? (
+                  <div className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted">
+                    {pushEnabled ? <CheckCircle2 className="size-[18px] text-green-500" /> : <BellRing className="size-[18px] text-red-400" />}
+                    <span className="min-w-0 text-left">
+                      <span className="block text-sm font-medium text-board-text">Device notifications</span>
+                      <span className="mt-0.5 block text-xs leading-5">{pushEnabled ? "Enabled on this device" : "Blocked in browser or system settings"}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <button type="button" disabled={enablingPush} onClick={() => void enablePush()} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text disabled:opacity-50">
+                    <BellRing className="size-[18px]" />
+                    <span className="min-w-0 text-left">
+                      <span className="block text-sm font-medium text-board-text">Device notifications</span>
+                      <span className="mt-0.5 block text-xs leading-5">{enablingPush ? "Enabling on this device" : "Enable alerts when ShowPilot is in the background"}</span>
+                    </span>
+                    <ChevronRight className="ml-auto size-3.5 opacity-40" />
+                  </button>
+                )
               ) : null}
               {pushError ? <p role="alert" className="px-3 py-1 text-xs leading-5 text-red-400">{pushError}</p> : null}
 
