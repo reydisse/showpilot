@@ -240,6 +240,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   machine's origin. Web, kiosk, and native clients also normalize old absolute
   avatar records. A real browser upload stored the portable path, served a
   256x256 image through the LAN origin, and survived a full reload.
+- The same launch-audit branch now hardens the landing download center. The
+  exact `/downloads` path reaches the Worker and redirects to `/#downloads`,
+  unpublished updater checks return `204` instead of a false outage, and known
+  public button IDs fail closed when their product/platform metadata drifts.
+  Customer-facing product status now ignores hidden updater artifacts and
+  distinguishes an unpublished release from a manifest/network failure. Static
+  assets ship CSP, clickjacking, permissions, referrer, and MIME-sniffing
+  protections. Keyboard focus, reduced-motion behavior, and 44px mobile nav
+  targets are covered in rendered QA. The reusable smoke test now proves the
+  security headers and direct-download redirect; the native release verifier
+  locks all Worker-first routes. Local proof passed 22 landing tests, the full
+  landing verify/dry-run, seven release-contract tests, empty/outage/published
+  browser states, real artifact and byte-range responses, and 1440x900 plus
+  390x844 layouts without overflow or console errors.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

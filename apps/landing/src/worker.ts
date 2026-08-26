@@ -10,6 +10,57 @@ const ISO_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
 type ReleaseStatus = "stable" | "beta";
 
+const LANDING_RELEASE_TARGETS = {
+  "desktop-macos-arm64": {
+    kind: "artifact",
+    product: "desktop",
+    platform: "macOS",
+    architecture: "Apple Silicon",
+  },
+  "desktop-macos-x64": {
+    kind: "artifact",
+    product: "desktop",
+    platform: "macOS",
+    architecture: "Intel",
+  },
+  "desktop-windows-x64": {
+    kind: "artifact",
+    product: "desktop",
+    platform: "Windows",
+    architecture: "x64",
+  },
+  "bridge-macos-arm64": {
+    kind: "artifact",
+    product: "bridge",
+    platform: "macOS",
+    architecture: "Apple Silicon",
+  },
+  "bridge-macos-x64": {
+    kind: "artifact",
+    product: "bridge",
+    platform: "macOS",
+    architecture: "Intel",
+  },
+  "bridge-windows-x64": {
+    kind: "artifact",
+    product: "bridge",
+    platform: "Windows",
+    architecture: "x64",
+  },
+  "mobile-ios": {
+    kind: "store",
+    product: "mobile",
+    platform: "iOS",
+    architecture: "Universal",
+  },
+  "mobile-android": {
+    kind: "store",
+    product: "mobile",
+    platform: "Android",
+    architecture: "Universal",
+  },
+} as const;
+
 interface ReleaseEntryBase {
   id: string;
   product: "desktop" | "bridge" | "mobile";
@@ -105,6 +156,16 @@ function isReleaseEntry(value: unknown): value is ReleaseEntry {
     value.label.length > 0 &&
     value.label.length <= 80;
   if (!validBase) return false;
+  const landingTarget =
+    LANDING_RELEASE_TARGETS[value.id as keyof typeof LANDING_RELEASE_TARGETS];
+  if (
+    landingTarget &&
+    (value.kind !== landingTarget.kind ||
+      value.product !== landingTarget.product ||
+      value.platform !== landingTarget.platform ||
+      value.architecture !== landingTarget.architecture)
+  )
+    return false;
   if (value.kind === "store") {
     return (
       value.product === "mobile" && isStoreUrl(value.storeUrl, value.platform)
@@ -406,10 +467,16 @@ async function serveNativeUpdater(
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
   }
-  const manifest = await loadManifest(env.DOWNLOADS);
-  if (!manifest) return jsonError("Updates are temporarily unavailable", 503);
+  const state = await loadManifestState(env.DOWNLOADS);
+  if (state.kind === "invalid")
+    return jsonError("Updates are temporarily unavailable", 503);
+  if (state.kind === "missing")
+    return new Response(null, {
+      status: 204,
+      headers: { "Cache-Control": "no-store" },
+    });
   const payload = nativeUpdaterManifest(
-    manifest,
+    state.manifest,
     product,
     new URL(request.url).origin,
   );

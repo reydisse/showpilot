@@ -86,6 +86,16 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
     section { padding: 4rem 0; }
     a { color: inherit; }
+    a:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--fire-500); outline-offset: 3px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important; transition-duration: 0.01ms !important;
+      }
+    }
 
     /* ── Nav ── */
     nav { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 0; gap: 1rem; }
@@ -97,12 +107,14 @@
     .nav-links a:hover { color: var(--text); }
     .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
     .nav-signin {
+      display: inline-flex; min-height: 2.75rem; align-items: center;
       padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem;
       font-weight: 500; color: var(--text); text-decoration: none;
       border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s;
     }
     .nav-signin:hover { border-color: rgba(255,193,7,0.3); background: rgba(255,255,255,0.05); }
     .nav-cta {
+      display: inline-flex; min-height: 2.75rem; align-items: center;
       padding: 0.5rem 1.125rem; border-radius: 0.5rem; font-size: 0.875rem;
       font-weight: 600; color: #000; text-decoration: none;
       background: linear-gradient(135deg, #FFC107, #FF8F00); transition: all 0.2s;
@@ -581,7 +593,7 @@
         <article class="download-card">
           <div class="download-card-head">
             <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-            <div><h3>ShowPilot Desktop</h3><p class="download-status" data-product-status="desktop">CHECKING RELEASES</p></div>
+            <div><h3>ShowPilot Desktop</h3><p class="download-status" data-product-status="desktop" aria-live="polite">CHECKING RELEASES</p></div>
           </div>
           <p class="download-copy">The full web app in a native desktop shell, with local device control, system notifications, and venue-ready capabilities.</p>
           <div class="download-options">
@@ -594,7 +606,7 @@
         <article class="download-card">
           <div class="download-card-head">
             <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 12h4a3 3 0 0 0 3-3V7M14 15v2a2 2 0 0 0 2 2h1"/></svg></div>
-            <div><h3>ShowPilot Bridge</h3><p class="download-status" data-product-status="bridge">CHECKING RELEASES</p></div>
+            <div><h3>ShowPilot Bridge</h3><p class="download-status" data-product-status="bridge" aria-live="polite">CHECKING RELEASES</p></div>
           </div>
           <p class="download-copy">Install on one venue computer when off-site operators need to reach ATEM, Wing, ProPresenter, and other local equipment.</p>
           <div class="download-options">
@@ -607,7 +619,7 @@
         <article class="download-card">
           <div class="download-card-head">
             <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></div>
-            <div><h3>ShowPilot Mobile</h3><p class="download-status" data-product-status="mobile">CHECKING RELEASES</p></div>
+            <div><h3>ShowPilot Mobile</h3><p class="download-status" data-product-status="mobile" aria-live="polite">CHECKING RELEASES</p></div>
           </div>
           <p class="download-copy">The native iOS and Android command app for live rundowns, crew calls, chat, incidents, notifications, and secure remote equipment control.</p>
           <div class="download-options">
@@ -797,19 +809,29 @@
             if (meta) meta.textContent = String(release.version).toUpperCase() + " · " + (release.kind === "store" ? (release.platform === "iOS" ? "APP STORE" : "GOOGLE PLAY") : formatBytes(release.size));
           });
           ["desktop", "bridge", "mobile"].forEach(function (product) {
-            var available = releases.filter(function (release) { return release.product === product; });
+            var available = releases.filter(function (release) {
+              return release.product === product && buttons.some(function (button) {
+                return button.getAttribute("data-download-id") === release.id;
+              });
+            });
             var status = document.querySelector('[data-product-status="' + product + '"]');
             if (!status) return;
-            status.textContent = available.length ? String(available[0].status).toUpperCase() + " · " + String(available[0].version).toUpperCase() : "RELEASE IN REVIEW";
+            if (!available.length) {
+              status.textContent = "RELEASE IN REVIEW";
+              return;
+            }
+            var statuses = Array.from(new Set(available.map(function (release) { return String(release.status).toUpperCase(); })));
+            var versions = Array.from(new Set(available.map(function (release) { return String(release.version).toUpperCase(); })));
+            status.textContent = (statuses.length === 1 ? statuses[0] : "AVAILABLE") + (versions.length === 1 ? " · " + versions[0] : "");
           });
         })
         .catch(function () {
           document.querySelectorAll("[data-product-status]").forEach(function (status) {
-            status.textContent = "RELEASE IN REVIEW";
+            status.textContent = "STATUS UNAVAILABLE";
           });
           buttons.forEach(function (button) {
             var meta = button.querySelector("small");
-            if (meta) meta.textContent = "NOT YET PUBLIC";
+            if (meta) meta.textContent = "CHECK BACK SOON";
           });
         });
     })();

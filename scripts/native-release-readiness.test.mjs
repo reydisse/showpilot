@@ -78,3 +78,17 @@ test("rejects updater trust and distribution workflow regressions", () => {
     ),
   );
 });
+
+test("rejects landing routes that bypass the release Worker", () => {
+  const current = snapshot();
+  current.landingWrangler.assets.run_worker_first = [
+    "/downloads/*",
+    "/updates/*",
+  ];
+  const issues = findNativeReleaseIssues(current);
+  assert.ok(
+    issues.some((issue) =>
+      issue.includes("Landing Worker must run first for /downloads."),
+    ),
+  );
+});

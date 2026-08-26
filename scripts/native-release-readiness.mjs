@@ -114,6 +114,7 @@ export function loadNativeReleaseSnapshot(root) {
     bridgeEngineVersion: readJson(root, "apps/bridge/package.json").version,
     landingHtml: readText(root, "apps/landing/src/index.template.html"),
     landingWorker: readText(root, "apps/landing/src/worker.ts"),
+    landingWrangler: readJson(root, "apps/landing/wrangler.jsonc"),
   };
 }
 
@@ -235,6 +236,13 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
 
   const desktop = snapshot.products.desktop.tauri;
   const bridge = snapshot.products.bridge.tauri;
+  const workerFirstRoutes = snapshot.landingWrangler.assets?.run_worker_first;
+  for (const route of ["/downloads", "/downloads/*", "/updates/*"]) {
+    add(
+      Array.isArray(workerFirstRoutes) && workerFirstRoutes.includes(route),
+      `Landing Worker must run first for ${route}.`,
+    );
+  }
   add(
     desktop.identifier !== bridge.identifier,
     "Desktop and Bridge must have distinct application identifiers.",

@@ -218,6 +218,23 @@ describe("parseReleaseManifest", () => {
     ).toBeNull();
   });
 
+  it("rejects landing ids whose product or platform metadata drift", () => {
+    expect(
+      parseReleaseManifest({
+        schemaVersion: 1,
+        updatedAt: "2026-08-22T17:00:00.000Z",
+        releases: [{ ...validEntry, product: "bridge" }],
+      }),
+    ).toBeNull();
+    expect(
+      parseReleaseManifest({
+        schemaVersion: 1,
+        updatedAt: "2026-08-22T17:00:00.000Z",
+        releases: [{ ...storeEntry, platform: "Android" }],
+      }),
+    ).toBeNull();
+  });
+
   it("accepts one signed desktop updater version and rejects mixed versions", () => {
     expect(
       parseReleaseManifest({
@@ -430,6 +447,32 @@ describe("parseReleaseManifest", () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("returns no update when releases have not been published yet", async () => {
+    const missing = {
+      DOWNLOADS: { head: async () => null } as unknown as R2Bucket,
+      ASSETS: {
+        fetch: async () => new Response("landing"),
+      } as unknown as Fetcher,
+    } as Env;
+    const response = await worker.fetch(
+      incomingRequest("https://www.showpilot.tech/updates/desktop/latest.json"),
+      missing,
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("redirects the direct downloads route to the download center", async () => {
+    const response = await worker.fetch(
+      incomingRequest("https://www.showpilot.tech/downloads"),
+      fakeEnvironment([]),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "https://www.showpilot.tech/#downloads",
+    );
   });
 
   it("serves Bridge updates only from the Bridge updater endpoint", async () => {
