@@ -1,6 +1,6 @@
 # ShowPilot development handoff
 
-Updated: 2026-08-25 (Africa/Accra)
+Updated: 2026-08-26 (Africa/Accra)
 
 Read this file, `CLAUDE.md`, and the live Git state before making changes. Always
 check whether the intended branch/worktree already exists before creating one.
@@ -168,6 +168,11 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   organization creation, and immediate activation. A fresh local-only account
   completed the rendered 390x844 path from sign-up through owner command center
   without page or console errors.
+- Stacked follow-up branch `feature/mobile-settings-profile` is local-only on
+  top of onboarding. It separates identity from device preferences, adds a
+  persisted system/light/dark appearance choice, exposes the real notification
+  permission state, and gives mobile users password recovery, legal links, and
+  non-sensitive app/service diagnostics from a dedicated Settings screen.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

@@ -1,5 +1,12 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Platform, useColorScheme } from "react-native";
+
+export type ThemePreference = "system" | "light" | "dark";
+
+const themePreferenceStorageKey = "showpilot-mobile-theme";
+const themePreferenceListeners = new Set<() => void>();
+let nativeThemePreference: ThemePreference = "system";
+let nativeThemePreferenceHydration: Promise<void> | null = null;
 
 export interface AppColors {
   stage: string;
@@ -92,10 +99,13 @@ export interface AppTheme {
   colorScheme: "light" | "dark";
   colors: AppColors;
   statusBarStyle: "light" | "dark";
+  preference: ThemePreference;
 }
 
-const darkTheme: AppTheme = { colorScheme: "dark", colors: darkColors, statusBarStyle: "light" };
-const lightTheme: AppTheme = { colorScheme: "light", colors: lightColors, statusBarStyle: "dark" };
+type ResolvedTheme = Omit<AppTheme, "preference">;
+
+const darkTheme: ResolvedTheme = { colorScheme: "dark", colors: darkColors, statusBarStyle: "light" };
+const lightTheme: ResolvedTheme = { colorScheme: "light", colors: lightColors, statusBarStyle: "dark" };
 
 const lightSchemeQuery = "(prefers-color-scheme: light)";
 
@@ -115,11 +125,85 @@ function getServerColorScheme() {
   return "dark" as const;
 }
 
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function emitThemePreferenceChange() {
+  for (const listener of themePreferenceListeners) listener();
+}
+
+function subscribeToThemePreference(onChange: () => void) {
+  themePreferenceListeners.add(onChange);
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    return () => themePreferenceListeners.delete(onChange);
+  }
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === themePreferenceStorageKey) onChange();
+  };
+  window.addEventListener("storage", handleStorage);
+  return () => {
+    themePreferenceListeners.delete(onChange);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function getThemePreferenceSnapshot(): ThemePreference {
+  if (Platform.OS !== "web" || typeof window === "undefined") return nativeThemePreference;
+  try {
+    const stored = window.localStorage.getItem(themePreferenceStorageKey);
+    return isThemePreference(stored) ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function getServerThemePreference(): ThemePreference {
+  return "system";
+}
+
+async function hydrateNativeThemePreference() {
+  if (Platform.OS === "web") return;
+  if (!nativeThemePreferenceHydration) {
+    nativeThemePreferenceHydration = import("expo-secure-store")
+      .then(async (SecureStore) => {
+        const stored = await SecureStore.getItemAsync(themePreferenceStorageKey);
+        const nextPreference = isThemePreference(stored) ? stored : "system";
+        if (nextPreference !== nativeThemePreference) {
+          nativeThemePreference = nextPreference;
+          emitThemePreferenceChange();
+        }
+      })
+      .catch(() => undefined);
+  }
+  await nativeThemePreferenceHydration;
+}
+
+export async function setAppThemePreference(preference: ThemePreference): Promise<void> {
+  if (Platform.OS === "web") {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(themePreferenceStorageKey, preference);
+    emitThemePreferenceChange();
+    return;
+  }
+
+  nativeThemePreference = preference;
+  emitThemePreferenceChange();
+  const SecureStore = await import("expo-secure-store");
+  await SecureStore.setItemAsync(themePreferenceStorageKey, preference);
+}
+
 export function useAppTheme(): AppTheme {
   const nativeColorScheme = useColorScheme();
   const webColorScheme = useSyncExternalStore(subscribeToWebColorScheme, getWebColorScheme, getServerColorScheme);
-  const colorScheme = Platform.OS === "web" ? webColorScheme : nativeColorScheme;
-  return colorScheme === "light" ? lightTheme : darkTheme;
+  const preference = useSyncExternalStore(subscribeToThemePreference, getThemePreferenceSnapshot, getServerThemePreference);
+  useEffect(() => {
+    void hydrateNativeThemePreference();
+  }, []);
+  const systemColorScheme = Platform.OS === "web" ? webColorScheme : nativeColorScheme;
+  const colorScheme = preference === "system" ? systemColorScheme : preference;
+  const resolvedTheme = colorScheme === "light" ? lightTheme : darkTheme;
+  return useMemo(() => ({ ...resolvedTheme, preference }), [preference, resolvedTheme]);
 }
 
 export function createThemedStyles<T>(factory: (colors: AppColors) => T) {

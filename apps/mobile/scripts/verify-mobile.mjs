@@ -19,6 +19,12 @@ const featureContract = [
   ["src/app/device/[deviceId].tsx", "const deviceControlMatch"],
   ["src/app/(app)/profile.tsx", "/api/user/avatar"],
 ];
+const sourceContract = [
+  ["src/app/settings.tsx", "setAppThemePreference"],
+  ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
+  ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
+  ["src/theme/tokens.ts", "themePreferenceStorageKey"],
+];
 const apiContract = [
   "/api/mobile/v1/bootstrap",
   "const rundownMatch",
@@ -49,6 +55,10 @@ const serverContract = `${workerApi}\n${workerEntry}`;
 for (const [screen, endpoint] of featureContract) {
   if (!existsSync(resolve(mobileRoot, screen))) throw new Error(`Missing native screen: ${screen}`);
   if (!serverContract.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
+}
+for (const [file, marker] of sourceContract) {
+  const source = readFileSync(resolve(mobileRoot, file), "utf8");
+  if (!source.includes(marker)) throw new Error(`Missing ${marker} from ${file}`);
 }
 for (const endpoint of apiContract) {
   if (!workerApi.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
@@ -109,4 +119,4 @@ for (const args of commands) {
   execFileSync("pnpm", args, { cwd: mobileRoot, stdio: "inherit" });
 }
 
-console.log(`Verified ${featureContract.length} native screens and ${apiContract.length} API contracts across iOS, Android, and web exports.`);
+console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, and ${apiContract.length} API contracts across iOS, Android, and web exports.`);

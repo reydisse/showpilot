@@ -2,6 +2,11 @@ import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { Platform } from "react-native";
 
+export type NativeNotificationPermissionState = {
+  status: "granted" | "denied" | "undetermined" | "unsupported";
+  canAskAgain: boolean;
+};
+
 function projectId() {
   return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
 }
@@ -13,6 +18,26 @@ export async function getNativePushToken() {
   const Notifications = await import("expo-notifications");
   const token = await Notifications.getExpoPushTokenAsync({ projectId: id });
   return token.data;
+}
+
+export async function getNativeNotificationPermissionState(): Promise<NativeNotificationPermissionState> {
+  if (Platform.OS !== "ios" && Platform.OS !== "android") {
+    return { status: "unsupported", canAskAgain: false };
+  }
+  if (!Device.isDevice) return { status: "unsupported", canAskAgain: false };
+
+  try {
+    const Notifications = await import("expo-notifications");
+    const permission = await Notifications.getPermissionsAsync();
+    const status = permission.status === "granted"
+      ? "granted"
+      : permission.status === "denied"
+        ? "denied"
+        : "undetermined";
+    return { status, canAskAgain: permission.canAskAgain };
+  } catch {
+    return { status: "unsupported", canAskAgain: false };
+  }
 }
 
 export async function enableNativeNotifications() {

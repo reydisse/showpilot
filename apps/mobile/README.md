@@ -16,7 +16,9 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 - Incident reporting plus permission-checked ATEM and X32/WING control through the venue Bridge
 - Scrollable, refreshable inbox with exact unread badges and destination-aware
   notification routing across workspaces
-- Profile name, profile photo, workspace, sign-out, and push settings
+- Profile name, profile photo, workspace, and sign-out
+- Persisted system/light/dark appearance plus device notification permission,
+  password recovery, legal, and connection diagnostics in native settings
 
 Native-only notification and haptic modules are not evaluated by the web
 target. Browser authentication uses credentialed cookies, while iOS and Android

@@ -1,5 +1,7 @@
-import { Stack } from "expo-router";
+import { ChevronLeft } from "lucide-react-native";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { Pressable } from "react-native";
 import { AppProviders } from "@/providers/app-providers";
 import { useAppTheme } from "@/theme/tokens";
 
@@ -20,6 +22,24 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="organizations" options={{ headerShown: false }} />
         <Stack.Screen name="(app)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Back to profile"
+                hitSlop={12}
+                onPress={() => router.canGoBack() ? router.back() : router.replace("/(app)/profile")}
+                style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1, padding: 4, marginLeft: -4 })}
+              >
+                <ChevronLeft size={25} color={colors.text} />
+              </Pressable>
+            ),
+          }}
+        />
         <Stack.Screen name="show/[showId]" options={{ title: "Live rundown", headerBackTitle: "Shows" }} />
         <Stack.Screen name="schedule" options={{ title: "Schedule", headerBackTitle: "Operate" }} />
         <Stack.Screen name="chat" options={{ title: "Production chat", headerBackTitle: "Operate" }} />
