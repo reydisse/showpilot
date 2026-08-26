@@ -1,36 +1,50 @@
 import { env } from "cloudflare:workers";
 
-// D1 insert-and-count rate limiting (table: rate_limit_event, migration
-// 0006). Good enough for public endpoints like the waitlist; Cloudflare WAF
-// rules layer on top in production. Fails open: a rate-limit storage error
-// must never take down the endpoint it protects.
+// D1 atomic insert-and-count rate limiting (table: rate_limit_event, migration
+// 0006). Cloudflare WAF rules layer on top in production. Fails open: a
+// rate-limit storage error must never take down the endpoint it protects.
+
+export interface RateLimitDatabase {
+  prepare(sql: string): {
+    bind(...params: unknown[]): {
+      run(): Promise<{ success: boolean; meta: { changes: number } }>;
+    };
+  };
+}
 
 export async function isRateLimited(
   bucket: string,
   opts: { max: number; windowSeconds: number },
+  dependencies: { db?: RateLimitDatabase } = {},
 ): Promise<boolean> {
-  const db = (env as { DB: D1Database }).DB;
+  const db: RateLimitDatabase = dependencies.db ?? env.DB;
   const now = Math.floor(Date.now() / 1000);
   const windowStart = now - opts.windowSeconds;
   try {
-    const row = await db
+    const result = await db
       .prepare(
-        "SELECT COUNT(*) AS c FROM rate_limit_event WHERE bucket = ? AND createdAt > ?",
+        `INSERT INTO rate_limit_event (id, bucket, createdAt)
+         SELECT ?, ?, ?
+         WHERE (
+           SELECT COUNT(*) FROM rate_limit_event
+           WHERE bucket = ? AND createdAt > ?
+         ) < ?`,
       )
-      .bind(bucket, windowStart)
-      .first<{ c: number }>();
-    if ((row?.c ?? 0) >= opts.max) return true;
+      .bind(crypto.randomUUID(), bucket, now, bucket, windowStart, opts.max)
+      .run();
+    if (!result.success) throw new Error("Rate-limit insert failed");
+    const limited = result.meta.changes !== 1;
 
-    await db
-      .prepare("INSERT INTO rate_limit_event (id, bucket, createdAt) VALUES (?, ?, ?)")
-      .bind(crypto.randomUUID(), bucket, now)
-      .run();
     // Opportunistic cleanup of expired rows for this bucket.
-    await db
-      .prepare("DELETE FROM rate_limit_event WHERE bucket = ? AND createdAt <= ?")
-      .bind(bucket, windowStart)
-      .run();
-    return false;
+    try {
+      await db
+        .prepare("DELETE FROM rate_limit_event WHERE bucket = ? AND createdAt <= ?")
+        .bind(bucket, windowStart)
+        .run();
+    } catch {
+      console.error("[rate-limit] expired-event cleanup failed");
+    }
+    return limited;
   } catch (err) {
     console.error("[rate-limit] check failed, allowing request:", err);
     return false;

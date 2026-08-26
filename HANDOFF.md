@@ -315,7 +315,15 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   privacy tests cover success, provider rejection, and missing configuration;
   the production-build boundary verifier rejects ordinary auth/email logging
   and raw provider-body reads so the leak cannot silently return.
-- Current verification passes 67 web test files and 596 tests, web and mobile
+- D1 rate limiting now admits a request with one conditional `INSERT ...
+  SELECT` instead of a racy count-then-insert pair. Concurrent requests cannot
+  all observe the same pre-limit count, and an expired-row cleanup failure no
+  longer reverses a blocked decision. The deliberate storage-outage fail-open
+  policy remains unchanged because Cloudflare WAF is the durable production
+  layer. Five tests cover admission, rejection, cleanup failure, storage
+  outage, and trusted client-IP extraction. An isolated real local D1 run with
+  a five-request cap accepted IDs 1–5 and rejected ID 6.
+- Current verification passes 68 web test files and 601 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 494,025 bytes raw
