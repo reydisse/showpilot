@@ -8,7 +8,7 @@ import {
   addChecklistTemplate,
   addChecklistEntry,
   toggleChecklistEntry,
-  deleteChecklistTemplate,
+  deleteChecklistEntry,
   updateChecklistTemplate,
   getSmartChecklistDraft,
   applySmartChecklistDraft,
@@ -179,15 +179,16 @@ function ChecklistPage() {
 
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
-  const handleDeleteTemplate = async (id: string) => {
+  const handleDeleteEntry = async (id: string) => {
     if (!canManageChecklist) return;
     const ok = await confirm({
-      title: "Delete checklist item",
-      description: "Delete this checklist item? This action cannot be undone.",
-      confirmLabel: "Delete",
+      title: "Remove checklist item",
+      description:
+        "Remove this item from the selected service? Other services and the reusable checklist template will not be changed.",
+      confirmLabel: "Remove",
     });
     if (!ok) return;
-    await deleteChecklistTemplate({ data: { orgId, id } });
+    await deleteChecklistEntry({ data: { orgId, id } });
     await loadEntries(serviceDate, showId);
   };
 
@@ -352,7 +353,12 @@ function ChecklistPage() {
                             </option>
                           ))}
                         </select>
-                        <button onClick={() => handleDeleteTemplate(entry.templateId)} className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100" aria-label={`Delete ${entry.template?.label || "checklist item"}`}>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEntry(entry.id)}
+                          className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
+                          aria-label={`Remove ${entry.template?.label || "checklist item"} from this service`}
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </>

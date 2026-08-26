@@ -1,12 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { getPrisma } from "@/lib/db";
-import type { Permission } from "@/lib/app-permissions";
-import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
-import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
+import type { Permission } from "@/lib/app-permissions";
+import { deleteChecklistEntryCore } from "@/lib/checklist-core";
+import { getPrisma } from "@/lib/db";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { getRundownStateForOrg } from "@/lib/rundown";
+import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
+import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 const nameSchema = z.string().min(1).max(200);
 const longTextSchema = z.string().max(10_000);
@@ -415,15 +416,19 @@ export const updateChecklistTemplate = createServerFn({ method: "POST" })
     if (result.count === 0) throw new Error("Checklist item not found");
   });
 
-export const deleteChecklistTemplate = createServerFn({ method: "POST" })
+export const deleteChecklistEntry = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
-    // Scoped by orgId for the same reason as the update above.
-    await prisma.checklistTemplate.deleteMany({ where: { id: data.id, orgId: data.orgId } });
+    return deleteChecklistEntryCore({
+      entry: { id: data.id, orgId: data.orgId },
+      store: {
+        deleteMany: (where) => prisma.checklistEntry.deleteMany({ where }),
+      },
+    });
   });
 
 export const getChecklistEntries = createServerFn({ method: "GET" })

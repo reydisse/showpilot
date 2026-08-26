@@ -63,6 +63,11 @@ const launchIntegrityContracts = [
     message: "Legacy standalone cue-sheet CRUD must not return. Cue rows and write access belong to the rundown-backed cue-sheet module.",
   },
   {
+    path: "src/lib/data.ts",
+    pattern: /\bdeleteChecklistTemplate\s*=/,
+    message: "A service checklist must not delete its reusable template and cascade into other shows.",
+  },
+  {
     path: "src/lib/permissions.ts",
     pattern: /\bPLANNED\b/,
     message: "The production permission registry must contain only implemented capabilities.",
