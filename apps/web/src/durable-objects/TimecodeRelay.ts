@@ -31,7 +31,6 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
 ]);
 
 export class TimecodeRelay extends DurableObject {
-  private sessions: Set<WebSocket> = new Set();
   private state: TimecodeState = {
     timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
     display: "00:00:00:00",
@@ -65,7 +64,7 @@ export class TimecodeRelay extends DurableObject {
 
   private sendMasterStatus(sessionId: string | undefined, granted: boolean): void {
     if (!sessionId) return;
-    for (const ws of this.sessions) {
+    for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
       if (attachment?.sessionId === sessionId) {
         ws.send(JSON.stringify({ type: "master-status", granted } satisfies TimecodeWsMessage));
@@ -98,8 +97,8 @@ export class TimecodeRelay extends DurableObject {
       server.serializeAttachment?.({
         canWrite: url.searchParams.get("access") === "write",
         sessionId: crypto.randomUUID(),
+        orgId: this.orgId,
       });
-      this.sessions.add(server);
 
       // Hydrate
       const hydrate: TimecodeWsMessage = {
@@ -139,8 +138,13 @@ export class TimecodeRelay extends DurableObject {
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "command") {
-        const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean; sessionId?: string } | null;
+        const attachment = ws.deserializeAttachment?.() as {
+          canWrite?: boolean;
+          sessionId?: string;
+          orgId?: string;
+        } | null;
         if (!attachment?.canWrite) return;
+        if (attachment.orgId) this.orgId = attachment.orgId;
         await this.handleCommand(msg.action, msg.payload, attachment.sessionId);
       }
     } catch {
@@ -149,7 +153,6 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket) {
-    this.sessions.delete(ws);
     const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
     if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
       this.masterSessionId = null;
@@ -160,9 +163,7 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
-  webSocketError(ws: WebSocket) {
-    this.sessions.delete(ws);
-  }
+  webSocketError() {}
 
   // ─── Command Handler ────────────────────────────────────
 
@@ -597,11 +598,12 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private broadcast(data: string): void {
-    for (const ws of this.sessions) {
+    // getWebSockets() is the authoritative list after hibernation wakes.
+    for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(data);
       } catch {
-        this.sessions.delete(ws);
+        try { ws.close(1011, "Broadcast failed"); } catch {}
       }
     }
   }

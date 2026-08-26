@@ -19,15 +19,16 @@ export interface LowerThirdPayload {
 }
 
 export class LowerThirdsRelay extends DurableObject {
-  private sessions: Set<WebSocket> = new Set();
   private current: LowerThirdPayload | null = null;
   private queue: LowerThirdPayload | null = null;
-  private hydrated = false;
+  private hydration: Promise<void> | null = null;
 
-  private async hydrateFromStorage(): Promise<void> {
-    if (this.hydrated) return;
-    this.hydrated = true;
+  private hydrateFromStorage(): Promise<void> {
+    this.hydration ??= this.loadState();
+    return this.hydration;
+  }
 
+  private async loadState(): Promise<void> {
     const stored = await this.ctx.storage.get<{
       current: LowerThirdPayload | null;
       queue: LowerThirdPayload | null;
@@ -55,7 +56,6 @@ export class LowerThirdsRelay extends DurableObject {
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
-      this.sessions.add(server);
 
       // Hydrate late connectors
       if (this.current) {
@@ -179,20 +179,18 @@ export class LowerThirdsRelay extends DurableObject {
     }
   }
 
-  webSocketClose(ws: WebSocket) {
-    this.sessions.delete(ws);
-  }
+  webSocketClose() {}
 
-  webSocketError(ws: WebSocket) {
-    this.sessions.delete(ws);
-  }
+  webSocketError() {}
 
   private broadcast(data: string) {
-    for (const ws of this.sessions) {
+    // Cloudflare retains accepted sockets across Durable Object hibernation;
+    // an instance Set would lose every connected display on wake.
+    for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.send(data);
       } catch {
-        this.sessions.delete(ws);
+        try { ws.close(1011, "Broadcast failed"); } catch {}
       }
     }
   }

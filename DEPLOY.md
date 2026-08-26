@@ -187,7 +187,18 @@ pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/000
 # 3. Commit and push. The deploy workflow re-runs and passes.
 ```
 
-For local development use `--local` instead of `--remote`.
+For a fresh local database, apply every numbered migration in order with:
+
+```sh
+pnpm db:migrate:local
+```
+
+The local runner records applied files in the local D1 database, so rerunning
+the command only applies new migrations. It accepts an optional
+`--persist-to <directory>` for isolated test state and cannot target the remote
+database. Older local databases created with direct `wrangler d1 execute`
+commands have no runner history; continue applying explicit files there or use
+a fresh local state directory.
 
 ### Current state
 

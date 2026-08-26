@@ -25,7 +25,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private recentMessages: ChatMessage[] = [];
   /** Keep connection hydration bounded without treating that window as retention. */
   private readonly HYDRATION_MESSAGE_LIMIT = 2000;
-  private historyLoaded = false;
+  private historyLoad: Promise<void> | null = null;
   private roomId = "production";
 
   constructor(ctx: DurableObjectState, env: ChatRelayEnv) {
@@ -45,10 +45,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     });
   }
 
-  private async ensureHistoryLoaded() {
-    if (this.historyLoaded) return;
-    this.historyLoaded = true;
+  private ensureHistoryLoaded(): Promise<void> {
+    this.historyLoad ??= this.loadHistory();
+    return this.historyLoad;
+  }
 
+  private async loadHistory(): Promise<void> {
     const rows = this.ctx.storage.sql.exec<{ payload: string }>(
       "SELECT payload FROM chat_messages ORDER BY timestamp DESC, id DESC LIMIT ?",
       this.HYDRATION_MESSAGE_LIMIT,
@@ -175,6 +177,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     try {
+      // A hibernated Durable Object can wake directly into a WebSocket event,
+      // without another fetch() call to restore the in-memory working set.
+      await this.ensureHistoryLoaded();
       const parsed = JSON.parse(data as string) as {
         type: string;
         name?: string;

@@ -13,8 +13,8 @@
 		"deploy": "pnpm build && wrangler deploy",
 		"cf-typegen": "wrangler types",
 		"db:generate": "prisma generate",
-		"db:migrate:local": "wrangler d1 execute showpilot-db --local --file=prisma/migrations/0001_init.sql",
-		"db:migrate:remote": "wrangler d1 execute showpilot-db --remote --file=prisma/migrations/0001_init.sql"
+		"db:migrate": "pnpm run db:migrate:local",
+		"db:migrate:local": "node scripts/run-local-migrations.mjs"
 	},
 	"dependencies": {
 		"@better-auth/expo": "1.4.20",

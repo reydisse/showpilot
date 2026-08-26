@@ -137,9 +137,11 @@ CONVENTIONS
   `.handler()`. Auth/permission assertion is the first line of the
   handler.
 - D1 migrations are hand-written SQL files in
-  `apps/web/prisma/migrations/` (numbered `000N_name.sql`), applied
-  with `wrangler d1 execute`/`pnpm db:migrate:*`. Run
-  `pnpm db:generate` after schema changes.
+  `apps/web/prisma/migrations/` (numbered `000N_name.sql`). Run
+  `pnpm db:migrate:local` for a fresh local database. Use
+  `wrangler d1 execute` to apply one file. Apply production migrations
+  one file at a time with `--remote`; the local runner rejects remote
+  targets. Run `pnpm db:generate` after schema changes.
 - New routes are files under `apps/web/src/routes/` (TanStack file
   routing; `routeTree.gen.ts` is generated — never hand-edit).
 - The device-module layer (`src/lib/device-modules/`) is stable and

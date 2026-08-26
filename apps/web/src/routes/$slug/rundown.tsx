@@ -1549,6 +1549,7 @@ function RundownPage() {
                 <button
                   onClick={() => handleAdjustTime(-60_000)}
                   disabled={timer.playback === "stop"}
+                  aria-label="Subtract 1 minute from current item"
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                 >
                   <Minus className="w-3 h-3" /> 1m
@@ -1556,6 +1557,7 @@ function RundownPage() {
                 <button
                   onClick={() => handleAdjustTime(-15_000)}
                   disabled={timer.playback === "stop"}
+                  aria-label="Subtract 15 seconds from current item"
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                 >
                   <Minus className="w-3 h-3" /> 15s
@@ -1563,6 +1565,7 @@ function RundownPage() {
                 <button
                   onClick={() => handleAdjustTime(15_000)}
                   disabled={timer.playback === "stop"}
+                  aria-label="Add 15 seconds to current item"
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                 >
                   <Plus className="w-3 h-3" /> 15s
@@ -1570,6 +1573,7 @@ function RundownPage() {
                 <button
                   onClick={() => handleAdjustTime(60_000)}
                   disabled={timer.playback === "stop"}
+                  aria-label="Add 1 minute to current item"
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                 >
                   <Plus className="w-3 h-3" /> 1m
@@ -1590,6 +1594,7 @@ function RundownPage() {
                   value={customAdjust}
                   onChange={(e) => setCustomAdjust(e.target.value)}
                   placeholder="secs or m:ss"
+                  aria-label="Custom time adjustment"
                   className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
                 />
                 <button
