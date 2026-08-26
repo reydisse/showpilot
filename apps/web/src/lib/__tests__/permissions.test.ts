@@ -91,7 +91,6 @@ describe("manager scoping regression (unchanged by director roles)", () => {
       "rundown:pin_required",
       "cuesheet:view",
       "cuesheet:add_notes",
-      "cuesheet:push_to_checklist",
       "chat:access",
       "checklist:access",
       "incidents:access",

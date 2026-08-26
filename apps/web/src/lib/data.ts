@@ -9,7 +9,6 @@ import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart
 import { getRundownStateForOrg } from "@/lib/rundown";
 
 const nameSchema = z.string().min(1).max(200);
-const shortTextSchema = z.string().max(500);
 const longTextSchema = z.string().max(10_000);
 // Photos arrive as data URLs; the public flow re-checks decoded byte size.
 const photoUrlSchema = z.string().max(2_100_000);
@@ -580,96 +579,6 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
     }
 
     return { added };
-  });
-
-// ─── Cue Sheets ─────────────────────────────────────────────
-
-export const getCueSheets = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-    return await prisma.cueSheet.findMany({
-      where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
-      orderBy: { cueNumber: "asc" },
-    });
-  });
-
-export const addCueSheet = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        cueNumber: z.number().int().min(0).max(100_000),
-        rundownItem: shortTextSchema,
-        cameraAssignments: shortTextSchema.optional(),
-        notes: longTextSchema.optional(),
-        serviceDate: serviceDateSchema,
-        showId: idSchema,
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-    return await prisma.cueSheet.create({
-      data: {
-        orgId: data.orgId,
-        showId: data.showId,
-        cueNumber: data.cueNumber,
-        rundownItem: data.rundownItem,
-        cameraAssignments: data.cameraAssignments ?? "",
-        notes: data.notes ?? "",
-        serviceDate: data.serviceDate,
-      },
-    });
-  });
-
-export const updateCueSheet = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        id: idSchema,
-        updates: z
-          .object({
-            cueNumber: z.number().int().min(0).max(100_000),
-            rundownItem: shortTextSchema,
-            cameraAssignments: shortTextSchema,
-            notes: longTextSchema,
-          })
-          .partial(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const existing = await prisma.cueSheet.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Cue sheet not found");
-    await assertOrgAccess(existing.orgId);
-    return await prisma.cueSheet.update({
-      where: { id: data.id },
-      data: data.updates,
-    });
-  });
-
-export const deleteCueSheet = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const existing = await prisma.cueSheet.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Cue sheet not found");
-    await assertOrgAccess(existing.orgId);
-    await prisma.cueSheet.delete({ where: { id: data.id } });
   });
 
 // ─── Incidents ──────────────────────────────────────────────

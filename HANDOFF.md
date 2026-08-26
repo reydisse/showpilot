@@ -333,11 +333,19 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   authorized. Rendered QA opened a Graphics access alert at
   `/showpilot-qa-workspace/streaming/graphics`; the temporary notification was
   deleted afterward and local D1 confirmed no matching record remained.
+- The RBAC registry no longer advertises the never-implemented
+  `cuesheet:push_to_checklist` permission. Rundown-to-checklist generation stays
+  in the Checklist page under its real `checklist:access` permission. The four
+  unused standalone CueSheet server functions were also removed; they duplicated
+  the rebuilt rundown-backed cue sheet and allowed ordinary organization access
+  to reach legacy writes. The old database table remains intact for recovery
+  until its production data is audited. The production build now fails if
+  either the legacy exports or a `PLANNED` permission returns.
 - Current verification passes 68 web test files and 603 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
-  Expo Doctor 18/18, and native lint. The web main bundle is 494,319 bytes raw
-  and 155,642 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
+  Expo Doctor 18/18, and native lint. The web main bundle is 493,864 bytes raw
+  and 155,451 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
   5,902,629 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the

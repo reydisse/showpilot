@@ -293,6 +293,9 @@ model ChecklistEntry {
   @@map("checklist_entry")
 }
 
+/// Legacy standalone cue rows. The live product derives cue rows from RundownItem
+/// and stores department instructions in CueNote. Keep this table for recovery
+/// until production data has been audited; there is no runtime CRUD API for it.
 model CueSheet {
   id                String       @id @default(cuid())
   orgId             String

@@ -32,7 +32,6 @@ export type Permission =
   | "cuesheet:view"
   | "cuesheet:edit"
   | "cuesheet:add_notes"
-  | "cuesheet:push_to_checklist" // PLANNED
   | "chat:access"
   | "checklist:view"
   | "checklist:access"
@@ -77,7 +76,6 @@ export const ALL_PERMISSIONS = [
   "cuesheet:view",
   "cuesheet:edit",
   "cuesheet:add_notes",
-  "cuesheet:push_to_checklist", // PLANNED
   "chat:access",
   "checklist:view",
   "checklist:access",
@@ -151,7 +149,6 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "rundown:pin_required",
     "cuesheet:view",
     "cuesheet:add_notes",
-    "cuesheet:push_to_checklist", // PLANNED
     "chat:access",
     "checklist:access",
     "incidents:access",

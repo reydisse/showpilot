@@ -56,4 +56,22 @@ for (const contract of sensitiveLoggingContracts) {
   if (contract.pattern.test(source)) throw new Error(contract.message);
 }
 
+const launchIntegrityContracts = [
+  {
+    path: "src/lib/data.ts",
+    pattern: /\b(?:getCueSheets|addCueSheet|updateCueSheet|deleteCueSheet)\s*=/,
+    message: "Legacy standalone cue-sheet CRUD must not return. Cue rows and write access belong to the rundown-backed cue-sheet module.",
+  },
+  {
+    path: "src/lib/permissions.ts",
+    pattern: /\bPLANNED\b/,
+    message: "The production permission registry must contain only implemented capabilities.",
+  },
+];
+
+for (const contract of launchIntegrityContracts) {
+  const source = readFileSync(resolve(webRoot, contract.path), "utf8");
+  if (contract.pattern.test(source)) throw new Error(contract.message);
+}
+
 console.log("Client boundary check passed.");

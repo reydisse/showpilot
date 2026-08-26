@@ -1888,7 +1888,7 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
           />
         </FieldGroup>
 
-        {/* Event Log placeholder */}
+        {/* Recent webhook delivery history */}
         <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             Recent Webhook Events
