@@ -1,0 +1,18 @@
+name: Create production store builds
+
+# Deliberately manual and build-only. Review each signed artifact and complete
+# the physical-device launch checklist before submitting it to either store.
+jobs:
+  build_android:
+    name: Build Android App Bundle
+    type: build
+    params:
+      platform: android
+      profile: production
+
+  build_ios:
+    name: Build iOS archive
+    type: build
+    params:
+      platform: ios
+      profile: production

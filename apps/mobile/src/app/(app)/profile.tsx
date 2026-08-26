@@ -43,8 +43,6 @@ export default function ProfileScreen() {
   async function chooseAvatar() {
     setSavingAvatar(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) throw new Error("Allow photo access to choose a profile picture.");
       const selection = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,

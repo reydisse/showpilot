@@ -1,0 +1,16 @@
+name: Create signed internal builds
+
+jobs:
+  build_android:
+    name: Build Android tester app
+    type: build
+    params:
+      platform: android
+      profile: preview
+
+  build_ios:
+    name: Build iOS tester app
+    type: build
+    params:
+      platform: ios
+      profile: preview

@@ -223,15 +223,24 @@ analytics no-op / checkout falls back to the hosted Stripe page.
 Workflow summary:
 
 - **`ci.yml`** — PRs and pushes to `main`. Order is load-bearing:
-  install → `db:generate` → typecheck → test → landing verification. The
+  install → native release contract → `db:generate` → typecheck → web/Bridge
+  tests → React Native export/Doctor → landing verification, plus a parallel
+  native Rust job. The
   generated Prisma client is gitignored, so skipping the generate step makes
-  `tsc --noEmit` fail with cascading errors. Web and Bridge typechecks are
-  both blocking.
+  `tsc --noEmit` fail with cascading errors. Web, Bridge, mobile, landing,
+  Desktop Rust, and Bridge Desktop Rust checks are all blocking.
 - **`deploy.yml`** — runs only after CI succeeds on a push to `main`. Fails
   before deploying if any numbered migration is missing from
   `applied-remote.txt` or the private downloads bucket does not exist. It then
   deploys the product and landing Workers and smoke-tests the live landing
   download API.
+
+Mobile store builds are separate from the Cloudflare deploy. They use the
+manual, build-only workflows under `apps/mobile/.eas/workflows`; no push to
+`main` creates or submits a store build. Follow `apps/mobile/README.md` and run
+the authenticated `verify:release` gate before invoking either production
+workflow. EAS project linkage, signing credentials, store submission, and the
+pending push migrations require explicit owner authorization.
 
 ---
 

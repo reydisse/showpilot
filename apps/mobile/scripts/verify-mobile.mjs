@@ -3,12 +3,22 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const mobileRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(mobileRoot, "../..");
 const appConfig = JSON.parse(readFileSync(resolve(mobileRoot, "app.json"), "utf8"));
+const packageConfig = JSON.parse(readFileSync(resolve(mobileRoot, "package.json"), "utf8"));
+const easConfig = JSON.parse(readFileSync(resolve(mobileRoot, "eas.json"), "utf8"));
+const requireReleaseLink = process.argv.slice(2).includes("--release");
+const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--release");
+if (unknownArguments.length > 0) {
+  throw new Error(`Unknown mobile verification argument: ${unknownArguments[0]}`);
+}
 const runtimeVersions = {
   expo: "54.0.37",
+  "expo-dev-client": "6.0.21",
+  "expo-updates": "29.0.20",
   "react-native": "0.81.5",
 };
 const featureContract = [
@@ -28,6 +38,9 @@ const sourceContract = [
   ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
   ["src/app/chat.tsx", "memo(function MessageCard"],
 ];
+const forbiddenSourceContract = [
+  ["src/app/(app)/profile.tsx", "requestMediaLibraryPermissionsAsync"],
+];
 const apiContract = [
   "/api/mobile/v1/bootstrap",
   "const rundownMatch",
@@ -38,6 +51,35 @@ const apiContract = [
   "const deviceControlMatch",
   "/api/mobile/v1/notifications/read",
   "/api/mobile/v1/push-token",
+];
+const buildProfiles = {
+  development: {
+    developmentClient: true,
+    distribution: "internal",
+    environment: "development",
+    channel: "development",
+  },
+  preview: {
+    distribution: "internal",
+    environment: "preview",
+    channel: "preview",
+  },
+  production: {
+    distribution: "store",
+    environment: "production",
+    channel: "production",
+    autoIncrement: true,
+  },
+};
+const workflowContracts = [
+  {
+    path: ".eas/workflows/create-internal-builds.yml",
+    profile: "preview",
+  },
+  {
+    path: ".eas/workflows/create-production-builds.yml",
+    profile: "production",
+  },
 ];
 
 function readPngHeader(relativePath) {
@@ -63,8 +105,63 @@ for (const [file, marker] of sourceContract) {
   const source = readFileSync(resolve(mobileRoot, file), "utf8");
   if (!source.includes(marker)) throw new Error(`Missing ${marker} from ${file}`);
 }
+for (const [file, marker] of forbiddenSourceContract) {
+  const source = readFileSync(resolve(mobileRoot, file), "utf8");
+  if (source.includes(marker)) throw new Error(`Unexpected ${marker} in ${file}`);
+}
 for (const endpoint of apiContract) {
   if (!workerApi.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
+}
+if (packageConfig.version !== appConfig.expo?.version) {
+  throw new Error(
+    `Mobile package and app versions must match (package=${String(packageConfig.version)}, app=${String(appConfig.expo?.version)}).`,
+  );
+}
+if (appConfig.expo?.runtimeVersion?.policy !== "appVersion") {
+  throw new Error("Mobile runtimeVersion must use the appVersion compatibility policy.");
+}
+if (easConfig.cli?.version !== ">= 22.4.0 < 23.0.0") {
+  throw new Error("eas.json must enforce the reviewed EAS CLI major version.");
+}
+if (easConfig.cli?.appVersionSource !== "remote") {
+  throw new Error("EAS must manage native build numbers remotely.");
+}
+for (const [profile, expected] of Object.entries(buildProfiles)) {
+  const actual = easConfig.build?.[profile];
+  for (const [key, value] of Object.entries(expected)) {
+    if (actual?.[key] !== value) {
+      throw new Error(`EAS ${profile}.${key} must be ${String(value)}.`);
+    }
+  }
+}
+if (!easConfig.submit || typeof easConfig.submit.production !== "object") {
+  throw new Error("EAS must retain an explicit production submit profile.");
+}
+for (const workflow of workflowContracts) {
+  const source = readFileSync(resolve(mobileRoot, workflow.path), "utf8");
+  const config = parseYaml(source);
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    throw new Error(`${workflow.path} must contain a YAML object.`);
+  }
+  if (Object.hasOwn(config, "on")) {
+    throw new Error(`${workflow.path} must remain manually triggered.`);
+  }
+  if (!config.jobs || typeof config.jobs !== "object" || Array.isArray(config.jobs)) {
+    throw new Error(`${workflow.path} must define build jobs.`);
+  }
+  const jobs = Object.values(config.jobs);
+  if (jobs.length !== 2) {
+    throw new Error(`${workflow.path} must contain exactly two build jobs.`);
+  }
+  const platforms = jobs.map((job) => job?.params?.platform).sort();
+  if (platforms.join(",") !== "android,ios") {
+    throw new Error(`${workflow.path} must build exactly Android and iOS.`);
+  }
+  for (const job of jobs) {
+    if (job?.type !== "build" || job.params?.profile !== workflow.profile) {
+      throw new Error(`${workflow.path} must remain build-only with the ${workflow.profile} profile.`);
+    }
+  }
 }
 for (const [packageName, expectedVersion] of Object.entries(runtimeVersions)) {
   const packageJsonPath = realpathSync(resolve(mobileRoot, "node_modules", packageName, "package.json"));
@@ -94,12 +191,39 @@ if (appConfig.expo?.ios?.config?.usesNonExemptEncryption !== false) {
 if (publicConfig.android?.package !== "tech.showpilot.mobile") {
   throw new Error("The Android application ID changed from tech.showpilot.mobile.");
 }
+const projectId = publicConfig.extra?.eas?.projectId;
+const owner = publicConfig.owner;
+const updatesUrl = publicConfig.updates?.url;
+if (projectId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)) {
+  throw new Error("The linked EAS project ID must be a UUID.");
+}
+if (projectId && updatesUrl !== `https://u.expo.dev/${projectId}`) {
+  throw new Error("The EAS Update URL must match the linked project ID.");
+}
+if (!projectId && updatesUrl) {
+  throw new Error("The app cannot declare an EAS Update URL without a project ID.");
+}
+if (requireReleaseLink && !projectId) {
+  throw new Error("Release verification requires extra.eas.projectId from the approved EAS project.");
+}
+if (requireReleaseLink && (typeof owner !== "string" || owner.length === 0)) {
+  throw new Error("Release verification requires the approved Expo account owner.");
+}
 const androidPermissions = Array.isArray(publicConfig.android?.permissions)
   ? publicConfig.android.permissions
   : [];
-for (const permission of ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]) {
+const blockedAndroidPermissions = [
+  "android.permission.CAMERA",
+  "android.permission.RECORD_AUDIO",
+  "android.permission.READ_EXTERNAL_STORAGE",
+  "android.permission.WRITE_EXTERNAL_STORAGE",
+];
+for (const permission of blockedAndroidPermissions) {
   if (androidPermissions.includes(permission)) {
-    throw new Error(`The profile-photo picker must not request unused ${permission} access.`);
+    throw new Error(`The system profile-photo picker must not request unused ${permission} access.`);
+  }
+  if (!appConfig.expo?.android?.blockedPermissions?.includes(permission)) {
+    throw new Error(`app.json must explicitly block unused ${permission} access.`);
   }
 }
 const appIcon = readPngHeader("assets/showpilot-app-icon.png");
@@ -122,4 +246,7 @@ for (const args of commands) {
   execFileSync("pnpm", args, { cwd: mobileRoot, stdio: "inherit" });
 }
 
-console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, and ${apiContract.length} API contracts across iOS, Android, and web exports.`);
+const releaseState = projectId
+  ? `linked EAS project ${projectId}`
+  : "local app contracts; EAS project linkage remains pending";
+console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, ${apiContract.length} API contracts, and ${releaseState} across iOS, Android, and web exports.`);

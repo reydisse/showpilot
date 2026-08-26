@@ -207,6 +207,22 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Local verification passed 6 verifier tests, 12 Desktop
   Rust tests, 6 Bridge Desktop Rust tests, and real no-bundle Tauri builds for
   both products with their embedded Apple Silicon Bridge sidecars.
+- Stacked follow-up branch `fix/mobile-release-readiness` is local-only on top
+  of the native release gate. It adds SDK 54-compatible development-client and
+  update modules, an `appVersion` runtime policy, explicit EAS environments and
+  channels, manual build-only internal/production workflows, CI mobile
+  verification, and a release gate that requires the approved Expo owner,
+  project UUID, matching update URL, and authenticated workflow validation.
+  The ordinary gate passes locally with all-platform exports and Expo Doctor
+  18/18. Clean native generation, an Android debug APK (530 Gradle tasks), and
+  a local release AAB (874 Gradle tasks) also pass; both artifacts contain
+  Reanimated and Worklets libraries for all four configured ABIs. The local AAB
+  is intentionally self-signed with the generated debug key and is not a store
+  artifact. CocoaPods installed all 108 iOS pods, including Dev Client and
+  Updates; local Xcode compilation is waiting on its missing iOS 26.5 platform
+  component. The release gate intentionally remains red until the owner links
+  the real EAS project. No Expo project, credential, cloud build, update, or
+  submission was created.
 - A read-only production audit on 2026-08-26 found that `www.showpilot.tech`
   still serves the June landing deployment without the download center and
   that the `showpilot-downloads` R2 bucket does not exist. Do not create the
@@ -218,9 +234,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Apple signing/notarization or Windows code-signing secrets. Do not create a
   native release tag until those credentials are configured; the hardened
   workflows intentionally fail instead of producing untrusted installers.
-- Native push delivery still needs an EAS project ID, platform credentials, and
-  a signed development build. Apple distribution also waits on the owner's
-  developer enrollment. Those external actions are not authorized or complete.
+- Native push delivery still needs the approved EAS owner/project link,
+  platform credentials, and a signed internal build. Apple distribution also
+  waits on the owner's developer enrollment. Those external actions are not
+  authorized or complete.
 - Before deploying the mobile Worker endpoints, apply migrations 0030 and 0031
   through the protected migration workflow, then perform signed-device push,
   profile upload, organization switching, chat, Bridge control, and

@@ -60,6 +60,9 @@ jobs:
       - name: Test bridge
         run: pnpm --filter @showpilot/bridge test
 
+      - name: Verify React Native app and EAS workflows
+        run: pnpm --filter @showpilot/mobile verify
+
       - name: Verify landing release Worker
         run: pnpm --filter @showpilot/landing run verify
 
