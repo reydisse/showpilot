@@ -1,5 +1,3 @@
-const DEVELOPMENT_PORTS = [3000, 3001, 5173, 8081] as const;
-
 export function isLocalDevelopmentHost(hostname: string): boolean {
   if (hostname === "localhost" || hostname === "[::1]") return true;
 
@@ -68,8 +66,8 @@ export function getDevelopmentTrustedOrigins(baseURL: string): string[] {
 
   if (url.protocol !== "http:" || !isLocalDevelopmentHost(url.hostname)) return [];
 
-  return [...new Set([
-    url.origin,
-    ...DEVELOPMENT_PORTS.map((port) => `http://${url.hostname}:${port}`),
-  ])];
+  // Better Auth supports a wildcard port. Keep the host exact and derive it
+  // only from an explicitly local base URL, so parallel Metro/Vite servers
+  // remain testable without widening the production origin allowlist.
+  return [url.origin, `http://${url.hostname}:*`];
 }

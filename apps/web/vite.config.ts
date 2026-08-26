@@ -2,6 +2,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { networkInterfaces } from 'node:os'
 import { defineConfig } from 'vite'
+import { isLocalDevelopmentHost } from './src/lib/auth-origins'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import tsconfigPaths from 'vite-tsconfig-paths'
@@ -17,14 +18,21 @@ const prismaClientShim = path.resolve(__dirname, './src/lib/prisma-client-shim.t
 const developmentHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
 for (const addresses of Object.values(networkInterfaces())) {
   for (const address of addresses ?? []) {
-    if (address.family === 'IPv4' && !address.internal) developmentHosts.add(address.address)
+    if (
+      address.family === 'IPv4' &&
+      !address.internal &&
+      isLocalDevelopmentHost(address.address)
+    ) {
+      developmentHosts.add(address.address)
+    }
   }
 }
-const developmentPorts = [3000, 3001, 5173, 8081]
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const developmentHostPattern = [...developmentHosts].map(escapeRegExp).join('|')
 const credentialedDevOrigins = [
   /^https:\/\/(?:[a-z0-9-]+\.)*showpilot\.tech$/,
   'https://showpilot.reydisse.workers.dev',
-  ...[...developmentHosts].flatMap((host) => developmentPorts.map((port) => `http://${host}:${port}`)),
+  new RegExp(`^http:\/\/(?:${developmentHostPattern}):\\d+$`),
 ]
 
 const config = defineConfig({
