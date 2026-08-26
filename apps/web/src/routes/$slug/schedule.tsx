@@ -49,6 +49,11 @@ import { formatTimeInput, formatWallTime, getTodayDateString } from "@/lib/utils
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
+import {
+  getScheduleSelectionDeps,
+  normalizeScheduleSearch,
+  type ScheduleSearch,
+} from "@/lib/schedule-selection";
 
 function shiftDate(date: string, days: number) {
   const value = new Date(`${date}T12:00:00`);
@@ -108,19 +113,11 @@ const FORM_CONTROL =
   "w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none focus:border-fire-500/50";
 
 export const Route = createFileRoute("/$slug/schedule")({
-  validateSearch: (search: Record<string, unknown>): {
-    show?: string;
-    date?: string;
-    assignment?: string;
-  } => ({
-    show: typeof search.show === "string" ? search.show : undefined,
-    date: typeof search.date === "string" ? search.date : undefined,
-    assignment:
-      typeof search.assignment === "string" ? search.assignment : undefined,
-  }),
-  loaderDeps: () => ({}),
+  validateSearch: (search: Record<string, unknown>): ScheduleSearch =>
+    normalizeScheduleSearch(search),
+  loaderDeps: ({ search }) => getScheduleSelectionDeps(search),
   pendingComponent: PageSkeleton,
-  loader: async ({ context }) => {
+  loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -135,6 +132,8 @@ export const Route = createFileRoute("/$slug/schedule")({
         orgId: context.orgId,
         from: shiftDate(today, -30),
         to: shiftDate(today, 31),
+        selectedDate: deps.selectedDate,
+        selectedShowId: deps.selectedShowId,
       },
     });
     // Keep these reads serialized: multiple Prisma D1 clients competing in
@@ -685,7 +684,18 @@ function SchedulePage() {
           }}
           onDeleted={async () => {
             setServiceOpen(false);
-            await router.invalidate();
+            if (requestedShowId || requestedDate) {
+              await navigate({
+                search: {
+                  show: undefined,
+                  date: undefined,
+                  assignment: undefined,
+                },
+                replace: true,
+              });
+            } else {
+              await router.invalidate();
+            }
           }}
         />
       ) : null}
@@ -709,6 +719,9 @@ function MonthCalendar({
   const [month, setMonth] = useState(
     () => new Date(initial.getFullYear(), initial.getMonth(), 1),
   );
+  useEffect(() => {
+    setMonth(new Date(initial.getFullYear(), initial.getMonth(), 1));
+  }, [selectedDate]);
   const serviceSet = useMemo(() => new Set(serviceDates), [serviceDates]);
   const startDay = month.getDay();
   const daysInMonth = new Date(
@@ -1241,7 +1254,6 @@ function CreateServiceModal({
               type="date"
               value={date}
               min={today}
-              max={shiftDate(today, 31)}
               onChange={(event) => setDate(event.target.value)}
               className={FORM_CONTROL}
             />

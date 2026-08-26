@@ -4,11 +4,11 @@ import { notificationRoute } from "@/lib/notification-route";
 export function notificationHref(actionUrl: string): Href | null {
   const route = notificationRoute(actionUrl);
   if (!route) return null;
-  if (route.screen === "devices") return "/devices" as Href;
-  if (route.screen === "incidents") return "/incidents" as Href;
-  if (route.screen === "schedule") return "/schedule" as Href;
-  if (route.screen === "chat") return { pathname: "/chat", params: { room: route.room } } as unknown as Href;
-  return { pathname: "/show/[showId]", params: { showId: route.showId } } as unknown as Href;
+  if (route.screen === "devices") return "/devices";
+  if (route.screen === "incidents") return "/incidents";
+  if (route.screen === "schedule") return "/schedule";
+  if (route.screen === "chat") return { pathname: "/chat", params: { room: route.room } };
+  return { pathname: "/show/[showId]", params: { showId: route.showId } };
 }
 
 export function openNotificationDestination(actionUrl: unknown) {

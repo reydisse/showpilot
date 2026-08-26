@@ -24,6 +24,7 @@ const runtimeVersions = {
 const maximumNativeBundleBytes = 6_500_000;
 const featureContract = [
   ["src/app/(app)/shows.tsx", "/api/mobile/v1/bootstrap"],
+  ["src/app/(app)/shows.tsx", "/api/mobile/v1/rundowns"],
   ["src/app/schedule.tsx", "/api/mobile/v1/schedule"],
   ["src/app/incidents.tsx", "/api/mobile/v1/incidents"],
   ["src/app/devices.tsx", "/api/mobile/v1/devices"],
@@ -31,6 +32,8 @@ const featureContract = [
   ["src/app/(app)/profile.tsx", "/api/user/avatar"],
 ];
 const sourceContract = [
+  ["src/app/(app)/shows.tsx", "createMobileRundown"],
+  ["src/app/incidents.tsx", "getServiceDateForTimeZone"],
   ["src/app/settings.tsx", "setAppThemePreference"],
   ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
   ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
@@ -44,6 +47,7 @@ const forbiddenSourceContract = [
 ];
 const apiContract = [
   "/api/mobile/v1/bootstrap",
+  'url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST"',
   "const rundownMatch",
   "/api/mobile/v1/schedule",
   "/api/mobile/v1/schedule/respond",
@@ -119,10 +123,14 @@ for (const [file, marker] of forbiddenSourceContract) {
   if (source.includes(marker)) throw new Error(`Unexpected ${marker} in ${file}`);
 }
 for (const file of sourceFiles(resolve(mobileRoot, "src"))) {
-  if (/from ["']lucide-react-native["']/.test(readFileSync(file, "utf8"))) {
+  const source = readFileSync(file, "utf8");
+  if (/from ["']lucide-react-native["']/.test(source)) {
     throw new Error(
       `Native icons must use direct lucide-react-native/icons/* imports to preserve tree shaking: ${file}`,
     );
+  }
+  if (/as unknown as Href/.test(source)) {
+    throw new Error(`Native routes must satisfy Expo's generated Href types without double casts: ${file}`);
   }
 }
 for (const endpoint of apiContract) {

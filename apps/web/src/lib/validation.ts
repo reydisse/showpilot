@@ -23,10 +23,23 @@ export const labelSchema = z.string().min(1).max(200);
 /** Free-form text fields (notes, descriptions, messages). */
 export const textSchema = z.string().max(10_000);
 
-/** ISO-ish service date keys, e.g. "2026-06-09". */
+/** True only for a real UTC calendar date written as YYYY-MM-DD. */
+export function isValidServiceDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+/** Real service date keys, e.g. "2026-06-09". */
 export const serviceDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
+  .refine(isValidServiceDate, "Expected a real calendar date");
 
 export class ValidationError extends Error {
   status = 400;

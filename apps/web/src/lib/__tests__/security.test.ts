@@ -90,10 +90,13 @@ describe("validation schemas", () => {
     expect(idSchema.safeParse(123).success).toBe(false);
   });
 
-  it("serviceDateSchema only accepts YYYY-MM-DD", () => {
+  it("serviceDateSchema only accepts real YYYY-MM-DD calendar dates", () => {
     expect(serviceDateSchema.safeParse("2026-06-09").success).toBe(true);
+    expect(serviceDateSchema.safeParse("2028-02-29").success).toBe(true);
     expect(serviceDateSchema.safeParse("06/09/2026").success).toBe(false);
     expect(serviceDateSchema.safeParse("2026-6-9").success).toBe(false);
+    expect(serviceDateSchema.safeParse("2026-02-29").success).toBe(false);
+    expect(serviceDateSchema.safeParse("2026-02-30").success).toBe(false);
   });
 });
 

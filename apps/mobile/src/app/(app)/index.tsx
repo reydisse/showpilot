@@ -1,5 +1,5 @@
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { Redirect, router, type Href } from "expo-router";
+import { Redirect, router } from "expo-router";
 import BellRing from "lucide-react-native/icons/bell-ring";
 import Radio from "lucide-react-native/icons/radio";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
@@ -37,7 +37,7 @@ export default function HomeScreen() {
           </View>
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>{liveShow ? "ACTIVE SHOW" : "NEXT SHOW"}</Text>
-            {nextShow ? <ShowCard show={nextShow} timeZone={data.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: nextShow.id } } as unknown as Href)} /> : <Text style={styles.empty}>No upcoming shows. Create one on web or desktop and it will appear here.</Text>}
+            {nextShow ? <ShowCard show={nextShow} timeZone={data.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: nextShow.id } })} /> : <Text style={styles.empty}>No upcoming shows. Open Shows to schedule one if your role allows it.</Text>}
           </View>
           <View style={styles.syncNote}>
             <Text style={styles.syncTitle}>One live source of truth</Text>

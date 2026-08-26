@@ -5,6 +5,9 @@ import type { Permission } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
 import { getTodayDateString } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
+import { createServiceForOrg } from "./service-creation.server";
+import { PlanLimitError } from "./plan-limits";
+import { isValidServiceDate } from "./validation";
 import type {
   BridgeDispatchMessage,
   BridgeDispatchResult,
@@ -187,9 +190,7 @@ function validId(value: unknown): value is string {
 }
 
 function validDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  return isValidServiceDate(value);
 }
 
 function shiftDate(date: string, days: number): string {
@@ -380,6 +381,58 @@ async function rundown(request: Request, url: URL, showId: string, db: MobileApi
     })),
     timer: parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === showId ? dateTimerSetting?.value : null)),
   });
+}
+
+async function createRundown(request: Request, db: MobileApiDatabase): Promise<Response> {
+  const body = await readJson(request);
+  if (!body || !validId(body.orgId) || !validDate(body.serviceDate)) {
+    return json({ error: "Choose a valid workspace and service date." }, 400);
+  }
+
+  const name = body.name === undefined
+    ? ""
+    : typeof body.name === "string"
+      ? body.name.trim()
+      : null;
+  const location = body.location === undefined
+    ? ""
+    : typeof body.location === "string"
+      ? body.location.trim()
+      : null;
+  const startTime = body.startTime === undefined || body.startTime === ""
+    ? undefined
+    : typeof body.startTime === "string"
+      ? body.startTime.trim()
+      : null;
+  if (
+    name === null
+    || name.length > 120
+    || location === null
+    || location.length > 240
+    || startTime === null
+    || (startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))
+  ) {
+    return json({ error: "Check the service title, start time, and location." }, 400);
+  }
+
+  const url = new URL(request.url);
+  url.searchParams.set("orgId", body.orgId);
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+
+  try {
+    const result = await createServiceForOrg({
+      orgId: access.orgId,
+      serviceDate: body.serviceDate,
+      name,
+      startTime,
+      location,
+    });
+    return json(result, 201);
+  } catch (error) {
+    if (error instanceof PlanLimitError) return json({ error: error.message }, error.status);
+    throw error;
+  }
 }
 
 async function schedule(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
@@ -780,6 +833,7 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET") return bootstrap(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST") return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET") return schedule(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/respond" && request.method === "POST") return respondToAssignment(request, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);

@@ -3,7 +3,7 @@ import Cable from "lucide-react-native/icons/cable";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import CirclePower from "lucide-react-native/icons/circle-power";
 import RadioTower from "lucide-react-native/icons/radio-tower";
-import { Redirect, router, type Href } from "expo-router";
+import { Redirect, router } from "expo-router";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
@@ -23,7 +23,7 @@ export default function DevicesScreen() {
       {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
       <View style={styles.list}>{query.data?.devices.map((device) => {
         const controllable = device.enabled && device.controls.length > 0;
-        return <Pressable accessibilityRole={controllable ? "button" : undefined} accessibilityLabel={controllable ? `Control ${device.name}` : undefined} disabled={!controllable} key={device.id} onPress={() => router.push(`/device/${encodeURIComponent(device.id)}` as Href)} style={({ pressed }) => [styles.card, pressed && styles.pressed]}><View style={styles.icon}><Cable color={device.enabled ? colors.amber : colors.textFaint} size={20} /></View><View style={styles.copy}><Text style={styles.name}>{device.name}</Text><Text style={styles.meta}>{device.category} · {device.adapterType || "native adapter"}</Text><Text style={styles.controlMeta}>{controllable ? `${device.controls.length} live controls` : "Monitor only"}</Text></View><View style={[styles.state, device.enabled && styles.stateEnabled]}><CirclePower size={11} color={device.enabled ? colors.green : colors.textFaint} /><Text style={[styles.stateText, device.enabled && styles.stateTextEnabled]}>{device.enabled ? "ENABLED" : "OFF"}</Text>{controllable ? <ChevronRight color={colors.textFaint} size={17} /> : null}</View></Pressable>;
+        return <Pressable accessibilityRole={controllable ? "button" : undefined} accessibilityLabel={controllable ? `Control ${device.name}` : undefined} disabled={!controllable} key={device.id} onPress={() => router.push({ pathname: "/device/[deviceId]", params: { deviceId: device.id } })} style={({ pressed }) => [styles.card, pressed && styles.pressed]}><View style={styles.icon}><Cable color={device.enabled ? colors.amber : colors.textFaint} size={20} /></View><View style={styles.copy}><Text style={styles.name}>{device.name}</Text><Text style={styles.meta}>{device.category} · {device.adapterType || "native adapter"}</Text><Text style={styles.controlMeta}>{controllable ? `${device.controls.length} live controls` : "Monitor only"}</Text></View><View style={[styles.state, device.enabled && styles.stateEnabled]}><CirclePower size={11} color={device.enabled ? colors.green : colors.textFaint} /><Text style={[styles.stateText, device.enabled && styles.stateTextEnabled]}>{device.enabled ? "ENABLED" : "OFF"}</Text>{controllable ? <ChevronRight color={colors.textFaint} size={17} /> : null}</View></Pressable>;
       })}</View>
       {query.data && query.data.devices.length === 0 ? <Text style={styles.empty}>No devices are configured for this workspace.</Text> : null}
     </Page>

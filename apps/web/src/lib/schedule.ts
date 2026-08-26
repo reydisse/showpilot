@@ -9,6 +9,7 @@ import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { serviceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { readPhaseSettings } from "@/lib/service-phase";
+import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
 
 const rangeInput = z.object({
   orgId: idSchema,
@@ -227,7 +228,7 @@ export const getSchedule = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const viewer = await assertAccess(data.orgId);
     const prisma = getPrisma();
-    const dateWhere = { gte: data.from, lte: data.to };
+    const selection = buildScheduleQuerySelection(data);
     const [
       rundowns,
       items,
@@ -238,7 +239,7 @@ export const getSchedule = createServerFn({ method: "GET" })
       providerSettings,
     ] = await Promise.all([
       prisma.rundown.findMany({
-        where: { orgId: data.orgId, serviceDate: dateWhere },
+        where: { orgId: data.orgId, OR: selection.rundowns },
         orderBy: [
           { serviceDate: "asc" },
           { scheduledStartTime: "asc" },
@@ -246,7 +247,7 @@ export const getSchedule = createServerFn({ method: "GET" })
         ],
       }),
       prisma.rundownItem.findMany({
-        where: { orgId: data.orgId, serviceDate: dateWhere },
+        where: { orgId: data.orgId, OR: selection.related },
         select: {
           showId: true,
           serviceDate: true,
@@ -257,7 +258,7 @@ export const getSchedule = createServerFn({ method: "GET" })
         },
       }),
       prisma.serviceAssignment.findMany({
-        where: { orgId: data.orgId, serviceDate: dateWhere },
+        where: { orgId: data.orgId, OR: selection.related },
         include: {
           crewMember: {
             select: { id: true, name: true, role: true, email: true },
@@ -266,11 +267,11 @@ export const getSchedule = createServerFn({ method: "GET" })
         orderBy: { role: "asc" },
       }),
       prisma.checklistEntry.findMany({
-        where: { orgId: data.orgId, serviceDate: dateWhere },
+        where: { orgId: data.orgId, OR: selection.related },
         select: { showId: true, serviceDate: true, checked: true },
       }),
       prisma.incident.findMany({
-        where: { orgId: data.orgId, serviceDate: dateWhere },
+        where: { orgId: data.orgId, OR: selection.related },
         select: { showId: true, serviceDate: true, status: true },
       }),
       prisma.crewMember.findMany({

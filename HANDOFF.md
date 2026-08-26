@@ -272,6 +272,32 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Verification passes 580 web tests, web and mobile TypeScript, the production
   web build, Desktop/Bridge readiness, all-platform Expo export, Expo Doctor
   18/18, and the 6.5 MB native bundle budgets.
+- The launch-audit branch now lets members with `schedule:manage` create a show
+  from the React Native app. The native and web entry points call one
+  server-only creation core, so plan limits, venue-timezone conversion,
+  inventory or previous-show cloning, execution-state resets, and partial-write
+  cleanup cannot drift between platforms. The native form validates title,
+  real calendar date, optional 24-hour start time, and location before opening
+  the new rundown. Incident reports also use and display the venue's calendar
+  date instead of the phone's local or UTC date. Expo's generated route types
+  now prove every changed navigation target; the verifier rejects double-cast
+  `Href` workarounds.
+- The web Schedule now treats `show` and `date` search parameters as loader
+  dependencies and fetches an explicitly selected show/date alongside its
+  bounded default window. This fixes notification links and far-future shows
+  without querying every intervening month. The create form no longer caps
+  planning at 31 days, the calendar follows the selected month, and deleting an
+  explicitly selected show clears its stale URL. Real browser QA created a show
+  for October 2027, opened it from combined, date-only, and show-only links at
+  390x844 and 1280x800, reloaded it, and then deleted it. Follow-up local D1
+  queries confirmed that both temporary QA shows and their related records were
+  gone.
+- Current verification passes 66 web test files and 589 tests, web and mobile
+  TypeScript, the production web build, Wrangler type generation checks, a
+  strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
+  Expo Doctor 18/18, and native lint. The web main bundle is 494,025 bytes raw
+  and 155,560 bytes gzip. The iOS and Android Hermes bundles are 5,896,829 and
+  5,897,498 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

@@ -141,7 +141,7 @@ function normalizeItemStatus(value: unknown): ItemStatus {
     : "upcoming";
 }
 
-function normalizeLegacyRundownItems(value: unknown): RundownItem[] {
+export function normalizeLegacyRundownItems(value: unknown): RundownItem[] {
   if (!Array.isArray(value)) return [];
 
   const items: RundownItem[] = [];

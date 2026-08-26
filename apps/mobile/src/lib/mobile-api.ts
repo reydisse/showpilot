@@ -104,6 +104,12 @@ export type MobileRundown = z.infer<typeof mobileRundownSchema>;
 export type RundownItem = z.infer<typeof rundownItemSchema>;
 export type RundownTimer = z.infer<typeof timerSchema>;
 
+const createMobileRundownResponseSchema = z.object({
+  ok: z.literal(true),
+  showId: z.string(),
+  serviceDate: z.string(),
+});
+
 const scheduleSchema = z.object({
   from: z.string(),
   to: z.string(),
@@ -247,6 +253,20 @@ export async function getMobileRundown(orgId: string, showId: string): Promise<M
     `/api/mobile/v1/rundowns/${encodeURIComponent(showId)}?orgId=${encodeURIComponent(orgId)}`,
   );
   return mobileRundownSchema.parse(await response.json());
+}
+
+export async function createMobileRundown(input: {
+  orgId: string;
+  serviceDate: string;
+  name?: string;
+  startTime?: string;
+  location?: string;
+}) {
+  const response = await authenticatedFetch("/api/mobile/v1/rundowns", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return createMobileRundownResponseSchema.parse(await response.json());
 }
 
 export async function getMobileSchedule(orgId: string): Promise<MobileSchedule> {

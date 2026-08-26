@@ -2,7 +2,7 @@ import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import Cable from "lucide-react-native/icons/cable";
 import CalendarClock from "lucide-react-native/icons/calendar-clock";
 import MessageSquareText from "lucide-react-native/icons/message-square-text";
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 import { Text, StyleSheet, View } from "react-native";
 import { FeatureLink } from "@/components/feature-link";
 import { Page } from "@/components/page";
@@ -21,10 +21,10 @@ export default function OperationsScreen() {
     <Page eyebrow="CONTROL SURFACES" title="Operations">
       <Text style={styles.intro}>Native tools available to your current role and on-duty access grants.</Text>
       <View style={styles.list}>
-        <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule" as Href)} />
-        {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat" as Href)} /> : null}
-        {canIncidents ? <FeatureLink icon={AlertTriangle} title="Incidents" description="Report faults and follow ownership through resolution." onPress={() => router.push("/incidents" as Href)} /> : null}
-        {canDevices ? <FeatureLink icon={Cable} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices" as Href)} /> : null}
+        <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule")} />
+        {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat")} /> : null}
+        {canIncidents ? <FeatureLink icon={AlertTriangle} title="Incidents" description="Report faults and follow ownership through resolution." onPress={() => router.push("/incidents")} /> : null}
+        {canDevices ? <FeatureLink icon={Cable} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices")} /> : null}
       </View>
     </Page>
   );
