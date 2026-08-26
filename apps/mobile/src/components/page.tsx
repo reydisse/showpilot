@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createThemedStyles, fontFamily, spacing, useAppTheme } from "@/theme/tokens";
 
@@ -35,7 +35,10 @@ export function Page({ title, eyebrow, action, scroll = true, refreshing = false
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       {scroll ? (
         <ScrollView
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.scroll}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
           refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.amberText} colors={[colors.amberText]} /> : undefined}
         >
           {content}

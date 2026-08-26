@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { Link, router } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { AppButton } from "@/components/app-button";
@@ -7,6 +7,7 @@ import { AppField } from "@/components/app-field";
 import { BrandMark } from "@/components/brand-mark";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { SHOWPILOT_URL } from "@/lib/env";
 import { createThemedStyles, fontFamily, radii, spacing } from "@/theme/tokens";
 
 export default function SignUpScreen() {
@@ -52,6 +53,12 @@ export default function SignUpScreen() {
           <AppField label="Password" value={password} onChangeText={setPassword} secureTextEntry autoComplete="new-password" placeholder="At least 8 characters" onSubmitEditing={signUp} />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <AppButton label="Create account" loading={loading} onPress={signUp} />
+          <Text style={styles.legal}>
+            By creating an account you agree to the{" "}
+            <Text accessibilityRole="link" onPress={() => Linking.openURL(`${SHOWPILOT_URL}/terms`)} style={styles.legalLink}>Terms of Service</Text>
+            {" "}and{" "}
+            <Text accessibilityRole="link" onPress={() => Linking.openURL(`${SHOWPILOT_URL}/privacy`)} style={styles.legalLink}>Privacy Policy</Text>.
+          </Text>
         </View>
         <Text style={styles.footer}>Already have an account? <Link href="/sign-in" style={styles.link}>Sign in</Link></Text>
       </Page>
@@ -68,6 +75,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   subtitle: { color: colors.textMuted, fontFamily, fontSize: 16, lineHeight: 24 },
   formCard: { gap: spacing.medium, padding: spacing.large, borderRadius: radii.large, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised },
   error: { color: colors.red, fontFamily, fontSize: 13, lineHeight: 18 },
+  legal: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 18, textAlign: "center" },
+  legalLink: { color: colors.amberText, fontWeight: "700", textDecorationLine: "underline" },
   footer: { color: colors.textMuted, fontFamily, fontSize: 14, textAlign: "center" },
   link: { color: colors.amberText, fontWeight: "700" },
 }));

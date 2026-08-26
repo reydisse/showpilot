@@ -161,6 +161,13 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Tapping an alert now activates its workspace before routing and marks that
   inbox record read. Verification passes 564 web tests, the production build,
   iOS/Android/web exports, mobile TypeScript/lint, and Expo Doctor 18/18.
+- Stacked follow-up branch `fix/mobile-onboarding` is local-only on top of the
+  notification branch. Native sign-up now includes the legal links and no
+  longer strands a new user without a workspace: it supports verification
+  resend/refresh, account switching, validated workspace names/URLs, native
+  organization creation, and immediate activation. A fresh local-only account
+  completed the rendered 390x844 path from sign-up through owner command center
+  without page or console errors.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

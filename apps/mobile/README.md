@@ -4,7 +4,8 @@ The native iOS and Android client for ShowPilot. It uses one Expo React Native c
 
 ## Native coverage
 
-- Email/password authentication and organization switching
+- Email/password authentication, verification recovery, first-workspace
+  creation, and organization switching
 - Recoverable network errors plus foreground/reconnect refresh
 - Platform-correct authenticated HTTP and WebSocket transport on native and Expo web
 - Command center, upcoming shows, and permission-aware live rundown controls
