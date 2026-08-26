@@ -90,10 +90,46 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify release tag and native contracts
+        run: pnpm native:verify --product bridge --tag "${{ github.ref_name }}"
+
       - name: Require updater signing key
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY) { console.error('Missing TAURI_SIGNING_PRIVATE_KEY'); process.exit(1) }"
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { throw 'Missing WINDOWS_CERTIFICATE' }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) { throw 'Missing WINDOWS_CERTIFICATE_PASSWORD' }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) { throw 'Missing WINDOWS_TIMESTAMP_URL' }
+          $timestamp = [Uri]$env:WINDOWS_TIMESTAMP_URL
+          if ($timestamp.Scheme -notin @('http', 'https')) { throw 'WINDOWS_TIMESTAMP_URL must use HTTP or HTTPS' }
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'showpilot-windows-signing.pfx'
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $imported = @(Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password)
+          Remove-Item -LiteralPath $certificatePath -Force
+          $certificate = $imported | Where-Object HasPrivateKey | Select-Object -First 1
+          if (-not $certificate) { throw 'The Windows signing certificate has no private key' }
+          $config = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+              windows = @{
+                certificateThumbprint = $certificate.Thumbprint
+                digestAlgorithm = 'sha256'
+                timestampUrl = $env:WINDOWS_TIMESTAMP_URL
+              }
+            }
+          } | ConvertTo-Json -Depth 5 -Compress
+          $configPath = (Resolve-Path 'apps/bridge-desktop/ci-release.conf.json').Path
+          [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
 
       - name: Build and publish release assets
         uses: tauri-apps/tauri-action@v0
@@ -109,8 +145,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/bridge-desktop
-          args: >-
-            --ci --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          args: --ci --config ci-release.conf.json
+          uploadUpdaterJson: false
           tagName: bridge-v__VERSION__
           releaseName: ShowPilot Bridge v__VERSION__
           releaseBody: |
@@ -128,3 +164,18 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: bash scripts/verify-macos-release.sh apps/bridge-desktop/src-tauri/target/release/bundle "ShowPilot Bridge"
+
+      - name: Verify Windows Authenticode signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bundle = Get-ChildItem 'apps/bridge-desktop/src-tauri/target/release/bundle' -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.msi') }
+          $application = Get-Item 'apps/bridge-desktop/src-tauri/target/release/showpilot-bridge-desktop.exe'
+          $artifacts = @($bundle) + @($application)
+          if ($bundle.Count -eq 0) { throw 'No Windows installers were produced' }
+          foreach ($artifact in $artifacts) {
+            $signature = Get-AuthenticodeSignature -FilePath $artifact.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid Authenticode signature on $($artifact.FullName): $($signature.Status)"
+            }
+          }

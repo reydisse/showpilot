@@ -17,23 +17,25 @@ Add these repository secrets before creating the first public release:
 - `APPLE_SIGNING_IDENTITY`: optional explicit identity; Tauri infers it from
   `APPLE_CERTIFICATE` when this secret is absent
 - `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID`: notarization credentials
+- `WINDOWS_CERTIFICATE`: base64-encoded Windows code-signing `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD`: the `.pfx` export password
+- `WINDOWS_TIMESTAMP_URL`: the HTTP or HTTPS timestamp service supplied by the
+  certificate issuer
 
 The updater public key and product-specific ShowPilot update endpoint are
-embedded in `src-tauri/tauri.conf.json`. Never commit
-the private key. The fresh local key generated while preparing this bundle is at
-`/private/tmp/showpilot-bridge-updater-key-v2`; move it to a password manager and
-GitHub Actions secret before publishing.
+embedded in `src-tauri/tauri.conf.json`. Never commit the private key or rely on
+a temporary filesystem copy. Before publishing, confirm that the private key is
+recoverable from the approved password manager and configured in GitHub Actions.
 
 ## Release a version
 
 1. Update the version in `package.json`, `src-tauri/Cargo.toml`,
    `src-tauri/tauri.conf.json`, and `../bridge/package.json` so the installer,
-   updater, and embedded engine report the same version. Packaging refuses to
-   run when they differ.
+   updater, and embedded engine report the same version.
 2. Run `pnpm install --lockfile-only` if package metadata changed.
-3. Verify locally with `pnpm -C apps/bridge-desktop build`,
-   `pnpm -C apps/bridge build`, and
-   `cargo check --offline --manifest-path apps/bridge-desktop/src-tauri/Cargo.toml`.
+3. Run `pnpm native:verify`, `pnpm -C apps/bridge-desktop build`, and
+   `pnpm -C apps/bridge build`. CI also runs the native Rust test suites with
+   locked dependencies before release work is merged.
 4. Commit and push the version change.
 5. Create and push a tag, for example:
 
@@ -64,6 +66,8 @@ The workflow refuses to publish macOS artifacts when Apple signing or
 notarization credentials are missing. Never publish an unsigned macOS DMG or ask
 operators to bypass Gatekeeper. Before publishing, install both Mac builds on
 fresh machines and verify them with `spctl --assess --type execute --verbose`.
+The Windows job likewise refuses to build without its signing certificate and
+verifies Authenticode on the application, EXE, and MSI before completion.
 
 ## Operator behavior
 

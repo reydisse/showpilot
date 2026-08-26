@@ -25,12 +25,31 @@ we do not publish macOS downloads that Gatekeeper reports as damaged.
    - `TAURI_SIGNING_PRIVATE_KEY`: updater signing key used by Desktop and Bridge
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: updater key password
 
+## One-time Windows setup
+
+Windows browser downloads must be Authenticode signed. Obtain a current code-
+signing certificate or trusted-signing service for the ShowPilot legal entity;
+do not publish an installer that asks operators to ignore SmartScreen.
+
+For the PFX workflow currently encoded in GitHub Actions, add:
+
+- `WINDOWS_CERTIFICATE`: the base64-encoded `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD`: the `.pfx` export password
+- `WINDOWS_TIMESTAMP_URL`: the HTTP or HTTPS timestamp service supplied by the
+  certificate issuer
+
+The Windows job imports the certificate, discovers its thumbprint, merges it
+into `ci-release.conf.json`, and refuses the release unless the application,
+EXE installer, and MSI installer all have valid Authenticode signatures.
+
 ## Release a version
 
-1. Confirm the desktop package, Cargo package and Tauri config versions match.
+1. Run `pnpm native:verify`. It checks package, Cargo, lockfile, Tauri, updater,
+   workflow, and landing-release contracts together.
 2. Run the web, Bridge and Rust tests, then build an application bundle locally.
 3. Push the reviewed desktop branch and merge it through its pull request.
-4. Tag the merge commit, for example `desktop-v0.1.1`, and push the tag.
+4. Tag the merge commit, for example `desktop-v0.1.1`, and push the tag. The
+   workflow rejects any tag that does not exactly match the committed version.
 5. Wait for all four platform jobs. On macOS, verify signing, notarization and
    stapling succeeded. Test the Apple Silicon DMG on a second Mac after downloading
    it through a browser so Gatekeeper evaluates the quarantined artifact.

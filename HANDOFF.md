@@ -196,6 +196,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   private downloads bucket is missing, and smoke-tests the live download
   center and manifest after deployment. The reusable smoke tool passes against
   the real local Worker at desktop and 390x844 widths.
+- Stacked follow-up branch `fix/native-release-readiness` is local-only on top
+  of the landing pipeline. It adds a repository-wide Desktop/Bridge release
+  verifier, exact tag-to-version gates, checked-in updater build configs,
+  previously missing native Rust CI, and fail-closed Windows Authenticode
+  signing plus post-build verification. The verifier covers package, Cargo,
+  lockfile, Tauri identity/version, updater key/endpoint, workflow, and landing
+  download-route drift. GitHub's competing `latest.json` output is disabled;
+  only the verified ShowPilot landing manifest is authoritative for updates.
+  Local verification passed 6 verifier tests, 12 Desktop
+  Rust tests, 6 Bridge Desktop Rust tests, and real no-bundle Tauri builds for
+  both products with their embedded Apple Silicon Bridge sidecars.
 - A read-only production audit on 2026-08-26 found that `www.showpilot.tech`
   still serves the June landing deployment without the download center and
   that the `showpilot-downloads` R2 bucket does not exist. Do not create the
@@ -203,6 +214,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   create the private bucket first; the pipeline will then deploy and prove the
   new `www` surface. Signed/notarized installers and reviewed store listings
   remain separate publication gates before their buttons can activate.
+- GitHub currently has the updater private-key secret but not the required
+  Apple signing/notarization or Windows code-signing secrets. Do not create a
+  native release tag until those credentials are configured; the hardened
+  workflows intentionally fail instead of producing untrusted installers.
 - Native push delivery still needs an EAS project ID, platform credentials, and
   a signed development build. Apple distribution also waits on the owner's
   developer enrollment. Those external actions are not authorized or complete.

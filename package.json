@@ -10,7 +10,9 @@
     "bridge-desktop:build": "pnpm --filter @showpilot/bridge-desktop desktop:build",
     "deploy": "pnpm --filter @showpilot/web run deploy",
     "db:generate": "pnpm --filter @showpilot/web db:generate",
-    "db:migrate": "pnpm --filter @showpilot/web db:migrate"
+    "db:migrate": "pnpm --filter @showpilot/web db:migrate",
+    "native:verify": "node scripts/native-release-readiness.mjs",
+    "native:verify:test": "node --test scripts/native-release-readiness.test.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
