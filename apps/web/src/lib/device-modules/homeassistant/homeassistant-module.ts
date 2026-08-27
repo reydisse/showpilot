@@ -11,13 +11,26 @@ interface HomeAssistantSettings {
   connectionMode?: ConnectionMode;
 }
 
-interface HomeAssistantEntity {
+export interface HomeAssistantEntity {
   entity_id: string;
   state: string;
   attributes?: Record<string, unknown>;
 }
 
 type HomeAssistantSettingsInput = Record<string, unknown>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseHomeAssistantEntity(value: unknown): HomeAssistantEntity | null {
+  if (!isRecord(value) || typeof value.entity_id !== "string" || typeof value.state !== "string") return null;
+  return {
+    entity_id: value.entity_id,
+    state: value.state,
+    attributes: isRecord(value.attributes) ? value.attributes : undefined,
+  };
+}
 
 function parseHomeAssistantSettings(settings: HomeAssistantSettingsInput): HomeAssistantSettings {
   const baseUrl =
@@ -48,6 +61,10 @@ function toDisplayName(entity: HomeAssistantEntity) {
   return entity.entity_id;
 }
 
+export function buildHomeAssistantActions(entities: HomeAssistantEntity[]): ModuleAction[] {
+  return entities.flatMap(buildEntityActions);
+}
+
 function buildEntityActions(entity: HomeAssistantEntity): ModuleAction[] {
   const [domain] = entity.entity_id.split(".");
   const label = toDisplayName(entity);
@@ -55,21 +72,21 @@ function buildEntityActions(entity: HomeAssistantEntity): ModuleAction[] {
   switch (domain) {
     case "script":
       return [{
-        id: `ha:script.turn_on:${entity.entity_id}`,
+        id: `ha:script:turn_on:${entity.entity_id}`,
         label,
         category: "scripts",
         params: [],
       }];
     case "scene":
       return [{
-        id: `ha:scene.turn_on:${entity.entity_id}`,
+        id: `ha:scene:turn_on:${entity.entity_id}`,
         label,
         category: "scenes",
         params: [],
       }];
     case "input_button":
       return [{
-        id: `ha:input_button.press:${entity.entity_id}`,
+        id: `ha:input_button:press:${entity.entity_id}`,
         label,
         category: "buttons",
         params: [],
@@ -78,19 +95,19 @@ function buildEntityActions(entity: HomeAssistantEntity): ModuleAction[] {
     case "light":
       return [
         {
-          id: `ha:${domain}.turn_on:${entity.entity_id}`,
+          id: `ha:${domain}:turn_on:${entity.entity_id}`,
           label: `${label} On`,
           category: domain === "switch" ? "switches" : "lights",
           params: [],
         },
         {
-          id: `ha:${domain}.turn_off:${entity.entity_id}`,
+          id: `ha:${domain}:turn_off:${entity.entity_id}`,
           label: `${label} Off`,
           category: domain === "switch" ? "switches" : "lights",
           params: [],
         },
         {
-          id: `ha:${domain}.toggle:${entity.entity_id}`,
+          id: `ha:${domain}:toggle:${entity.entity_id}`,
           label: `${label} Toggle`,
           category: domain === "switch" ? "switches" : "lights",
           params: [],
@@ -99,6 +116,36 @@ function buildEntityActions(entity: HomeAssistantEntity): ModuleAction[] {
     default:
       return [];
   }
+}
+
+export function parseHomeAssistantEntities(raw: string): HomeAssistantEntity[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((candidate) => {
+    const entity = parseHomeAssistantEntity(candidate);
+    return entity ? [entity] : [];
+  });
+}
+
+export function buildHomeAssistantCommand(actionId: string): string {
+  const match = actionId.match(/^ha:([^:]+):([^:]+):(.+)$/);
+  if (!match) throw new Error("This Home Assistant action is not available.");
+  const [, domain, service, entityId] = match;
+  if (!SUPPORTED_DOMAINS.has(domain) || !/^[a-z0-9_]+\.[a-z0-9_]+$/.test(entityId)) {
+    throw new Error("This Home Assistant entity is not valid.");
+  }
+  const allowedService = domain === "input_button"
+    ? service === "press"
+    : domain === "script" || domain === "scene"
+      ? service === "turn_on"
+      : service === "turn_on" || service === "turn_off" || service === "toggle";
+  if (!allowedService) throw new Error("This Home Assistant service is not available.");
+  return `POST /api/services/${domain}/${service} ${JSON.stringify({ entity_id: entityId })}`;
 }
 
 export class HomeAssistantModule extends BaseDeviceModule {
@@ -123,7 +170,7 @@ export class HomeAssistantModule extends BaseDeviceModule {
 
   protected async doConnect(): Promise<void> {
     const entities = await this.fetchEntities();
-    this.actions = entities.flatMap(buildEntityActions);
+    this.actions = buildHomeAssistantActions(entities);
     this.feedbacks[0].value = this.actions.length;
     this.emitFeedback("discovered_entities", this.actions.length);
     this.emitFeedback("connection_mode", this.connectionMode);
@@ -139,9 +186,12 @@ export class HomeAssistantModule extends BaseDeviceModule {
     if (this.connectionStatus() !== "connected") {
       throw new Error("Not connected");
     }
+    if (!this.actions.some((action) => action.id === actionId)) {
+      throw new Error("This Home Assistant action is no longer available.");
+    }
 
     const match = actionId.match(/^ha:([^:]+):([^:]+):(.+)$/);
-    if (!match) throw new Error(`Unknown action: ${actionId}`);
+    if (!match) throw new Error("This Home Assistant action is not available.");
 
     const [, domain, service, entityId] = match;
     const path = `/api/services/${domain}/${service}`;
@@ -160,9 +210,11 @@ export class HomeAssistantModule extends BaseDeviceModule {
       throw new Error("Home Assistant returned invalid state list");
     }
 
-    return (response as HomeAssistantEntity[]).filter((entity) => {
+    return response.flatMap((candidate) => {
+      const entity = parseHomeAssistantEntity(candidate);
+      if (!entity) return [];
       const [domain] = entity.entity_id.split(".");
-      return SUPPORTED_DOMAINS.has(domain);
+      return SUPPORTED_DOMAINS.has(domain) ? [entity] : [];
     });
   }
 
@@ -229,6 +281,31 @@ export const homeAssistantModuleDefinition: ModuleDefinition = {
   ],
   icon: "Home",
   description: "Discover and trigger Home Assistant scripts, scenes, switches, lights, and input buttons.",
+  remoteControl: {
+    protocol: "http-command",
+    target(settings) {
+      const baseUrl = typeof settings.baseUrl === "string" ? settings.baseUrl.trim().replace(/\/+$/, "") : "";
+      return /^https?:\/\//i.test(baseUrl) ? baseUrl : null;
+    },
+    connectionSettings(settings) {
+      return { authToken: typeof settings.accessToken === "string" ? settings.accessToken : "" };
+    },
+    actions: () => [],
+    feedbacks(settings) {
+      return [
+        { id: "discovered_entities", label: "Discovered Entities", type: "number", value: 0 },
+        { id: "connection_mode", label: "Connection Mode", type: "string", value: settings.connectionMode === "bridge-required" ? "bridge-required" : "browser-direct" },
+      ];
+    },
+    buildCommand: (actionId) => buildHomeAssistantCommand(actionId),
+    feedbackQueries: () => [{
+      feedbackIds: ["discovered_entities"],
+      command: "GET /api/states",
+      parse(response) {
+        return { discovered_entities: buildHomeAssistantActions(parseHomeAssistantEntities(response)).length };
+      },
+    }],
+  },
   createInstance: (settings: HomeAssistantSettingsInput) =>
     new HomeAssistantModule(parseHomeAssistantSettings(settings)),
 };

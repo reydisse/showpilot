@@ -22,4 +22,13 @@ describe("mobile device control contracts", () => {
     expect(() => buildMobileAtemCommand("set_program_input", { input: 21 })).toThrow("between 1 and 20");
     expect(() => buildMobileAtemCommand("run_macro", { macro: 1.5 })).toThrow("between 0 and 99");
   });
+
+  it("rejects control characters at text-command boundaries", async () => {
+    const { obsModuleDefinition } = await import("../device-modules/obs/obs-module");
+    expect(() => obsModuleDefinition.remoteControl?.buildCommand(
+      "set_current_program_scene",
+      { sceneName: "Program\rStopStream" },
+      {},
+    )).toThrow("unsupported control characters");
+  });
 });

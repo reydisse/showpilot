@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMixerOscCommand } from "../osc-mixer-module";
+import { buildMixerOscCommand, mixerActionsFor } from "../osc-mixer-module";
 
 describe("mixer OSC commands", () => {
   it("encodes X32 fader and mute semantics", () => {
@@ -38,5 +38,15 @@ describe("mixer OSC commands", () => {
       .toThrow("Level must be between 0 and 1");
     expect(() => buildMixerOscCommand("wing", "recall_scene", { scene: 1 }))
       .toThrow("not available through the WING OSC fallback");
+    expect(() => buildMixerOscCommand("x32", "mute_channel", { channel: 1, muted: "false" }))
+      .toThrow("Muted must be on or off");
+  });
+
+  it("advertises the channel range each console can execute", () => {
+    const channelMaximum = (consoleType: "x32" | "wing") => mixerActionsFor(consoleType)
+      .find((action) => action.id === "set_channel_fader")
+      ?.params.find((param) => param.id === "channel")?.max;
+    expect(channelMaximum("x32")).toBe(32);
+    expect(channelMaximum("wing")).toBe(40);
   });
 });

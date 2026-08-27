@@ -1,11 +1,10 @@
 import { BaseDeviceModule } from "../base-module";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
 import { OBS_ACTIONS, OBS_FEEDBACKS, ACTION_TO_REQUEST } from "./obs-actions";
+import { findAndNormalizeAction } from "../action-params";
 
-interface OBSSettings {
-  host: string;
-  port?: number;
-  password?: string;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -28,11 +27,12 @@ export class OBSModule extends BaseDeviceModule {
   private connectResolve: (() => void) | null = null;
   private connectReject: ((err: Error) => void) | null = null;
 
-  constructor(settings: OBSSettings) {
+  constructor(settings: Record<string, unknown>) {
     super();
-    this.host = settings.host;
-    this.port = settings.port ?? 4455;
-    this.password = settings.password;
+    this.host = typeof settings.host === "string" ? settings.host.trim() : "";
+    const port = Number(settings.port ?? 4455);
+    this.port = Number.isInteger(port) ? port : 4455;
+    this.password = typeof settings.password === "string" ? settings.password : undefined;
   }
 
   // ─── Connection ─────────────────────────────────────────
@@ -51,10 +51,12 @@ export class OBSModule extends BaseDeviceModule {
 
       this.ws.onmessage = (event: MessageEvent) => {
         try {
-          const msg = JSON.parse(
+          const parsed: unknown = JSON.parse(
             typeof event.data === "string" ? event.data : ""
           );
-          this.handleMessage(msg);
+          if (isRecord(parsed) && typeof parsed.op === "number" && isRecord(parsed.d)) {
+            this.handleMessage({ op: parsed.op, d: parsed.d });
+          }
         } catch {
           // Ignore unparseable messages
         }
@@ -111,9 +113,11 @@ export class OBSModule extends BaseDeviceModule {
   }
 
   private async handleHello(data: Record<string, unknown>) {
-    const auth = data.authentication as
-      | { challenge: string; salt: string }
-      | undefined;
+    const auth = isRecord(data.authentication)
+      && typeof data.authentication.challenge === "string"
+      && typeof data.authentication.salt === "string"
+      ? { challenge: data.authentication.challenge, salt: data.authentication.salt }
+      : undefined;
 
     const identifyData: Record<string, unknown> = {
       rpcVersion: 1,
@@ -132,8 +136,8 @@ export class OBSModule extends BaseDeviceModule {
   }
 
   private handleEvent(data: Record<string, unknown>) {
-    const eventType = data.eventType as string;
-    const eventData = data.eventData as Record<string, unknown> | undefined;
+    const eventType = typeof data.eventType === "string" ? data.eventType : "";
+    const eventData = isRecord(data.eventData) ? data.eventData : null;
     if (!eventData) return;
 
     switch (eventType) {
@@ -165,15 +169,15 @@ export class OBSModule extends BaseDeviceModule {
   }
 
   private handleRequestResponse(data: Record<string, unknown>) {
-    const requestId = data.requestId as string;
+    const requestId = typeof data.requestId === "string" ? data.requestId : "";
     const pending = this.pendingRequests.get(requestId);
     if (!pending) return;
 
     this.pendingRequests.delete(requestId);
-    const status = data.requestStatus as { result: boolean; code?: number; comment?: string } | undefined;
+    const status = isRecord(data.requestStatus) ? data.requestStatus : null;
 
     if (status?.result === false) {
-      pending.reject(new Error(status.comment ?? `Request failed (code ${status.code})`));
+      pending.reject(new Error(typeof status.comment === "string" ? status.comment : `Request failed (code ${String(status.code ?? "unknown")})`));
     } else {
       pending.resolve(data.responseData ?? {});
     }
@@ -241,12 +245,29 @@ export class OBSModule extends BaseDeviceModule {
       throw new Error("Not connected");
     }
 
+    const { params: normalized } = findAndNormalizeAction(OBS_ACTIONS, actionId, params);
+    if (actionId === "toggle_source_visibility") {
+      const sceneItem = await this.sendRequest("GetSceneItemId", {
+        sceneName: normalized.sceneName,
+        sourceName: normalized.sourceName,
+      });
+      if (!sceneItem || typeof sceneItem !== "object" || !("sceneItemId" in sceneItem)) {
+        throw new Error("OBS did not return the selected source.");
+      }
+      await this.sendRequest("SetSceneItemEnabled", {
+        sceneName: normalized.sceneName,
+        sceneItemId: sceneItem.sceneItemId,
+        sceneItemEnabled: normalized.visible,
+      });
+      return;
+    }
+
     const mapping = ACTION_TO_REQUEST[actionId];
     if (!mapping) {
       throw new Error(`Unknown action: ${actionId}`);
     }
 
-    await this.sendRequest(mapping.requestType, mapping.mapParams(params));
+    await this.sendRequest(mapping.requestType, mapping.mapParams(normalized));
   }
 
   getFeedbacks(): ModuleFeedback[] {
@@ -270,6 +291,36 @@ export const obsModuleDefinition: ModuleDefinition = {
   icon: "Monitor",
   description:
     "Control OBS Studio via obs-websocket v5. Switch scenes, toggle sources, control streaming and recording.",
-  createInstance: (settings) =>
-    new OBSModule(settings as unknown as { host: string; port?: number; password?: string }),
+  remoteControl: {
+    protocol: "obs",
+    target(settings) {
+      const host = typeof settings.host === "string" ? settings.host.trim() : "";
+      const port = Number(settings.port || 4455);
+      return host && Number.isInteger(port) && port >= 1 && port <= 65_535 ? `${host}:${port}` : null;
+    },
+    actions: () => OBS_ACTIONS,
+    feedbacks: () => OBS_FEEDBACKS,
+    buildCommand(actionId, params) {
+      const normalized = findAndNormalizeAction(OBS_ACTIONS, actionId, params);
+      return JSON.stringify({ actionId: normalized.action.id, params: normalized.params });
+    },
+    parseEvent(eventName, data) {
+      if (eventName !== "obs-state") return {};
+      try {
+        const state: unknown = JSON.parse(data);
+        if (!isRecord(state)) return {};
+        const values = state;
+        return {
+          ...(typeof values.currentProgramScene === "string" ? { current_program_scene: values.currentProgramScene } : {}),
+          ...(typeof values.currentPreviewScene === "string" ? { current_preview_scene: values.currentPreviewScene } : {}),
+          ...(typeof values.streamingActive === "boolean" ? { streaming_active: values.streamingActive } : {}),
+          ...(typeof values.recordingActive === "boolean" ? { recording_active: values.recordingActive } : {}),
+          ...(Array.isArray(values.scenes) ? { scene_list: JSON.stringify(values.scenes) } : {}),
+        };
+      } catch {
+        return {};
+      }
+    },
+  },
+  createInstance: (settings) => new OBSModule(settings),
 };

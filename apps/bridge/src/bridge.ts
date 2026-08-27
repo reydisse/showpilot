@@ -3,6 +3,9 @@ import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
 import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
+import { DmxConnection } from "./protocols/dmx.js";
+import { ObsConnection } from "./protocols/obs.js";
+import { PjlinkConnection } from "./protocols/pjlink.js";
 import {
   ProPresenterBridge,
   type PPBridgeDebugState,
@@ -37,10 +40,22 @@ interface ConnectDeviceMessage {
   settings: Record<string, unknown>;
 }
 
+interface DisconnectDeviceMessage {
+  type: "disconnect-device";
+  target: string;
+}
+
+interface PingMessage {
+  type: "ping";
+}
+
 const CONNECT_DEVICE_PROTOCOLS = new Set([
   "propresenter",
   "http-command",
   "atem",
+  "dmx-artnet",
+  "dmx-sacn",
+  "obs",
   "tcp-command",
   "pjlink",
   "osc",
@@ -56,10 +71,36 @@ export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] 
   return [...new Set(groups.flatMap((group) => [...group]))].sort();
 }
 
-type IncomingMessage =
-  | CommandMessage
-  | ConnectDeviceMessage
-  | { type: string; [k: string]: unknown };
+type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseIncomingMessage(value: unknown): IncomingMessage | null {
+  if (!isRecord(value) || typeof value.type !== "string") return null;
+  switch (value.type) {
+    case "command":
+      return typeof value.id === "string"
+        && typeof value.protocol === "string"
+        && typeof value.target === "string"
+        && typeof value.command === "string"
+        ? { type: value.type, id: value.id, protocol: value.protocol, target: value.target, command: value.command }
+        : null;
+    case "connect-device":
+      return typeof value.protocol === "string"
+        && typeof value.target === "string"
+        && isRecord(value.settings)
+        ? { type: value.type, protocol: value.protocol, target: value.target, settings: value.settings }
+        : null;
+    case "disconnect-device":
+      return typeof value.target === "string" ? { type: value.type, target: value.target } : null;
+    case "ping":
+      return { type: value.type };
+    default:
+      return null;
+  }
+}
 
 export function bridgeWebSocketOptions(
   url: string,
@@ -88,6 +129,9 @@ export class Bridge {
   private udpConnections = new Map<string, UdpConnection>();
   private ppConnections = new Map<string, ProPresenterBridge>();
   private atemConnections = new Map<string, Atem>();
+  private dmxConnections = new Map<string, DmxConnection>();
+  private obsConnections = new Map<string, ObsConnection>();
+  private pjlinkConnections = new Map<string, PjlinkConnection>();
   private httpDeviceSettings = new Map<string, Record<string, unknown>>();
   private startTime = Date.now();
   private propresenter?: BridgeOptions["propresenter"];
@@ -128,10 +172,16 @@ export class Bridge {
     for (const conn of this.tcpConnections.values()) conn.disconnect();
     for (const conn of this.udpConnections.values()) conn.disconnect();
     for (const conn of this.atemConnections.values()) void conn.disconnect();
+    for (const conn of this.dmxConnections.values()) conn.disconnect();
+    for (const conn of this.obsConnections.values()) conn.disconnect();
+    for (const conn of this.pjlinkConnections.values()) conn.disconnect();
     this.ppConnections.clear();
     this.tcpConnections.clear();
     this.udpConnections.clear();
     this.atemConnections.clear();
+    this.dmxConnections.clear();
+    this.obsConnections.clear();
+    this.pjlinkConnections.clear();
   }
 
   private connect(): void {
@@ -156,8 +206,13 @@ export class Bridge {
 
     this.ws.on("message", (data) => {
       try {
-        const msg = JSON.parse(data.toString()) as IncomingMessage;
-        this.handleMessage(msg);
+        const parsed: unknown = JSON.parse(data.toString());
+        const message = parseIncomingMessage(parsed);
+        if (message) {
+          void this.handleMessage(message).catch((error) => {
+            console.error("[bridge] Message handling failed:", error instanceof Error ? error.message : String(error));
+          });
+        }
       } catch {
         // Ignore
       }
@@ -202,15 +257,13 @@ export class Bridge {
   private async handleMessage(msg: IncomingMessage): Promise<void> {
     switch (msg.type) {
       case "command":
-        await this.handleCommand(msg as CommandMessage);
+        await this.handleCommand(msg);
         break;
       case "connect-device":
-        await this.handleConnectDevice(msg as ConnectDeviceMessage);
+        await this.handleConnectDevice(msg);
         break;
       case "disconnect-device":
-        this.handleDisconnectDevice({
-          target: (msg as { target?: string }).target || "",
-        });
+        this.handleDisconnectDevice(msg);
         break;
       case "ping":
         this.send({ type: "pong" });
@@ -224,8 +277,10 @@ export class Bridge {
 
       switch (msg.protocol) {
         case "tcp-command":
-        case "pjlink":
           response = await this.executeTcpCommand(msg.target, msg.command);
+          break;
+        case "pjlink":
+          response = await this.executePjlinkCommand(msg.target, msg.command);
           break;
         case "osc":
           await this.executeOscCommand(msg.target, msg.command);
@@ -242,6 +297,13 @@ export class Bridge {
           break;
         case "atem":
           await this.executeAtemCommand(msg.target, msg.command);
+          break;
+        case "dmx-artnet":
+        case "dmx-sacn":
+          await this.executeDmxCommand(msg.target, msg.command);
+          break;
+        case "obs":
+          await this.executeObsCommand(msg.target, msg.command);
           break;
         case "wol":
           await this.executeWol(msg.command);
@@ -297,7 +359,28 @@ export class Bridge {
         return;
       }
 
-      if (msg.protocol === "tcp-command" || msg.protocol === "pjlink") {
+      if (msg.protocol === "obs") {
+        await this.connectObs(key, msg.settings);
+        this.send({ type: "device-status", target: key, connected: true });
+        this.sendStatus();
+        return;
+      }
+
+      if (msg.protocol === "dmx-artnet" || msg.protocol === "dmx-sacn") {
+        await this.connectDmx(msg.protocol, key, host, port, msg.settings);
+        this.send({ type: "device-status", target: key, connected: true });
+        this.sendStatus();
+        return;
+      }
+
+      if (msg.protocol === "pjlink") {
+        if (!this.pjlinkConnections.has(key)) {
+          const conn = new PjlinkConnection();
+          const password = typeof msg.settings.password === "string" ? msg.settings.password : undefined;
+          await conn.connect(host, port, password);
+          this.pjlinkConnections.set(key, conn);
+        }
+      } else if (msg.protocol === "tcp-command") {
         if (!this.tcpConnections.has(key)) {
           const conn = new TcpConnection();
           await conn.connect(host, port);
@@ -346,6 +429,21 @@ export class Bridge {
     if (atem) {
       void atem.disconnect();
       this.atemConnections.delete(msg.target);
+    }
+    const dmx = this.dmxConnections.get(msg.target);
+    if (dmx) {
+      dmx.disconnect();
+      this.dmxConnections.delete(msg.target);
+    }
+    const obs = this.obsConnections.get(msg.target);
+    if (obs) {
+      obs.disconnect();
+      this.obsConnections.delete(msg.target);
+    }
+    const pjlink = this.pjlinkConnections.get(msg.target);
+    if (pjlink) {
+      pjlink.disconnect();
+      this.pjlinkConnections.delete(msg.target);
     }
     this.httpDeviceSettings.delete(msg.target);
     this.send({ type: "device-status", target: msg.target, connected: false });
@@ -430,18 +528,16 @@ export class Bridge {
     const atem = this.atemConnections.get(target);
     if (!atem) throw new Error("ATEM is not connected");
 
-    let payload: { actionId?: unknown; params?: unknown };
+    let payload: unknown;
     try {
-      payload = JSON.parse(command) as { actionId?: unknown; params?: unknown };
+      payload = JSON.parse(command);
     } catch {
       throw new Error("Invalid ATEM command payload");
     }
+    if (!isRecord(payload)) throw new Error("Invalid ATEM command payload");
     if (typeof payload.actionId !== "string")
       throw new Error("ATEM action is required");
-    const params =
-      payload.params && typeof payload.params === "object"
-        ? (payload.params as Record<string, unknown>)
-        : {};
+    const params = isRecord(payload.params) ? payload.params : {};
     const integer = (name: string, minimum = 0) => {
       const value = Number(params[name]);
       if (!Number.isInteger(value) || value < minimum)
@@ -482,6 +578,83 @@ export class Bridge {
     }
   }
 
+  private async connectObs(target: string, settings: Record<string, unknown>): Promise<void> {
+    const existing = this.obsConnections.get(target);
+    if (existing?.isConnected()) return;
+    const [fallbackHost, fallbackPort] = target.split(":");
+    const host = typeof settings.host === "string" && settings.host.trim() ? settings.host.trim() : fallbackHost;
+    const port = Number(settings.port || fallbackPort || 4455);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("OBS host and port are required");
+    const connection = new ObsConnection();
+    this.obsConnections.set(target, connection);
+    try {
+      await connection.connect({
+        host,
+        port,
+        password: typeof settings.password === "string" ? settings.password : undefined,
+        onState: (state) => this.send({ type: "device-event", target, eventName: "obs-state", data: JSON.stringify(state) }),
+        onDisconnected: () => {
+          this.obsConnections.delete(target);
+          this.send({ type: "device-status", target, connected: false });
+          this.sendStatus();
+        },
+      });
+    } catch (error) {
+      this.obsConnections.delete(target);
+      connection.disconnect();
+      throw error;
+    }
+  }
+
+  private async executeObsCommand(target: string, command: string): Promise<void> {
+    const connection = this.obsConnections.get(target);
+    if (!connection?.isConnected()) throw new Error("OBS is not connected");
+    let payload: unknown;
+    try {
+      payload = JSON.parse(command);
+    } catch {
+      throw new Error("Invalid OBS command payload");
+    }
+    if (!isRecord(payload)) throw new Error("Invalid OBS command payload");
+    const commandPayload = payload;
+    if (typeof commandPayload.actionId !== "string") throw new Error("OBS action is required");
+    const params = isRecord(commandPayload.params) ? commandPayload.params : {};
+    await connection.executeAction(commandPayload.actionId, params);
+  }
+
+  private async connectDmx(
+    protocol: "dmx-artnet" | "dmx-sacn",
+    target: string,
+    host: string,
+    port: number,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    const existing = this.dmxConnections.get(target);
+    if (existing?.isConnected()) return;
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("DMX host and port are required");
+    const connection = new DmxConnection(protocol, (state) => {
+      this.send({ type: "device-event", target, eventName: "dmx-state", data: JSON.stringify(state) });
+    });
+    await connection.connect(host, port, settings);
+    this.dmxConnections.set(target, connection);
+  }
+
+  private async executeDmxCommand(target: string, command: string): Promise<void> {
+    const connection = this.dmxConnections.get(target);
+    if (!connection?.isConnected()) throw new Error("DMX output is not connected");
+    let payload: unknown;
+    try {
+      payload = JSON.parse(command);
+    } catch {
+      throw new Error("Invalid DMX command payload");
+    }
+    if (!isRecord(payload)) throw new Error("Invalid DMX command payload");
+    const commandPayload = payload;
+    if (typeof commandPayload.actionId !== "string") throw new Error("DMX action is required");
+    const params = isRecord(commandPayload.params) ? commandPayload.params : {};
+    await connection.executeAction(commandPayload.actionId, params);
+  }
+
   private async ensureProPresenterConnection(): Promise<void> {
     if (!this.propresenter?.host) {
       return;
@@ -511,7 +684,7 @@ export class Bridge {
     }
 
     const [fallbackHost, fallbackPort] = target.split(":").slice(-2);
-    const ppHost = (settings?.host as string) || fallbackHost;
+    const ppHost = typeof settings?.host === "string" && settings.host.trim() ? settings.host.trim() : fallbackHost;
     const ppPortRaw = settings?.port ?? settings?.apiPort ?? fallbackPort;
     const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
     const apiPortRaw =
@@ -521,7 +694,7 @@ export class Bridge {
       throw new Error("ProPresenter host and port are required");
     }
 
-    const password = (settings?.password as string) || "";
+    const password = typeof settings?.password === "string" ? settings.password : "";
     const pp = new ProPresenterBridge({
       host: ppHost,
       port: ppPort,
@@ -580,6 +753,12 @@ export class Bridge {
     return await conn.sendCommand(command);
   }
 
+  private async executePjlinkCommand(target: string, command: string): Promise<string> {
+    const connection = this.pjlinkConnections.get(target);
+    if (!connection?.isConnected()) throw new Error("PJLink is not connected");
+    return await connection.sendCommand(command);
+  }
+
   private async executeOscCommand(
     target: string,
     command: string,
@@ -629,7 +808,7 @@ export class Bridge {
     command: string,
   ): Promise<string> {
     const settings = this.httpDeviceSettings.get(target) ?? {};
-    const authToken = settings.authToken as string | undefined;
+    const authToken = typeof settings.authToken === "string" ? settings.authToken : undefined;
 
     const trimmed = command.trim();
     const methodMatch = trimmed.match(/^(GET|POST|PUT|DELETE|PATCH)\s+/i);
@@ -696,6 +875,8 @@ export class Bridge {
       this.udpConnections.keys(),
       this.ppConnections.keys(),
       this.atemConnections.keys(),
+      this.dmxConnections.keys(),
+      this.obsConnections.keys(),
       this.httpDeviceSettings.keys(),
     );
     this.send({

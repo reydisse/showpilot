@@ -529,11 +529,12 @@ const mobileDeviceActionSchema = z.object({
   params: z.array(z.object({
     id: z.string(),
     label: z.string(),
-    type: z.enum(["number", "boolean"]),
+    type: z.enum(["number", "boolean", "string", "select"]),
+    options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
     min: z.number().optional(),
     max: z.number().optional(),
     step: z.number().optional(),
-    default: z.union([z.number(), z.boolean()]).optional(),
+    default: z.union([z.number(), z.boolean(), z.string()]).optional(),
   })),
 });
 
@@ -577,7 +578,22 @@ const devicesSchema = z.object({
       secretConfigured: z.boolean(),
     })),
     controls: z.array(mobileDeviceActionSchema),
+    feedbackCount: z.number().int().nonnegative(),
   })),
+});
+
+const mobileDeviceControlStateSchema = z.object({
+  connected: z.boolean(),
+  bridgeOnline: z.boolean(),
+  controls: z.array(mobileDeviceActionSchema),
+  feedbacks: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    type: z.enum(["boolean", "number", "string", "enum"]),
+    value: z.union([z.string(), z.number(), z.boolean()]).nullable(),
+    available: z.boolean(),
+  })),
+  refreshedAt: z.number().nullable(),
 });
 
 export type MobileSchedule = z.infer<typeof scheduleSchema>;
@@ -603,6 +619,7 @@ export type MobileChatAttachment = z.infer<typeof chatAttachmentSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAdapter = z.infer<typeof mobileDeviceAdapterSchema>;
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
+export type MobileDeviceControlState = z.infer<typeof mobileDeviceControlStateSchema>;
 export type ChecklistDepartment = z.infer<typeof checklistDepartmentSchema>;
 export type MobileChecklist = z.infer<typeof mobileChecklistSchema>;
 export type MobileChecklistEntry = z.infer<typeof checklistEntrySchema>;
@@ -1411,13 +1428,20 @@ export async function controlMobileDevice(input: {
   deviceId: string;
   operation: "connect" | "disconnect" | "action";
   actionId?: string;
-  params?: Record<string, number | boolean>;
+  params?: Record<string, number | boolean | string>;
 }) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/devices/${encodeURIComponent(input.deviceId)}/control?orgId=${encodeURIComponent(input.orgId)}`,
     { method: "POST", body: JSON.stringify(input) },
   );
   return z.object({ success: z.literal(true), response: z.string().optional() }).parse(await response.json());
+}
+
+export async function getMobileDeviceControlState(input: { orgId: string; deviceId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/devices/${encodeURIComponent(input.deviceId)}/control?orgId=${encodeURIComponent(input.orgId)}`,
+  );
+  return mobileDeviceControlStateSchema.parse(await response.json());
 }
 
 export async function markNotificationRead(orgId: string, notificationId: string) {

@@ -3,10 +3,67 @@ import type { ModuleAction, ModuleFeedback } from "../types";
 import type { ProtocolDriver } from "../protocols/protocol-driver";
 import type {
   DeviceProfile,
-  ProfileAction,
   ProfileFeedback,
   ParamTransform,
 } from "./types";
+import { normalizeActionParams } from "../action-params";
+
+function applyProfileTransform(value: unknown, transform: ParamTransform): unknown {
+  switch (transform.type) {
+    case "map":
+      return transform.values?.[String(value)] ?? String(value);
+    case "scale":
+      return Number(value) * (transform.factor ?? 1);
+    case "format": {
+      const format = transform.format ?? "%s";
+      const number = Number(value);
+      if (format.includes("X") || format.includes("x")) {
+        return number.toString(16).toUpperCase().padStart(2, "0");
+      }
+      if (format.includes("d")) {
+        const padding = format.match(/(\d+)/)?.[1];
+        return String(Math.round(number)).padStart(padding ? Number.parseInt(padding, 10) : 0, "0");
+      }
+      return String(value);
+    }
+    default: {
+      const exhaustive: never = transform.type;
+      return exhaustive;
+    }
+  }
+}
+
+export function buildProfileCommand(
+  profile: DeviceProfile,
+  actionId: string,
+  input: Record<string, unknown>,
+): string {
+  const action = profile.actions.find((candidate) => candidate.id === actionId);
+  if (!action) throw new Error(`Unknown action: ${actionId}`);
+  const params = normalizeActionParams(action, input);
+  const transforms = action.mapping.paramTransforms;
+  return action.mapping.command.replace(/\{\{(\w+)\}\}/g, (_match, paramName: string) => {
+    const value = transforms?.[paramName]
+      ? applyProfileTransform(params[paramName], transforms[paramName])
+      : params[paramName];
+    return String(value ?? "");
+  });
+}
+
+export function parseProfileFeedback(response: string, feedback: ProfileFeedback): unknown {
+  const { responsePattern, captureGroup, valueMap } = feedback.mapping;
+  if (!responsePattern) return response;
+  const match = response.match(new RegExp(responsePattern));
+  if (!match) return undefined;
+  const rawValue = match[captureGroup ?? 1] ?? match[0];
+  if (valueMap) return valueMap[rawValue] ?? rawValue;
+  if (feedback.type === "number") {
+    const number = Number(rawValue);
+    return Number.isFinite(number) ? number : undefined;
+  }
+  if (feedback.type === "boolean") return rawValue === "1" || rawValue.toLowerCase() === "true";
+  return rawValue;
+}
 
 /**
  * A DeviceModule driven entirely by a JSON DeviceProfile + ProtocolDriver.
@@ -68,12 +125,7 @@ export class ProfileDrivenModule extends BaseDeviceModule {
       throw new Error("Not connected");
     }
 
-    const profileAction = this.profile.actions.find((a) => a.id === actionId);
-    if (!profileAction) {
-      throw new Error(`Unknown action: ${actionId}`);
-    }
-
-    const command = this.interpolateCommand(profileAction, params);
+    const command = buildProfileCommand(this.profile, actionId, params);
     await this.enqueueCommand(command);
   }
 
@@ -89,56 +141,6 @@ export class ProfileDrivenModule extends BaseDeviceModule {
   }
 
   // ─── Command Interpolation ──────────────────────────────
-
-  private interpolateCommand(
-    action: ProfileAction,
-    params: Record<string, unknown>
-  ): string {
-    let command = action.mapping.command;
-    const transforms = action.mapping.paramTransforms;
-
-    // Replace each {{paramName}} with the (optionally transformed) value
-    command = command.replace(/\{\{(\w+)\}\}/g, (_match, paramName: string) => {
-      let value = params[paramName];
-
-      // Apply transform if defined
-      if (transforms?.[paramName]) {
-        value = this.applyTransform(value, transforms[paramName]);
-      }
-
-      return String(value ?? "");
-    });
-
-    return command;
-  }
-
-  private applyTransform(value: unknown, transform: ParamTransform): unknown {
-    switch (transform.type) {
-      case "map":
-        return transform.values?.[String(value)] ?? String(value);
-
-      case "scale":
-        return Number(value) * (transform.factor ?? 1);
-
-      case "format": {
-        // Simple format support: %02X (hex), %03d (zero-padded decimal)
-        const fmt = transform.format ?? "%s";
-        const num = Number(value);
-        if (fmt.includes("X") || fmt.includes("x")) {
-          return num.toString(16).toUpperCase().padStart(2, "0");
-        }
-        if (fmt.includes("d")) {
-          const padMatch = fmt.match(/(\d+)/);
-          const pad = padMatch ? parseInt(padMatch[1]) : 0;
-          return String(Math.round(num)).padStart(pad, "0");
-        }
-        return String(value);
-      }
-
-      default:
-        return value;
-    }
-  }
 
   // ─── Command Queue ──────────────────────────────────────
 
@@ -217,7 +219,7 @@ export class ProfileDrivenModule extends BaseDeviceModule {
       const response = await this.driver.sendCommand(feedback.mapping.pollCommand!);
       if (!response) return;
 
-      const value = this.parseFeedbackResponse(response, feedback);
+      const value = parseProfileFeedback(response, feedback);
       if (value !== undefined) {
         this.emitFeedback(feedback.id, value);
       }
@@ -226,24 +228,4 @@ export class ProfileDrivenModule extends BaseDeviceModule {
     }
   }
 
-  private parseFeedbackResponse(
-    response: string,
-    feedback: ProfileFeedback
-  ): unknown {
-    const { responsePattern, captureGroup, valueMap } = feedback.mapping;
-    if (!responsePattern) return response;
-
-    const regex = new RegExp(responsePattern);
-    const match = response.match(regex);
-    if (!match) return undefined;
-
-    const rawValue = match[captureGroup ?? 1] ?? match[0];
-
-    // Apply value map if present
-    if (valueMap) {
-      return valueMap[rawValue] ?? rawValue;
-    }
-
-    return rawValue;
-  }
 }

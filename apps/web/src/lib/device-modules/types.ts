@@ -10,6 +10,21 @@ export type TransportType =
 /** Whether the browser can connect directly or needs a bridge agent */
 export type ConnectivityMode = "browser-direct" | "bridge-required";
 
+/** Protocols the venue Bridge can execute on behalf of remote operators. */
+export type BridgeDeviceProtocol =
+  | "atem"
+  | "dmx-artnet"
+  | "dmx-sacn"
+  | "http-command"
+  | "obs"
+  | "osc"
+  | "pjlink"
+  | "propresenter"
+  | "tcp-command"
+  | "udp"
+  | "visca-ip"
+  | "wol";
+
 /** Device connection lifecycle states */
 export type DeviceConnectionStatus =
   | "disconnected"
@@ -54,7 +69,7 @@ export interface ModuleActionParam {
 export interface ModuleAction {
   id: string;
   label: string;
-  category?: string;
+  category: string;
   params: ModuleActionParam[];
 }
 
@@ -64,6 +79,31 @@ export interface ModuleFeedback<T = unknown> {
   label: string;
   type: "boolean" | "number" | "string" | "enum";
   value: T;
+}
+
+export interface RemoteFeedbackQuery {
+  feedbackIds: string[];
+  command: string;
+  parse(response: string): Record<string, unknown>;
+}
+
+export interface RemoteControlDefinition {
+  protocol: BridgeDeviceProtocol;
+  target(settings: Record<string, unknown>): string | null;
+  connectionSettings?(settings: Record<string, unknown>): Record<string, unknown>;
+  actions(settings: Record<string, unknown>): ModuleAction[];
+  feedbacks(settings: Record<string, unknown>): ModuleFeedback[];
+  buildCommand(
+    actionId: string,
+    params: Record<string, unknown>,
+    settings: Record<string, unknown>,
+  ): string;
+  feedbackQueries?(settings: Record<string, unknown>): RemoteFeedbackQuery[];
+  parseEvent?(
+    eventName: string,
+    data: string,
+    settings: Record<string, unknown>,
+  ): Record<string, unknown>;
 }
 
 /** Status change listener callback */
@@ -125,6 +165,8 @@ export interface ModuleDefinition {
   icon: string;
   /** Short description */
   description: string;
+  /** Server-owned remote control contract used by native and off-site clients. */
+  remoteControl?: RemoteControlDefinition;
   /** Create a module instance from device settings */
   createInstance(settings: Record<string, unknown>): DeviceModule;
 }

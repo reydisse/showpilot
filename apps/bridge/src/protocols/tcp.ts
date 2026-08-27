@@ -8,6 +8,7 @@ export class TcpConnection {
   private socket: net.Socket | null = null;
   private connected = false;
   private responseTimeout = 5000;
+  private commandTail: Promise<void> = Promise.resolve();
 
   async connect(host: string, port: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -50,6 +51,12 @@ export class TcpConnection {
   }
 
   async sendCommand(command: string): Promise<string> {
+    const result = this.commandTail.then(() => this.sendCommandNow(command));
+    this.commandTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async sendCommandNow(command: string): Promise<string> {
     if (!this.socket || !this.connected) {
       throw new Error("Not connected");
     }

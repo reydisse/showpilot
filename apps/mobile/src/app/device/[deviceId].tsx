@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Cable from "lucide-react-native/icons/cable";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -7,20 +7,20 @@ import RadioTower from "lucide-react-native/icons/radio-tower";
 import ShieldAlert from "lucide-react-native/icons/shield-alert";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
-import { ActivityIndicator, Alert, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
-import { controlMobileDevice, getMobileDevices, type MobileDeviceAction } from "@/lib/mobile-api";
+import { controlMobileDevice, getMobileDeviceControlState, getMobileDevices, type MobileDeviceAction } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
-type ActionValues = Record<string, number | boolean>;
+type ActionValues = Record<string, number | boolean | string>;
 type ActionDraftValues = Record<string, string | boolean>;
 
 function initialValues(action: MobileDeviceAction): ActionDraftValues {
   return Object.fromEntries(action.params.map((param) => {
-    const value = param.default ?? (param.type === "boolean" ? false : param.min ?? 0);
+    const value = param.default ?? (param.type === "boolean" ? false : param.type === "number" ? param.min ?? 0 : param.options?.[0]?.value ?? "");
     return [param.id, param.type === "boolean" ? Boolean(value) : String(value)];
   }));
 }
@@ -31,6 +31,13 @@ function parseValues(action: MobileDeviceAction, drafts: ActionDraftValues): { v
     const draft = drafts[param.id];
     if (param.type === "boolean") {
       values[param.id] = Boolean(draft);
+      continue;
+    }
+    if (param.type === "string" || param.type === "select") {
+      const text = typeof draft === "string" ? draft.trim() : "";
+      if (!text) return { error: `${param.label} is required.` };
+      if (param.type === "select" && !param.options?.some((option) => option.value === text)) return { error: `Choose a valid ${param.label.toLowerCase()}.` };
+      values[param.id] = text;
       continue;
     }
     const number = typeof draft === "string" && draft.trim() ? Number(draft) : Number.NaN;
@@ -80,8 +87,13 @@ function ActionCard({ action, connected, busy, onExecute }: {
           <View style={styles.fieldCopy}><Text style={styles.fieldLabel}>{param.label}</Text>{param.type === "number" && param.min !== undefined && param.max !== undefined ? <Text style={styles.range}>{param.min}–{param.max}</Text> : null}</View>
           {param.type === "boolean" ? (
             <Switch accessibilityLabel={param.label} disabled={!connected || busy} onValueChange={(value) => update(param.id, value)} thumbColor={drafts[param.id] ? colors.amber : colors.textMuted} trackColor={{ false: colors.border, true: colors.amberSoft }} value={Boolean(drafts[param.id])} />
+          ) : param.type === "select" ? (
+            <View accessibilityLabel={param.label} style={styles.choiceList}>{param.options?.map((option) => {
+              const selected = drafts[param.id] === option.value;
+              return <Pressable accessibilityRole="button" accessibilityState={{ selected }} disabled={!connected || busy} key={option.value} onPress={() => update(param.id, option.value)} style={[styles.choice, selected && styles.choiceSelected]}><Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{option.label}</Text></Pressable>;
+            })}</View>
           ) : (
-            <TextInput accessibilityLabel={param.label} editable={connected && !busy} keyboardType="decimal-pad" onChangeText={(value) => update(param.id, value)} selectTextOnFocus style={[styles.numberInput, validationError && styles.numberInputError]} value={String(drafts[param.id])} />
+            <TextInput accessibilityLabel={param.label} editable={connected && !busy} keyboardType={param.type === "number" ? "decimal-pad" : "default"} onChangeText={(value) => update(param.id, value)} selectTextOnFocus style={[styles.numberInput, param.type === "string" && styles.textInput, validationError && styles.numberInputError]} value={String(drafts[param.id])} />
           )}
         </View>
       ))}
@@ -96,7 +108,6 @@ export default function DeviceControlScreen() {
   const styles = useStyles();
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
-  const [connected, setConnected] = useState(false);
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["mobile-devices", organization?.id],
@@ -105,19 +116,30 @@ export default function DeviceControlScreen() {
     refetchInterval: 5_000,
   });
   const device = useMemo(() => query.data?.devices.find((candidate) => candidate.id === deviceId), [deviceId, query.data]);
-  useEffect(() => setConnected(device?.connected ?? false), [device?.connected]);
+  const controlState = useQuery({
+    queryKey: ["mobile-device-control", organization?.id, deviceId],
+    queryFn: () => getMobileDeviceControlState({ orgId: organization!.id, deviceId }),
+    enabled: Boolean(organization?.id && deviceId && device?.enabled),
+    refetchInterval: 5_000,
+  });
+  const connected = controlState.data?.connected ?? device?.connected ?? false;
   const connection = useMutation({
     mutationFn: (operation: "connect" | "disconnect") => controlMobileDevice({ orgId: organization!.id, deviceId, operation }),
     onSuccess: async (_, operation) => {
-      setConnected(operation === "connect");
-      await queryClient.invalidateQueries({ queryKey: ["mobile-devices", organization?.id] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-devices", organization?.id] }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-device-control", organization?.id, deviceId] }),
+      ]);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
     onError: (error) => Alert.alert("Device connection failed", error.message),
   });
   const command = useMutation({
     mutationFn: ({ action, params }: { action: MobileDeviceAction; params: ActionValues }) => controlMobileDevice({ orgId: organization!.id, deviceId, operation: "action", actionId: action.id, params }),
-    onSuccess: async () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mobile-device-control", organization?.id, deviceId] });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
     onError: (error) => Alert.alert("Command failed", error.message),
   });
 
@@ -125,7 +147,10 @@ export default function DeviceControlScreen() {
   if (!organization) return <Redirect href="/organizations" />;
   if (query.isPending) return <Page><ActivityIndicator color={colors.amber} size="large" /></Page>;
   if (query.error) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text></Page>;
-  if (!device || !device.enabled || device.controls.length === 0) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text style={styles.empty}>This device is disabled, missing, or does not expose safe native controls.</Text></Page>;
+  if (!device || !device.enabled) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text style={styles.empty}>This device is disabled or missing.</Text></Page>;
+
+  const actions = controlState.data?.controls ?? device.controls;
+  const bridgeOnline = controlState.data?.bridgeOnline ?? query.data?.bridge.online ?? false;
 
   return (
     <Page eyebrow={device.category} title={device.name}>
@@ -133,10 +158,12 @@ export default function DeviceControlScreen() {
         <View style={styles.deviceIcon}><Cable color={colors.amber} size={23} /></View>
         <View style={styles.connectionCopy}><Text style={styles.adapter}>{device.adapterType}</Text><View style={styles.statusRow}>{connected ? <CheckCircle2 color={colors.green} size={14} /> : <CirclePower color={colors.textFaint} size={14} />}<Text style={[styles.status, connected && styles.statusOnline]}>{connected ? "CONNECTED" : "NOT CONNECTED"}</Text></View></View>
       </View>
-      <View style={[styles.bridgeNote, query.data?.bridge.online ? styles.bridgeOnline : styles.bridgeOffline]}><RadioTower color={query.data?.bridge.online ? colors.green : colors.red} size={18} /><Text style={styles.bridgeText}>{query.data?.bridge.online ? `Venue Bridge online${query.data.bridge.version ? ` · v${query.data.bridge.version}` : ""}. Remote commands stay on the trusted network.` : "Venue Bridge offline. Start it on the venue network before connecting this device."}</Text></View>
-      <AppButton disabled={!connected && !query.data?.bridge.online} label={connection.isPending ? (connected ? "Disconnecting…" : "Connecting…") : connected ? "Disconnect device" : query.data?.bridge.online ? "Connect through venue Bridge" : "Venue Bridge is offline"} loading={connection.isPending} onPress={() => connection.mutate(connected ? "disconnect" : "connect")} variant={connected ? "danger" : "primary"} />
-      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE CONTROLS</Text><Text style={styles.sectionCount}>{device.controls.length}</Text></View>
-      <View style={styles.actionList}>{device.controls.map((action) => <ActionCard action={action} busy={command.isPending} connected={connected} key={action.id} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} />)}</View>
+      <View style={[styles.bridgeNote, bridgeOnline ? styles.bridgeOnline : styles.bridgeOffline]}><RadioTower color={bridgeOnline ? colors.green : colors.red} size={18} /><Text style={styles.bridgeText}>{bridgeOnline ? `Venue Bridge online${query.data?.bridge.version ? ` · v${query.data.bridge.version}` : ""}. Remote commands stay on the trusted network.` : "Venue Bridge offline. Start it on the venue network before connecting this device."}</Text></View>
+      <AppButton disabled={!connected && !bridgeOnline} label={connection.isPending ? (connected ? "Disconnecting…" : "Connecting…") : connected ? "Disconnect device" : bridgeOnline ? "Connect through venue Bridge" : "Venue Bridge is offline"} loading={connection.isPending} onPress={() => connection.mutate(connected ? "disconnect" : "connect")} variant={connected ? "danger" : "primary"} />
+      {controlState.error ? <Text accessibilityRole="alert" onPress={() => controlState.refetch()} style={styles.error}>{controlState.error.message} · Tap to retry</Text> : null}
+      {controlState.data?.feedbacks.length ? <><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE FEEDBACK</Text><Text style={styles.sectionCount}>{controlState.data.feedbacks.filter((feedback) => feedback.available).length}/{controlState.data.feedbacks.length}</Text></View><View style={styles.feedbackGrid}>{controlState.data.feedbacks.map((feedback) => <View key={feedback.id} style={styles.feedbackCard}><Text style={styles.feedbackLabel}>{feedback.label}</Text><Text style={[styles.feedbackValue, !feedback.available && styles.feedbackWaiting]}>{feedback.available ? feedback.type === "boolean" ? feedback.value ? "ON" : "OFF" : String(feedback.value) : connected ? "WAITING" : "OFFLINE"}</Text></View>)}</View></> : null}
+      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE CONTROLS</Text><Text style={styles.sectionCount}>{actions.length}</Text></View>
+      {actions.length ? <View style={styles.actionList}>{actions.map((action) => <ActionCard action={action} busy={command.isPending} connected={connected} key={action.id} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} />)}</View> : <Text style={styles.empty}>{connected ? "This adapter did not return any controllable actions." : "Connect the device to load its controls."}</Text>}
     </Page>
   );
 }
@@ -167,7 +194,18 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   fieldLabel: { color: colors.text, fontFamily, fontSize: 13, fontWeight: "700" },
   range: { color: colors.textFaint, fontFamily, fontSize: 9 },
   numberInput: { width: 88, minHeight: 42, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, color: colors.text, fontFamily, fontSize: 15, fontWeight: "700", paddingHorizontal: 12, textAlign: "right" },
+  textInput: { width: 150, textAlign: "left", fontSize: 13 },
   numberInputError: { borderColor: colors.red },
+  choiceList: { maxWidth: 190, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  choice: { minHeight: 38, justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, paddingHorizontal: 10 },
+  choiceSelected: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
+  choiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
+  choiceTextSelected: { color: colors.amberText },
+  feedbackGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  feedbackCard: { minWidth: 132, flexGrow: 1, gap: 6, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 12 },
+  feedbackLabel: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
+  feedbackValue: { color: colors.green, fontFamily, fontSize: 15, fontWeight: "900" },
+  feedbackWaiting: { color: colors.textFaint, fontSize: 10 },
   validationError: { color: colors.red, fontFamily, fontSize: 12, lineHeight: 18 },
   error: { color: colors.red, fontFamily, fontSize: 13 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21 },

@@ -25,10 +25,11 @@ class TestModule extends BaseDeviceModule {
 
   getActions(): ModuleAction[] {
     return [
-      { id: "test_action", label: "Test Action", params: [] },
+      { id: "test_action", label: "Test Action", category: "test", params: [] },
       {
         id: "parameterized",
         label: "With Param",
+        category: "test",
         params: [{ id: "level", label: "Level", type: "number", min: 0, max: 1 }],
       },
     ];

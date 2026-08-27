@@ -68,7 +68,7 @@ export interface DeviceQuirks {
 export interface ProfileAction {
   id: string;
   label: string;
-  category?: string;
+  category: string;
   params: ModuleActionParam[];
   mapping: ProfileActionMapping;
 }

@@ -14,10 +14,15 @@ export default defineConfig(async () => {
   return {
     plugins: [
       cloudflareTest({
+        main: "./src/test/worker-entry.ts",
         miniflare: {
           compatibilityDate: "2026-02-28",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["DB"],
+          durableObjects: {
+            BRIDGE_RELAY: "BridgeRelay",
+            RUNDOWN_RELAY: "TestRundownRelay",
+          },
           bindings: { TEST_MIGRATIONS: migrations },
         },
       }),

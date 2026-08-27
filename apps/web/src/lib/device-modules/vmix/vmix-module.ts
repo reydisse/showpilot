@@ -1,12 +1,8 @@
 import { BaseDeviceModule } from "../base-module";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
+import { findAndNormalizeAction } from "../action-params";
 
-interface VMixSettings {
-  host: string;
-  port?: number;
-}
-
-const VMIX_ACTIONS: ModuleAction[] = [
+export const VMIX_ACTIONS: ModuleAction[] = [
   { id: "cut", label: "Cut", category: "transitions", params: [] },
   { id: "fade", label: "Fade", category: "transitions", params: [
     { id: "duration", label: "Duration (ms)", type: "number", min: 0, max: 5000, step: 100, default: 1000 },
@@ -25,7 +21,7 @@ const VMIX_ACTIONS: ModuleAction[] = [
   { id: "stop_external", label: "Stop External", category: "output", params: [] },
 ];
 
-const VMIX_FEEDBACKS: ModuleFeedback[] = [
+export const VMIX_FEEDBACKS: ModuleFeedback[] = [
   { id: "active_input", label: "Active Input", type: "string", value: "" },
   { id: "preview_input", label: "Preview Input", type: "string", value: "" },
   { id: "streaming_active", label: "Streaming", type: "boolean", value: false },
@@ -35,8 +31,8 @@ const VMIX_FEEDBACKS: ModuleFeedback[] = [
 const ACTION_MAP: Record<string, (p: Record<string, unknown>) => string> = {
   cut: () => "Function=Cut",
   fade: (p) => `Function=Fade&Duration=${p.duration ?? 1000}`,
-  set_program_input: (p) => `Function=ActiveInput&Input=${p.input}`,
-  set_preview_input: (p) => `Function=PreviewInput&Input=${p.input}`,
+  set_program_input: (p) => `Function=ActiveInput&Input=${encodeURIComponent(String(p.input))}`,
+  set_preview_input: (p) => `Function=PreviewInput&Input=${encodeURIComponent(String(p.input))}`,
   start_streaming: () => "Function=StartStreaming",
   stop_streaming: () => "Function=StopStreaming",
   start_recording: () => "Function=StartRecording",
@@ -44,6 +40,31 @@ const ACTION_MAP: Record<string, (p: Record<string, unknown>) => string> = {
   start_external: () => "Function=StartExternal",
   stop_external: () => "Function=StopExternal",
 };
+
+export function buildVmixQuery(actionId: string, input: Record<string, unknown>): string {
+  const { params } = findAndNormalizeAction(VMIX_ACTIONS, actionId, input);
+  const mapper = ACTION_MAP[actionId];
+  if (!mapper) throw new Error("This vMix action is not available.");
+  return mapper(params);
+}
+
+function vmixTag(xml: string, tag: string): string | undefined {
+  const match = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`, "i"));
+  return match?.[1]?.trim();
+}
+
+export function parseVmixFeedback(xml: string): Record<string, unknown> {
+  const active = vmixTag(xml, "active");
+  const preview = vmixTag(xml, "preview");
+  const streaming = vmixTag(xml, "streaming");
+  const recording = vmixTag(xml, "recording");
+  return {
+    ...(active ? { active_input: active } : {}),
+    ...(preview ? { preview_input: preview } : {}),
+    ...(streaming ? { streaming_active: streaming.toLowerCase() === "true" } : {}),
+    ...(recording ? { recording_active: recording.toLowerCase() === "true" } : {}),
+  };
+}
 
 /**
  * vMix module — connects via HTTP API.
@@ -54,10 +75,11 @@ export class VMixModule extends BaseDeviceModule {
   private port: number;
   private baseUrl: string;
 
-  constructor(settings: VMixSettings) {
+  constructor(settings: Record<string, unknown>) {
     super();
-    this.host = settings.host;
-    this.port = settings.port ?? 8088;
+    this.host = typeof settings.host === "string" ? settings.host.trim() : "";
+    const port = Number(settings.port ?? 8088);
+    this.port = Number.isInteger(port) ? port : 8088;
     this.baseUrl = `http://${this.host}:${this.port}/api/`;
   }
 
@@ -78,10 +100,7 @@ export class VMixModule extends BaseDeviceModule {
   async executeAction(actionId: string, params: Record<string, unknown>): Promise<void> {
     if (this.connectionStatus() !== "connected") throw new Error("Not connected");
 
-    const mapper = ACTION_MAP[actionId];
-    if (!mapper) throw new Error(`Unknown action: ${actionId}`);
-
-    const query = mapper(params);
+    const query = buildVmixQuery(actionId, params);
     const res = await fetch(`${this.baseUrl}?${query}`);
     if (!res.ok) throw new Error(`vMix command failed: ${res.status}`);
   }
@@ -103,5 +122,17 @@ export const vmixModuleDefinition: ModuleDefinition = {
   ],
   icon: "Monitor",
   description: "Control vMix via HTTP API. Switch inputs, trigger transitions, manage streaming and recording.",
-  createInstance: (settings) => new VMixModule(settings as unknown as VMixSettings),
+  remoteControl: {
+    protocol: "http-command",
+    target(settings) {
+      const host = typeof settings.host === "string" ? settings.host.trim() : "";
+      const port = Number(settings.port || 8088);
+      return host && Number.isInteger(port) && port >= 1 && port <= 65_535 ? `http://${host}:${port}` : null;
+    },
+    actions: () => VMIX_ACTIONS,
+    feedbacks: () => VMIX_FEEDBACKS,
+    buildCommand: (actionId, params) => `GET /api/?${buildVmixQuery(actionId, params)}`,
+    feedbackQueries: () => [{ feedbackIds: VMIX_FEEDBACKS.map((feedback) => feedback.id), command: "GET /api/", parse: parseVmixFeedback }],
+  },
+  createInstance: (settings) => new VMixModule(settings),
 };

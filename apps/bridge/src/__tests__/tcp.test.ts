@@ -47,6 +47,33 @@ describe("TcpConnection", () => {
     conn.disconnect();
   });
 
+  it("serializes concurrent request-response commands", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const received: string[] = [];
+    server = net.createServer((socket) => {
+      socket.on("data", (data) => {
+        const command = data.toString();
+        received.push(command);
+        setTimeout(() => socket.write(`response:${command}`), command === "first" ? 20 : 0);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP test address");
+
+    const conn = new TcpConnection();
+    await conn.connect("127.0.0.1", address.port);
+    const [first, second] = await Promise.all([
+      conn.sendCommand("first"),
+      conn.sendCommand("second"),
+    ]);
+
+    expect(received).toEqual(["first", "second"]);
+    expect(first).toBe("response:first");
+    expect(second).toBe("response:second");
+    conn.disconnect();
+  });
+
   it("handles disconnect", async () => {
     const conn = new TcpConnection();
     await conn.connect("127.0.0.1", serverPort);

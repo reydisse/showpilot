@@ -13,7 +13,8 @@ import {
 } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
 import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "./utils";
-import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
+import { resolveRemoteDeviceControl, type ResolvedRemoteDeviceControl } from "./mobile-device-controls";
+import { buildHomeAssistantActions, parseHomeAssistantEntities } from "./device-modules/homeassistant/homeassistant-module";
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
@@ -3491,30 +3492,6 @@ function serializeMobileDeviceConfiguration(
   });
 }
 
-function mobileDeviceTarget(
-  device: Pick<MobileDeviceListRow, "adapterType" | "settings">,
-  adapter: MobileDeviceAdapter | undefined,
-): string | null {
-  const settings = parsedSettings(device.settings);
-  if (!adapter || adapter.connectivity !== "bridge-required") return null;
-  if (device.adapterType === "homeassistant") {
-    const baseUrl = typeof settings?.baseUrl === "string" ? settings.baseUrl.trim() : "";
-    return settings?.connectionMode === "bridge-required" && baseUrl ? baseUrl : null;
-  }
-  const host = typeof settings?.host === "string" ? settings.host.trim() : "";
-  if (!host) return null;
-  const consoleType = String(settings?.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
-  const configuredPortField = adapter.fields.find((field) => field.key === "port");
-  const placeholderPort = Number(configuredPortField?.placeholder);
-  const defaultPort = device.adapterType === "atem"
-    ? 9910
-    : device.adapterType === "osc-mixer"
-      ? consoleType === "wing" ? 2223 : 10023
-      : Number.isInteger(placeholderPort) ? placeholderPort : 0;
-  const port = Number(settings?.port || defaultPort);
-  return Number.isInteger(port) && port >= 1 && port <= 65_535 ? `${host}:${port}` : null;
-}
-
 async function devices(request: Request, url: URL, env: MobileApiEnvironment): Promise<Response> {
   const access = await authorize(request, url, env.DB, ["devices:access"]);
   if (access instanceof Response) return access;
@@ -3536,8 +3513,8 @@ async function devices(request: Request, url: URL, env: MobileApiEnvironment): P
     devices: (result.results ?? []).map((device) => {
       const settings = parsedSettings(device.settings);
       const adapter = adaptersByType.get(device.adapterType);
-      const consoleType = String(settings?.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
-      const target = mobileDeviceTarget(device, adapter);
+      const remote = settings ? resolveRemoteDeviceControl(device.adapterType, settings) : null;
+      const target = remote?.target ?? null;
       return {
         id: device.id,
         name: device.name,
@@ -3547,7 +3524,8 @@ async function devices(request: Request, url: URL, env: MobileApiEnvironment): P
         connected: Boolean(device.enabled && target && connectedTargets.has(target)),
         updatedAt: device.updatedAt,
         configuration: serializeMobileDeviceConfiguration(adapter, settings),
-        controls: actionsForMobileAdapter(device.adapterType, consoleType),
+        controls: remote?.actions ?? [],
+        feedbackCount: remote?.feedbacks.length ?? 0,
       };
     }),
   });
@@ -3677,6 +3655,87 @@ async function bridgeDispatch(
   }
 }
 
+function liveFeedbackValue(value: unknown): string | number | boolean | null {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? value
+    : null;
+}
+
+async function refreshRemoteDeviceControl(
+  env: MobileApiEnvironment,
+  orgId: string,
+  adapterType: string,
+  settings: Record<string, unknown>,
+  remote: ResolvedRemoteDeviceControl,
+  bridge: BridgeRelayStatus,
+) {
+  const values: Record<string, unknown> = {};
+  let updatedAt: number | null = null;
+  let actions = remote.actions;
+  const event = bridge.deviceEvents?.[remote.target];
+  if (event && remote.definition.parseEvent) {
+    Object.assign(values, remote.definition.parseEvent(event.eventName, event.data, settings));
+    updatedAt = event.receivedAt;
+  }
+  if (!bridge.connectedTargets.includes(remote.target)) return { values, actions, updatedAt };
+
+  const queries = remote.definition.feedbackQueries?.(settings) ?? [];
+  const results = await Promise.all(queries.map(async (query) => {
+    const result = await bridgeDispatch(env, orgId, {
+      type: "command",
+      id: `mobile-feedback-${crypto.randomUUID()}`,
+      protocol: remote.definition.protocol,
+      target: remote.target,
+      command: query.command,
+    });
+    return { query, result };
+  }));
+  for (const { query, result } of results) {
+    if (!result.success || typeof result.response !== "string") continue;
+    Object.assign(values, query.parse(result.response));
+    updatedAt = Date.now();
+    if (adapterType === "homeassistant" && query.command === "GET /api/states") {
+      actions = buildHomeAssistantActions(parseHomeAssistantEntities(result.response));
+    }
+  }
+  return { values, actions, updatedAt };
+}
+
+async function deviceControlState(
+  request: Request,
+  url: URL,
+  deviceId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  if (!validId(deviceId)) return json({ error: "A valid deviceId is required." }, 400);
+  const access = await authorize(request, url, env.DB, ["devices:access"]);
+  if (access instanceof Response) return access;
+  const device = await env.DB.prepare(
+    `SELECT id, orgId, name, category, adapterType, settings, enabled, updatedAt
+     FROM device WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(deviceId, access.orgId).first<MobileDeviceControlRow>();
+  if (!device || !device.enabled) return json({ error: "Device not found or disabled." }, 404);
+  const settings = parsedSettings(device.settings);
+  const remote = settings ? resolveRemoteDeviceControl(device.adapterType, settings) : null;
+  if (!settings || !remote) return json({ error: "This device is missing a valid remote-control configuration." }, 409);
+  const bridge = await mobileBridgeStatus(env, access.orgId);
+  const connected = bridge.bridgeOnline && bridge.connectedTargets.includes(remote.target);
+  const refreshed = await refreshRemoteDeviceControl(env, access.orgId, device.adapterType, settings, remote, bridge);
+  return json({
+    connected,
+    bridgeOnline: bridge.bridgeOnline,
+    controls: refreshed.actions,
+    feedbacks: remote.feedbacks.map((feedback) => ({
+      id: feedback.id,
+      label: feedback.label,
+      type: feedback.type,
+      value: liveFeedbackValue(refreshed.values[feedback.id]),
+      available: feedback.id in refreshed.values,
+    })),
+    refreshedAt: refreshed.updatedAt,
+  });
+}
+
 async function controlDevice(
   request: Request,
   url: URL,
@@ -3697,46 +3756,53 @@ async function controlDevice(
      FROM device WHERE id = ? AND orgId = ? LIMIT 1`,
   ).bind(deviceId, access.orgId).first<MobileDeviceControlRow>();
   if (!device || !device.enabled) return json({ error: "Device not found or disabled." }, 404);
-  if (device.adapterType !== "atem" && device.adapterType !== "osc-mixer") {
-    return json({ error: "This device adapter does not yet expose safe mobile controls." }, 409);
-  }
   const settings = parsedSettings(device.settings);
-  if (!settings) return json({ error: "The device settings are not configured correctly." }, 409);
-  const host = typeof settings.host === "string" ? settings.host.trim() : "";
-  const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
-  const defaultPort = device.adapterType === "atem" ? 9910 : consoleType === "wing" ? 2223 : 10023;
-  const port = Number(settings?.port || defaultPort);
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) {
-    return json({ error: "The device host or port is not configured correctly." }, 409);
-  }
-  const protocol = device.adapterType === "atem" ? "atem" : "osc";
-  const target = `${host}:${port}`;
+  const remote = settings ? resolveRemoteDeviceControl(device.adapterType, settings) : null;
+  if (!settings || !remote) return json({ error: "This device is missing a valid remote-control configuration." }, 409);
   if (operation === "connect") {
-    const result = await bridgeDispatch(env, access.orgId, { type: "connect-device", protocol, target, settings });
+    const result = await bridgeDispatch(env, access.orgId, {
+      type: "connect-device",
+      protocol: remote.definition.protocol,
+      target: remote.target,
+      settings: remote.connectionSettings,
+    });
     return json(result, result.success ? 200 : 502);
   }
   if (operation === "disconnect") {
-    const result = await bridgeDispatch(env, access.orgId, { type: "disconnect-device", target });
+    const result = await bridgeDispatch(env, access.orgId, { type: "disconnect-device", target: remote.target });
     return json(result, result.success ? 200 : 502);
   }
 
   const actionId = typeof body.actionId === "string" ? body.actionId : "";
   const params = isRecord(body.params) ? body.params : {};
+  const bridge = await mobileBridgeStatus(env, access.orgId);
+  if (!bridge.bridgeOnline || !bridge.connectedTargets.includes(remote.target)) {
+    return json({ error: "Connect this device through the venue Bridge before sending commands." }, 409);
+  }
+  if (device.adapterType === "homeassistant") {
+    const discovery = await bridgeDispatch(env, access.orgId, {
+      type: "command",
+      id: `mobile-discovery-${crypto.randomUUID()}`,
+      protocol: remote.definition.protocol,
+      target: remote.target,
+      command: "GET /api/states",
+    });
+    const allowed = discovery.success && typeof discovery.response === "string"
+      ? buildHomeAssistantActions(parseHomeAssistantEntities(discovery.response))
+      : [];
+    if (!allowed.some((action) => action.id === actionId)) return json({ error: "This Home Assistant action is no longer available." }, 409);
+  }
   let command: string;
   try {
-    if (device.adapterType === "atem") command = buildMobileAtemCommand(actionId, params);
-    else {
-      const { buildMixerOscCommand } = await import("./device-modules/osc-mixer/osc-mixer-module");
-      command = buildMixerOscCommand(consoleType, actionId, params);
-    }
+    command = remote.definition.buildCommand(actionId, params, settings);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Invalid device action." }, 400);
   }
   const result = await bridgeDispatch(env, access.orgId, {
     type: "command",
     id: `mobile-${crypto.randomUUID()}`,
-    protocol,
-    target,
+    protocol: remote.definition.protocol,
+    target: remote.target,
     command,
   });
   return json(result, result.success ? 200 : 502);
@@ -4137,9 +4203,12 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
       : json({ error: "Not found." }, 404);
   }
   const deviceControlMatch = url.pathname.match(/^\/api\/mobile\/v1\/devices\/([^/]+)\/control$/);
-  if (deviceControlMatch && request.method === "POST") {
+  if (deviceControlMatch && (request.method === "GET" || request.method === "POST")) {
     const deviceId = decodePathId(deviceControlMatch[1]);
-    return deviceId ? controlDevice(request, url, deviceId, env) : json({ error: "Not found." }, 404);
+    if (!deviceId) return json({ error: "Not found." }, 404);
+    return request.method === "GET"
+      ? deviceControlState(request, url, deviceId, env)
+      : controlDevice(request, url, deviceId, env);
   }
   const deviceWriteMatch = url.pathname.match(/^\/api\/mobile\/v1\/devices\/([^/]+)(?:\/(remove))?$/);
   if (deviceWriteMatch && request.method === "POST") {

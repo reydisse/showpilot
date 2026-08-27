@@ -11,11 +11,11 @@
   "actions": [
     { "id": "recall_preset", "label": "Recall Preset", "category": "presets",
       "params": [{ "id": "preset", "label": "Preset (0-254)", "type": "number", "min": 0, "max": 254, "step": 1 }],
-      "mapping": { "command": "81 01 04 3F 02 {{preset}} FF" }
+      "mapping": { "command": "81 01 04 3F 02 {{preset}} FF", "paramTransforms": { "preset": { "type": "format", "format": "%02X" } } }
     },
     { "id": "save_preset", "label": "Save Preset", "category": "presets",
       "params": [{ "id": "preset", "label": "Preset (0-254)", "type": "number", "min": 0, "max": 254, "step": 1 }],
-      "mapping": { "command": "81 01 04 3F 01 {{preset}} FF" }
+      "mapping": { "command": "81 01 04 3F 01 {{preset}} FF", "paramTransforms": { "preset": { "type": "format", "format": "%02X" } } }
     },
     { "id": "zoom_in", "label": "Zoom In", "category": "lens", "params": [],
       "mapping": { "command": "81 01 04 07 02 FF" }

@@ -2,7 +2,7 @@ import { BaseDeviceModule } from "../base-module";
 import { getSharedBridgeProxy } from "../bridge-proxy";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
 
-const MIXER_ACTIONS: ModuleAction[] = [
+export const MIXER_ACTIONS: ModuleAction[] = [
   { id: "set_channel_fader", label: "Set Channel Fader", category: "channels", params: [
     { id: "channel", label: "Channel", type: "number", min: 1, max: 40, step: 1 },
     { id: "level", label: "Level", type: "number", min: 0, max: 1, step: 0.01 },
@@ -32,7 +32,7 @@ const MIXER_ACTIONS: ModuleAction[] = [
   ]},
 ];
 
-const MIXER_FEEDBACKS: ModuleFeedback[] = [
+export const MIXER_FEEDBACKS: ModuleFeedback[] = [
   { id: "channel_fader", label: "Channel Fader Levels", type: "string", value: "[]" },
   { id: "channel_mute", label: "Channel Mute States", type: "string", value: "[]" },
   { id: "dca_fader", label: "DCA Fader Levels", type: "string", value: "[]" },
@@ -40,6 +40,17 @@ const MIXER_FEEDBACKS: ModuleFeedback[] = [
 ];
 
 type ConsoleType = "x32" | "wing";
+
+export function mixerActionsFor(consoleType: ConsoleType): ModuleAction[] {
+  const supported = consoleType === "wing"
+    ? MIXER_ACTIONS.filter((action) => !["recall_scene", "recall_snippet", "set_bus_send"].includes(action.id))
+    : MIXER_ACTIONS;
+  const maximumChannel = consoleType === "wing" ? 40 : 32;
+  return supported.map((action) => ({
+    ...action,
+    params: action.params.map((param) => param.id === "channel" ? { ...param, max: maximumChannel } : param),
+  }));
+}
 
 function integerParam(params: Record<string, unknown>, name: string, min: number, max: number) {
   const value = Number(params[name]);
@@ -60,7 +71,10 @@ export function buildMixerOscCommand(
 ): string {
   const channel = () => integerParam(params, "channel", 1, consoleType === "wing" ? 40 : 32);
   const dca = () => integerParam(params, "dca", 1, 8);
-  const muted = () => Boolean(params.muted);
+  const muted = () => {
+    if (typeof params.muted !== "boolean") throw new Error("Muted must be on or off");
+    return params.muted;
+  };
 
   if (consoleType === "wing") {
     switch (actionId) {
@@ -133,7 +147,7 @@ class OSCMixerModule extends BaseDeviceModule {
     this.target = "";
   }
 
-  getActions() { return MIXER_ACTIONS; }
+  getActions() { return mixerActionsFor(this.consoleType); }
 
   async executeAction(actionId: string, params: Record<string, unknown>) {
     if (!this.proxy || !this.target || this.connectionStatus() !== "connected") {
@@ -161,5 +175,23 @@ export const oscMixerDefinition: ModuleDefinition = {
   ],
   icon: "Activity",
   description: "Control X32/M32 and core WING fader/mute functions through the desktop local device engine or a venue Bridge.",
+  remoteControl: {
+    protocol: "osc",
+    target(settings) {
+      const host = typeof settings.host === "string" ? settings.host.trim() : "";
+      const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+      const port = Number(settings.port || (consoleType === "wing" ? 2223 : 10023));
+      return host && Number.isInteger(port) && port >= 1 && port <= 65_535 ? `${host}:${port}` : null;
+    },
+    actions(settings) {
+      const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+      return mixerActionsFor(consoleType);
+    },
+    feedbacks: () => [],
+    buildCommand(actionId, params, settings) {
+      const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+      return buildMixerOscCommand(consoleType, actionId, params);
+    },
+  },
   createInstance: (settings) => new OSCMixerModule(settings),
 };

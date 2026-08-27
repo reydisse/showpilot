@@ -88,7 +88,7 @@ describe("mobile device status", () => {
       devices: [
         expect.objectContaining({ id: "atem-1", connected: true }),
         expect.objectContaining({ id: "wing-1", connected: false }),
-        expect.objectContaining({ id: "obs-1", connected: false }),
+        expect.objectContaining({ id: "obs-1", connected: true }),
         expect.objectContaining({ id: "disabled-atem", connected: false }),
       ],
     }));

@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
 
 /**
  * BridgeRelay — mediates between browser clients and the ShowPilot Bridge agent.
@@ -20,13 +21,13 @@ export type BridgeDispatchMessage =
   | {
       type: "command";
       id: string;
-      protocol: "atem" | "osc" | "propresenter";
+      protocol: BridgeDeviceProtocol;
       target: string;
       command: string;
     }
   | {
       type: "connect-device";
-      protocol: "atem" | "osc" | "propresenter";
+      protocol: BridgeDeviceProtocol;
       target: string;
       settings: Record<string, unknown>;
     }
@@ -35,10 +36,7 @@ export type BridgeDispatchMessage =
       target: string;
     };
 
-interface Env {
-  RUNDOWN_RELAY: DurableObjectNamespace;
-  DB: D1Database;
-}
+type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "DB">;
 
 interface SocketAttachment {
   role: "bridge" | "client";
@@ -46,11 +44,18 @@ interface SocketAttachment {
   bridgeInfo?: BridgeRelayStatusInfo;
 }
 
+export interface BridgeDeviceEventSnapshot {
+  eventName: string;
+  data: string;
+  receivedAt: number;
+}
+
 interface BridgeRelayStatusInfo {
   version?: string;
   devices?: number;
   uptime?: number;
   connectedTargets: string[];
+  deviceEvents?: Record<string, BridgeDeviceEventSnapshot>;
 }
 
 export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
@@ -69,20 +74,66 @@ export interface BridgeDispatchResult {
   error?: string;
 }
 
-export class BridgeRelay extends DurableObject<Env> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseBridgeInfo(value: unknown): BridgeRelayStatusInfo | null {
+  if (!isRecord(value) || !Array.isArray(value.connectedTargets)) return null;
+  const connectedTargets = value.connectedTargets.filter((target): target is string => typeof target === "string");
+  const deviceEvents: Record<string, BridgeDeviceEventSnapshot> = {};
+  if (isRecord(value.deviceEvents)) {
+    for (const [target, event] of Object.entries(value.deviceEvents)) {
+      if (
+        isRecord(event)
+        && typeof event.eventName === "string"
+        && typeof event.data === "string"
+        && typeof event.receivedAt === "number"
+      ) {
+        deviceEvents[target] = {
+          eventName: event.eventName,
+          data: event.data,
+          receivedAt: event.receivedAt,
+        };
+      }
+    }
+  }
+  return {
+    version: typeof value.version === "string" ? value.version : undefined,
+    devices: typeof value.devices === "number" ? value.devices : undefined,
+    uptime: typeof value.uptime === "number" ? value.uptime : undefined,
+    connectedTargets,
+    deviceEvents,
+  };
+}
+
+function parseSocketAttachment(value: unknown): SocketAttachment | null {
+  if (!isRecord(value) || (value.role !== "bridge" && value.role !== "client") || typeof value.orgId !== "string") {
+    return null;
+  }
+  const bridgeInfo = value.bridgeInfo === undefined ? undefined : parseBridgeInfo(value.bridgeInfo);
+  if (value.bridgeInfo !== undefined && !bridgeInfo) return null;
+  return {
+    role: value.role,
+    orgId: value.orgId,
+    bridgeInfo: bridgeInfo ?? undefined,
+  };
+}
+
+export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
   private bridgeWs: WebSocket | null = null;
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
-  private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [] };
+  private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [], deviceEvents: {} };
   private orgId = "";
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: BridgeRelayEnv) {
     super(ctx, env);
 
     for (const ws of ctx.getWebSockets()) {
-      const attachment = ws.deserializeAttachment?.() as SocketAttachment | null;
+      const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
       if (!attachment) continue;
 
       if (!this.orgId && attachment.orgId) {
@@ -101,7 +152,12 @@ export class BridgeRelay extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    this.orgId = url.searchParams.get("orgId") ?? this.orgId;
+    const requestedOrgId = url.searchParams.get("orgId") ?? "";
+    if (this.orgId && requestedOrgId && requestedOrgId !== this.orgId) {
+      return new Response("Organization mismatch", { status: 403 });
+    }
+    if (!this.orgId) this.orgId = requestedOrgId;
+    if (!this.orgId) return new Response("Organization is required", { status: 400 });
 
     if (url.pathname === "/ws") {
       if (request.method !== "GET") {
@@ -132,7 +188,7 @@ export class BridgeRelay extends DurableObject<Env> {
           }
           this.bridgeWs = server;
           this.bridgeOnline = true;
-          this.bridgeInfo = { connectedTargets: [] };
+          this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
           // Notify all clients bridge is online
           this.broadcastToClients(
             JSON.stringify({
@@ -215,7 +271,9 @@ export class BridgeRelay extends DurableObject<Env> {
 
   webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     try {
-      const msg = JSON.parse(data as string) as BridgeMessage;
+      const parsed: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
+      if (!isRecord(parsed) || typeof parsed.type !== "string") return;
+      const msg: BridgeMessage = { ...parsed, type: parsed.type };
 
       if (ws === this.bridgeWs) {
         // Message from bridge → forward to clients
@@ -233,9 +291,9 @@ export class BridgeRelay extends DurableObject<Env> {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
       this.bridgeOnline = false;
-      this.bridgeInfo = { connectedTargets: [] };
+      this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
-      this.clearPreviewSlide();
+      void this.clearPreviewSlide();
       this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
         online: false,
@@ -255,12 +313,13 @@ export class BridgeRelay extends DurableObject<Env> {
     switch (msg.type) {
       case "bridge-status":
         this.bridgeInfo = {
-          version: msg.version as string | undefined,
-          devices: msg.devices as number | undefined,
-          uptime: msg.uptime as number | undefined,
+          version: typeof msg.version === "string" ? msg.version : undefined,
+          devices: typeof msg.devices === "number" ? msg.devices : undefined,
+          uptime: typeof msg.uptime === "number" ? msg.uptime : undefined,
           connectedTargets: Array.isArray(msg.targets)
             ? msg.targets.filter((target): target is string => typeof target === "string")
             : this.bridgeInfo.connectedTargets,
+          deviceEvents: this.bridgeInfo.deviceEvents,
         };
         this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
         this.broadcastToClients(JSON.stringify({
@@ -284,8 +343,27 @@ export class BridgeRelay extends DurableObject<Env> {
             });
           }
         }
-        if (msg.eventName === "slide") {
-          this.pushPreviewSlide(msg.data as string);
+        if (msg.eventName === "slide" && typeof msg.data === "string") {
+          void this.pushPreviewSlide(msg.data);
+        }
+        if (
+          msg.type === "device-event" &&
+          typeof msg.target === "string" &&
+          typeof msg.eventName === "string" &&
+          typeof msg.data === "string"
+        ) {
+          this.bridgeInfo = {
+            ...this.bridgeInfo,
+            deviceEvents: {
+              ...this.bridgeInfo.deviceEvents,
+              [msg.target]: {
+                eventName: msg.eventName,
+                data: msg.data,
+                receivedAt: Date.now(),
+              },
+            },
+          };
+          this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
         }
         // Command responses must reach the browser that is waiting for them,
         // and unsolicited device events must reach every open operator. The
@@ -299,7 +377,9 @@ export class BridgeRelay extends DurableObject<Env> {
           const targets = new Set(this.bridgeInfo.connectedTargets);
           if (msg.connected === true) targets.add(msg.target);
           else targets.delete(msg.target);
-          this.bridgeInfo = { ...this.bridgeInfo, connectedTargets: [...targets].sort(), devices: targets.size };
+          const deviceEvents = { ...this.bridgeInfo.deviceEvents };
+          if (msg.connected !== true) delete deviceEvents[msg.target];
+          this.bridgeInfo = { ...this.bridgeInfo, connectedTargets: [...targets].sort(), devices: targets.size, deviceEvents };
           this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
           const pending = this.pendingConnections.get(msg.target);
           if (pending) {
@@ -388,11 +468,12 @@ export class BridgeRelay extends DurableObject<Env> {
     if (!this.orgId) return;
 
     try {
-      const slide = JSON.parse(data) as Record<string, unknown> | null;
-      if (!slide) {
+      const parsed: unknown = JSON.parse(data);
+      if (!isRecord(parsed)) {
         await this.clearPreviewSlide();
         return;
       }
+      const slide = parsed;
 
       const payload = {
         text: String(slide.text ?? ""),
@@ -402,10 +483,9 @@ export class BridgeRelay extends DurableObject<Env> {
         updatedAt: Date.now(),
       };
 
-      const env = this.env as unknown as Env;
-      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
-      const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
-      const rdStub = env.RUNDOWN_RELAY.get(rdId);
+      const target = await getActiveRundownRelayTarget(this.env.DB, this.orgId);
+      const rdId = this.env.RUNDOWN_RELAY.idFromName(target.key);
+      const rdStub = this.env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
@@ -422,10 +502,9 @@ export class BridgeRelay extends DurableObject<Env> {
     if (!this.orgId) return;
 
     try {
-      const env = this.env as unknown as Env;
-      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
-      const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
-      const rdStub = env.RUNDOWN_RELAY.get(rdId);
+      const target = await getActiveRundownRelayTarget(this.env.DB, this.orgId);
+      const rdId = this.env.RUNDOWN_RELAY.idFromName(target.key);
+      const rdStub = this.env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",

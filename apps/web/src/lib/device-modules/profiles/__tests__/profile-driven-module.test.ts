@@ -214,6 +214,7 @@ describe("ProfileDrivenModule", () => {
           {
             id: "raw_cmd",
             label: "Raw",
+            category: "test",
             params: [{ id: "value", label: "V", type: "string" }],
             mapping: { command: "CMD {{value}}\r" },
           },

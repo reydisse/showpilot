@@ -1,8 +1,9 @@
 import { BaseDeviceModule } from "../base-module";
 import { getSharedBridgeProxy } from "../bridge-proxy";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
+import { findAndNormalizeAction } from "../action-params";
 
-const ATEM_ACTIONS: ModuleAction[] = [
+export const ATEM_ACTIONS: ModuleAction[] = [
   { id: "set_program_input", label: "Set Program Input", category: "switching", params: [
     { id: "input", label: "Input", type: "number", min: 1, max: 20, step: 1 },
   ]},
@@ -24,7 +25,7 @@ const ATEM_ACTIONS: ModuleAction[] = [
   ]},
 ];
 
-const ATEM_FEEDBACKS: ModuleFeedback[] = [
+export const ATEM_FEEDBACKS: ModuleFeedback[] = [
   { id: "program_input", label: "Program Input", type: "number", value: 0 },
   { id: "preview_input", label: "Preview Input", type: "number", value: 0 },
   { id: "transition_position", label: "Transition Position", type: "number", value: 0 },
@@ -40,6 +41,30 @@ interface AtemStateEvent {
   ftbActive?: boolean;
   tallyProgram?: number[];
   tallyPreview?: number[];
+}
+
+export function buildAtemBridgeCommand(actionId: string, input: Record<string, unknown>): string {
+  const { params } = findAndNormalizeAction(ATEM_ACTIONS, actionId, input);
+  return JSON.stringify({ actionId, params });
+}
+
+export function parseAtemState(data: string): Record<string, unknown> {
+  let state: AtemStateEvent;
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    state = parsed;
+  } catch {
+    return {};
+  }
+  return {
+    ...(typeof state.programInput === "number" ? { program_input: state.programInput } : {}),
+    ...(typeof state.previewInput === "number" ? { preview_input: state.previewInput } : {}),
+    ...(typeof state.transitionPosition === "number" ? { transition_position: state.transitionPosition } : {}),
+    ...(typeof state.ftbActive === "boolean" ? { ftb_active: state.ftbActive } : {}),
+    ...(Array.isArray(state.tallyProgram) ? { tally_program: JSON.stringify(state.tallyProgram) } : {}),
+    ...(Array.isArray(state.tallyPreview) ? { tally_preview: JSON.stringify(state.tallyPreview) } : {}),
+  };
 }
 
 class ATEMModule extends BaseDeviceModule {
@@ -111,20 +136,7 @@ class ATEMModule extends BaseDeviceModule {
   getFeedbacks() { return this.feedbacks; }
 
   private applyState(raw: string) {
-    let state: AtemStateEvent;
-    try {
-      state = JSON.parse(raw) as AtemStateEvent;
-    } catch {
-      return;
-    }
-    const values: Record<string, unknown> = {
-      program_input: state.programInput,
-      preview_input: state.previewInput,
-      transition_position: state.transitionPosition,
-      ftb_active: state.ftbActive,
-      tally_program: state.tallyProgram ? JSON.stringify(state.tallyProgram) : undefined,
-      tally_preview: state.tallyPreview ? JSON.stringify(state.tallyPreview) : undefined,
-    };
+    const values = parseAtemState(raw);
     for (const feedback of this.feedbacks) {
       const value = values[feedback.id];
       if (value === undefined) continue;
@@ -146,5 +158,17 @@ export const atemModuleDefinition: ModuleDefinition = {
   ],
   icon: "Monitor",
   description: "Control Blackmagic ATEM switchers through the desktop local device engine or a venue Bridge.",
+  remoteControl: {
+    protocol: "atem",
+    target(settings) {
+      const host = typeof settings.host === "string" ? settings.host.trim() : "";
+      const port = Number(settings.port || 9910);
+      return host && Number.isInteger(port) && port >= 1 && port <= 65_535 ? `${host}:${port}` : null;
+    },
+    actions: () => ATEM_ACTIONS,
+    feedbacks: () => ATEM_FEEDBACKS,
+    buildCommand: (actionId, params) => buildAtemBridgeCommand(actionId, params),
+    parseEvent: (eventName, data) => eventName === "atem-state" ? parseAtemState(data) : {},
+  },
   createInstance: (settings) => new ATEMModule(settings),
 };
