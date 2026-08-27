@@ -252,11 +252,12 @@ const blockedAndroidPermissions = [
   "android.permission.CAMERA",
   "android.permission.RECORD_AUDIO",
   "android.permission.READ_EXTERNAL_STORAGE",
+  "android.permission.SYSTEM_ALERT_WINDOW",
   "android.permission.WRITE_EXTERNAL_STORAGE",
 ];
 for (const permission of blockedAndroidPermissions) {
   if (androidPermissions.includes(permission)) {
-    throw new Error(`The system profile-photo picker must not request unused ${permission} access.`);
+    throw new Error(`The mobile app must not request unused ${permission} access.`);
   }
   if (!appConfig.expo?.android?.blockedPermissions?.includes(permission)) {
     throw new Error(`app.json must explicitly block unused ${permission} access.`);

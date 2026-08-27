@@ -116,7 +116,7 @@ Complete these steps only from the reviewed release branch and only after the re
    automatically.
 
 The committed store icon is an opaque 1024x1024 PNG. The Android adaptive
-foreground is maintained separately with transparency. Camera, microphone, and
-legacy broad-storage permissions are explicitly blocked. Profile photos use the
-platform system picker, which selects one image without requesting gallery-wide
-access.
+foreground is maintained separately with transparency. Camera, microphone,
+draw-over-other-apps, and legacy broad-storage permissions are explicitly
+blocked. Profile photos use the platform system picker, which selects one image
+without requesting gallery-wide access.

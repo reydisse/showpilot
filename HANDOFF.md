@@ -437,6 +437,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   and found the correct scheme. CocoaPods are installed locally in the active
   worktree; those generated files stay ignored. No simulator was booted on
   2026-08-27, so runtime UI automation still waits for the owner to open one.
+- A real Android Gradle 8.14.3/JDK 21 build now proves both Debug and Release
+  compile against SDK 36. Release lint and Hermes bundling pass. Artifact
+  inspection found and removed the unused `SYSTEM_ALERT_WINDOW` permission via
+  Expo `android.blockedPermissions`; the mobile verifier now locks that rule.
+  The rebuilt release manifest also excludes camera, microphone, broad storage,
+  development-launcher entries, cleartext networking, and debug flags. Its JS
+  bundle contains `https://showpilot.tech` and no localhost or private-LAN API
+  host. The local APK is intentionally debug-signed and is not distributable;
+  EAS must inject the approved remote release keystore before review or upload.
+  Mobile verification remains green with Expo Doctor 18/18 and iOS/Android
+  Hermes bundles of 5,903,740 and 5,904,444 bytes.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
