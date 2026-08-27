@@ -6,13 +6,18 @@ import { authClient } from "@/lib/auth-client";
 export const Route = createFileRoute("/_auth/login")({
   // ?signup=1 opens the page in sign-up mode — the landing page's CTAs land
   // here. Unknown params (utm_*) pass through untouched for analytics.
-  validateSearch: (search: Record<string, unknown>): { signup?: 1 } =>
-    search.signup === "1" || search.signup === 1 ? { signup: 1 } : {},
+  validateSearch: (search: Record<string, unknown>): { signup?: 1; returnTo?: string } => {
+    const signup = search.signup === "1" || search.signup === 1 ? 1 as const : undefined;
+    const returnTo = typeof search.returnTo === "string" && /^\/delete-account(?:\?token=[A-Za-z0-9]+)?$/.test(search.returnTo)
+      ? search.returnTo
+      : undefined;
+    return { ...(signup ? { signup } : {}), ...(returnTo ? { returnTo } : {}) };
+  },
   component: LoginPage,
 });
 
 function LoginPage() {
-  const { signup } = Route.useSearch();
+  const { signup, returnTo } = Route.useSearch();
   const [isSignUp, setIsSignUp] = useState(Boolean(signup));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,11 +35,11 @@ function LoginPage() {
       if (isSignUp) {
         const result = await authClient.signUp.email({ email, password, name });
         if (result.error) throw new Error(`[${result.error.code ?? "ERR"}] ${result.error.message}`);
-        window.location.href = "/";
+        window.location.href = returnTo ?? "/";
       } else {
         const result = await authClient.signIn.email({ email, password });
         if (result.error) throw new Error(result.error.message ?? "Sign in failed");
-        window.location.href = "/";
+        window.location.href = returnTo ?? "/";
       }
     } catch (err) {
       setError(

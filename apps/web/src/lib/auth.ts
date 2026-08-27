@@ -11,7 +11,9 @@ import {
   passwordResetEmail,
   invitationEmail,
   verificationEmail,
+  accountDeletionEmail,
 } from "@/lib/email";
+import { beforeDeleteAccount } from "@/lib/account-deletion.server";
 import { env } from "cloudflare:workers";
 
 const orgConfig = {
@@ -143,6 +145,19 @@ export function getAuth() {
         verifyUrl.searchParams.set("callbackURL", "/verify-email");
         const { subject, html } = verificationEmail(verifyUrl.toString());
         await sendEmail({ to: user.email, subject, html });
+      },
+    },
+    user: {
+      deleteUser: {
+        enabled: true,
+        deleteTokenExpiresIn: 60 * 60 * 24,
+        beforeDelete: beforeDeleteAccount,
+        sendDeleteAccountVerification: async ({ user, token }: { user: { email: string }; token: string }) => {
+          const deletionUrl = new URL("/delete-account", baseURL);
+          deletionUrl.searchParams.set("token", token);
+          const { subject, html } = accountDeletionEmail(deletionUrl.toString());
+          await sendEmail({ to: user.email, subject, html });
+        },
       },
     },
     plugins: [

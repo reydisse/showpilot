@@ -58,7 +58,8 @@ function PrivacyPage() {
       <ul>
         <li>Organization data is retained while the organization exists.</li>
         <li>Deleting an organization permanently removes its data — members, crew records, rundowns, settings, and stored files — from our systems.</li>
-        <li>You may request deletion of your personal information at any time by writing to <a href="mailto:support@showpilot.tech">support@showpilot.tech</a>; we respond within a reasonable time as required by PIPEDA.</li>
+        <li>You can permanently delete your ShowPilot account and account-linked personal data from the <a href="/delete-account">account deletion page</a>. If you are the last owner of a workspace, you must first transfer ownership or delete that workspace so other members do not lose their organization data.</li>
+        <li>You may also make an access, correction, or deletion request by writing to <a href="mailto:support@showpilot.tech">support@showpilot.tech</a>; we respond within a reasonable time as required by PIPEDA.</li>
       </ul>
 
       <h2>Your rights</h2>

@@ -534,7 +534,37 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Android, and web, passed native TypeScript and lint, reported Expo Doctor
   18/18, and measured 5,907,725-byte iOS and 5,908,354-byte Android Hermes
   bundles against the 6.5 MB ceiling.
-- Before deploying this launch candidate, apply migrations 0030 through 0032
+- App-store account deletion is implemented end to end without risking tenant
+  data. Web and native Settings link to the public `/delete-account` resource;
+  signed-out users return there after login, and Better Auth sends a 24-hour
+  confirmation link before deletion. A final server-owned policy blocks the
+  last owner of any workspace and links them to Team management to transfer
+  ownership first. Confirmed deletion removes auth data, avatar storage,
+  personal push registrations and notifications, incident comments,
+  reactions, native chat messages and files, chat votes and reactions, and
+  device chat-read state. It preserves workspace-issued invitations and
+  capability grants by assigning their audit ownership to a remaining owner.
+  Migration `0033_chat_user_room_index.sql` records every authenticated native
+  chat room so deletion can find direct-message Durable Objects even after a
+  user leaves a workspace. The internal deletion endpoint requires the Worker
+  auth secret and cannot be invoked through the ordinary chat proxy. Direct
+  policy and chat-scrubbing tests pass, and rendered QA proved the real QA
+  account is blocked as the last owner without sending a deletion email or
+  mutating the account. A fresh temporary D1 applied all 33 migrations, then a
+  second run proved the complete sequence is idempotent.
+- Public `/support` and `/account-deleted` resources now provide the store
+  support URL and deletion completion state. The privacy policy and native
+  Settings link to the direct deletion resource. Founder/legal review of the
+  privacy-policy template, legal entity, province, and retention periods is
+  still an external publication gate.
+- The current full web gate passes 74 test files and 623 unit tests, five
+  control-boundary tests, one Workers-runtime test, TypeScript, and the
+  production build. The main client bundle is 495,108 bytes raw and 155,812
+  bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
+  Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
+  5,909,673 and 5,910,334 bytes. EAS linkage and signed-device push remain
+  external gates.
+- Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
   multi-operator rundown tests.

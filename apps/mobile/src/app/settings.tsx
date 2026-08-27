@@ -6,11 +6,13 @@ import Check from "lucide-react-native/icons/check";
 import ExternalLink from "lucide-react-native/icons/external-link";
 import FileText from "lucide-react-native/icons/file-text";
 import KeyRound from "lucide-react-native/icons/key-round";
+import LifeBuoy from "lucide-react-native/icons/life-buoy";
 import Moon from "lucide-react-native/icons/moon";
 import Server from "lucide-react-native/icons/server";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
 import Smartphone from "lucide-react-native/icons/smartphone";
 import Sun from "lucide-react-native/icons/sun";
+import Trash2 from "lucide-react-native/icons/trash-2";
 import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
@@ -206,9 +208,16 @@ export default function SettingsScreen() {
             <Text style={styles.linkDescription}>{session.user.emailVerified ? "Verified" : "Verification still required"}</Text>
           </View>
         </View>
+        <SettingsLink
+          icon={<Trash2 size={20} color={colors.red} />}
+          title="Delete account"
+          description="Permanently remove your ShowPilot account and personal data"
+          onPress={() => openExternal("/delete-account")}
+        />
       </SettingsSection>
 
       <SettingsSection title="Legal">
+        <SettingsLink icon={<LifeBuoy size={20} color={colors.textMuted} />} title="Support" onPress={() => openExternal("/support")} />
         <SettingsLink icon={<FileText size={20} color={colors.textMuted} />} title="Terms of Service" onPress={() => openExternal("/terms")} />
         <SettingsLink icon={<ShieldCheck size={20} color={colors.textMuted} />} title="Privacy Policy" onPress={() => openExternal("/privacy")} />
       </SettingsSection>

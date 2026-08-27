@@ -28,6 +28,7 @@ export function LegalPage({
         <div className="mt-12 pt-6 border-t border-board-border text-xs text-board-muted flex flex-wrap gap-4">
           <Link to="/terms">Terms of Service</Link>
           <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/support">Support</Link>
           <a href="mailto:support@showpilot.tech">support@showpilot.tech</a>
         </div>
       </div>

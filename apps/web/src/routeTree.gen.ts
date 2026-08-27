@@ -10,9 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as SuperadminRouteImport } from './routes/superadmin'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OrgDeletedRouteImport } from './routes/org-deleted'
+import { Route as DeleteAccountRouteImport } from './routes/delete-account'
+import { Route as AccountDeletedRouteImport } from './routes/account-deleted'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
@@ -89,6 +92,11 @@ const TermsRoute = TermsRouteImport.update({
   path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SuperadminRoute = SuperadminRouteImport.update({
   id: '/superadmin',
   path: '/superadmin',
@@ -102,6 +110,16 @@ const PrivacyRoute = PrivacyRouteImport.update({
 const OrgDeletedRoute = OrgDeletedRouteImport.update({
   id: '/org-deleted',
   path: '/org-deleted',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeleteAccountRoute = DeleteAccountRouteImport.update({
+  id: '/delete-account',
+  path: '/delete-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountDeletedRoute = AccountDeletedRouteImport.update({
+  id: '/account-deleted',
+  path: '/account-deleted',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -474,9 +492,12 @@ const ApiCrewScheduleTokenCalendarRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
+  '/account-deleted': typeof AccountDeletedRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/org-deleted': typeof OrgDeletedRoute
   '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -548,9 +569,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account-deleted': typeof AccountDeletedRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/org-deleted': typeof OrgDeletedRoute
   '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -625,9 +649,12 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$slug': typeof SlugRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
+  '/account-deleted': typeof AccountDeletedRoute
+  '/delete-account': typeof DeleteAccountRoute
   '/org-deleted': typeof OrgDeletedRoute
   '/privacy': typeof PrivacyRoute
   '/superadmin': typeof SuperadminRoute
+  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
   '/$slug/board': typeof SlugBoardRoute
@@ -702,9 +729,12 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$slug'
+    | '/account-deleted'
+    | '/delete-account'
     | '/org-deleted'
     | '/privacy'
     | '/superadmin'
+    | '/support'
     | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
@@ -776,9 +806,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/account-deleted'
+    | '/delete-account'
     | '/org-deleted'
     | '/privacy'
     | '/superadmin'
+    | '/support'
     | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
@@ -852,9 +885,12 @@ export interface FileRouteTypes {
     | '/'
     | '/$slug'
     | '/_auth'
+    | '/account-deleted'
+    | '/delete-account'
     | '/org-deleted'
     | '/privacy'
     | '/superadmin'
+    | '/support'
     | '/terms'
     | '/$slug/admin'
     | '/$slug/board'
@@ -929,9 +965,12 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SlugRoute: typeof SlugRouteWithChildren
   AuthRoute: typeof AuthRouteWithChildren
+  AccountDeletedRoute: typeof AccountDeletedRoute
+  DeleteAccountRoute: typeof DeleteAccountRoute
   OrgDeletedRoute: typeof OrgDeletedRoute
   PrivacyRoute: typeof PrivacyRoute
   SuperadminRoute: typeof SuperadminRoute
+  SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
   CheckinSlugRoute: typeof CheckinSlugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
@@ -975,6 +1014,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/superadmin': {
       id: '/superadmin'
       path: '/superadmin'
@@ -994,6 +1040,20 @@ declare module '@tanstack/react-router' {
       path: '/org-deleted'
       fullPath: '/org-deleted'
       preLoaderRoute: typeof OrgDeletedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/delete-account': {
+      id: '/delete-account'
+      path: '/delete-account'
+      fullPath: '/delete-account'
+      preLoaderRoute: typeof DeleteAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account-deleted': {
+      id: '/account-deleted'
+      path: '/account-deleted'
+      fullPath: '/account-deleted'
+      preLoaderRoute: typeof AccountDeletedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -1601,9 +1661,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SlugRoute: SlugRouteWithChildren,
   AuthRoute: AuthRouteWithChildren,
+  AccountDeletedRoute: AccountDeletedRoute,
+  DeleteAccountRoute: DeleteAccountRoute,
   OrgDeletedRoute: OrgDeletedRoute,
   PrivacyRoute: PrivacyRoute,
   SuperadminRoute: SuperadminRoute,
+  SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   CheckinSlugRoute: CheckinSlugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,

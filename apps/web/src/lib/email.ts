@@ -169,6 +169,24 @@ export function verificationEmail(verifyUrl: string) {
   };
 }
 
+export function accountDeletionEmail(deleteUrl: string) {
+  return {
+    subject: "Confirm deletion of your ShowPilot account",
+    html: emailWrapper(`
+      <p style="color:#888;font-size:14px;margin:0 0 32px;">Account deletion</p>
+      <p style="color:#e5e5e5;font-size:15px;line-height:1.6;margin:0 0 16px;">
+        You asked to permanently delete your ShowPilot account. Use the button below to return to ShowPilot and confirm the deletion.
+      </p>
+      <a class="sp-button" href="${deleteUrl}" style="display:inline-block;margin:24px 0;padding:12px 32px;background-color:#FFC107;background-image:linear-gradient(#FFC107,#FFC107);color:#0A0A0A;-webkit-text-fill-color:#0A0A0A;font-weight:600;text-decoration:none;border-radius:8px;font-size:15px;">
+        Confirm account deletion
+      </a>
+      <p style="color:#888;font-size:13px;line-height:1.5;margin:0;">
+        This link expires in 24 hours. If you did not request deletion, ignore this email and your account will remain active.
+      </p>
+    `),
+  };
+}
+
 export function waitlistConfirmationEmail(name?: string) {
   const greeting = name ? `Hi ${name},` : "Hi there,";
   return {

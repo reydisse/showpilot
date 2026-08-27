@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 
 interface ChatMessage {
   id: string;
@@ -18,7 +19,10 @@ interface ChatMessage {
   deletedAt?: number;
 }
 
-interface ChatRelayEnv {}
+interface ChatRelayEnv {
+  BETTER_AUTH_SECRET?: string;
+  STORAGE?: R2Bucket;
+}
 
 export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private sessions: Map<WebSocket, { userId?: string; name: string; role?: string; orgId: string; roomId: string }> = new Map();
@@ -84,6 +88,17 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     await this.ensureHistoryLoaded();
+
+    if (url.pathname === "/internal/delete-user-data" && request.method === "POST") {
+      const suppliedSecret = request.headers.get("x-showpilot-internal-secret");
+      if (!this.env.BETTER_AUTH_SECRET || suppliedSecret !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const body: { userId?: unknown } = await request.json<{ userId?: unknown }>().catch(() => ({}));
+      const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+      if (!userId || userId.length > 200) return new Response("Bad Request", { status: 400 });
+      return Response.json(await this.deleteUserData(userId));
+    }
 
     if (url.pathname === "/ws") {
       this.roomId = url.searchParams.get("room") ?? "production";
@@ -393,6 +408,45 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return text ? [{ id: crypto.randomUUID(), text, voterIds: [] }] : [];
     });
     return options.length >= 2 ? { question, options } : undefined;
+  }
+
+  private async deleteUserData(userId: string): Promise<{ messagesDeleted: number; filesDeleted: number }> {
+    const rows = this.ctx.storage.sql.exec<{ id: string; payload: string }>(
+      "SELECT id, payload FROM chat_messages ORDER BY timestamp ASC, id ASC",
+    ).toArray();
+    const parsedRows = rows.flatMap((row) => {
+      try {
+        return [{ id: row.id, message: JSON.parse(row.payload) as ChatMessage }];
+      } catch {
+        return [];
+      }
+    });
+    const scrubbed = scrubDeletedUserFromChat(parsedRows.map(({ message }) => message), userId);
+    const authoredIds = new Set(scrubbed.deleted.map((message) => message.id));
+    const attachmentKeys = scrubbed.deleted.flatMap((message) =>
+      (message.attachments ?? []).flatMap((attachment) => {
+        try {
+          const path = new URL(attachment.url, "https://showpilot.local").pathname;
+          const match = path.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/([^/]+)$/);
+          if (!match || decodeURIComponent(match[1]) !== message.orgId) return [];
+          return [`orgs/${message.orgId}/chat/${decodeURIComponent(match[2])}/${decodeURIComponent(match[3])}`];
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    for (const { id } of parsedRows) {
+      if (authoredIds.has(id)) {
+        this.ctx.storage.sql.exec("DELETE FROM chat_messages WHERE id = ?", id);
+      }
+    }
+    for (const message of scrubbed.messages) this.persistMessage(message);
+    this.ctx.storage.sql.exec("DELETE FROM chat_reads WHERE user_id = ?", userId);
+    if (attachmentKeys.length && this.env.STORAGE) await this.env.STORAGE.delete(attachmentKeys);
+
+    this.recentMessages = scrubbed.messages.slice(-this.HYDRATION_MESSAGE_LIMIT);
+    return { messagesDeleted: scrubbed.deleted.length, filesDeleted: attachmentKeys.length };
   }
 
   private getSession(ws: WebSocket) {

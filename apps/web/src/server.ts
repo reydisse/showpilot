@@ -365,6 +365,13 @@ export default {
       if (!await canAccessChatRoom(roomId, access, orgId, e.DB, guestAllowed)) {
         return new Response("Forbidden", { status: 403 });
       }
+      if (access.identity?.userId) {
+        await e.DB.prepare(
+          `INSERT INTO chat_user_room (userId, orgId, roomId, updatedAt)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(userId, orgId, roomId) DO UPDATE SET updatedAt = excluded.updatedAt`,
+        ).bind(access.identity.userId, orgId, roomId, new Date().toISOString()).run();
+      }
       if (subpath === "upload" && request.method === "POST") {
         const validGuest = Boolean(guestPass && guestPass.orgId === orgId);
         if (!canUse(access, "chat:access") && !validGuest) {
