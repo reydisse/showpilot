@@ -436,7 +436,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   and a portable iPhone 17 Pro selector. The latest CLI resolved that config
   and found the correct scheme. CocoaPods are installed locally in the active
   worktree; those generated files stay ignored. No simulator was booted on
-  2026-08-27, so runtime UI automation still waits for the owner to open one.
+  2026-08-27. A clean generic-simulator Release build reached Xcode's
+  destination check but could not compile because Xcode 26.6 selected the iOS
+  26.5 SDK while this Mac only has the iOS 26.3 simulator runtime. Xcode
+  explicitly requires the iOS 26.5 platform from Settings > Components; that
+  multi-gigabyte download still needs owner authorization before iOS runtime
+  automation can proceed.
 - A real Android Gradle 8.14.3/JDK 21 build now proves both Debug and Release
   compile against SDK 36. Release lint and Hermes bundling pass. Artifact
   inspection found and removed the unused `SYSTEM_ALERT_WINDOW` permission via
@@ -453,7 +458,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   debug-signed and are not distributable; EAS must inject the approved remote
   release keystore before review or upload.
   Mobile verification remains green with Expo Doctor 18/18 and iOS/Android
-  Hermes bundles of 5,903,740 and 5,904,444 bytes.
+  Hermes bundles of 5,903,739 and 5,904,444 bytes.
+- Real Android native runtime QA also passes on an Android 14 arm64 emulator
+  using the repository's SDK 54 development client and the local Workers API.
+  The QA account signed in; Home, Shows, Operate, Inbox, Profile, and Settings
+  rendered; Settings scrolled completely; light/dark selection and the session
+  survived a force-stop and relaunch. A real browser added a rundown item and
+  started its timer while the native show detail was open: the item, live state,
+  and countdown arrived immediately over the relay. Native Pause and `+30 sec`
+  then appeared on the web as `Paused` at `0:11`, proving commands synchronize
+  in both directions and time can extend beyond the assigned duration. The test
+  stopped the rundown and deleted the item through the web UI; Android received
+  that deletion live and returned to zero items with Start disabled. The earlier
+  one-item list/detail discrepancy was an out-of-band local QA fixture written
+  after a deliberate relay clear, not a failure of the normal product path.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
