@@ -20,13 +20,13 @@ export type BridgeDispatchMessage =
   | {
       type: "command";
       id: string;
-      protocol: "atem" | "osc";
+      protocol: "atem" | "osc" | "propresenter";
       target: string;
       command: string;
     }
   | {
       type: "connect-device";
-      protocol: "atem" | "osc";
+      protocol: "atem" | "osc" | "propresenter";
       target: string;
       settings: Record<string, unknown>;
     }
@@ -407,7 +407,7 @@ export class BridgeRelay extends DurableObject<Env> {
       const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
+        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "pp-preview", payload: { slide: payload } }),
@@ -427,7 +427,7 @@ export class BridgeRelay extends DurableObject<Env> {
       const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
+        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "pp-preview", payload: { slide: null } }),

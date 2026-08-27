@@ -33,6 +33,8 @@ export function normalizeRelayItems(value: unknown): RundownItem[] {
       sortOrder: finiteNumber(candidate.sortOrder, index),
       hardStop: candidate.hardStop === true,
       lowerThirdId: stringValue(candidate.lowerThirdId) || undefined,
+      scheduledStart: typeof candidate.scheduledStart === "string" ? candidate.scheduledStart : null,
+      expectedEnd: typeof candidate.expectedEnd === "string" ? candidate.expectedEnd : null,
       actualStart: typeof candidate.actualStart === "string" ? candidate.actualStart : null,
       actualEnd: typeof candidate.actualEnd === "string" ? candidate.actualEnd : null,
     }];

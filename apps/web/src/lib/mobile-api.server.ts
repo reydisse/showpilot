@@ -12,7 +12,7 @@ import {
   type Role,
 } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
-import { getTodayDateString, serviceTimeToIso } from "./utils";
+import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
@@ -51,6 +51,8 @@ import type {
   BridgeRelay,
   BridgeRelayStatus,
 } from "../durable-objects/BridgeRelay";
+import { rundownRelayKey } from "./rundown-relay-key";
+import { parseRelayRundownItems, type RelayRundownItem } from "./rundown-relay-payload";
 
 export interface MobileApiStatement {
   first<T>(): Promise<T | null>;
@@ -67,6 +69,7 @@ export interface MobileApiDatabase extends ChecklistWriteDatabase {
 export interface MobileApiEnvironment {
   DB: MobileApiDatabase;
   BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
+  RUNDOWN_RELAY?: DurableObjectNamespace;
   KIOSK_SECRET?: string;
 }
 
@@ -113,6 +116,8 @@ interface MobileRundownItemRow {
   sortOrder: number;
   hardStop: number | boolean;
   lowerThirdId: string | null;
+  scheduledStart: string | null;
+  expectedEnd: string | null;
   actualStart: string | null;
   actualEnd: string | null;
 }
@@ -528,21 +533,55 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   });
 }
 
-async function rundown(request: Request, url: URL, showId: string, db: MobileApiDatabase): Promise<Response> {
+interface MobileProPresenterSettings {
+  host: string;
+  stagePort: number;
+  apiPort: number;
+  password: string;
+  cuesEnabled: boolean;
+}
+
+async function readMobileProPresenterSettings(
+  db: MobileApiDatabase,
+  orgId: string,
+): Promise<MobileProPresenterSettings> {
+  const result = await db.prepare(
+    `SELECT key, value FROM app_setting
+     WHERE orgId = ? AND key IN (
+       'propresenter-host', 'propresenter-port', 'propresenter-api-port',
+       'propresenter-password', 'propresenter-send-cues'
+     )`,
+  ).bind(orgId).all<{ key: string; value: string }>();
+  const values = Object.fromEntries((result.results ?? []).map((setting) => [setting.key, setting.value]));
+  const port = (value: string | undefined, fallback: number) => {
+    const parsed = Number.parseInt(value ?? "", 10);
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535 ? parsed : fallback;
+  };
+  return {
+    host: values["propresenter-host"]?.trim() ?? "",
+    stagePort: port(values["propresenter-port"], 50_001),
+    apiPort: port(values["propresenter-api-port"], 1_025),
+    password: values["propresenter-password"] ?? "",
+    cuesEnabled: values["propresenter-send-cues"] === "true",
+  };
+}
+
+async function rundown(request: Request, url: URL, showId: string, env: MobileApiEnvironment): Promise<Response> {
+  const db = env.DB;
   if (!validId(showId)) return json({ error: "A valid showId is required." }, 400);
-  const access = await authorize(request, url, db, ["rundown:view", "rundown:control"]);
+  const access = await authorize(request, url, db, ["rundown:view", "rundown:edit", "rundown:control"]);
   if (access instanceof Response) return access;
   const { orgId, identity } = access;
   const show = await db.prepare(
-    `SELECT id, serviceDate, name, scheduledStartTime, location, status
+    `SELECT id, serviceDate, name, scheduledStartTime, location, status, updatedAt
      FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
-  ).bind(showId, orgId).first<Omit<MobileRundownRow, "itemCount">>();
+  ).bind(showId, orgId).first<Omit<MobileRundownRow, "itemCount"> & { updatedAt: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
 
-  const [itemsResult, showTimerSetting, dateTimerSetting, legacyOwner] = await Promise.all([
+  const [itemsResult, showTimerSetting, dateTimerSetting, legacyOwner, timezone, proPresenter, bridge] = await Promise.all([
     db.prepare(
       `SELECT itemId, title, type, duration, notes, assignee, cue, status,
-              sortOrder, hardStop, lowerThirdId, actualStart, actualEnd
+              sortOrder, hardStop, lowerThirdId, scheduledStart, expectedEnd, actualStart, actualEnd
        FROM rundown_item WHERE orgId = ? AND showId = ?
        ORDER BY sortOrder ASC, createdAt ASC`,
     ).bind(orgId, showId).all<MobileRundownItemRow>(),
@@ -554,10 +593,23 @@ async function rundown(request: Request, url: URL, showId: string, db: MobileApi
       `SELECT id FROM rundown WHERE orgId = ? AND serviceDate = ?
        ORDER BY scheduledStartTime ASC, createdAt ASC LIMIT 1`,
     ).bind(orgId, show.serviceDate).first<{ id: string }>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      .bind(orgId).first<{ value: string }>(),
+    readMobileProPresenterSettings(db, orgId),
+    mobileBridgeStatus(env, orgId),
   ]);
+  const proPresenterTarget = bridge.connectedTargets.find((target) => target.startsWith("propresenter:"));
   return json({
     show,
+    timeZone: timezone?.value || "Africa/Accra",
+    canEdit: identity.permissions.includes("rundown:edit"),
     canControl: identity.permissions.includes("rundown:control"),
+    proPresenter: {
+      configured: Boolean(proPresenter.host),
+      cuesEnabled: proPresenter.cuesEnabled,
+      bridgeOnline: bridge.bridgeOnline,
+      connected: Boolean(proPresenterTarget),
+    },
     items: (itemsResult.results ?? []).map((item) => ({
       id: item.itemId,
       title: item.title,
@@ -570,11 +622,558 @@ async function rundown(request: Request, url: URL, showId: string, db: MobileApi
       sortOrder: item.sortOrder,
       hardStop: Boolean(item.hardStop),
       lowerThirdId: item.lowerThirdId ?? undefined,
+      scheduledStart: item.scheduledStart,
+      expectedEnd: item.expectedEnd,
       actualStart: item.actualStart,
       actualEnd: item.actualEnd,
     })),
     timer: parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === showId ? dateTimerSetting?.value : null)),
   });
+}
+
+async function controlMobileProPresenter(
+  request: Request,
+  url: URL,
+  showId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await env.DB.prepare("SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+    .bind(showId, access.orgId).first<{ id: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const body = await readJson(request);
+  const command = body?.command;
+  if (command !== "next" && command !== "previous" && command !== "clear") {
+    return json({ error: "Choose a valid ProPresenter command." }, 400);
+  }
+  const settings = await readMobileProPresenterSettings(env.DB, access.orgId);
+  if (!settings.host) return json({ error: "Configure ProPresenter in ShowPilot settings first." }, 409);
+  if (!settings.cuesEnabled) return json({ error: "Enable ProPresenter cue control in ShowPilot settings first." }, 409);
+  const bridge = await mobileBridgeStatus(env, access.orgId);
+  if (!bridge.bridgeOnline) return json({ error: "Venue Bridge is offline." }, 503);
+
+  const target = bridge.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"))
+    ?? `propresenter:${settings.host}:${settings.stagePort}`;
+  if (!bridge.connectedTargets.includes(target)) {
+    const connection = await bridgeDispatch(env, access.orgId, {
+      type: "connect-device",
+      protocol: "propresenter",
+      target,
+      settings: {
+        host: settings.host,
+        port: settings.stagePort,
+        apiPort: settings.apiPort,
+        password: settings.password,
+      },
+    });
+    if (!connection.success) return json(connection, 502);
+  }
+  const result = await bridgeDispatch(env, access.orgId, {
+    type: "command",
+    id: `mobile-pp-${crypto.randomUUID()}`,
+    protocol: "propresenter",
+    target,
+    command,
+  });
+  return json(result, result.success ? 200 : 502);
+}
+
+interface MobileRundownTemplate {
+  id: string;
+  name: string;
+  serviceName: string;
+  scheduledStartTime: string;
+  items: RelayRundownItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+function parseMobileRundownTemplate(value: string): MobileRundownTemplate | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) return null;
+    const items = parseRelayRundownItems(parsed.items);
+    if (
+      !validId(parsed.id)
+      || typeof parsed.name !== "string" || parsed.name.length > 200
+      || typeof parsed.serviceName !== "string" || parsed.serviceName.length > 120
+      || typeof parsed.scheduledStartTime !== "string"
+      || !/^$|^([01]\d|2[0-3]):[0-5]\d$/.test(parsed.scheduledStartTime)
+      || typeof parsed.createdAt !== "string"
+      || typeof parsed.updatedAt !== "string"
+      || !items
+    ) return null;
+    return {
+      id: parsed.id,
+      name: parsed.name,
+      serviceName: parsed.serviceName,
+      scheduledStartTime: parsed.scheduledStartTime,
+      items,
+      createdAt: parsed.createdAt,
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readMobileRundownTemplates(db: MobileApiDatabase, orgId: string) {
+  const result = await db.prepare(
+    "SELECT value FROM app_setting WHERE orgId = ? AND key LIKE 'rundown-saved:%'",
+  ).bind(orgId).all<{ value: string }>();
+  return (result.results ?? [])
+    .map((row) => parseMobileRundownTemplate(row.value))
+    .filter((template): template is MobileRundownTemplate => template !== null)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function mobileRundownTemplateIndex(templates: MobileRundownTemplate[]) {
+  return templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    itemCount: template.items.length,
+    serviceName: template.serviceName,
+    scheduledStartTime: template.scheduledStartTime,
+    createdAt: template.createdAt,
+    updatedAt: template.updatedAt,
+  }));
+}
+
+async function mobileRundownTemplates(
+  request: Request,
+  url: URL,
+  showId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await db.prepare("SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+    .bind(showId, access.orgId).first<{ id: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const [templates, previousResult] = await Promise.all([
+    readMobileRundownTemplates(db, access.orgId),
+    db.prepare(
+      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location,
+              CAST(COUNT(i.id) AS INTEGER) AS itemCount
+         FROM rundown r
+         LEFT JOIN rundown_item i ON i.orgId = r.orgId AND i.showId = r.id
+        WHERE r.orgId = ? AND r.id <> ?
+        GROUP BY r.id
+        ORDER BY r.serviceDate DESC, r.scheduledStartTime DESC, r.createdAt DESC
+        LIMIT 50`,
+    ).bind(access.orgId, showId).all<{
+      id: string;
+      serviceDate: string;
+      name: string;
+      scheduledStartTime: string | null;
+      location: string;
+      itemCount: number;
+    }>(),
+  ]);
+  return json({
+    templates: templates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      serviceName: template.serviceName,
+      scheduledStartTime: template.scheduledStartTime,
+      itemCount: template.items.length,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
+    })),
+    previousShows: previousResult.results ?? [],
+  });
+}
+
+async function saveMobileRundownTemplate(
+  request: Request,
+  url: URL,
+  showId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const body = await readJson(request);
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  if (!validId(requestId) || requestId.length > 100 || !name || name.length > 200) {
+    return json({ error: "A template name and valid requestId are required." }, 400);
+  }
+  const access = await authorize(request, url, db, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await db.prepare(
+    `SELECT id, serviceDate, name, scheduledStartTime
+       FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(showId, access.orgId).first<{
+    id: string;
+    serviceDate: string;
+    name: string;
+    scheduledStartTime: string | null;
+  }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const existing = await db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
+    .bind(access.orgId, `rundown-saved:${requestId}`).first<{ value: string }>();
+  if (existing) return json({ ok: true, id: requestId, created: false });
+
+  const [itemsResult, timezone, existingTemplates] = await Promise.all([
+    db.prepare(
+      `SELECT itemId, title, type, duration, notes, assignee, cue, status,
+              sortOrder, hardStop, lowerThirdId, scheduledStart, expectedEnd,
+              actualStart, actualEnd
+         FROM rundown_item WHERE orgId = ? AND showId = ?
+        ORDER BY sortOrder ASC, createdAt ASC`,
+    ).bind(access.orgId, showId).all<MobileRundownItemRow>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      .bind(access.orgId).first<{ value: string }>(),
+    readMobileRundownTemplates(db, access.orgId),
+  ]);
+  const items = parseRelayRundownItems((itemsResult.results ?? []).map((item, index) => ({
+    id: item.itemId,
+    title: item.title,
+    type: item.type,
+    duration: item.duration,
+    notes: item.notes,
+    assignee: item.assignee,
+    cue: item.cue,
+    status: "upcoming",
+    sortOrder: index,
+    hardStop: Boolean(item.hardStop),
+    lowerThirdId: item.lowerThirdId ?? undefined,
+    scheduledStart: item.scheduledStart,
+    expectedEnd: item.expectedEnd,
+    actualStart: null,
+    actualEnd: null,
+  })));
+  if (!items) return json({ error: "The current rundown cannot be saved as a template." }, 400);
+
+  const now = new Date().toISOString();
+  const template: MobileRundownTemplate = {
+    id: requestId,
+    name,
+    serviceName: show.name,
+    scheduledStartTime: formatTimeInput(show.scheduledStartTime, timezone?.value || "Africa/Accra"),
+    items,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const templates = [template, ...existingTemplates.filter((candidate) => candidate.id !== requestId)];
+  await db.batch([
+    db.prepare(
+      `INSERT INTO app_setting (id, orgId, key, value)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+    ).bind(crypto.randomUUID(), access.orgId, `rundown-saved:${requestId}`, JSON.stringify(template)),
+    db.prepare(
+      `INSERT INTO app_setting (id, orgId, key, value)
+       VALUES (?, ?, 'rundown-saved-index', ?)
+       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+    ).bind(crypto.randomUUID(), access.orgId, JSON.stringify(mobileRundownTemplateIndex(templates))),
+  ]);
+  return json({ ok: true, id: requestId, created: true }, 201);
+}
+
+async function postMobileRundownRelayCommand(input: {
+  env: MobileApiEnvironment;
+  orgId: string;
+  showId: string;
+  serviceDate: string;
+  timeZone: string;
+  requestId: string;
+  expectedRevision: number;
+  action: string;
+  payload: Record<string, unknown>;
+}) {
+  if (!input.env.RUNDOWN_RELAY) return null;
+  const relayId = input.env.RUNDOWN_RELAY.idFromName(
+    rundownRelayKey(
+      input.orgId,
+      input.serviceDate,
+      getTodayDateString(input.timeZone),
+      input.showId,
+    ),
+  );
+  const relay = input.env.RUNDOWN_RELAY.get(relayId);
+  const relayUrl = new URL("https://rundown.local/command");
+  relayUrl.search = new URLSearchParams({
+    orgId: input.orgId,
+    serviceDate: input.serviceDate,
+    showId: input.showId,
+    access: "edit",
+  }).toString();
+  return relay.fetch(new Request(relayUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: input.action,
+      id: input.requestId,
+      expectedRevision: input.expectedRevision,
+      payload: input.payload,
+    }),
+  }));
+}
+
+async function loadMobileRundownTemplate(
+  request: Request,
+  url: URL,
+  showId: string,
+  templateId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const body = await readJson(request);
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const expectedRevision = body?.expectedRevision;
+  if (
+    !validId(requestId) || requestId.length > 100
+    || typeof expectedRevision !== "number"
+    || !Number.isSafeInteger(expectedRevision)
+    || expectedRevision < 0
+  ) return json({ error: "A valid requestId and live revision are required." }, 400);
+  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await env.DB.prepare(
+    `SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(showId, access.orgId).first<{ id: string; serviceDate: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const setting = await env.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
+    .bind(access.orgId, `rundown-saved:${templateId}`).first<{ value: string }>();
+  const template = setting ? parseMobileRundownTemplate(setting.value) : null;
+  if (!template || template.id !== templateId) return json({ error: "Template not found." }, 404);
+  const timezone = await env.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+    .bind(access.orgId).first<{ value: string }>();
+  const freshItems = parseRelayRundownItems(template.items.map((item, index) => ({
+    ...item,
+    id: `${requestId}-item-${index}`,
+    status: "upcoming",
+    sortOrder: index,
+    actualStart: null,
+    actualEnd: null,
+  })));
+  if (!freshItems) return json({ error: "Template items are invalid." }, 400);
+  const relayResponse = await postMobileRundownRelayCommand({
+    env,
+    orgId: access.orgId,
+    serviceDate: show.serviceDate,
+    showId: show.id,
+    timeZone: timezone?.value || "Africa/Accra",
+    requestId,
+    expectedRevision,
+    action: "seed",
+    payload: {
+      items: freshItems,
+      timer: {
+        playback: "stop",
+        currentItemId: null,
+        elapsed: 0,
+        startedAt: null,
+        pausedAt: null,
+        mode: "count-down",
+      },
+      force: true,
+      serviceName: template.serviceName,
+      scheduledStartTime: serviceTimeToIso(
+        show.serviceDate,
+        template.scheduledStartTime,
+        timezone?.value || "Africa/Accra",
+      ),
+    },
+  });
+  if (!relayResponse) return json({ error: "Live rundown editing is temporarily unavailable." }, 503);
+  const relayBody: unknown = await relayResponse.json();
+  if (relayResponse.status === 409) {
+    return json({ error: "Another operator changed the rundown first.", conflict: relayBody }, 409);
+  }
+  if (!relayResponse.ok) return json({ error: "The template was not accepted by live sync." }, 502);
+  return json({
+    ok: true,
+    revision: isRecord(relayBody) && typeof relayBody.revision === "number"
+      ? relayBody.revision
+      : expectedRevision,
+    serviceName: template.serviceName,
+    scheduledStartTime: template.scheduledStartTime,
+    itemCount: freshItems.length,
+  });
+}
+
+async function loadMobilePreviousRundown(
+  request: Request,
+  url: URL,
+  showId: string,
+  sourceShowId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const body = await readJson(request);
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const expectedRevision = body?.expectedRevision;
+  if (
+    showId === sourceShowId
+    || !validId(requestId) || requestId.length > 100
+    || typeof expectedRevision !== "number"
+    || !Number.isSafeInteger(expectedRevision)
+    || expectedRevision < 0
+  ) return json({ error: "Choose a different previous show and current live revision." }, 400);
+  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const [target, source, timezone] = await Promise.all([
+    env.DB.prepare("SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+      .bind(showId, access.orgId).first<{ id: string; serviceDate: string }>(),
+    env.DB.prepare(
+      `SELECT id, serviceDate, name, scheduledStartTime, location
+         FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
+    ).bind(sourceShowId, access.orgId).first<{
+      id: string;
+      serviceDate: string;
+      name: string;
+      scheduledStartTime: string | null;
+      location: string;
+    }>(),
+    env.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      .bind(access.orgId).first<{ value: string }>(),
+  ]);
+  if (!target || !source) return json({ error: "Previous show not found." }, 404);
+  const itemsResult = await env.DB.prepare(
+    `SELECT itemId, title, type, duration, notes, assignee, cue, status,
+            sortOrder, hardStop, lowerThirdId, scheduledStart, expectedEnd,
+            actualStart, actualEnd
+       FROM rundown_item WHERE orgId = ? AND showId = ?
+      ORDER BY sortOrder ASC, createdAt ASC`,
+  ).bind(access.orgId, source.id).all<MobileRundownItemRow>();
+  const freshItems = parseRelayRundownItems((itemsResult.results ?? []).map((item, index) => ({
+    id: `${requestId}-item-${index}`,
+    title: item.title,
+    type: item.type,
+    duration: item.duration,
+    notes: item.notes,
+    assignee: item.assignee,
+    cue: item.cue,
+    status: "upcoming",
+    sortOrder: index,
+    hardStop: Boolean(item.hardStop),
+    lowerThirdId: item.lowerThirdId ?? undefined,
+    scheduledStart: null,
+    expectedEnd: null,
+    actualStart: null,
+    actualEnd: null,
+  })));
+  if (!freshItems) return json({ error: "The previous rundown is invalid." }, 400);
+  const timeZone = timezone?.value || "Africa/Accra";
+  const sourceStartTime = formatTimeInput(source.scheduledStartTime, timeZone);
+  const relayResponse = await postMobileRundownRelayCommand({
+    env,
+    orgId: access.orgId,
+    showId: target.id,
+    serviceDate: target.serviceDate,
+    timeZone,
+    requestId,
+    expectedRevision,
+    action: "seed",
+    payload: {
+      items: freshItems,
+      timer: {
+        playback: "stop",
+        currentItemId: null,
+        elapsed: 0,
+        startedAt: null,
+        pausedAt: null,
+        mode: "count-down",
+      },
+      force: true,
+      serviceName: source.name,
+      scheduledStartTime: serviceTimeToIso(target.serviceDate, sourceStartTime, timeZone),
+      location: source.location,
+    },
+  });
+  if (!relayResponse) return json({ error: "Live rundown editing is temporarily unavailable." }, 503);
+  const relayBody: unknown = await relayResponse.json();
+  if (relayResponse.status === 409) {
+    return json({ error: "Another operator changed the rundown first.", conflict: relayBody }, 409);
+  }
+  if (!relayResponse.ok) return json({ error: "The previous rundown was not accepted by live sync." }, 502);
+  return json({
+    ok: true,
+    revision: isRecord(relayBody) && typeof relayBody.revision === "number"
+      ? relayBody.revision
+      : expectedRevision,
+    serviceName: source.name,
+    scheduledStartTime: sourceStartTime,
+    itemCount: freshItems.length,
+  });
+}
+
+async function updateMobileRundownMeta(
+  request: Request,
+  url: URL,
+  showId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const body = await readJson(request);
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const expectedRevision = body?.expectedRevision;
+  const name = typeof body?.name === "string" ? body.name.trim() : null;
+  const location = typeof body?.location === "string" ? body.location.trim() : null;
+  const startTime = typeof body?.startTime === "string" ? body.startTime.trim() : null;
+  if (
+    !validId(requestId) || requestId.length > 100
+    || typeof expectedRevision !== "number" || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0
+    || name === null || name.length > 120
+    || location === null || location.length > 240
+    || startTime === null || !/^$|^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)
+  ) return json({ error: "Check the show title, start time, and location." }, 400);
+  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await env.DB.prepare("SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+    .bind(showId, access.orgId).first<{ id: string; serviceDate: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const timezone = await env.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+    .bind(access.orgId).first<{ value: string }>();
+  const timeZone = timezone?.value || "Africa/Accra";
+  const scheduledStartTime = serviceTimeToIso(show.serviceDate, startTime, timeZone);
+  const relayResponse = await postMobileRundownRelayCommand({
+    env,
+    orgId: access.orgId,
+    showId: show.id,
+    serviceDate: show.serviceDate,
+    timeZone,
+    requestId,
+    expectedRevision,
+    action: "update-meta",
+    payload: { serviceName: name, scheduledStartTime, location },
+  });
+  if (!relayResponse) return json({ error: "Live rundown editing is temporarily unavailable." }, 503);
+  const relayBody: unknown = await relayResponse.json();
+  if (relayResponse.status === 409) {
+    return json({ error: "Another operator changed the show details first.", conflict: relayBody }, 409);
+  }
+  if (!relayResponse.ok) return json({ error: "The show details were not accepted by live sync." }, 502);
+  return json({
+    ok: true,
+    revision: isRecord(relayBody) && typeof relayBody.revision === "number"
+      ? relayBody.revision
+      : expectedRevision,
+  });
+}
+
+async function deleteMobileRundownTemplate(
+  request: Request,
+  url: URL,
+  showId: string,
+  templateId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await db.prepare("SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+    .bind(showId, access.orgId).first<{ id: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const templates = (await readMobileRundownTemplates(db, access.orgId))
+    .filter((template) => template.id !== templateId);
+  await db.batch([
+    db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = ?")
+      .bind(access.orgId, `rundown-saved:${templateId}`),
+    db.prepare(
+      `INSERT INTO app_setting (id, orgId, key, value)
+       VALUES (?, ?, 'rundown-saved-index', ?)
+       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+    ).bind(crypto.randomUUID(), access.orgId, JSON.stringify(mobileRundownTemplateIndex(templates))),
+  ]);
+  return json({ ok: true });
 }
 
 async function createRundown(request: Request, db: MobileApiDatabase): Promise<Response> {
@@ -3422,10 +4021,52 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     if (scheduleServiceMatch[2] === "copy-team") return copyMobileScheduleTeam(request, url, showId, env.DB);
     return updateMobileScheduleService(request, url, showId, env.DB);
   }
+  const rundownTemplateActionMatch = url.pathname.match(
+    /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/templates\/([^/]+)\/(load|remove)$/,
+  );
+  if (rundownTemplateActionMatch && request.method === "POST") {
+    const showId = decodePathId(rundownTemplateActionMatch[1]);
+    const templateId = decodePathId(rundownTemplateActionMatch[2]);
+    if (!showId || !templateId) return json({ error: "Not found." }, 404);
+    return rundownTemplateActionMatch[3] === "load"
+      ? loadMobileRundownTemplate(request, url, showId, templateId, env)
+      : deleteMobileRundownTemplate(request, url, showId, templateId, env.DB);
+  }
+  const rundownPreviousMatch = url.pathname.match(
+    /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/previous\/([^/]+)\/load$/,
+  );
+  if (rundownPreviousMatch && request.method === "POST") {
+    const showId = decodePathId(rundownPreviousMatch[1]);
+    const sourceShowId = decodePathId(rundownPreviousMatch[2]);
+    return showId && sourceShowId
+      ? loadMobilePreviousRundown(request, url, showId, sourceShowId, env)
+      : json({ error: "Not found." }, 404);
+  }
+  const rundownTemplatesMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/templates$/);
+  if (rundownTemplatesMatch) {
+    const showId = decodePathId(rundownTemplatesMatch[1]);
+    if (!showId) return json({ error: "Not found." }, 404);
+    if (request.method === "GET") return mobileRundownTemplates(request, url, showId, env.DB);
+    if (request.method === "POST") return saveMobileRundownTemplate(request, url, showId, env.DB);
+  }
+  const rundownMetaMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/meta$/);
+  if (rundownMetaMatch && request.method === "POST") {
+    const showId = decodePathId(rundownMetaMatch[1]);
+    return showId
+      ? updateMobileRundownMeta(request, url, showId, env)
+      : json({ error: "Not found." }, 404);
+  }
+  const rundownProPresenterMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/propresenter$/);
+  if (rundownProPresenterMatch && request.method === "POST") {
+    const showId = decodePathId(rundownProPresenterMatch[1]);
+    return showId
+      ? controlMobileProPresenter(request, url, showId, env)
+      : json({ error: "Not found." }, 404);
+  }
   const rundownMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)$/);
   if (rundownMatch && request.method === "GET") {
     const showId = decodePathId(rundownMatch[1]);
-    return showId ? rundown(request, url, showId, env.DB) : json({ error: "Not found." }, 404);
+    return showId ? rundown(request, url, showId, env) : json({ error: "Not found." }, 404);
   }
   return json({ error: "Not found." }, 404);
 }

@@ -358,10 +358,12 @@ export class Bridge {
     target: string,
     command: string,
   ): Promise<void> {
-    const pp = this.ppConnections.get(target);
-    if (pp) {
-      await pp.sendCommand(command);
+    if (command !== "next" && command !== "previous" && command !== "clear") {
+      throw new Error(`Unknown ProPresenter command: ${command}`);
     }
+    const pp = this.ppConnections.get(target);
+    if (!pp) throw new Error("ProPresenter is not connected");
+    await pp.sendCommand(command);
   }
 
   private async connectAtem(

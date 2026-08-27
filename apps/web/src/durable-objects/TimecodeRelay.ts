@@ -444,7 +444,7 @@ export class TimecodeRelay extends DurableObject {
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
           try {
             const response = await rdStub.fetch(
-              new Request("https://internal/command", {
+              new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
                 method: "POST",
                 body: JSON.stringify({ action: "timer-next" }),
               })
@@ -478,7 +478,7 @@ export class TimecodeRelay extends DurableObject {
           const rdStub = env.RUNDOWN_RELAY.get(rdId);
           try {
             const response = await rdStub.fetch(
-              new Request("https://internal/command", {
+              new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
                 method: "POST",
                 body: JSON.stringify({
                   action: "timer-start",

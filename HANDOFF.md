@@ -721,6 +721,46 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Authenticated rendered-device, multi-operator convergence, and real push/email
   delivery remain launch-device gates and were not attempted while the owner was
   away.
+- The launch-audit branch now makes the RundownRelay—not browser debounce or
+  native HTTP state—the single live write authority. Revision classification,
+  mutation, ordered D1 persistence, Durable Object state persistence, and
+  broadcast execute inside one explicit per-room serial command queue. A
+  second operator cannot enter while the first command is awaiting D1. Clients
+  freeze the revision attached to an intent, retain it only for same-ID network
+  retries, and never replay a rejected stale Next/edit against newer state.
+  HTTP and WebSocket envelopes share strict boundary parsing; item, timer,
+  reorder, metadata, stage-message, and ProPresenter payloads are bounded.
+  Accepted item/timer/meta/message changes persist before their revision is
+  exposed, and a failed D1 write restores the prior in-memory state. Web no
+  longer performs a competing debounced snapshot write after live edits.
+  `rundown:edit` grants can edit content without gaining transport control;
+  Bridge, Timecode, Companion, and ProPresenter internal calls declare their
+  intended relay access explicitly.
+- Native Rundown is now a near-complete vertical slice: add/edit/delete and
+  move items; cue, notes, assignee, hard-stop and duration fields; countdown,
+  count-up and clock modes; fixed/custom timer adjustment beyond assigned
+  duration; priority stage messages; service title/time/location; saved
+  template create/list/load/delete; previous-show loading with fresh IDs and
+  reset timing; clear-all confirmation; and CSV/PDF sharing via Expo Print.
+  Authorized operators also receive the live ProPresenter preview and can send
+  allowlisted Previous/Next/Clear commands through the venue Bridge. The API is
+  organization/show scoped, requires `rundown:control`, honors the workspace
+  `propresenter-send-cues` safety toggle, and connects the configured venue
+  target before dispatch. The Bridge rejects unknown commands and false
+  success when ProPresenter is not connected. Native kiosk-link sharing and
+  the ProPresenter stage-display toggle remain the recorded Rundown gaps.
+- This checkpoint passes 92 web unit-test files and 746 tests, the Worker,
+  migration-manifest and accessible-control suites, web and native TypeScript,
+  native lint, all 30 Bridge tests and its production build, and the full web
+  client/SSR production build. The main client bundle is 497,788 bytes raw and
+  156,427 bytes gzip. A real Expo all-platform export passes after the export
+  gate caught and removed an icon path absent from the installed Lucide
+  package. Expo Doctor is 18/18; iOS and Android Hermes bundles are 5,235,234
+  and 5,234,259 bytes. The parity inventory is six complete, three partial,
+  and 11 missing. Authenticated physical-device and simultaneous multi-operator
+  runtime QA remain launch gates; no simulator/device, push, deployment,
+  production mutation, store action, or signing action was performed while the
+  owner was away.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

@@ -57,9 +57,15 @@
         "src/app/show/[showId].tsx"
       ],
       "apiContracts": [
-        "/api/mobile/v1/rundowns"
+        "/api/mobile/v1/rundowns",
+        "const rundownTemplateActionMatch",
+        "const rundownPreviousMatch",
+        "const rundownTemplatesMatch",
+        "const rundownMetaMatch",
+        "const rundownProPresenterMatch",
+        "const rundownMatch"
       ],
-      "gaps": "Live viewing and control exist; full rundown editing and template workflows remain."
+      "gaps": "Core native parity now includes revision-safe live editing and reordering, three timer modes, custom adjustments, priority stage messages, show metadata, templates, previous-show loading, CSV/PDF export, and Bridge-routed ProPresenter preview/control. Native kiosk-link sharing and the ProPresenter stage-display toggle remain."
     },
     {
       "id": "timecode",

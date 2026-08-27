@@ -289,14 +289,17 @@ export default {
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
       const canControl = canUse(access, "rundown:control");
+      const canEdit = canUse(access, "rundown:edit");
       const canObserveRundown = canUse(access, [
         "rundown:view",
+        "rundown:edit",
         "cuesheet:view",
         "cuesheet:edit",
         "cuesheet:add_notes",
       ]);
-      const isMutation = subpath === "command" || (subpath === "ws" && canControl);
-      if (subpath === "command" && !canControl) {
+      const writeAccess = canControl ? "control" : canEdit ? "edit" : null;
+      const isMutation = subpath === "command" || (subpath === "ws" && writeAccess !== null);
+      if (subpath === "command" && !writeAccess) {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
@@ -310,7 +313,10 @@ export default {
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
-      doUrl.searchParams.set("access", isMutation ? "write" : canObserveRundown ? "observe" : "read");
+      doUrl.searchParams.set(
+        "access",
+        isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
+      );
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

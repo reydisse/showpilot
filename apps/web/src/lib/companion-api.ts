@@ -124,7 +124,7 @@ async function rundownRelayCommand(
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   await stub.fetch(
-    new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`, {
+    new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, payload }),
@@ -138,7 +138,7 @@ async function rundownRelayState(orgId: string): Promise<RelayState> {
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   const res = await stub.fetch(
-    new Request(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}`),
+    new Request(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=observe`),
   );
   const data = (await res.json()) as Partial<RelayState>;
   return {

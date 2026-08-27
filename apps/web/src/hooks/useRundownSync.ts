@@ -66,6 +66,8 @@ const normalizeRundownItems = (value: unknown): RundownItem[] => {
       sortOrder: toNumber(item.sortOrder, 0),
       hardStop: toBoolean(item.hardStop),
       lowerThirdId: toStringValue(item.lowerThirdId, "") || undefined,
+      scheduledStart: typeof item.scheduledStart === "string" ? item.scheduledStart : null,
+      expectedEnd: typeof item.expectedEnd === "string" ? item.expectedEnd : null,
       actualStart: typeof item.actualStart === "string" ? item.actualStart : null,
       actualEnd: typeof item.actualEnd === "string" ? item.actualEnd : null,
     });
@@ -124,6 +126,8 @@ interface RundownItem {
   sortOrder: number;
   hardStop: boolean;
   lowerThirdId?: string;
+  scheduledStart?: string | null;
+  expectedEnd?: string | null;
   actualStart?: string | null;
   actualEnd?: string | null;
 }
@@ -150,6 +154,8 @@ interface QueuedCommand {
   id: string;
   action: string;
   payload?: Record<string, unknown>;
+  expectedRevision?: number;
+  attempts: number;
 }
 
 interface UseRundownSyncReturn {
@@ -165,15 +171,23 @@ interface UseRundownSyncReturn {
    */
   stateServiceDate: string | null;
   stateShowId: string | null;
+  serviceName: string | null;
+  scheduledStartTime: string | null | undefined;
   /** False only for a brand-new room that still needs its D1 seed. */
   stateInitialized: boolean;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
   /** Current stage message broadcast to kiosk (empty string = none active) */
   stageMessage: string;
+  lastError: string | null;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
-  seedState: (items: RundownItem[], timer: TimerState, force?: boolean) => void;
+  seedState: (
+    items: RundownItem[],
+    timer: TimerState,
+    force?: boolean,
+    meta?: { serviceName: string; scheduledStartTime: string | null },
+  ) => void;
 }
 
 export function useRundownSync(
@@ -194,14 +208,23 @@ export function useRundownSync(
   const [hydrated, setHydrated] = useState(false);
   const [stateServiceDate, setStateServiceDate] = useState<string | null>(null);
   const [stateShowId, setStateShowId] = useState<string | null>(null);
+  const [serviceName, setServiceName] = useState<string | null>(null);
+  const [scheduledStartTime, setScheduledStartTime] = useState<string | null | undefined>(undefined);
   const [stateInitialized, setStateInitialized] = useState(false);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
+  const [lastError, setLastError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const socketHydratedRef = useRef(false);
   const revisionRef = useRef(0);
   const commandQueue = useRef<QueuedCommand[]>([]);
   const pendingCommandRef = useRef<QueuedCommand | null>(null);
+  const pendingTimerRef = useRef<number | null>(null);
+
+  const clearPendingTimer = useCallback(() => {
+    if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+  }, []);
 
   const dispatchNextCommand = useCallback(() => {
     const ws = wsRef.current;
@@ -214,15 +237,32 @@ export function useRundownSync(
 
     const entry = commandQueue.current.shift();
     if (!entry) return;
-    pendingCommandRef.current = entry;
+    const pending = {
+      ...entry,
+      expectedRevision: entry.expectedRevision ?? revisionRef.current,
+    };
+    pendingCommandRef.current = pending;
+    clearPendingTimer();
+    pendingTimerRef.current = window.setTimeout(() => {
+      if (pendingCommandRef.current?.id !== pending.id) return;
+      pendingCommandRef.current = null;
+      pendingTimerRef.current = null;
+      if (pending.attempts < 3) {
+        commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
+        setLastError("ShowPilot is refreshing live state before retrying that rundown change.");
+      } else {
+        setLastError("That rundown change could not be confirmed. Review live state before trying again.");
+      }
+      if (wsRef.current === ws) ws.close();
+    }, 8_000);
     ws.send(JSON.stringify({
       type: "command",
-      id: entry.id,
-      expectedRevision: revisionRef.current,
-      action: entry.action,
-      payload: entry.payload,
+      id: pending.id,
+      expectedRevision: pending.expectedRevision,
+      action: pending.action,
+      payload: pending.payload,
     }));
-  }, []);
+  }, [clearPendingTimer]);
 
   useEffect(() => {
     let disposed = false;
@@ -235,8 +275,12 @@ export function useRundownSync(
     revisionRef.current = 0;
     commandQueue.current = [];
     pendingCommandRef.current = null;
+    clearPendingTimer();
+    setLastError(null);
     setStateServiceDate(null);
     setStateShowId(null);
+    setServiceName(null);
+    setScheduledStartTime(undefined);
     setStateInitialized(false);
     setItems([]);
     setTimer({
@@ -304,10 +348,18 @@ export function useRundownSync(
           if (msg.type === "command-result") {
             const pending = pendingCommandRef.current;
             if (pending && msg.id === pending.id) {
+              clearPendingTimer();
               if (typeof msg.revision === "number" && Number.isFinite(msg.revision)) {
                 revisionRef.current = msg.revision;
               }
               pendingCommandRef.current = null;
+              if (msg.accepted === false && msg.reason === "revision-conflict") {
+                setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
+              } else if (msg.accepted === false) {
+                setLastError("That rundown change was rejected. Live state was restored.");
+              } else {
+                setLastError(null);
+              }
               dispatchNextCommand();
             }
             return;
@@ -326,6 +378,16 @@ export function useRundownSync(
           }
           if ("showId" in state) {
             setStateShowId(typeof state.showId === "string" ? state.showId : null);
+          }
+          if ("serviceName" in state && typeof state.serviceName === "string") {
+            setServiceName(state.serviceName);
+          }
+          if ("scheduledStartTime" in state) {
+            setScheduledStartTime(
+              state.scheduledStartTime === null || typeof state.scheduledStartTime === "string"
+                ? state.scheduledStartTime
+                : undefined,
+            );
           }
           if ("initialized" in state) {
             setStateInitialized(state.initialized === true);
@@ -347,6 +409,7 @@ export function useRundownSync(
 
       ws.onclose = () => {
         if (disposed || activeSocket !== ws) return;
+        clearPendingTimer();
         if (pendingCommandRef.current) {
           commandQueue.current.unshift(pendingCommandRef.current);
           pendingCommandRef.current = null;
@@ -366,6 +429,7 @@ export function useRundownSync(
     return () => {
       disposed = true;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      clearPendingTimer();
       commandQueue.current = [];
       pendingCommandRef.current = null;
       socketHydratedRef.current = false;
@@ -373,7 +437,7 @@ export function useRundownSync(
       activeSocket?.close();
       activeSocket = null;
     };
-  }, [dispatchNextCommand, orgId, serviceDate, showId]);
+  }, [clearPendingTimer, dispatchNextCommand, orgId, serviceDate, showId]);
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
@@ -381,6 +445,7 @@ export function useRundownSync(
         id: createBrowserId(),
         action,
         payload,
+        attempts: 0,
       });
       dispatchNextCommand();
     },
@@ -388,11 +453,17 @@ export function useRundownSync(
   );
 
   const seedState = useCallback(
-    (seedItems: RundownItem[], seedTimer: TimerState, force = false) => {
+    (
+      seedItems: RundownItem[],
+      seedTimer: TimerState,
+      force = false,
+      meta?: { serviceName: string; scheduledStartTime: string | null },
+    ) => {
       sendCommand("seed", {
         items: seedItems,
         timer: seedTimer,
         force,
+        ...meta,
       });
     },
     [sendCommand]
@@ -405,9 +476,12 @@ export function useRundownSync(
     hydrated,
     stateServiceDate,
     stateShowId,
+    serviceName,
+    scheduledStartTime,
     stateInitialized,
     ppPreviewSlide,
     stageMessage,
+    lastError,
     sendCommand,
     seedState,
   };

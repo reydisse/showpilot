@@ -12,14 +12,27 @@ interface QueuedCommand {
   action: string;
   payload?: Record<string, unknown>;
   attempts: number;
+  expectedRevision?: number;
 }
 
 interface RelayState {
   initialized: boolean;
+  revision: number;
   items: RundownItem[];
   timer: RundownTimer;
   serviceDate: string | null;
   showId: string | null;
+  serviceName: string | null;
+  scheduledStartTime: string | null | undefined;
+  location: string | null;
+  stageMessage: string;
+  ppPreviewSlide: {
+    text: string;
+    notes: string;
+    presentationName: string;
+    isScripture: boolean;
+    updatedAt: number;
+  } | null;
 }
 
 const EMPTY_TIMER: RundownTimer = {
@@ -50,10 +63,16 @@ function relayUrl(orgId: string, serviceDate: string, showId: string) {
 export function useRundownRelay(orgId: string, serviceDate: string, showId: string) {
   const [state, setState] = useState<RelayState>({
     initialized: false,
+    revision: 0,
     items: [],
     timer: EMPTY_TIMER,
     serviceDate: null,
     showId: null,
+    serviceName: null,
+    scheduledStartTime: undefined,
+    location: null,
+    stageMessage: "",
+    ppPreviewSlide: null,
   });
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [hydrated, setHydrated] = useState(false);
@@ -75,14 +94,18 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     if (!socket || socket.readyState !== WebSocket.OPEN || !hydratedRef.current || pendingRef.current) return;
     const command = queueRef.current.shift();
     if (!command) return;
-    pendingRef.current = command;
+    const pending = {
+      ...command,
+      expectedRevision: command.expectedRevision ?? revisionRef.current,
+    };
+    pendingRef.current = pending;
     clearPendingTimer();
     pendingTimerRef.current = setTimeout(() => {
-      if (pendingRef.current?.id !== command.id) return;
+      if (pendingRef.current?.id !== pending.id) return;
       pendingRef.current = null;
       pendingTimerRef.current = null;
-      if (command.attempts < 3) {
-        queueRef.current.unshift({ ...command, attempts: command.attempts + 1 });
+      if (pending.attempts < 3) {
+        queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
         setLastError("ShowPilot is refreshing live state before retrying that control change.");
       } else {
         setLastError("That control change could not be confirmed. Check the live state before trying again.");
@@ -91,10 +114,10 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     }, 8_000);
     socket.send(JSON.stringify({
       type: "command",
-      id: command.id,
-      expectedRevision: revisionRef.current,
-      action: command.action,
-      payload: command.payload,
+      id: pending.id,
+      expectedRevision: pending.expectedRevision,
+      action: pending.action,
+      payload: pending.payload,
     }));
   }, [clearPendingTimer]);
 
@@ -148,10 +171,29 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       }
       setState((current) => ({
         initialized: "initialized" in value ? value.initialized === true : current.initialized,
+        revision: typeof value.revision === "number" && Number.isFinite(value.revision)
+          ? value.revision
+          : current.revision,
         items: "items" in value ? normalizeRelayItems(value.items) : current.items,
         timer: "timer" in value ? normalizeRelayTimer(value.timer) : current.timer,
         serviceDate: "serviceDate" in value ? incomingServiceDate : current.serviceDate,
         showId: "showId" in value ? incomingShowId : current.showId,
+        serviceName: "serviceName" in value && typeof value.serviceName === "string"
+          ? value.serviceName
+          : current.serviceName,
+        scheduledStartTime: "scheduledStartTime" in value
+          && (value.scheduledStartTime === null || typeof value.scheduledStartTime === "string")
+          ? value.scheduledStartTime
+          : current.scheduledStartTime,
+        location: "location" in value && typeof value.location === "string"
+          ? value.location
+          : current.location,
+        stageMessage: "stageMessage" in value && typeof value.stageMessage === "string"
+          ? value.stageMessage
+          : current.stageMessage,
+        ppPreviewSlide: "ppPreviewSlide" in value
+          ? normalizePPSlide(value.ppPreviewSlide)
+          : current.ppPreviewSlide,
       }));
       hydratedRef.current = true;
       setHydrated(true);
@@ -196,10 +238,12 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
             revisionRef.current = message.revision;
           }
           pendingRef.current = null;
-          if (message.accepted === false && message.reason === "revision-conflict" && pending.attempts < 3) {
-            queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
+          if (message.accepted === false && message.reason === "revision-conflict") {
+            setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
           } else if (message.accepted === false) {
             setLastError("That control change was not accepted. The live state has been refreshed.");
+          } else {
+            setLastError(null);
           }
           dispatchNext();
         } catch {
@@ -255,9 +299,32 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     dispatchNext();
   }, [dispatchNext]);
 
-  const seedState = useCallback((items: RundownItem[], timer: RundownTimer) => {
-    sendCommand("seed", { items, timer, force: false });
+  const seedState = useCallback((
+    items: RundownItem[],
+    timer: RundownTimer,
+    meta?: { serviceName: string; scheduledStartTime: string | null; location: string },
+  ) => {
+    sendCommand("seed", { items, timer, force: false, ...meta });
   }, [sendCommand]);
 
   return { ...state, status, hydrated, lastError, sendCommand, seedState };
+}
+
+function normalizePPSlide(value: unknown): RelayState["ppPreviewSlide"] {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.text !== "string"
+    || typeof value.notes !== "string"
+    || typeof value.presentationName !== "string"
+    || typeof value.isScripture !== "boolean"
+    || typeof value.updatedAt !== "number"
+    || !Number.isFinite(value.updatedAt)
+  ) return null;
+  return {
+    text: value.text,
+    notes: value.notes,
+    presentationName: value.presentationName,
+    isScripture: value.isScripture,
+    updatedAt: value.updatedAt,
+  };
 }

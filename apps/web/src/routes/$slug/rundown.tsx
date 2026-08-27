@@ -44,7 +44,6 @@ import {
 import {
   getRundownState,
   saveRundownItems,
-  saveRundownMessage,
   saveRundownMeta,
   getRundownOpeningDate,
   saveProPresenterSlide,
@@ -261,8 +260,11 @@ function RundownPage() {
     hydrated: syncHydrated,
     stateServiceDate: syncedServiceDate,
     stateShowId: syncedShowId,
+    serviceName: syncedServiceName,
+    scheduledStartTime: syncedScheduledStartTime,
     stateInitialized: syncedInitialized,
     ppPreviewSlide: syncedPpSlide,
+    lastError: syncError,
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
@@ -319,6 +321,9 @@ function RundownPage() {
         startedAt: timer.startedAt,
         pausedAt: null,
         mode: timer.mode,
+      }, false, {
+        serviceName: initialState.meta?.name ?? "",
+        scheduledStartTime: initialState.meta?.scheduledStartTime ?? null,
       });
     } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
@@ -335,6 +340,17 @@ function RundownPage() {
 
   const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (syncedServiceName !== null) setServiceName(syncedServiceName);
+    if (syncedScheduledStartTime !== undefined) {
+      setScheduledStartTime(
+        syncedScheduledStartTime
+          ? formatTimeInput(syncedScheduledStartTime, settings["org-timezone"])
+          : "",
+      );
+    }
+  }, [settings, syncedScheduledStartTime, syncedServiceName]);
 
   // The web app remains the source of truth. Desktop keeps a bounded local
   // snapshot after edits so the native engine can grow an offline bootstrap
@@ -364,6 +380,10 @@ function RundownPage() {
       setServiceName(value);
       if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
       saveNameTimeoutRef.current = setTimeout(() => {
+        if (showId) {
+          sendCommand("update-meta", { serviceName: value });
+          return;
+        }
         void ensureShowId()
           .then(async (targetShowId) => {
             await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, name: value } });
@@ -372,7 +392,7 @@ function RundownPage() {
           .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service title did not save"));
       }, 800);
     },
-    [adoptShowId, ensureShowId, orgId, serviceDate, showId],
+    [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, showId],
   );
 
   const handleScheduledStartChange = useCallback((timeStr: string) => {
@@ -380,6 +400,10 @@ function RundownPage() {
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     saveMetaTimeoutRef.current = setTimeout(() => {
       const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
+      if (showId) {
+        sendCommand("update-meta", { scheduledStartTime: isoTime });
+        return;
+      }
       void ensureShowId()
         .then(async (targetShowId) => {
           await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
@@ -387,7 +411,7 @@ function RundownPage() {
         })
         .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"));
     }, 800);
-  }, [adoptShowId, ensureShowId, orgId, serviceDate, settings, showId]);
+  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, settings, showId]);
 
   useEffect(() => () => {
     if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
@@ -460,7 +484,6 @@ function RundownPage() {
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
-  const saveItemsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ppKioskClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerRef = useRef(timer);
   const itemsRef = useRef(items);
@@ -605,37 +628,6 @@ function RundownPage() {
     }
   }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
 
-  // Auto-save items on change (debounced).
-  //
-  // A failure here has to be visible. The relay keeps the rundown on
-  // screen and everything looks saved, so a swallowed error means an
-  // operator builds a whole service and loses it on reload — which is
-  // exactly what the plan-limit error on a new service date was doing.
-  const persistItems = useCallback((newItems: RundownItem[]) => {
-    if (saveItemsTimeoutRef.current) clearTimeout(saveItemsTimeoutRef.current);
-    saveItemsTimeoutRef.current = setTimeout(() => {
-      saveRundownItems({ data: { orgId, showId, serviceDate, items: newItems } })
-        .then(async (result) => {
-          setSaveError(null);
-          if (!showId) await adoptShowId(result.showId);
-        })
-        .catch((e: unknown) => {
-          console.warn("[SP] Items persist failed:", e);
-          setSaveError(
-            e instanceof Error ? e.message : "This rundown is not saving. Reload before relying on it.",
-          );
-        });
-    }, 1000);
-  }, [adoptShowId, orgId, serviceDate, showId]);
-
-  const updateItems = useCallback((updater: (prev: RundownItem[]) => RundownItem[]) => {
-    setItems((prev) => {
-      const next = updater(prev);
-      persistItems(next);
-      return next;
-    });
-  }, [persistItems]);
-
   // Load rundown for new date
   const loadDate = async (date: string, targetShowId?: string) => {
     setLoading(true);
@@ -705,11 +697,17 @@ function RundownPage() {
           pausedAt: timerRef.current.playback === "pause" ? Date.now() : null,
           mode: timerRef.current.mode,
         },
+        serviceName,
+        scheduledStartTime: serviceTimeToIso(
+          serviceDate,
+          scheduledStartTime,
+          settings["org-timezone"],
+        ),
       });
     }
 
     sendCommand(action, payload);
-  }, [relayNeedsPriming, sendCommand]);
+  }, [relayNeedsPriming, scheduledStartTime, sendCommand, serviceDate, serviceName, settings]);
 
   // The text changes at second boundaries; sampling at 10 Hz keeps it precise
   // without rerendering this dense operator page on every animation frame.
@@ -941,7 +939,7 @@ function RundownPage() {
       }
     } else {
       sendRundownCommand("add-item", item as unknown as Record<string, unknown>);
-      updateItems((prev) => [...prev, item]);
+      setItems((prev) => [...prev, item]);
     }
     setShowAddForm(false);
   };
@@ -950,39 +948,35 @@ function RundownPage() {
     if (!canEditRundown) return;
     if (timer.currentItemId === id) handleStop();
     sendRundownCommand("remove-item", { id });
-    updateItems((prev) => prev.filter((i) => i.id !== id));
+    setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
     if (!canEditRundown) return;
-    updateItems((prev) => {
-      const idx = prev.findIndex((i) => i.id === id);
-      if (idx < 0) return prev;
-      const newIdx = direction === "up" ? idx - 1 : idx + 1;
-      if (newIdx < 0 || newIdx >= prev.length) return prev;
-      const copy = [...prev];
-      [copy[idx], copy[newIdx]] = [copy[newIdx], copy[idx]];
-      const reordered = copy.map((i, sortOrder) => ({ ...i, sortOrder }));
-      sendRundownCommand("reorder", { order: reordered.map((i) => i.id) });
-      return reordered;
-    });
+    const idx = items.findIndex((item) => item.id === id);
+    if (idx < 0) return;
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= items.length) return;
+    const reordered = [...items];
+    [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
+    const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
+    setItems(normalized);
+    sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
   };
 
   const reorderItemsById = useCallback((sourceItemId: string, targetItemId: string) => {
     if (!canEditRundown || sourceItemId === targetItemId) return;
 
-    updateItems((prev) => {
-      const fromIndex = prev.findIndex((item) => item.id === sourceItemId);
-      const toIndex = prev.findIndex((item) => item.id === targetItemId);
-      if (fromIndex < 0 || toIndex < 0) return prev;
-      const reordered = [...prev];
-      const [moved] = reordered.splice(fromIndex, 1);
-      reordered.splice(toIndex, 0, moved);
-      const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
-      sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
-      return normalized;
-    });
-  }, [canEditRundown, sendRundownCommand, updateItems]);
+    const fromIndex = items.findIndex((item) => item.id === sourceItemId);
+    const toIndex = items.findIndex((item) => item.id === targetItemId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const reordered = [...items];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
+    setItems(normalized);
+    sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
+  }, [canEditRundown, items, sendRundownCommand]);
 
   const {
     draggedItemId,
@@ -1003,7 +997,7 @@ function RundownPage() {
     if (!canEditRundown) return;
     const updates = { title, type, duration: parseDurationInput(durationStr), assignee, notes };
       sendRundownCommand("update-item", { id, updates });
-      updateItems((prev) =>
+      setItems((prev) =>
         prev.map((i) =>
           i.id === id ? { ...i, ...updates } : i
         )
@@ -1024,10 +1018,18 @@ function RundownPage() {
     let targetShowId = showId;
     setItems(fresh);
     setTimer(resetTimer);
+    const scheduled = loaded.scheduledStartTime === undefined
+      ? undefined
+      : serviceTimeToIso(serviceDate, loaded.scheduledStartTime, settings["org-timezone"]);
     if (showId) {
       // Seed DO with loaded items so all devices get them.
-      sendCommand("seed", { items: fresh, timer: resetTimer, force: true });
-      persistItems(fresh);
+      sendCommand("seed", {
+        items: fresh,
+        timer: resetTimer,
+        force: true,
+        ...(loaded.serviceName === undefined ? {} : { serviceName: loaded.serviceName }),
+        ...(scheduled === undefined ? {} : { scheduledStartTime: scheduled }),
+      });
     } else {
       targetShowId = await ensureShowId();
       await saveRundownItems({ data: { orgId, showId: targetShowId, serviceDate, items: fresh } });
@@ -1039,13 +1041,12 @@ function RundownPage() {
     if (loaded.scheduledStartTime !== undefined) {
       setScheduledStartTime(loaded.scheduledStartTime);
     }
-    if (loaded.serviceName !== undefined || loaded.scheduledStartTime !== undefined) {
-      const scheduled = serviceTimeToIso(serviceDate, loaded.scheduledStartTime ?? "", settings["org-timezone"]);
+    if (!showId && (loaded.serviceName !== undefined || loaded.scheduledStartTime !== undefined)) {
       await saveRundownMeta({ data: { orgId, showId: targetShowId!, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
     }
     if (!showId && targetShowId) await adoptShowId(targetShowId);
     setShowLoadModal(false);
-  }, [adoptShowId, canEditRundown, defaultTimerMode, ensureShowId, orgId, persistItems, sendCommand, serviceDate, settings, showId]);
+  }, [adoptShowId, canEditRundown, defaultTimerMode, ensureShowId, orgId, sendCommand, serviceDate, settings, showId]);
 
   const handleSaveTemplate = useCallback(async (name: string, templateServiceName: string, templateStartTime: string) => {
     if (!canEditRundown) return;
@@ -1059,8 +1060,7 @@ function RundownPage() {
       setActiveMessage(message.trim());
       // Encode priority flag into message string for kiosk
       const encoded = messagePriority ? `!!PRIORITY!!${message.trim()}` : message.trim();
-      saveRundownMessage({ data: { orgId, showId, serviceDate, message: encoded } }).catch((e) => console.warn("[SP] Message persist failed:", e));
-      // Broadcast via DO so kiosk receives instantly over WebSocket
+      // The relay persists before broadcasting so every display converges.
       sendRundownCommand("stage-message", { message: encoded });
     }
   };
@@ -1069,8 +1069,6 @@ function RundownPage() {
     if (!canEditRundown) return;
     setActiveMessage("");
     setMessagePriority(false);
-    saveRundownMessage({ data: { orgId, showId, serviceDate, message: "" } }).catch((e) => console.warn("[SP] Message clear failed:", e));
-    // Broadcast clear via DO
     sendRundownCommand("stage-clear");
   };
 
@@ -1343,13 +1341,13 @@ function RundownPage() {
         <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
 
-      {saveError && (
+      {(saveError || syncError) && (
         <div
           role="alert"
           className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
         >
-          <span className="font-medium shrink-0">Not saving.</span>
-          <span className="min-w-0">{saveError}</span>
+          <span className="font-medium shrink-0">{saveError ? "Not saving." : "Live conflict."}</span>
+          <span className="min-w-0">{saveError || syncError}</span>
         </div>
       )}
 

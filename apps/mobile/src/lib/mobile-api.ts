@@ -116,6 +116,8 @@ export const rundownItemSchema = z.object({
   sortOrder: z.number(),
   hardStop: z.boolean(),
   lowerThirdId: z.string().optional(),
+  scheduledStart: z.string().nullable().optional(),
+  expectedEnd: z.string().nullable().optional(),
   actualStart: z.string().nullable().optional(),
   actualEnd: z.string().nullable().optional(),
 });
@@ -131,8 +133,16 @@ export const timerSchema = z.object({
 });
 
 export const mobileRundownSchema = z.object({
-  show: rundownSchema.omit({ itemCount: true }),
+  show: rundownSchema.omit({ itemCount: true }).extend({ updatedAt: z.string() }),
+  timeZone: z.string().min(1),
+  canEdit: z.boolean(),
   canControl: z.boolean(),
+  proPresenter: z.object({
+    configured: z.boolean(),
+    cuesEnabled: z.boolean(),
+    bridgeOnline: z.boolean(),
+    connected: z.boolean(),
+  }),
   items: z.array(rundownItemSchema),
   timer: timerSchema,
 });
@@ -140,6 +150,29 @@ export const mobileRundownSchema = z.object({
 export type MobileRundown = z.infer<typeof mobileRundownSchema>;
 export type RundownItem = z.infer<typeof rundownItemSchema>;
 export type RundownTimer = z.infer<typeof timerSchema>;
+
+const mobileRundownTemplatesSchema = z.object({
+  templates: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    serviceName: z.string(),
+    scheduledStartTime: z.string(),
+    itemCount: z.number().int().nonnegative(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })),
+  previousShows: z.array(z.object({
+    id: z.string(),
+    serviceDate: z.string(),
+    name: z.string(),
+    scheduledStartTime: z.string().nullable(),
+    location: z.string(),
+    itemCount: z.number().int().nonnegative(),
+  })),
+});
+
+export type MobileRundownTemplate = z.infer<typeof mobileRundownTemplatesSchema>["templates"][number];
+export type MobilePreviousRundown = z.infer<typeof mobileRundownTemplatesSchema>["previousShows"][number];
 
 const createMobileRundownResponseSchema = z.object({
   ok: z.literal(true),
@@ -656,6 +689,115 @@ export async function getMobileRundown(orgId: string, showId: string): Promise<M
     `/api/mobile/v1/rundowns/${encodeURIComponent(showId)}?orgId=${encodeURIComponent(orgId)}`,
   );
   return mobileRundownSchema.parse(await response.json());
+}
+
+export async function getMobileRundownTemplates(orgId: string, showId: string) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(showId)}/templates?orgId=${encodeURIComponent(orgId)}`,
+  );
+  return mobileRundownTemplatesSchema.parse(await response.json());
+}
+
+export async function saveMobileRundownTemplate(input: {
+  orgId: string;
+  showId: string;
+  requestId: string;
+  name: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ requestId: input.requestId, name: input.name }) },
+  );
+  return z.object({ ok: z.literal(true), id: z.string(), created: z.boolean() }).parse(await response.json());
+}
+
+export async function loadMobileRundownTemplate(input: {
+  orgId: string;
+  showId: string;
+  templateId: string;
+  requestId: string;
+  expectedRevision: number;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates/${encodeURIComponent(input.templateId)}/load?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ requestId: input.requestId, expectedRevision: input.expectedRevision }) },
+  );
+  return z.object({
+    ok: z.literal(true),
+    revision: z.number(),
+    serviceName: z.string(),
+    scheduledStartTime: z.string(),
+    itemCount: z.number().int().nonnegative(),
+  }).parse(await response.json());
+}
+
+export async function loadMobilePreviousRundown(input: {
+  orgId: string;
+  showId: string;
+  sourceShowId: string;
+  requestId: string;
+  expectedRevision: number;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/previous/${encodeURIComponent(input.sourceShowId)}/load?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ requestId: input.requestId, expectedRevision: input.expectedRevision }) },
+  );
+  return z.object({
+    ok: z.literal(true),
+    revision: z.number(),
+    serviceName: z.string(),
+    scheduledStartTime: z.string(),
+    itemCount: z.number().int().nonnegative(),
+  }).parse(await response.json());
+}
+
+export async function deleteMobileRundownTemplate(input: {
+  orgId: string;
+  showId: string;
+  templateId: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates/${encodeURIComponent(input.templateId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return z.object({ ok: z.literal(true) }).parse(await response.json());
+}
+
+export async function updateMobileRundownMeta(input: {
+  orgId: string;
+  showId: string;
+  requestId: string;
+  expectedRevision: number;
+  name: string;
+  startTime: string;
+  location: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/meta?orgId=${encodeURIComponent(input.orgId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requestId: input.requestId,
+        expectedRevision: input.expectedRevision,
+        name: input.name,
+        startTime: input.startTime,
+        location: input.location,
+      }),
+    },
+  );
+  return z.object({ ok: z.literal(true), revision: z.number() }).parse(await response.json());
+}
+
+export async function controlMobileProPresenter(input: {
+  orgId: string;
+  showId: string;
+  command: "next" | "previous" | "clear";
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/propresenter?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ command: input.command }) },
+  );
+  return z.object({ success: z.literal(true), response: z.string().optional() }).parse(await response.json());
 }
 
 export async function createMobileRundown(input: {

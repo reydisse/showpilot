@@ -118,6 +118,11 @@ function toNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : fallback;
 }
 
+function toIsoTimestamp(value: unknown): string | null {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
 function toTimerMode(value: unknown): NativeTimerState["mode"] {
   if (value === "count-up" || value === "count-down" || value === "clock") {
     return value;
@@ -162,6 +167,10 @@ export function normalizeLegacyRundownItems(value: unknown): RundownItem[] {
       sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
       hardStop: toBoolean(item.hardStop),
       lowerThirdId: toString(item.lowerThirdId, "") || undefined,
+      scheduledStart: toIsoTimestamp(item.scheduledStart),
+      expectedEnd: toIsoTimestamp(item.expectedEnd),
+      actualStart: toIsoTimestamp(item.actualStart),
+      actualEnd: toIsoTimestamp(item.actualEnd),
     });
   });
 
@@ -307,6 +316,10 @@ async function migrateLegacyRundownItems(
           sortOrder: index,
           hardStop: item.hardStop,
           lowerThirdId: item.lowerThirdId ?? null,
+          scheduledStart: item.scheduledStart ? new Date(item.scheduledStart) : null,
+          expectedEnd: item.expectedEnd ? new Date(item.expectedEnd) : null,
+          actualStart: item.actualStart ? new Date(item.actualStart) : null,
+          actualEnd: item.actualEnd ? new Date(item.actualEnd) : null,
         },
         create: {
           orgId,
@@ -323,6 +336,10 @@ async function migrateLegacyRundownItems(
           sortOrder: index,
           hardStop: item.hardStop,
           lowerThirdId: item.lowerThirdId,
+          scheduledStart: item.scheduledStart ? new Date(item.scheduledStart) : null,
+          expectedEnd: item.expectedEnd ? new Date(item.expectedEnd) : null,
+          actualStart: item.actualStart ? new Date(item.actualStart) : null,
+          actualEnd: item.actualEnd ? new Date(item.actualEnd) : null,
         },
       }),
     ),
@@ -1150,7 +1167,7 @@ export const saveProPresenterSlide = createServerFn({ method: "POST" })
         );
         const stub = bindings.RUNDOWN_RELAY.get(id);
         await stub.fetch(
-          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&showId=${encodeURIComponent(showId)}&access=write`, {
+          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&showId=${encodeURIComponent(showId)}&access=edit`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1258,6 +1275,8 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
     const cleanItems = normalizeLegacyRundownItems(data.items).map((item) => ({
       ...item,
       status: "upcoming" as const,
+      actualStart: null,
+      actualEnd: null,
     }));
 
     const saved: SavedRundown = {
