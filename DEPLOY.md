@@ -174,18 +174,78 @@ artifacts; the numbered files are the convention. After editing
 
 ### Applying a migration to production
 
-From `apps/web`:
+Use a quiet change window and work from the reviewed commit intended for
+production. From `apps/web`:
 
 ```sh
-# 1. Apply the file against the remote (production) database:
+# 1. Prove the manifest is an ordered prefix of the numbered files.
+pnpm run db:audit-production-manifest
+
+# 2. Capture the current Time Travel bookmark. Save the JSON in the private
+#    change record, outside the repository.
+pnpm exec wrangler d1 time-travel info showpilot-db --json
+
+# 3. Run the migration-specific read-only preflight below.
+
+# 4. Apply exactly one file against the remote production database.
 pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/000N_name.sql
 
-# 2. Record it in the manifest the deploy gate checks:
-#    append the filename on its own line to
+# 5. Run that migration's postcondition below. Record the filename only when
+#    the command succeeds and the expected objects are present.
+
+# 6. Append the filename on its own line to
 #    apps/web/prisma/migrations/applied-remote.txt
 
-# 3. Commit and push. The deploy workflow re-runs and passes.
+# 7. Repeat steps 3 through 6 for the next file, then require a clean check.
+pnpm run db:check-production-manifest
 ```
+
+The check rejects gaps, duplicate entries, unknown files, and out-of-order
+entries. The deploy workflow runs the same command and stops before either
+Worker changes if any migration remains pending.
+
+For migrations 0030 through 0032, use these read-only preflights:
+
+```sh
+# 0030: must return 0.
+pnpm exec wrangler d1 execute showpilot-db --remote --command='SELECT COUNT(*) AS duplicate_endpoint_org_groups FROM (SELECT 1 FROM "push_subscription" GROUP BY "endpoint", "orgId" HAVING COUNT(*) > 1)'
+
+# 0032: must return 0.
+pnpm exec wrangler d1 execute showpilot-db --remote --command='SELECT COUNT(*) AS duplicate_checklist_groups FROM (SELECT 1 FROM "checklist_entry" WHERE "showId" IS NOT NULL GROUP BY "orgId", "showId", "templateId" HAVING COUNT(*) > 1)'
+```
+
+After applying each file, require its exact postcondition:
+
+```sh
+# After 0030: returns push_subscription_endpoint_orgId_key only.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM \"sqlite_master\" WHERE \"type\" = 'index' AND \"name\" IN ('push_subscription_endpoint_key', 'push_subscription_endpoint_orgId_key') ORDER BY \"name\""
+
+# After 0031: returns the table and both indexes.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"type\", \"name\" FROM \"sqlite_master\" WHERE \"name\" IN ('expo_push_receipt', 'expo_push_receipt_ticketId_key', 'expo_push_receipt_nextCheckAt_idx') ORDER BY \"type\", \"name\""
+
+# After 0032: returns checklist_entry_orgId_showId_templateId_key.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM \"sqlite_master\" WHERE \"type\" = 'index' AND \"name\" = 'checklist_entry_orgId_showId_templateId_key'"
+
+# After all files: returns no rows.
+pnpm exec wrangler d1 execute showpilot-db --remote --command='PRAGMA foreign_key_check'
+```
+
+Time Travel is always enabled on production D1. The bookmark command above is
+read-only. A restore is destructive: it overwrites the whole database, cancels
+in-flight queries, and discards every write made after the selected bookmark.
+Never restore automatically and never restore merely because a postcondition
+failed. First stop the rollout, retain the command output, assess writes made
+since the bookmark, and get explicit owner approval. If restoration is the
+approved recovery:
+
+```sh
+pnpm exec wrangler d1 time-travel restore showpilot-db --bookmark=<BOOKMARK_RECORDED_BEFORE_MIGRATION>
+```
+
+Cloudflare returns the pre-restore bookmark during restoration. Save it so the
+restore itself can be undone. See Cloudflare's
+[Time Travel and backups](https://developers.cloudflare.com/d1/reference/time-travel/)
+documentation.
 
 For a fresh local database, apply every numbered migration in order with:
 
@@ -210,9 +270,13 @@ mobile launch stack is authorized for production. Apply them in order through
 the protected procedure above before deploying code that depends on signed
 device push delivery. `0032_checklist_entry_uniqueness.sql` is also pending and
 must be applied before deploying the atomic checklist creation path. Its
-read-only production preflight reported zero duplicate checklist groups on
-2026-08-27, so the unique index can be applied without deleting or rewriting
-customer data.
+read-only production preflight reported zero duplicate endpoint/organization
+groups and zero duplicate checklist groups on 2026-08-27. `PRAGMA
+foreign_key_check` returned no rows. The only one of the six audited schema
+objects currently present is the old `push_subscription_endpoint_key`, which
+0030 replaces. These checks wrote zero rows. They prove the current preflight
+passes, but must be rerun immediately before applying because production data
+can change.
 
 ---
 

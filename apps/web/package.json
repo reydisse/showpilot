@@ -9,14 +9,17 @@
 		"dev": "vite dev --port 3000",
 		"build": "node scripts/verify-client-boundaries.mjs && vite build && node scripts/sanitize-build-output.mjs",
 		"preview": "pnpm build && vite preview",
-		"test": "pnpm run test:unit && pnpm run test:worker",
+		"test": "pnpm run test:migration-manifest && pnpm run test:unit && pnpm run test:worker",
+		"test:migration-manifest": "node --test scripts/check-production-migrations.test.mjs",
 		"test:unit": "vitest run",
 		"test:worker": "vitest run --config vitest.worker.config.ts",
 		"deploy": "pnpm build && wrangler deploy",
 		"cf-typegen": "wrangler types",
 		"db:generate": "prisma generate",
 		"db:migrate": "pnpm run db:migrate:local",
-		"db:migrate:local": "node scripts/run-local-migrations.mjs"
+		"db:migrate:local": "node scripts/run-local-migrations.mjs",
+		"db:audit-production-manifest": "node scripts/check-production-migrations.mjs --allow-pending",
+		"db:check-production-manifest": "node scripts/check-production-migrations.mjs"
 	},
 	"dependencies": {
 		"@better-auth/expo": "1.4.20",

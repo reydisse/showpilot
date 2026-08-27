@@ -60,32 +60,7 @@ jobs:
         run: pnpm --filter @showpilot/web db:generate
 
       - name: Check D1 migrations (fails loudly if any are unapplied)
-        run: |
-          cd apps/web/prisma/migrations
-          pending=()
-          for f in [0-9][0-9][0-9][0-9]_*.sql; do
-            grep -qxF "$f" applied-remote.txt || pending+=("$f")
-          done
-          if [ "${#pending[@]}" -gt 0 ]; then
-            echo "::error::Unapplied D1 migration(s): ${pending[*]}"
-            echo ""
-            echo "The following migration files are not recorded in applied-remote.txt:"
-            printf '  %s\n' "${pending[@]}"
-            echo ""
-            echo "Migrations are NEVER auto-applied. To unblock this deploy:"
-            echo ""
-            echo "  1. From apps/web, apply each file IN ORDER against production:"
-            for f in "${pending[@]}"; do
-              echo "       pnpm exec wrangler d1 execute showpilot-db --remote --file=prisma/migrations/$f"
-            done
-            echo "  2. Append each filename on its own line to"
-            echo "     apps/web/prisma/migrations/applied-remote.txt"
-            echo "  3. Commit and push — CI and this deploy will re-run."
-            echo ""
-            echo "Full procedure: DEPLOY.md → 'D1 migrations'."
-            exit 1
-          fi
-          echo "OK: every numbered migration file is recorded as applied."
+        run: pnpm --filter @showpilot/web run db:check-production-manifest
 
       # Check this before either Worker is changed. The landing Worker has a
       # required private R2 binding, and a missing bucket would otherwise make

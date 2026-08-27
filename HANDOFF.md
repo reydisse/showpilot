@@ -433,6 +433,16 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
   multi-operator rundown tests.
+- The production migration procedure now captures a D1 Time Travel bookmark,
+  runs migration-specific read-only preflights and postconditions, and records
+  a filename only after its schema objects exist. A reusable manifest check
+  rejects skipped, duplicated, unknown, or out-of-order entries and is the
+  deploy gate. On 2026-08-27, production had zero endpoint/organization push
+  duplicates, zero checklist duplicates, and no foreign-key violations. Of the
+  six audited schema objects, only the old `push_subscription_endpoint_key` was
+  present. All audit queries wrote zero rows. Rerun them immediately before an
+  authorized migration; never trigger the destructive Time Travel restore
+  without a separate owner decision because it discards later writes.
 - Existing web, Desktop `0.1.0`, Desktop `0.1.1`, and Bridge `0.1.7` clients
   remain compatible with the current production protocol. Older Desktop builds
   do not have the new native updater, notification, or local-device controls.
