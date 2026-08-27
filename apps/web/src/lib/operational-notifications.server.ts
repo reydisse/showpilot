@@ -16,7 +16,27 @@ export type OperationalNotification = {
   actionUrl: string;
   source: string;
   pushTag: string;
+  /**
+   * Replaces an earlier notification for the same recipient and event instead
+   * of creating duplicates when an operation is retried.
+   */
+  dedupeKey?: string;
 };
+
+async function notificationIdFor(
+  input: Pick<OperationalNotification, "orgId" | "dedupeKey">,
+  userId: string,
+) {
+  if (!input.dedupeKey) return crypto.randomUUID();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${input.orgId}:${userId}:${input.dedupeKey}`),
+  );
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `evt_${hash.slice(0, 48)}`;
+}
 
 /**
  * Writes one personal inbox item per recipient and best-effort delivers push.
@@ -47,15 +67,26 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
     ? `/${encodeURIComponent(org.slug)}/${input.actionUrl.replace(/^\/+/, "")}`
     : "/";
 
-  await Promise.all(
+  const results = await Promise.all(
     [...recipients].map(async (userId) => {
       try {
-        const notificationId = crypto.randomUUID();
+        const notificationId = await notificationIdFor(input, userId);
         await getD1()
           .prepare(
             `INSERT INTO notification
              (id, orgId, userId, type, severity, title, message, target, source, actionUrl, dismissed, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+             ON CONFLICT(id) DO UPDATE SET
+               type = excluded.type,
+               severity = excluded.severity,
+               title = excluded.title,
+               message = excluded.message,
+               target = excluded.target,
+               source = excluded.source,
+               actionUrl = excluded.actionUrl,
+               dismissed = 0,
+               readAt = NULL,
+               createdAt = CURRENT_TIMESTAMP`,
           )
           .bind(
             notificationId,
@@ -70,18 +101,24 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
             input.actionUrl,
           )
           .run();
-        const { deliverPushToUser } = await import("@/lib/push-delivery.server");
-        await deliverPushToUser(input.orgId, userId, {
-          title: input.title,
-          body: input.message,
-          url,
-          tag: input.pushTag,
-          notificationId,
-        });
+        try {
+          const { deliverPushToUser } = await import("@/lib/push-delivery.server");
+          await deliverPushToUser(input.orgId, userId, {
+            title: input.title,
+            body: input.message,
+            url,
+            tag: input.pushTag,
+            notificationId,
+          });
+        } catch (error) {
+          console.error("[Notifications] Push delivery failed", error);
+        }
+        return true;
       } catch (error) {
         console.error("[Notifications] Operational delivery failed", error);
+        return false;
       }
     }),
   );
-  return { notified: recipients.size };
+  return { notified: results.filter(Boolean).length };
 }

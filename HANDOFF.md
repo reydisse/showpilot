@@ -390,7 +390,7 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   test pair also passed auth preflight, credential sign-in, and session
   creation; Expo Go is available at `exp://10.128.57.247:8083` while that local
   QA server remains running.
-- Current verification passes 69 web unit-test files and 608 unit tests, plus
+- Current verification passes 71 web unit-test files and 614 unit tests, plus
   one Workers-runtime D1 integration test, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
@@ -487,6 +487,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   to the authenticated Home screen. The verifier locks these route guards and
   recovery UI; authenticated and unauthenticated navigation both passed on the
   native runtime.
+- Schedule invitations now reach the matching signed-in organization member's
+  durable inbox and best-effort push channel independently of email. Recipient
+  lookup is tenant-scoped and case-normalized; explicit reminders replace the
+  prior actionable invite with a stable event ID, reset it unread, and cannot
+  spam duplicates on retries. Reassignment removes the prior assignee's stale
+  invite, while deleting an assignment atomically removes its notification.
+  Real web-to-Android QA created a future service with a custom 3:30 PM call,
+  resent its invitation while local email was unconfigured, and observed the
+  native unread badge, assignment-specific Inbox card, service/date/call-time
+  copy, read transition, and deep link to the highlighted September 30
+  assignment. A second resend retained exactly one row with the same ID and
+  reset it unread. The assignment, notification, show, and temporary crew
+  record were then removed through the real UI, local D1 confirmed all four
+  were gone, and a cold native relaunch returned to zero unread alerts.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

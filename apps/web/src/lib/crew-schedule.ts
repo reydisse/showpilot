@@ -109,25 +109,6 @@ export async function sendCrewScheduleInvite(input: {
     return { delivered: false, reason: "assignment-expired" as const };
   }
 
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  const token = toBase64Url(bytes);
-  const hash = await tokenHash(token);
-  const now = new Date();
-  const expiresAt = new Date(
-    now.getTime() + 90 * 24 * 60 * 60 * 1000,
-  ).toISOString();
-  const db = getD1();
-  // Keep previously delivered links valid. Every delivery receives a new
-  // independently revocable token; all expire automatically after 90 days.
-  await db
-    .prepare(
-      "INSERT INTO crew_schedule_access (id, orgId, crewMemberId, tokenHash, expiresAt) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(crypto.randomUUID(), input.orgId, input.crewMemberId, hash, expiresAt)
-    .run();
-
-  const link = `${input.origin}/crew/schedule/${token}?assignment=${encodeURIComponent(input.assignmentId)}`;
   const serviceName = rundown?.name || "Service";
   const start = (assignment.callTime ? formatWallTime(assignment.callTime) : "") || (rundown?.scheduledStartTime
     ? new Date(rundown.scheduledStartTime).toLocaleTimeString([], {
@@ -139,25 +120,80 @@ export async function sendCrewScheduleInvite(input: {
   const parsedTerminology = orgTerminologyProfileSchema.safeParse(
     terminologySetting?.value,
   );
-  const { crewScheduleEmail, sendEmail } = await import("@/lib/email");
-  const email = crewScheduleEmail({
-    orgName: org.name,
-    serviceName,
-    serviceDate: assignment.serviceDate,
-    start,
-    role: assignment.role,
-    location: rundown?.location,
-    link,
-    reminder: input.reminder,
-    terminologyProfile: parsedTerminology.success
-      ? parsedTerminology.data
-      : "general",
-  });
-  await sendEmail({
-    to: crew.email,
-    ...email,
-  });
-  return { delivered: true, reason: null };
+  let notifiedInApp = false;
+  let emailAccessId: string | null = null;
+  try {
+    const { notifyAssignmentRecipient } = await import(
+      "@/lib/assignment-notifications.server"
+    );
+    const inApp = await notifyAssignmentRecipient({
+      orgId: input.orgId,
+      assignmentId: input.assignmentId,
+      crewEmail: crew.email,
+      serviceName,
+      serviceDate: assignment.serviceDate,
+      role: assignment.role,
+      start,
+      reminder: input.reminder,
+    });
+    notifiedInApp = inApp.notified;
+  } catch (error) {
+    console.error("[Schedule] In-app assignment delivery failed", error);
+  }
+
+  try {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = toBase64Url(bytes);
+    const hash = await tokenHash(token);
+    const expiresAt = new Date(
+      Date.now() + 90 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    // Keep previously delivered links valid. Every email receives a new
+    // independently revocable token; all expire automatically after 90 days.
+    emailAccessId = crypto.randomUUID();
+    await getD1()
+      .prepare(
+        "INSERT INTO crew_schedule_access (id, orgId, crewMemberId, tokenHash, expiresAt) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(emailAccessId, input.orgId, input.crewMemberId, hash, expiresAt)
+      .run();
+    const link = `${input.origin}/crew/schedule/${token}?assignment=${encodeURIComponent(input.assignmentId)}`;
+    const { crewScheduleEmail, sendEmail } = await import("@/lib/email");
+    const email = crewScheduleEmail({
+      orgName: org.name,
+      serviceName,
+      serviceDate: assignment.serviceDate,
+      start,
+      role: assignment.role,
+      location: rundown?.location,
+      link,
+      reminder: input.reminder,
+      terminologyProfile: parsedTerminology.success
+        ? parsedTerminology.data
+        : "general",
+    });
+    await sendEmail({
+      to: crew.email,
+      ...email,
+    });
+    return { delivered: true, reason: null };
+  } catch (error) {
+    if (emailAccessId) {
+      try {
+        await getD1()
+          .prepare("DELETE FROM crew_schedule_access WHERE id = ? AND orgId = ?")
+          .bind(emailAccessId, input.orgId)
+          .run();
+      } catch (cleanupError) {
+        console.error("[Schedule] Failed invitation token cleanup", cleanupError);
+      }
+    }
+    // A signed-in assignee has already received the durable app invitation.
+    // Keep email as an independent fallback instead of reversing that success.
+    if (notifiedInApp) return { delivered: true, reason: null };
+    throw error;
+  }
 }
 
 type PortalAssignmentRow = {

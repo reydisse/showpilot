@@ -732,6 +732,14 @@ export const deleteServiceAssignment = createServerFn({ method: "POST" })
       where: { id: data.id, orgId: data.orgId },
     });
     if (!existing) throw new Error("Assignment not found");
-    await getPrisma().serviceAssignment.delete({ where: { id: data.id } });
+    const db = getD1();
+    await db.batch([
+      db
+        .prepare("DELETE FROM notification WHERE orgId = ? AND source = ?")
+        .bind(data.orgId, data.id),
+      db
+        .prepare("DELETE FROM service_assignment WHERE orgId = ? AND id = ?")
+        .bind(data.orgId, data.id),
+    ]);
     return { ok: true };
   });
