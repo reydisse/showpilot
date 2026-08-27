@@ -255,8 +255,11 @@ function IncidentHistoryPage() {
         {pages > 1 && (
           <div className="mt-4 flex items-center justify-center gap-3">
             <button
+              type="button"
               disabled={result.page <= 1}
               onClick={() => update({ page: result.page - 1 })}
+              aria-label="Previous incident page"
+              title="Previous incident page"
               className="rounded-lg border border-board-border p-2 text-board-muted disabled:opacity-30"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -265,8 +268,11 @@ function IncidentHistoryPage() {
               Page {result.page} of {pages}
             </span>
             <button
+              type="button"
               disabled={result.page >= pages}
               onClick={() => update({ page: result.page + 1 })}
+              aria-label="Next incident page"
+              title="Next incident page"
               className="rounded-lg border border-board-border p-2 text-board-muted disabled:opacity-30"
             >
               <ChevronRight className="h-4 w-4" />

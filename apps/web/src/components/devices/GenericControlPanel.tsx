@@ -186,12 +186,15 @@ function ActionButton({
                 />
               ) : p.type === "boolean" ? (
                 <button
+                  type="button"
                   onClick={() =>
                     setParamValues((prev) => ({
                       ...prev,
                       [p.id]: !prev[p.id],
                     }))
                   }
+                  aria-label={`${paramValues[p.id] ? "Disable" : "Enable"} ${p.label}`}
+                  aria-pressed={Boolean(paramValues[p.id])}
                   className="mt-1 text-board-muted"
                 >
                   {paramValues[p.id] ? (

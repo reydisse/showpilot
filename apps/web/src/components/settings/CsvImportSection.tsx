@@ -89,6 +89,7 @@ export function CsvImportSection({
             }}
           />
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors"
           >
@@ -96,6 +97,7 @@ export function CsvImportSection({
             {fileName ?? "Upload .csv"}
           </button>
           <button
+            type="button"
             onClick={handleImport}
             disabled={importing || !csv.trim()}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 disabled:opacity-50 disabled:pointer-events-none transition-colors"

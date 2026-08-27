@@ -66,7 +66,11 @@ export function OrgSwitcher({ currentOrg, collapsed }: OrgSwitcherProps) {
     <div ref={ref} className="relative">
       {/* Trigger */}
       <button
+        type="button"
         onClick={handleOpen}
+        aria-label={`Switch organization. Current organization: ${currentOrg.name}`}
+        aria-expanded={open}
+        title={collapsed ? `Switch organization. Current: ${currentOrg.name}` : undefined}
         className={`flex items-center rounded-lg transition-all duration-150 hover:bg-board-border/50 w-full ${
           collapsed ? "justify-center p-2" : "gap-2.5 px-2.5 py-2"
         }`}

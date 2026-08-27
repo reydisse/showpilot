@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findAnonymousNativeButtons } from "./client-button-names.mjs";
 
 const webRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoot = resolve(webRoot, "src");
@@ -182,6 +183,24 @@ for (const [relativePath, exportName, pattern] of serverPermissionContracts) {
   if (!pattern.test(exportedConstBlock(relativePath, exportName))) {
     throw new Error(`${exportName} in ${relativePath} is missing its required permission or tenant scope.`);
   }
+}
+
+const anonymousIconButtons = [];
+for (const filePath of walk(sourceRoot).filter(
+  (candidate) =>
+    candidate.endsWith(".tsx") && !candidate.includes("/__tests__/"),
+)) {
+  const source = readFileSync(filePath, "utf8");
+  const relativePath = relative(webRoot, filePath);
+  for (const line of findAnonymousNativeButtons(source, filePath)) {
+    anonymousIconButtons.push(`${relativePath}:${line}`);
+  }
+}
+
+if (anonymousIconButtons.length > 0) {
+  throw new Error(
+    `Native icon-only buttons need an aria-label, aria-labelledby, title, or visible text. Missing names: ${anonymousIconButtons.join(", ")}`,
+  );
 }
 
 console.log("Client boundary check passed.");

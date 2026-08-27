@@ -111,6 +111,8 @@ function AddItemForm({
         <button
           type="button"
           onClick={onCancel}
+          aria-label="Cancel adding rundown item"
+          title="Cancel adding rundown item"
           className="p-1 rounded hover:bg-board-bg text-board-muted hover:text-board-text transition-colors"
         >
           <X className="w-3.5 h-3.5" />

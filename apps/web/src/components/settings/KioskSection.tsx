@@ -504,7 +504,10 @@ function TeamCard({
                 {isLead ? "Lead" : "Member"}
               </button>
               <button
+                type="button"
                 onClick={() => remove(m.userId)}
+                aria-label={`Remove ${m.name} from kiosk team`}
+                title={`Remove ${m.name} from kiosk team`}
                 className="p-1 rounded text-board-muted hover:text-red-400"
               >
                 <X className="w-3 h-3" />
@@ -671,7 +674,10 @@ function RosterTab({
                 <span key={r.id} className="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-board-bg border border-board-border text-xs text-board-text">
                   {r.short}
                   <button
+                    type="button"
                     onClick={() => deleteRosterRole({ data: { orgId, id: r.id } }).then(onChange)}
+                    aria-label={`Delete ${r.short} roster role`}
+                    title={`Delete ${r.short} roster role`}
                     className="p-0.5 rounded text-board-muted hover:text-red-400"
                   >
                     <X className="w-3 h-3" />

@@ -62,7 +62,10 @@ export function CheckInList({ members, orgId }: CheckInListProps) {
         />
         {search && (
           <button
+            type="button"
             onClick={() => setSearch("")}
+            aria-label="Clear member search"
+            title="Clear member search"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted"
           >
             <X className="w-3.5 h-3.5" />

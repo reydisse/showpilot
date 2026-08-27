@@ -192,7 +192,7 @@ function ChatPage() {
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl">
             <div className="flex items-center justify-between border-b border-board-border px-5 py-4">
               <div><h2 className="text-base font-semibold text-board-text">Invite guest crew</h2><p className="text-xs text-board-muted">No account or organization membership required.</p></div>
-              <button onClick={() => setShareOpen(false)} className="rounded-lg p-2 text-board-muted hover:bg-board-border/50 hover:text-board-text"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setShareOpen(false)} aria-label="Close guest crew invite" title="Close guest crew invite" className="rounded-lg p-2 text-board-muted hover:bg-board-border/50 hover:text-board-text"><X className="h-4 w-4" /></button>
             </div>
             <div className="p-5 sm:p-6">
               {!joinUrl ? (
@@ -233,7 +233,7 @@ function ChatPage() {
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl">
             <div className="flex items-center justify-between border-b border-board-border px-5 py-4">
               <div><h2 className="text-base font-semibold text-board-text">Share Planning Room</h2><p className="text-xs text-board-muted">Only the selected signed-in members can use this invite.</p></div>
-              <button onClick={() => setPlanningShareOpen(false)} className="rounded-lg p-2 text-board-muted hover:bg-board-border/50 hover:text-board-text"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setPlanningShareOpen(false)} aria-label="Close Planning Room invite" title="Close Planning Room invite" className="rounded-lg p-2 text-board-muted hover:bg-board-border/50 hover:text-board-text"><X className="h-4 w-4" /></button>
             </div>
             <div className="p-5 sm:p-6">
               {!planningJoinUrl ? (

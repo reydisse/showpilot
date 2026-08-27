@@ -408,16 +408,22 @@ function PlatformsPage() {
                         )}
                       </button>
                       <button
+                        type="button"
                         onClick={() => {
                           setEditDest(dest);
                           setShowForm(true);
                         }}
+                        aria-label={`Edit ${dest.name}`}
+                        title={`Edit ${dest.name}`}
                         className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDelete(dest.id)}
+                        aria-label={`Delete ${dest.name}`}
+                        title={`Delete ${dest.name}`}
                         className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -437,7 +443,10 @@ function PlatformsPage() {
                         {keyRevealed ? dest.streamKey : "••••••••••••••••"}
                       </code>
                       <button
+                        type="button"
                         onClick={() => toggleKeyVisibility(dest.id)}
+                        aria-label={`${keyRevealed ? "Hide" : "Show"} ${dest.name} stream key`}
+                        title={`${keyRevealed ? "Hide" : "Show"} ${dest.name} stream key`}
                         className="p-1 rounded text-board-muted hover:text-board-text transition-colors"
                       >
                         {keyRevealed ? (

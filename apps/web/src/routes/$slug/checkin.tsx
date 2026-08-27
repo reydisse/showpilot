@@ -180,6 +180,8 @@ function CheckInPage() {
                   <button
                     type="submit"
                     disabled={!code.trim() || loading}
+                    aria-label={loading ? "Checking in" : "Check in"}
+                    aria-busy={loading}
                     className="w-full px-5 py-4 rounded-2xl bg-fire-500 text-white font-semibold text-lg hover:bg-fire-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {loading ? (

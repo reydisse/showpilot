@@ -28,6 +28,8 @@ export function PhotoUpload({ currentPhotoURL, onFileSelect }: PhotoUploadProps)
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
+        aria-label={displayURL ? "Change profile photo" : "Add profile photo"}
+        title={displayURL ? "Change profile photo" : "Add profile photo"}
         className="relative w-20 h-20 rounded-full bg-board-bg border-2 border-dashed border-board-border hover:border-fire-500/50 transition-all duration-200 flex items-center justify-center overflow-hidden group"
       >
         {displayURL ? (

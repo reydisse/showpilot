@@ -691,7 +691,10 @@ export function ChatPanel({
         {headerActions && <div className={cn("flex shrink-0 items-center", !dockedLiveStatus && "ml-auto")}>{headerActions}</div>}
         {onClose && (
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close chat"
+            title="Close chat"
             className="ml-auto text-board-muted hover:text-board-text transition-colors"
           >
             <X className="w-4 h-4" />

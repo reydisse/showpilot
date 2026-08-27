@@ -165,7 +165,10 @@ function AudioPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={() => handleDateChange(-1)}
+                aria-label="Previous service date"
+                title="Previous service date"
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -186,7 +189,10 @@ function AudioPage() {
                 {shows.map((show) => <option key={show.id} value={show.id}>{formatServicePickerLabel(show, { timeZone: orgTimezone })}</option>)}
               </select>
               <button
+                type="button"
                 onClick={() => handleDateChange(1)}
+                aria-label="Next service date"
+                title="Next service date"
                 className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />

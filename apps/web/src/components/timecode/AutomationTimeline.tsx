@@ -137,7 +137,10 @@ export function AutomationTimeline({
 
                 {/* Delete */}
                 <button
+                  type="button"
                   onClick={() => onRemoveEvent(event.id)}
+                  aria-label={`Delete ${event.label} automation`}
+                  title={`Delete ${event.label} automation`}
                   className="p-1 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

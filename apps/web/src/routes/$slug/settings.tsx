@@ -1677,11 +1677,14 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
               {overlayUrl}
             </code>
             <button
+              type="button"
               onClick={() => {
                 navigator.clipboard.writeText(overlayUrl);
                 setCopiedUrl(true);
                 setTimeout(() => setCopiedUrl(false), 2000);
               }}
+              aria-label={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
+              title={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
               className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
             >
               {copiedUrl ? (

@@ -1361,7 +1361,7 @@ function RundownPage() {
         <div className="shrink-0 bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center gap-3">
           <X className="w-4 h-4 text-red-400 shrink-0" />
           <p className="text-sm text-red-400 flex-1">Export failed: {exportError}</p>
-          <button onClick={() => setExportError(null)} className="p-1 rounded text-red-400 hover:text-red-200 transition-colors">
+          <button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" title="Dismiss export error" className="p-1 rounded text-red-400 hover:text-red-200 transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -1373,7 +1373,10 @@ function RundownPage() {
           <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
           <p className="text-sm font-medium text-amber-300 flex-1">{activeMessage}</p>
           <button
+            type="button"
             onClick={handleClearMessage}
+            aria-label="Clear operator message"
+            title="Clear operator message"
             className="p-1 rounded text-amber-400 hover:text-amber-200 transition-colors"
           >
             <X className="w-3.5 h-3.5" />
@@ -2347,7 +2350,7 @@ function LoadRundownModal({
       <div className="bg-board-card border border-board-border rounded-2xl w-full max-w-lg mx-4 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <h2 className="text-lg font-semibold text-board-text">Load Rundown</h2>
-          <button onClick={onClose} className="p-1 rounded text-board-muted hover:text-board-text transition-colors">
+          <button type="button" onClick={onClose} aria-label="Close load rundown" title="Close load rundown" className="p-1 rounded text-board-muted hover:text-board-text transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>

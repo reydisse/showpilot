@@ -390,12 +390,13 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   test pair also passed auth preflight, credential sign-in, and session
   creation; Expo Go is available at `exp://10.128.57.247:8083` while that local
   QA server remains running.
-- Current verification passes 72 web unit-test files and 616 unit tests, plus
-  one Workers-runtime D1 integration test, web and mobile
+- Current verification passes 72 web unit-test files and 616 unit tests, four
+  client-button boundary tests, plus one Workers-runtime D1 integration test,
+  web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
-  Expo Doctor 18/18, and native lint. The web main bundle is 493,741 bytes raw
-  and 155,398 bytes gzip. The iOS and Android Hermes bundles are 5,903,771 and
+  Expo Doctor 18/18, and native lint. The web main bundle is 493,898 bytes raw
+  and 155,431 bytes gzip. The iOS and Android Hermes bundles are 5,903,771 and
   5,904,394 bytes in that audit, respectively, below the enforced 6.5 MB
   ceiling; the latest native figures are recorded below.
 - A release-artifact Lighthouse audit of the authentication entry point scores
@@ -516,6 +517,15 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   and tooltips instead of appearing as blank controls to assistive technology.
   Rendered QA originally exposed the two anonymous actions; component tests
   now lock all three accessible names for future icon changes.
+- A repository-wide TypeScript AST check now rejects unnamed native icon
+  buttons during every production web build. The first complete scan found and
+  fixed close, clear, previous/next, delete, edit, organization switcher,
+  boolean toggle, photo, copy, stream-key visibility, lower-third position,
+  and loading-state controls across twenty web files. Four direct checker tests
+  distinguish guaranteed dynamic fallback text from labels that can disappear.
+  Rendered QA exposed `Copy overlay URL` and `Close guest crew invite` by those
+  names in the browser accessibility tree. The full web test suite, TypeScript,
+  and production build pass after the audit.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

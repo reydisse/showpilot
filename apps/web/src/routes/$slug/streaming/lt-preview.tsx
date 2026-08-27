@@ -208,8 +208,12 @@ function ControlPanel({
             const isActive = Math.abs(controls.posX - preset.x) < 5 && Math.abs(controls.posY - preset.y) < 6;
             return (
               <button
+                type="button"
                 key={preset.label}
                 onClick={() => update({ posX: preset.x, posY: preset.y })}
+                aria-label={`Position lower third ${preset.label}`}
+                aria-pressed={isActive}
+                title={preset.label}
                 className={`aspect-video rounded transition-all flex items-center justify-center ${
                   isActive
                     ? "bg-fire-500/25 border border-fire-500/40"
@@ -544,13 +548,19 @@ function TemplatePreviewPage() {
                   {currentIndex + 1}/{TEMPLATES.length}
                 </span>
                 <button
+                  type="button"
                   onClick={prev}
+                  aria-label="Previous lower-third template"
+                  title="Previous lower-third template"
                   className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
                   onClick={next}
+                  aria-label="Next lower-third template"
+                  title="Next lower-third template"
                   className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />

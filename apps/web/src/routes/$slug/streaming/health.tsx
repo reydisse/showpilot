@@ -270,7 +270,10 @@ function StreamHealthPage() {
                     </div>
                     {canManageStreamHealth && (
                       <button
+                        type="button"
                         onClick={() => handleDelete(input.id)}
+                        aria-label={`Delete ${input.name} stream input`}
+                        title={`Delete ${input.name} stream input`}
                         className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
