@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 78 test files and 647 unit tests, five
+- The current full web gate passes 80 test files and 661 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 497,800 bytes raw and 156,429
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  6,040,646 and 6,041,400 bytes. EAS linkage and signed-device push remain
+  6,109,562 and 6,110,240 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -610,22 +610,24 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   idempotent retry behavior, foreign-member rejection, required target state,
   and permission enforcement. No migration is required. Rendered device QA is
   still outstanding alongside the Checklist screen.
-- Native Team now includes the launch-critical temporary access workflow.
-  Owners and Admins can issue weekly or ongoing capability bundles; the on-duty
-  Tech Manager can issue and revoke only grants in the current venue duty week.
-  The screen lists active grants, recipients, roles, reasons, issuers, and exact
-  end dates, and it polls every 15 seconds. Grant and revoke commands call the
-  same server service as the web app. That service owns authority, self-grant
-  rejection, capability snapshots, tenant membership, notification delivery,
-  and revocation limits. Grant creation is one conditional D1 insert and revoke
-  is one conditional D1 update, so simultaneous operators cannot create a
-  duplicate active grant or duplicate its notification. Bootstrap reuses its
-  already resolved role and venue date when calculating grant authority,
-  avoiding a duplicate member/grant lookup. Twelve focused tests cover the
-  service, mobile transport, concurrency, and this no-extra-query contract.
-  Team remains honestly marked
-  partial because native member invitations, role changes, member removal, and
-  crew-roster editing still need implementation. No migration is required.
+- Native Team is now complete across three role-aware surfaces. Organization
+  membership supports email invitations, shareable invite links, pending-invite
+  cancellation, base-role changes, and member removal. Every Better Auth command
+  carries the organization ID explicitly; the web role update now does too, so
+  neither platform can silently fall back to a different session-active tenant.
+  The production crew roster supports search, badge IDs, names, roles including
+  custom roles, assignment emails, compressed photos, checked-in visibility,
+  and tenant-scoped add/edit/remove. The access screen lets Owners and Admins
+  issue weekly or ongoing capability bundles while the on-duty Tech Manager can
+  issue and revoke only grants in the current venue duty week. Grant creation is
+  one conditional D1 insert and revoke is one conditional D1 update, so
+  simultaneous operators cannot create a duplicate active grant or duplicate
+  its notification. Bootstrap reuses its resolved role and venue date when
+  calculating authority. Nineteen focused Team transport tests plus the shared
+  service and authority tests cover tenancy, RBAC, normalization, concurrency,
+  and the no-extra-query contract. The parity manifest now records Team as the
+  third complete primary surface; six are partial and 11 remain missing. No
+  migration is required.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field

@@ -190,6 +190,9 @@ const checkInSchema = z.object({
 
 const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
+const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string() });
+const teamCrewSchema = z.object({ members: z.array(teamCrewMemberSchema) });
+
 const teamAccessMemberSchema = z.object({
   userId: z.string(),
   role: z.string(),
@@ -223,6 +226,38 @@ const teamAccessSchema = z.object({
   grants: z.array(teamAccessGrantSchema),
   capabilities: z.array(teamAccessCapabilitySchema),
 });
+
+const organizationMemberSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  organizationId: z.string(),
+  role: z.string(),
+  createdAt: z.string(),
+  user: z.object({
+    id: z.string(),
+    name: z.string(),
+    email: z.string(),
+    image: z.string().nullable(),
+  }),
+});
+
+const organizationInvitationSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: z.string().nullable(),
+  status: z.string(),
+  expiresAt: z.string(),
+  createdAt: z.string(),
+});
+
+const teamMembersSchema = z.object({
+  currentUserId: z.string(),
+  assignableRoles: z.array(z.string()),
+  members: z.array(organizationMemberSchema),
+  invitations: z.array(organizationInvitationSchema),
+});
+
+const inviteTeamMemberResponseSchema = z.object({ invitation: organizationInvitationSchema });
 
 export const checklistDepartmentSchema = z.enum(["audio", "video", "lighting", "stream", "general"]);
 
@@ -295,8 +330,12 @@ export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
 export type MobileCheckIn = z.infer<typeof checkInSchema>;
 export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
+export type MobileTeamCrewMember = z.infer<typeof teamCrewMemberSchema>;
 export type MobileTeamAccess = z.infer<typeof teamAccessSchema>;
 export type MobileTeamAccessGrant = z.infer<typeof teamAccessGrantSchema>;
+export type MobileOrganizationMember = z.infer<typeof organizationMemberSchema>;
+export type MobileOrganizationInvitation = z.infer<typeof organizationInvitationSchema>;
+export type MobileTeamMembers = z.infer<typeof teamMembersSchema>;
 export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
@@ -458,6 +497,80 @@ export async function grantMobileTeamAccess(input: {
 export async function revokeMobileTeamAccess(input: { orgId: string; grantId: string }) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/team/access/grants/${encodeURIComponent(input.grantId)}/revoke?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileTeamMembers(orgId: string): Promise<MobileTeamMembers> {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/members?orgId=${encodeURIComponent(orgId)}`);
+  return teamMembersSchema.parse(await response.json());
+}
+
+export async function inviteMobileTeamMember(input: { orgId: string; email: string; role: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/invitations?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST",
+    body: JSON.stringify({ email: input.email, role: input.role }),
+  });
+  return inviteTeamMemberResponseSchema.parse(await response.json()).invitation;
+}
+
+export async function cancelMobileTeamInvitation(input: { orgId: string; invitationId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/invitations/${encodeURIComponent(input.invitationId)}/cancel?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function updateMobileTeamMemberRole(input: { orgId: string; memberId: string; role: string }) {
+  await authenticatedFetch(
+    `/api/mobile/v1/team/members/${encodeURIComponent(input.memberId)}/role?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ role: input.role }) },
+  );
+}
+
+export async function removeMobileTeamMember(input: { orgId: string; memberId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/members/${encodeURIComponent(input.memberId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileTeamCrew(orgId: string) {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/crew?orgId=${encodeURIComponent(orgId)}`);
+  return teamCrewSchema.parse(await response.json());
+}
+
+export interface MobileTeamCrewWrite {
+  orgId: string;
+  memberId: string;
+  name: string;
+  role: string;
+  email: string;
+  photoUrl: string;
+}
+
+export async function createMobileTeamCrewMember(input: MobileTeamCrewWrite) {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/crew?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return z.object({ ok: z.literal(true), id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileTeamCrewMember(input: MobileTeamCrewWrite & { id: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/crew/${encodeURIComponent(input.id)}/update?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileTeamCrewMember(input: { orgId: string; id: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/crew/${encodeURIComponent(input.id)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
     { method: "POST", body: JSON.stringify({}) },
   );
   return okSchema.parse(await response.json());

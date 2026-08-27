@@ -248,7 +248,7 @@ export const updateMemberRole = createServerFn({ method: "POST" })
     const headers = getRequestHeaders();
     return await auth.api.updateMemberRole({
       headers,
-      body: { memberId: data.memberId, role: data.role },
+      body: { memberId: data.memberId, role: data.role, organizationId: member.organizationId },
     });
   });
 

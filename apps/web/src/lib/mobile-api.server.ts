@@ -4,7 +4,7 @@ import {
   resolveAccessGrantAuthorityForAccess,
   resolveEffectiveAccess,
 } from "./effective-access";
-import type { Permission, Role } from "./permissions";
+import { ASSIGNABLE_ROLES, type Permission, type Role } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
 import { getTodayDateString } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
@@ -171,6 +171,26 @@ interface MobileCheckInMemberRow {
   lastCheckOut: string | null;
 }
 
+interface MobileOrganizationMemberRow {
+  id: string;
+  userId: string;
+  organizationId: string;
+  role: string;
+  createdAt: string;
+  userName: string;
+  userEmail: string;
+  userImage: string | null;
+}
+
+interface MobileOrganizationInvitationRow {
+  id: string;
+  email: string;
+  role: string | null;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
 interface MobileDeviceRow {
   id: string;
   name: string;
@@ -255,6 +275,37 @@ function validId(value: unknown): value is string {
 
 function validDate(value: unknown): value is string {
   return isValidServiceDate(value);
+}
+
+function validAssignableRole(value: unknown): value is (typeof ASSIGNABLE_ROLES)[number] {
+  return typeof value === "string" && (ASSIGNABLE_ROLES as readonly string[]).includes(value);
+}
+
+const crewPhotoDataUrlPattern = /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/i;
+const maximumCrewPhotoBytes = 1_500_000;
+
+function validCrewPhoto(value: string): boolean {
+  if (value === "") return true;
+  const match = crewPhotoDataUrlPattern.exec(value);
+  if (!match?.[2]) return false;
+  const padding = match[2].endsWith("==") ? 2 : match[2].endsWith("=") ? 1 : 0;
+  return Math.floor((match[2].length * 3) / 4) - padding <= maximumCrewPhotoBytes;
+}
+
+function parseCrewMemberWrite(body: Record<string, unknown> | null) {
+  const memberId = typeof body?.memberId === "string" ? body.memberId.trim().toUpperCase() : "";
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const role = typeof body?.role === "string" ? body.role.trim() : "";
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  const photoUrl = typeof body?.photoUrl === "string" ? body.photoUrl.trim() : "";
+  if (
+    memberId.length === 0 || memberId.length > 128
+    || name.length === 0 || name.length > 200
+    || role.length === 0 || role.length > 100
+    || email.length > 254 || (email !== "" && !/^\S+@\S+\.\S+$/.test(email))
+    || photoUrl.length > 2_100_000 || !validCrewPhoto(photoUrl)
+  ) return null;
+  return { memberId, name, role, email, photoUrl };
 }
 
 function shiftDate(date: string, days: number): string {
@@ -990,6 +1041,224 @@ async function checkIn(request: Request, url: URL, db: MobileApiDatabase): Promi
   return json({ members: (result.results ?? []).map(serializeCheckInMember) });
 }
 
+async function teamMembers(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const [membersResult, invitationsResult] = await Promise.all([
+    db.prepare(
+      `SELECT m.id, m.userId, m.organizationId, m.role, m.createdAt,
+              u.name AS userName, u.email AS userEmail, u.image AS userImage
+       FROM member m
+       JOIN user u ON u.id = m.userId
+       WHERE m.organizationId = ?
+       ORDER BY m.createdAt ASC, m.id ASC`,
+    ).bind(access.orgId).all<MobileOrganizationMemberRow>(),
+    db.prepare(
+      `SELECT id, email, role, status, expiresAt, createdAt
+       FROM invitation
+       WHERE organizationId = ? AND status = 'pending'
+       ORDER BY createdAt DESC, id ASC`,
+    ).bind(access.orgId).all<MobileOrganizationInvitationRow>(),
+  ]);
+  return json({
+    currentUserId: access.identity.userId,
+    assignableRoles: [...ASSIGNABLE_ROLES],
+    members: (membersResult.results ?? []).map((member) => ({
+      id: member.id,
+      userId: member.userId,
+      organizationId: member.organizationId,
+      role: member.role,
+      createdAt: member.createdAt,
+      user: {
+        id: member.userId,
+        name: member.userName,
+        email: member.userEmail,
+        image: member.userImage,
+      },
+    })),
+    invitations: invitationsResult.results ?? [],
+  });
+}
+
+function membershipMutationStatus(error: unknown): number {
+  if (error instanceof PlanLimitError) return error.status;
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+  if (normalized.includes("not allowed") || normalized.includes("forbidden") || normalized.includes("unauthorized")) return 403;
+  if (normalized.includes("not found")) return 404;
+  if (normalized.includes("already") || normalized.includes("only owner") || normalized.includes("without an owner")) return 409;
+  return 400;
+}
+
+async function inviteTeamMember(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254 || !validAssignableRole(body?.role)) {
+    return json({ error: "Enter a valid email address and role." }, 400);
+  }
+  try {
+    const [memberCount, invitationCount] = await Promise.all([
+      db.prepare("SELECT CAST(COUNT(*) AS INTEGER) AS count FROM member WHERE organizationId = ?")
+        .bind(access.orgId).first<{ count: number }>(),
+      db.prepare("SELECT CAST(COUNT(*) AS INTEGER) AS count FROM invitation WHERE organizationId = ? AND status = 'pending'")
+        .bind(access.orgId).first<{ count: number }>(),
+    ]);
+    const { checkPlanLimit } = await import("./plan-limits");
+    await checkPlanLimit(access.orgId, "members", (memberCount?.count ?? 0) + (invitationCount?.count ?? 0));
+    const invitation = await getAuth().api.createInvitation({
+      headers: request.headers,
+      body: { email, role: body.role, organizationId: access.orgId },
+    });
+    return json({ invitation }, 201);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to invite this member." }, membershipMutationStatus(error));
+  }
+}
+
+async function cancelTeamInvitation(
+  request: Request,
+  url: URL,
+  invitationId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const invitation = await db.prepare(
+    "SELECT id FROM invitation WHERE id = ? AND organizationId = ? AND status = 'pending' LIMIT 1",
+  ).bind(invitationId, access.orgId).first<{ id: string }>();
+  if (!invitation) return json({ error: "Invitation not found." }, 404);
+  try {
+    await getAuth().api.cancelInvitation({
+      headers: request.headers,
+      body: { invitationId: invitation.id },
+    });
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to cancel this invitation." }, membershipMutationStatus(error));
+  }
+}
+
+async function updateTeamMemberRole(
+  request: Request,
+  url: URL,
+  memberId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (!validAssignableRole(body?.role)) return json({ error: "Choose a valid member role." }, 400);
+  const member = await db.prepare(
+    "SELECT id FROM member WHERE id = ? AND organizationId = ? LIMIT 1",
+  ).bind(memberId, access.orgId).first<{ id: string }>();
+  if (!member) return json({ error: "Member not found." }, 404);
+  try {
+    const result = await getAuth().api.updateMemberRole({
+      headers: request.headers,
+      body: { memberId: member.id, role: body.role, organizationId: access.orgId },
+    });
+    return json({ member: result });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to update this member." }, membershipMutationStatus(error));
+  }
+}
+
+async function removeTeamMember(
+  request: Request,
+  url: URL,
+  memberId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const member = await db.prepare(
+    "SELECT id FROM member WHERE id = ? AND organizationId = ? LIMIT 1",
+  ).bind(memberId, access.orgId).first<{ id: string }>();
+  if (!member) return json({ error: "Member not found." }, 404);
+  try {
+    await getAuth().api.removeMember({
+      headers: request.headers,
+      body: { memberIdOrEmail: member.id, organizationId: access.orgId },
+    });
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to remove this member." }, membershipMutationStatus(error));
+  }
+}
+
+async function teamCrew(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare(
+    `SELECT id, memberId, name, role, email, photoUrl, isOnline, lastCheckIn, lastCheckOut
+     FROM crew_member WHERE orgId = ? ORDER BY name ASC, id ASC`,
+  ).bind(access.orgId).all<MobileCheckInMemberRow & { email: string }>();
+  return json({ members: (result.results ?? []).map(serializeCheckInMember) });
+}
+
+function crewMutationStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return message.includes("unique") || message.includes("constraint") ? 409 : 400;
+}
+
+async function createTeamCrewMember(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const input = parseCrewMemberWrite(await readJson(request));
+  if (!input) return json({ error: "Enter a valid member ID, name, role, email, and photo." }, 400);
+  const id = crypto.randomUUID();
+  try {
+    const result = await db.prepare(
+      `INSERT INTO crew_member (id, orgId, memberId, name, role, email, photoUrl, isOnline, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+    ).bind(id, access.orgId, input.memberId, input.name, input.role, input.email, input.photoUrl).run();
+    if (!changedExactlyOneRow(result)) return json({ error: "Crew member was not created." }, 409);
+    return json({ ok: true, id }, 201);
+  } catch (error) {
+    return json({ error: crewMutationStatus(error) === 409 ? "That member ID is already in use." : "Unable to create this crew member." }, crewMutationStatus(error));
+  }
+}
+
+async function updateTeamCrewMember(
+  request: Request,
+  url: URL,
+  memberId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const input = parseCrewMemberWrite(await readJson(request));
+  if (!input) return json({ error: "Enter a valid member ID, name, role, email, and photo." }, 400);
+  try {
+    const result = await db.prepare(
+      `UPDATE crew_member
+       SET memberId = ?, name = ?, role = ?, email = ?, photoUrl = ?
+       WHERE id = ? AND orgId = ?`,
+    ).bind(input.memberId, input.name, input.role, input.email, input.photoUrl, memberId, access.orgId).run();
+    if (!changedExactlyOneRow(result)) return json({ error: "Crew member not found." }, 404);
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: crewMutationStatus(error) === 409 ? "That member ID is already in use." : "Unable to update this crew member." }, crewMutationStatus(error));
+  }
+}
+
+async function removeTeamCrewMember(
+  request: Request,
+  url: URL,
+  memberId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare("DELETE FROM crew_member WHERE id = ? AND orgId = ?")
+    .bind(memberId, access.orgId).run();
+  return changedExactlyOneRow(result)
+    ? json({ ok: true })
+    : json({ error: "Crew member not found." }, 404);
+}
+
 async function setCheckInStatus(
   request: Request,
   url: URL,
@@ -1277,6 +1546,10 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/members" && request.method === "GET") return teamMembers(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/invitations" && request.method === "POST") return inviteTeamMember(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "GET") return teamCrew(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "POST") return createTeamCrewMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/access" && request.method === "GET") return teamAccess(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/access/grants" && request.method === "POST") return grantTeamAccess(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env.DB);
@@ -1299,6 +1572,28 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     return grantId
       ? revokeTeamAccess(request, url, grantId, env.DB)
       : json({ error: "Not found." }, 404);
+  }
+  const teamInvitationMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/invitations\/([^/]+)\/cancel$/);
+  if (teamInvitationMatch && request.method === "POST") {
+    const invitationId = decodeURIComponent(teamInvitationMatch[1] ?? "");
+    if (!validId(invitationId)) return json({ error: "A valid invitationId is required." }, 400);
+    return cancelTeamInvitation(request, url, invitationId, env.DB);
+  }
+  const teamMemberMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/members\/([^/]+)\/(role|remove)$/);
+  if (teamMemberMatch && request.method === "POST") {
+    const memberId = decodeURIComponent(teamMemberMatch[1] ?? "");
+    if (!validId(memberId)) return json({ error: "A valid memberId is required." }, 400);
+    return teamMemberMatch[2] === "role"
+      ? updateTeamMemberRole(request, url, memberId, env.DB)
+      : removeTeamMember(request, url, memberId, env.DB);
+  }
+  const teamCrewMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/crew\/([^/]+)\/(update|remove)$/);
+  if (teamCrewMatch && request.method === "POST") {
+    const memberId = decodeURIComponent(teamCrewMatch[1] ?? "");
+    if (!validId(memberId)) return json({ error: "A valid crew member id is required." }, 400);
+    return teamCrewMatch[2] === "update"
+      ? updateTeamCrewMember(request, url, memberId, env.DB)
+      : removeTeamCrewMember(request, url, memberId, env.DB);
   }
   const checklistEntryMatch = url.pathname.match(/^\/api\/mobile\/v1\/checklist\/entries\/([^/]+)\/(toggle|remove)$/);
   if (checklistEntryMatch && request.method === "POST") {
