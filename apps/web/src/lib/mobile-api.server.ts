@@ -17,6 +17,7 @@ import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
+import { signToken } from "./kiosk-token";
 import {
   createChecklistTemplateId,
   findChecklistTemplateId,
@@ -65,6 +66,7 @@ export interface MobileApiDatabase extends ChecklistWriteDatabase {
 export interface MobileApiEnvironment {
   DB: MobileApiDatabase;
   BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
+  KIOSK_SECRET?: string;
 }
 
 interface MobileIdentity {
@@ -230,6 +232,15 @@ interface MobileOrganizationInvitationRow {
   expiresAt: string;
   createdAt: string;
 }
+
+interface MobileChatMemberRow {
+  userId: string;
+  role: string;
+  name: string;
+  image: string | null;
+}
+
+const CHAT_PASS_CREATORS = new Set<Role>(["owner", "admin", "td", "pd", "pm", "sm", "tm"]);
 
 interface MobileDeviceRow {
   id: string;
@@ -2103,6 +2114,231 @@ async function notificationRead(request: Request, db: MobileApiDatabase): Promis
   return json({ ok: true });
 }
 
+function canonicalDirectMessageParticipants(roomId: string): [string, string] | null {
+  const parts = roomId.split(":");
+  return parts.length === 3 && parts[0] === "dm" && Boolean(parts[1]) && parts[1] < parts[2]
+    ? [parts[1], parts[2]]
+    : null;
+}
+
+async function chatMembers(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["chat:access"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare(
+    `SELECT m.userId, m.role, u.name, u.image
+     FROM member m
+     JOIN user u ON u.id = m.userId
+     WHERE m.organizationId = ?
+     ORDER BY u.name COLLATE NOCASE ASC, m.createdAt ASC`,
+  ).bind(access.orgId).all<MobileChatMemberRow>();
+  return json({
+    currentUserId: access.identity.userId,
+    canInvite: CHAT_PASS_CREATORS.has(access.identity.role),
+    members: result.results ?? [],
+  });
+}
+
+async function chatNotificationsEnabled(orgId: string, db: MobileApiDatabase): Promise<boolean> {
+  const setting = await db.prepare(
+    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'notify-app-chat' LIMIT 1",
+  ).bind(orgId).first<{ value: string }>();
+  return setting?.value !== "false";
+}
+
+async function notifyMobileChatMessage(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["chat:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const roomId = typeof body?.roomId === "string" ? body.roomId.trim() : "";
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  const messageId = validId(body?.messageId) ? body.messageId : null;
+  const mentionedUserIds = Array.isArray(body?.mentionedUserIds)
+    ? [...new Set(body.mentionedUserIds.filter(validId))]
+    : [];
+  const directParticipants = canonicalDirectMessageParticipants(roomId);
+  if (
+    roomId.length === 0 || roomId.length > 220 || text.length > 4_000
+    || mentionedUserIds.length > 20
+    || (roomId !== "production" && roomId !== "planning" && !directParticipants)
+    || (directParticipants && !directParticipants.includes(access.identity.userId))
+  ) return json({ error: "Invalid chat notification." }, 400);
+
+  const recipients = new Map<string, "dm" | "mention">();
+  if (directParticipants) {
+    const recipientId = directParticipants.find((userId) => userId !== access.identity.userId);
+    if (recipientId) recipients.set(recipientId, "dm");
+  }
+  for (const userId of mentionedUserIds) {
+    if (userId !== access.identity.userId) recipients.set(userId, "mention");
+  }
+  if (recipients.size === 0 || !await chatNotificationsEnabled(access.orgId, db)) return json({ notified: 0 });
+
+  const validMembers = await db.prepare(
+    `SELECT userId FROM member WHERE organizationId = ? AND userId IN (${[...recipients].map(() => "?").join(",")})`,
+  ).bind(access.orgId, ...recipients.keys()).all<{ userId: string }>();
+  const memberIds = new Set((validMembers.results ?? []).map((member) => member.userId));
+  const cleanText = text.replace(/<@([^|>]+)\|([^>]+)>/g, "@$2").slice(0, 240) || "Shared an attachment";
+  const actionUrl = `chat?room=${encodeURIComponent(roomId)}${messageId ? `&message=${encodeURIComponent(messageId)}` : ""}`;
+  let notified = 0;
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    for (const kind of ["dm", "mention"] as const) {
+      const recipientIds = [...recipients]
+        .filter(([userId, recipientKind]) => recipientKind === kind && memberIds.has(userId))
+        .map(([userId]) => userId);
+      if (!recipientIds.length) continue;
+      const result = await notifyOperationalEvent({
+        orgId: access.orgId,
+        actorId: access.identity.userId,
+        recipientIds,
+        type: kind === "dm" ? "chat-direct-message" : "chat-mention",
+        title: kind === "dm" ? `New message from ${access.identity.name}` : `${access.identity.name} mentioned you`,
+        message: cleanText,
+        actionUrl,
+        source: messageId ?? `chat:${roomId}`,
+        pushTag: kind === "dm" ? `chat-dm-${roomId}` : `chat-mention-${roomId}`,
+        ...(messageId ? { dedupeKey: `chat-message:${messageId}:${kind}` } : {}),
+      });
+      notified += result.notified;
+    }
+  } catch {
+    // The durable chat message remains authoritative when notification delivery fails.
+  }
+  return json({ notified });
+}
+
+async function notifyMobileChatReaction(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["chat:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const roomId = typeof body?.roomId === "string" ? body.roomId.trim() : "";
+  const directParticipants = canonicalDirectMessageParticipants(roomId);
+  if (
+    !validId(body?.messageId) || !validId(body?.targetUserId)
+    || !new Set(["👍", "❤️", "🎉", "👀", "🙏"]).has(body?.emoji as string)
+    || roomId.length === 0 || roomId.length > 220
+    || (roomId !== "production" && roomId !== "planning" && !directParticipants)
+    || (directParticipants && !directParticipants.includes(access.identity.userId))
+  ) return json({ error: "Invalid chat reaction notification." }, 400);
+  if (body.targetUserId === access.identity.userId || !await chatNotificationsEnabled(access.orgId, db)) {
+    return json({ notified: 0 });
+  }
+  const target = await db.prepare(
+    "SELECT userId FROM member WHERE organizationId = ? AND userId = ? LIMIT 1",
+  ).bind(access.orgId, body.targetUserId).first<{ userId: string }>();
+  if (!target) return json({ notified: 0 });
+  let notified = 0;
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    const result = await notifyOperationalEvent({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      recipientIds: [target.userId],
+      type: "chat-reaction",
+      title: `${access.identity.name} reacted ${String(body.emoji)} to your message`,
+      message: "Open the conversation to view the reaction.",
+      actionUrl: `chat?room=${encodeURIComponent(roomId)}&message=${encodeURIComponent(body.messageId)}`,
+      source: body.messageId,
+      pushTag: `chat-reaction-${body.messageId}`,
+    });
+    notified = result.notified;
+  } catch {
+    // The durable chat reaction remains authoritative when notification delivery fails.
+  }
+  return json({ notified });
+}
+
+async function createMobileCrewChatPass(
+  request: Request,
+  url: URL,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["chat:access"]);
+  if (access instanceof Response) return access;
+  if (!CHAT_PASS_CREATORS.has(access.identity.role)) return json({ error: "Only production leaders can invite guest crew." }, 403);
+  if (!env.KIOSK_SECRET) return json({ error: "Guest chat invitations are not configured." }, 503);
+  const body = await readJson(request);
+  const hours = typeof body?.hours === "number" && Number.isInteger(body.hours) ? body.hours : 0;
+  if (hours < 1 || hours > 24) return json({ error: "Choose an expiry between 1 and 24 hours." }, 400);
+  const organization = await env.DB.prepare("SELECT slug FROM organization WHERE id = ? LIMIT 1")
+    .bind(access.orgId).first<{ slug: string }>();
+  if (!organization) return json({ error: "Organization not found." }, 404);
+  const now = Math.floor(Date.now() / 1_000);
+  const expiresAt = (now + hours * 3_600) * 1_000;
+  const token = `chat_${await signToken({
+    scope: "crew-chat",
+    orgId: access.orgId,
+    orgSlug: organization.slug,
+    exp: expiresAt / 1_000,
+    iat: now,
+  }, env.KIOSK_SECRET)}`;
+  return json({
+    token,
+    expiresAt,
+    joinUrl: `${url.origin}/join/chat/${encodeURIComponent(token)}`,
+  });
+}
+
+async function createMobilePlanningChatPass(
+  request: Request,
+  url: URL,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["chat:access"]);
+  if (access instanceof Response) return access;
+  if (!CHAT_PASS_CREATORS.has(access.identity.role)) return json({ error: "Only production leaders can share the Planning Room." }, 403);
+  if (!env.KIOSK_SECRET) return json({ error: "Planning Room invitations are not configured." }, 503);
+  const body = await readJson(request);
+  const hours = typeof body?.hours === "number" && Number.isInteger(body.hours) ? body.hours : 0;
+  const requestedUserIds = Array.isArray(body?.targetUserIds) ? [...new Set(body.targetUserIds.filter(validId))] : [];
+  if (hours < 1 || hours > 24 || requestedUserIds.length < 1 || requestedUserIds.length > 50) {
+    return json({ error: "Choose members and an expiry between 1 and 24 hours." }, 400);
+  }
+  const [organization, targetResult] = await Promise.all([
+    env.DB.prepare("SELECT slug FROM organization WHERE id = ? LIMIT 1")
+      .bind(access.orgId).first<{ slug: string }>(),
+    env.DB.prepare(
+      `SELECT userId FROM member WHERE organizationId = ? AND userId IN (${requestedUserIds.map(() => "?").join(",")})`,
+    ).bind(access.orgId, ...requestedUserIds).all<{ userId: string }>(),
+  ]);
+  if (!organization) return json({ error: "Organization not found." }, 404);
+  const targetUserIds = [...new Set((targetResult.results ?? []).map((target) => target.userId))];
+  if (targetUserIds.length !== requestedUserIds.length) return json({ error: "Every selected person must be an organization member." }, 400);
+  const now = Math.floor(Date.now() / 1_000);
+  const expiresAt = (now + hours * 3_600) * 1_000;
+  const token = `planning_chat_${await signToken({
+    scope: "planning-chat",
+    roomId: "planning",
+    orgId: access.orgId,
+    orgSlug: organization.slug,
+    targetUserIds,
+    exp: expiresAt / 1_000,
+    iat: now,
+  }, env.KIOSK_SECRET)}`;
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      recipientIds: targetUserIds,
+      type: "chat-planning-invite",
+      title: `${access.identity.name} shared the Planning Room with you`,
+      message: "Open the invite to join the targeted Planning Room conversation.",
+      actionUrl: "chat?room=planning",
+      source: `planning-chat:${crypto.randomUUID()}`,
+      pushTag: `planning-chat-invite-${access.orgId}`,
+    });
+  } catch {
+    // The signed pass remains usable when notification delivery fails.
+  }
+  return json({
+    token,
+    expiresAt,
+    targetCount: targetUserIds.length,
+    joinUrl: `${url.origin}/join/chat/planning/${encodeURIComponent(token)}`,
+  });
+}
+
 async function pushToken(request: Request, db: MobileApiDatabase): Promise<Response> {
   const body = await readJson(request);
   const validToken = typeof body?.token === "string" && /^Expo(?:nent)?PushToken\[[^\]]{8,200}\]$/.test(body.token);
@@ -2150,6 +2386,11 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/incidents/history" && request.method === "GET") return mobileIncidentHistory(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/chat/members" && request.method === "GET") return chatMembers(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/chat/notify" && request.method === "POST") return notifyMobileChatMessage(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/chat/reaction-notify" && request.method === "POST") return notifyMobileChatReaction(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/chat/passes/crew" && request.method === "POST") return createMobileCrewChatPass(request, url, env);
+  if (url.pathname === "/api/mobile/v1/chat/passes/planning" && request.method === "POST") return createMobilePlanningChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/members" && request.method === "GET") return teamMembers(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/invitations" && request.method === "POST") return inviteTeamMember(request, url, env.DB);

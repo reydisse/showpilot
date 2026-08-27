@@ -43,4 +43,38 @@ describe("mobile chat history", () => {
       nextCursor: { timestamp: 100, id: "message-1" },
     });
   });
+
+  it("preserves collaboration fields while filtering invalid nested values", () => {
+    expect(parseChatMessage({
+      ...message("message-rich", 500),
+      replyTo: { messageId: "message-1", senderName: "Ava", text: "Original" },
+      attachments: [
+        { id: "file-1", name: "stage.jpg", url: "/api/chat-file/org-1/file-1/stage.jpg", mimeType: "image/jpeg", size: 400 },
+        { id: "broken" },
+      ],
+      poll: {
+        question: "Ready?",
+        options: [
+          { id: "yes", text: "Yes", voterIds: ["user-1", 42] },
+          { id: "no", text: "No", voterIds: [] },
+        ],
+      },
+      reactions: [
+        { emoji: "👍", userIds: ["user-1", null] },
+        { emoji: "not-allowed", userIds: ["user-2"] },
+      ],
+    })).toEqual({
+      ...message("message-rich", 500),
+      replyTo: { messageId: "message-1", senderName: "Ava", text: "Original" },
+      attachments: [{ id: "file-1", name: "stage.jpg", url: "/api/chat-file/org-1/file-1/stage.jpg", mimeType: "image/jpeg", size: 400 }],
+      poll: {
+        question: "Ready?",
+        options: [
+          { id: "yes", text: "Yes", voterIds: ["user-1"] },
+          { id: "no", text: "No", voterIds: [] },
+        ],
+      },
+      reactions: [{ emoji: "👍", userIds: ["user-1"] }],
+    });
+  });
 });

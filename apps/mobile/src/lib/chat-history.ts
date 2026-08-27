@@ -6,8 +6,19 @@ export interface MobileChatMessage {
   text: string;
   type: "text" | "alert" | "cue" | "system";
   timestamp: number;
+  replyTo?: { messageId: string; senderName: string; text: string };
+  attachments?: { id: string; name: string; url: string; mimeType: string; size: number }[];
+  poll?: { question: string; options: { id: string; text: string; voterIds: string[] }[] };
+  reactions?: { emoji: MobileChatReactionEmoji; userIds: string[] }[];
   editedAt?: number;
   deletedAt?: number;
+}
+
+export const mobileChatReactionEmojis = ["👍", "❤️", "🎉", "👀", "🙏"] as const;
+export type MobileChatReactionEmoji = (typeof mobileChatReactionEmojis)[number];
+
+function isMobileChatReactionEmoji(value: unknown): value is MobileChatReactionEmoji {
+  return mobileChatReactionEmojis.some((emoji) => emoji === value);
 }
 
 export interface ChatHistoryCursor {
@@ -24,6 +35,56 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parseReply(value: unknown): MobileChatMessage["replyTo"] {
+  if (!isRecord(value)
+    || typeof value.messageId !== "string"
+    || typeof value.senderName !== "string"
+    || typeof value.text !== "string") return undefined;
+  return { messageId: value.messageId, senderName: value.senderName, text: value.text };
+}
+
+function parseAttachments(value: unknown): MobileChatMessage["attachments"] {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value.slice(0, 6).flatMap((candidate) => {
+    if (!isRecord(candidate)
+      || typeof candidate.id !== "string"
+      || typeof candidate.name !== "string"
+      || typeof candidate.url !== "string"
+      || typeof candidate.mimeType !== "string"
+      || typeof candidate.size !== "number"
+      || !Number.isFinite(candidate.size)) return [];
+    return [{ id: candidate.id, name: candidate.name, url: candidate.url, mimeType: candidate.mimeType, size: candidate.size }];
+  });
+  return attachments.length ? attachments : undefined;
+}
+
+function parsePoll(value: unknown): MobileChatMessage["poll"] {
+  if (!isRecord(value) || typeof value.question !== "string" || !Array.isArray(value.options)) return undefined;
+  const options = value.options.slice(0, 6).flatMap((candidate) => {
+    if (!isRecord(candidate)
+      || typeof candidate.id !== "string"
+      || typeof candidate.text !== "string"
+      || !Array.isArray(candidate.voterIds)) return [];
+    const voterIds = candidate.voterIds.filter((userId): userId is string => typeof userId === "string");
+    return [{ id: candidate.id, text: candidate.text, voterIds }];
+  });
+  return options.length >= 2 ? { question: value.question, options } : undefined;
+}
+
+function parseReactions(value: unknown): MobileChatMessage["reactions"] {
+  if (!Array.isArray(value)) return undefined;
+  const reactions = value.flatMap((candidate) => {
+    if (!isRecord(candidate)
+      || !isMobileChatReactionEmoji(candidate.emoji)
+      || !Array.isArray(candidate.userIds)) return [];
+    return [{
+      emoji: candidate.emoji,
+      userIds: candidate.userIds.filter((userId): userId is string => typeof userId === "string"),
+    }];
+  });
+  return reactions.length ? reactions : undefined;
+}
+
 export function parseChatMessage(value: unknown): MobileChatMessage | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string"
@@ -34,6 +95,10 @@ export function parseChatMessage(value: unknown): MobileChatMessage | null {
     || (value.type !== "text" && value.type !== "alert" && value.type !== "cue" && value.type !== "system")) {
     return null;
   }
+  const replyTo = parseReply(value.replyTo);
+  const attachments = parseAttachments(value.attachments);
+  const poll = parsePoll(value.poll);
+  const reactions = parseReactions(value.reactions);
   return {
     id: value.id,
     senderName: value.senderName,
@@ -42,6 +107,10 @@ export function parseChatMessage(value: unknown): MobileChatMessage | null {
     timestamp: value.timestamp,
     ...(typeof value.senderId === "string" ? { senderId: value.senderId } : {}),
     ...(typeof value.senderRole === "string" ? { senderRole: value.senderRole } : {}),
+    ...(replyTo ? { replyTo } : {}),
+    ...(attachments ? { attachments } : {}),
+    ...(poll ? { poll } : {}),
+    ...(reactions ? { reactions } : {}),
     ...(typeof value.editedAt === "number" && Number.isFinite(value.editedAt) ? { editedAt: value.editedAt } : {}),
     ...(typeof value.deletedAt === "number" && Number.isFinite(value.deletedAt) ? { deletedAt: value.deletedAt } : {}),
   };

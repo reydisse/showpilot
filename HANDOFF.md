@@ -649,6 +649,30 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   rendered locally at a 390x844 viewport without console errors; the protected
   Incident screens correctly redirected to sign-in because no reusable local QA
   credentials were available. Authenticated rendered-device QA remains open.
+- Native Chat is now a complete ShowPilot collaboration surface. Production,
+  seven-day planning, and canonical tenant-scoped direct rooms share the durable
+  indefinite history used by the web app. The responsive native conversation
+  adds searchable room switching, @mention suggestions and personal alerts,
+  replies, own-message edit/delete, cue and alert message types, five reactions,
+  polls, typing presence, direct-message read receipts, focused notification
+  links, authenticated image/document upload and local opening, and the active
+  rundown item. Production leaders can share expiring guest Production Chat
+  links or targeted Planning Room links; the server validates the actor, room,
+  recipients, role, organization, expiry, and notification preference. Offline
+  messages remain queued only within their room, and mention/DM notifications
+  are emitted only after the durable relay echoes the persisted client UUID.
+  Fourteen focused parser and request-level tests cover nested message data,
+  pagination merges, permission and tenant boundaries, DM validation,
+  notification suppression, and both pass types. Chat is the fifth complete
+  primary native surface; Show, Schedule, Rundown, and Devices remain partial,
+  and 11 primary surfaces remain missing. No migration is required.
+- The Chat checkpoint passes 82 web test files and 697 tests, web TypeScript and
+  the production build, native TypeScript and lint, all-platform Expo export,
+  the machine parity/accessibility checks, and Expo Doctor 18/18. The iOS and
+  Android Hermes bundles are 6,254,100 and 6,254,871 bytes under the 6.5 MB
+  project ceiling. Authenticated rendered phone QA, two-device chat convergence,
+  background push receipt, and opening each document type remain physical-device
+  gates; no simulator or device was started while the owner was away.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field

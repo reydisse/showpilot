@@ -67,14 +67,20 @@
       "id": "chat",
       "label": "Chat",
       "webPath": "chat",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
         "src/app/chat.tsx"
       ],
       "apiContracts": [
-        "/api/mobile/v1/bootstrap"
+        "/api/mobile/v1/bootstrap",
+        "/api/mobile/v1/chat/members",
+        "/api/mobile/v1/chat/notify",
+        "/api/mobile/v1/chat/reaction-notify",
+        "/api/mobile/v1/chat/passes/crew",
+        "/api/mobile/v1/chat/passes/planning",
+        "const chatMatch"
       ],
-      "gaps": "Native production, planning, and direct chat exist; remaining web collaboration behavior still needs parity verification."
+      "gaps": ""
     },
     {
       "id": "check-in",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fetch as expoFetch, type FetchRequestInit } from "expo/fetch";
-import { File } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import { getAuthenticatedFetchCredentials, getNativeCookieHeader } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
@@ -54,6 +54,34 @@ const notificationSchema = z.object({
   source: z.string(),
   createdAt: z.string(),
   readAt: z.string().nullable(),
+});
+
+const chatMemberSchema = z.object({
+  userId: z.string(),
+  role: z.string(),
+  name: z.string(),
+  image: z.string().nullable(),
+});
+
+const chatMembersSchema = z.object({
+  currentUserId: z.string(),
+  canInvite: z.boolean(),
+  members: z.array(chatMemberSchema),
+});
+
+const chatNotificationResultSchema = z.object({ notified: z.number().int().nonnegative() });
+const chatAttachmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  url: z.string(),
+  mimeType: z.string(),
+  size: z.number().nonnegative(),
+});
+const chatPassSchema = z.object({
+  token: z.string(),
+  expiresAt: z.number(),
+  joinUrl: z.string().url(),
+  targetCount: z.number().int().positive().optional(),
 });
 
 const accessAuthoritySchema = z.object({
@@ -380,6 +408,8 @@ export type MobileOrganizationMember = z.infer<typeof organizationMemberSchema>;
 export type MobileOrganizationInvitation = z.infer<typeof organizationInvitationSchema>;
 export type MobileTeamMembers = z.infer<typeof teamMembersSchema>;
 export type MobileDevices = z.infer<typeof devicesSchema>;
+export type MobileChatMember = z.infer<typeof chatMemberSchema>;
+export type MobileChatAttachment = z.infer<typeof chatAttachmentSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
 export type ChecklistDepartment = z.infer<typeof checklistDepartmentSchema>;
@@ -436,6 +466,91 @@ export async function uploadMobileAvatar(uri: string) {
 export async function getMobileBootstrap(orgId: string): Promise<MobileBootstrap> {
   const response = await authenticatedFetch(`/api/mobile/v1/bootstrap?orgId=${encodeURIComponent(orgId)}`);
   return bootstrapSchema.parse(await response.json());
+}
+
+export async function getMobileChatMembers(orgId: string) {
+  const response = await authenticatedFetch(`/api/mobile/v1/chat/members?orgId=${encodeURIComponent(orgId)}`);
+  return chatMembersSchema.parse(await response.json());
+}
+
+export async function notifyMobileChatMessage(input: {
+  orgId: string;
+  roomId: string;
+  text: string;
+  mentionedUserIds: string[];
+  messageId: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/chat/notify?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return chatNotificationResultSchema.parse(await response.json());
+}
+
+export async function notifyMobileChatReaction(input: {
+  orgId: string;
+  roomId: string;
+  messageId: string;
+  targetUserId: string;
+  emoji: "👍" | "❤️" | "🎉" | "👀" | "🙏";
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/chat/reaction-notify?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return chatNotificationResultSchema.parse(await response.json());
+}
+
+export async function uploadMobileChatAttachment(input: {
+  orgId: string;
+  roomId: string;
+  uri: string;
+  name?: string | null;
+}) {
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const fileResponse = await expoFetch(input.uri);
+    if (!fileResponse.ok) throw new Error("The selected attachment could not be opened.");
+    const file = await fileResponse.blob();
+    if (file.size === 0) throw new Error("The selected attachment is empty.");
+    form.append("file", file, input.name?.trim() || "attachment");
+  } else {
+    const file = new File(input.uri);
+    if (!file.exists || file.size === 0) throw new Error("The selected attachment could not be opened.");
+    form.append("file", file);
+  }
+  const response = await authenticatedFetch(
+    `/api/chat/${encodeURIComponent(input.orgId)}/upload?room=${encodeURIComponent(input.roomId)}`,
+    { method: "POST", body: form },
+  );
+  return chatAttachmentSchema.parse(await response.json());
+}
+
+export async function downloadMobileChatAttachment(attachment: MobileChatAttachment) {
+  const response = await authenticatedFetch(attachment.url);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120) || "attachment";
+  const file = new File(Paths.cache, `showpilot-${attachment.id}-${safeName}`);
+  if (file.exists) file.delete();
+  file.create();
+  file.write(bytes);
+  return file.uri;
+}
+
+export async function createMobileCrewChatPass(input: { orgId: string; hours: number }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/chat/passes/crew?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ hours: input.hours }) },
+  );
+  return chatPassSchema.parse(await response.json());
+}
+
+export async function createMobilePlanningChatPass(input: { orgId: string; hours: number; targetUserIds: string[] }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/chat/passes/planning?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ hours: input.hours, targetUserIds: input.targetUserIds }) },
+  );
+  return chatPassSchema.parse(await response.json());
 }
 
 export async function getMobileRundown(orgId: string, showId: string): Promise<MobileRundown> {
