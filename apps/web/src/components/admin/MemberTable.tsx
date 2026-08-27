@@ -85,13 +85,19 @@ function MemberCard({
 
       {canManage ? <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
         <button
+          type="button"
           onClick={() => onEdit(member)}
+          aria-label={`Edit ${member.name}`}
+          title={`Edit ${member.name}`}
           className="p-2 rounded-lg hover:bg-board-border transition-colors text-board-muted hover:text-board-text"
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
         <button
+          type="button"
           onClick={() => onDelete(member)}
+          aria-label={`Remove ${member.name}`}
+          title={`Remove ${member.name}`}
           disabled={deleting}
           className="p-2 rounded-lg hover:bg-red-500/20 transition-colors text-board-muted hover:text-red-400 disabled:opacity-50"
         >
@@ -293,7 +299,10 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
               />
               {search && (
                 <button
+                  type="button"
                   onClick={() => setSearch("")}
+                  aria-label="Clear crew search"
+                  title="Clear crew search"
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-board-border transition-colors text-board-muted"
                 >
                   <X className="w-3.5 h-3.5" />
