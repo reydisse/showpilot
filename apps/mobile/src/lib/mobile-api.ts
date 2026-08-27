@@ -147,6 +147,25 @@ const createMobileRundownResponseSchema = z.object({
   serviceDate: z.string(),
 });
 
+const showInventoryItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  location: z.string(),
+  defaultStartTime: z.string().nullable(),
+  sourceTemplateId: z.string().nullable(),
+  itemCount: z.number().int().nonnegative(),
+  archivedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const savedRundownSourceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  itemCount: z.number().int().nonnegative(),
+});
+
 const scheduleSchema = z.object({
   from: z.string(),
   to: z.string(),
@@ -154,6 +173,7 @@ const scheduleSchema = z.object({
   canViewFull: z.boolean(),
   canManage: z.boolean(),
   services: z.array(rundownSchema.extend({
+    updatedAt: z.string(),
     completedItems: z.number(),
     crewTotal: z.number(),
     crewConfirmed: z.number(),
@@ -172,12 +192,58 @@ const scheduleSchema = z.object({
     responseNote: z.string(),
     crewName: z.string().nullable(),
     crewEmail: z.string().nullable(),
+    crewMemberId: z.string().nullable(),
+    invitedAt: z.string().nullable(),
+    respondedAt: z.string().nullable(),
+    updatedAt: z.string(),
     canRespond: z.boolean(),
     responseWindow: z.discriminatedUnion("status", [
       z.object({ status: z.literal("open"), closesAt: z.string().datetime() }),
       z.object({ status: z.literal("closed"), closedAt: z.string().datetime().nullable() }),
     ]),
   })),
+  crew: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    role: z.string(),
+    email: z.string(),
+  })),
+  provider: z.object({
+    type: z.enum(["native", "planning-center", "faithteams", "other"]),
+    url: z.string(),
+    label: z.string(),
+  }),
+  terminologyProfile: z.enum(["general", "church"]),
+  inventory: z.array(showInventoryItemSchema).default([]),
+  archivedInventory: z.array(showInventoryItemSchema).default([]),
+  savedTemplates: z.array(savedRundownSourceSchema).default([]),
+});
+
+const scheduleWriteResultSchema = z.object({
+  ok: z.literal(true),
+  id: z.string(),
+  created: z.boolean(),
+  delivered: z.boolean(),
+});
+
+const scheduleReminderResultSchema = z.object({
+  ok: z.literal(true),
+  delivered: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+const scheduleTeamCopyResultSchema = z.object({
+  ok: z.literal(true),
+  copied: z.number().int().positive(),
+  created: z.boolean(),
+  delivered: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+
+const showInventoryWriteResultSchema = z.object({
+  ok: z.literal(true),
+  id: z.string(),
+  created: z.boolean(),
 });
 
 const incidentSchema = z.object({
@@ -594,10 +660,14 @@ export async function getMobileRundown(orgId: string, showId: string): Promise<M
 
 export async function createMobileRundown(input: {
   orgId: string;
+  requestId?: string;
   serviceDate: string;
   name?: string;
   startTime?: string;
   location?: string;
+  inventoryId?: string;
+  copyFrom?: string;
+  copyFromShowId?: string;
 }) {
   const response = await authenticatedFetch("/api/mobile/v1/rundowns", {
     method: "POST",
@@ -627,6 +697,146 @@ export async function respondToMobileAssignment(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function createMobileScheduleAssignment(input: {
+  orgId: string;
+  requestId: string;
+  showId: string;
+  role: string;
+  department: string;
+  crewMemberId: string | null;
+  callTime: string;
+  notes: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ ...input, expectedUpdatedAt: null }) },
+  );
+  return scheduleWriteResultSchema.parse(await response.json());
+}
+
+export async function updateMobileScheduleAssignment(input: {
+  orgId: string;
+  assignmentId: string;
+  requestId: string;
+  showId: string;
+  role: string;
+  department: string;
+  crewMemberId: string | null;
+  callTime: string;
+  notes: string;
+  expectedUpdatedAt: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return scheduleWriteResultSchema.parse(await response.json());
+}
+
+export async function removeMobileScheduleAssignment(input: { orgId: string; assignmentId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function remindMobileScheduleAssignment(input: { orgId: string; assignmentId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}/remind?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return scheduleReminderResultSchema.parse(await response.json());
+}
+
+export async function remindAllMobileScheduleAssignments(input: { orgId: string; showId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/remind?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return scheduleReminderResultSchema.parse(await response.json());
+}
+
+export async function copyMobileScheduleTeam(input: {
+  orgId: string;
+  showId: string;
+  sourceShowId: string;
+  requestId: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/copy-team?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return scheduleTeamCopyResultSchema.parse(await response.json());
+}
+
+export async function updateMobileScheduleService(input: {
+  orgId: string;
+  showId: string;
+  name: string;
+  startTime: string;
+  location: string;
+  expectedUpdatedAt: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileScheduleService(input: { orgId: string; showId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function saveMobileScheduleProvider(input: {
+  orgId: string;
+  provider: "native" | "planning-center" | "faithteams" | "other";
+  url: string;
+  label: string;
+  terminologyProfile: "general" | "church";
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/provider?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function createMobileShowInventoryItem(input: {
+  orgId: string;
+  requestId: string;
+  name: string;
+  description: string;
+  location: string;
+  defaultStartTime: string;
+  sourceTemplateId: string | null;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/inventory?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return showInventoryWriteResultSchema.parse(await response.json());
+}
+
+export async function setMobileShowInventoryArchived(input: {
+  orgId: string;
+  inventoryId: string;
+  expectedUpdatedAt: string;
+  archived: boolean;
+}) {
+  const action = input.archived ? "archive" : "restore";
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/inventory/${encodeURIComponent(input.inventoryId)}/${action}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ expectedUpdatedAt: input.expectedUpdatedAt }) },
+  );
+  return okSchema.parse(await response.json());
 }
 
 export async function getMobileIncidents(orgId: string): Promise<MobileIncidents> {

@@ -38,6 +38,7 @@ import {
   type MobileIncidents,
 } from "@/lib/mobile-api";
 import { getServiceDateForTimeZone } from "@/lib/service-time";
+import { createLocalRequestId } from "@/lib/request-id";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 const categories = ["audio", "video", "stream", "lighting", "other"] as const;
@@ -45,10 +46,6 @@ const severities = ["low", "medium", "high"] as const;
 type IncidentFilter = "open" | "resolved" | "all";
 type MobileIncident = MobileIncidents["incidents"][number];
 const reactionEmojis: readonly MobileIncidentReactionEmoji[] = ["👍", "❤️", "🎉", "👀", "🙏"];
-
-function createLocalRequestId() {
-  return `mobile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 function isIncidentCategory(value: string): value is (typeof categories)[number] {
   return categories.some((category) => category === value);

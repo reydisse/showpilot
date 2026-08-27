@@ -127,54 +127,90 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "schedule:manage");
-
-    const prisma = getPrisma() as unknown as {
-      serviceAssignment?: {
-        findMany(
-          args: unknown,
-        ): Promise<
-          { role: string; department: string; crewMemberId: string | null; callTime: string }[]
-        >;
-        count(args: unknown): Promise<number>;
-        createMany(args: unknown): Promise<unknown>;
-      };
-    };
-    if (!prisma.serviceAssignment) {
-      throw new Error(
-        "Crew scheduling is not available — run pnpm db:generate",
-      );
+    const prisma = getPrisma();
+    const [target, previous, source, existing] = await Promise.all([
+      prisma.rundown.findFirst({
+        where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+        select: { id: true, status: true },
+      }),
+      prisma.rundown.findFirst({
+        where: { id: data.copyFromShowId, orgId: data.orgId, serviceDate: data.copyFrom },
+        select: { id: true },
+      }),
+      prisma.serviceAssignment.findMany({
+        where: { orgId: data.orgId, showId: data.copyFromShowId },
+        select: { role: true, department: true, crewMemberId: true, callTime: true },
+        orderBy: [{ department: "asc" }, { role: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      }),
+      prisma.serviceAssignment.findMany({
+        where: { orgId: data.orgId, showId: data.showId },
+        select: { id: true },
+      }),
+    ]);
+    if (!target || !previous) throw new Error("Show not found");
+    if (target.status === "running" || target.status === "paused") {
+      throw new Error("A live show team cannot be replaced");
     }
-
-    const already = await prisma.serviceAssignment.count({
-      where: { orgId: data.orgId, showId: data.showId },
-    });
-    if (already > 0)
-      throw new Error("This service already has a crew assigned");
-
-    const source = await prisma.serviceAssignment.findMany({
-      where: { orgId: data.orgId, showId: data.copyFromShowId },
-      select: { role: true, department: true, crewMemberId: true, callTime: true },
-    });
     if (source.length === 0)
       throw new Error("That service has no crew to copy");
-
-    await prisma.serviceAssignment.createMany({
-      data: source.map((row) => ({
-        orgId: data.orgId,
-        showId: data.showId,
-        serviceDate: data.serviceDate,
-        role: row.role,
-        department: row.department,
-        crewMemberId: row.crewMemberId,
-        callTime: row.callTime,
-        // Never inherit a confirmation. Last week's yes is not this
-        // week's yes, and pretending otherwise is how a PM ends up
-        // short on a Sunday morning.
-        status: "assigned",
-      })),
+    const requestId = `copy-${data.copyFromShowId.slice(0, 36)}-${data.showId.slice(0, 36)}`;
+    const rows = source.map((row, index) => ({
+      id: `${requestId}-${index}`,
+      orgId: data.orgId,
+      showId: target.id,
+      serviceDate: data.serviceDate,
+      role: row.role,
+      department: row.department,
+      crewMemberId: row.crewMemberId,
+      callTime: row.callTime,
+      // Never inherit a confirmation. Last week's yes is not this
+      // week's yes, and pretending otherwise is how a PM ends up
+      // short on a Sunday morning.
+      status: "assigned",
+    }));
+    const expectedIds = new Set(rows.map((row) => row.id));
+    const retry = existing.length === rows.length && existing.every((row) => expectedIds.has(row.id));
+    if (existing.length > 0 && !retry) throw new Error("This service already has a crew assigned");
+    if (!retry) {
+      try {
+        await prisma.serviceAssignment.createMany({ data: rows });
+      } catch (error) {
+        const concurrent = await prisma.serviceAssignment.findMany({
+          where: { orgId: data.orgId, showId: target.id },
+          select: { id: true },
+        });
+        if (concurrent.length !== rows.length || !concurrent.every((row) => expectedIds.has(row.id))) throw error;
+      }
+    }
+    const copied = await prisma.serviceAssignment.findMany({
+      where: { orgId: data.orgId, showId: target.id, id: { in: [...expectedIds] } },
+      select: { id: true, serviceDate: true, role: true, crewMemberId: true, invitedAt: true },
     });
+    const { deliverScheduleAssignmentInvitation } = await import("@/lib/schedule-assignment-delivery.server");
+    const deliveries = await Promise.all(copied.map(async (assignment) => {
+      if (!assignment.crewMemberId || assignment.invitedAt) return Boolean(assignment.invitedAt);
+      const delivery = await deliverScheduleAssignmentInvitation(
+        data.orgId,
+        assignment.id,
+        assignment.serviceDate,
+        assignment.role,
+        assignment.crewMemberId,
+      );
+      if (delivery.delivered) {
+        await prisma.serviceAssignment.update({
+          where: { id: assignment.id },
+          data: { invitedAt: new Date() },
+        });
+      }
+      return delivery.delivered;
+    }));
 
-    return { ok: true, copied: source.length };
+    return {
+      ok: true,
+      copied: source.length,
+      delivered: deliveries.filter(Boolean).length,
+      total: copied.filter((assignment) => Boolean(assignment.crewMemberId)).length,
+    };
   });
 
 // ─── Set a duty officer ──────────────────────────────────────

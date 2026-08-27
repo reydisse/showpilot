@@ -696,6 +696,31 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field
   after deployment. The mobile verifier locks this rolling-release contract.
+- Native Schedule is now the sixth complete primary surface. Full-date service
+  cards and arbitrary date browsing sit on the same tenant-scoped shared data as
+  web and Desktop. Managers can create a blank show, clone a previous rundown,
+  load a reusable inventory snapshot, edit or delete the complete show graph,
+  add/edit/remove positions, set custom call times and manager notes, bulk-build
+  a team, copy a prior team, resend one or every pending invitation, and manage
+  native/external schedule settings. Crew can accept or decline only while the
+  authoritative response window remains open; long responses remain contained.
+  Reusable show inventory supports create/use/archive/restore and saved-template
+  seeds. Service, assignment, inventory, and copy operations use client request
+  IDs or viewed-row versions so retries and simultaneous operators cannot create
+  duplicate rows or overwrite newer edits. The web Copy team path now uses the
+  same reset semantics and sends the fresh invitations its UI promises. No new
+  migration is required.
+- The Schedule checkpoint passes 88 unit-test files and 728 unit tests, the
+  Worker suite, migration-manifest and accessible-control gates, web TypeScript,
+  native TypeScript and lint, the production client/SSR build, all-platform Expo
+  export, Expo Doctor, and all 18 native release checks. Removing the unused
+  Gesture Handler/Reanimated/Worklets app roots reduced the final Hermes bundles
+  to 5,149,449 bytes on iOS and 5,148,610 bytes on Android without removing a
+  feature; the 6.5 MB ceiling now has about 1.35 MB of headroom. The manifest is
+  six complete, three partial, and 11 missing of 20 primary web surfaces.
+  Authenticated rendered-device, multi-operator convergence, and real push/email
+  delivery remain launch-device gates and were not attempted while the owner was
+  away.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

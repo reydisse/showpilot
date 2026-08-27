@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
@@ -10,6 +9,8 @@ import { serviceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
+import { deleteServiceForOrg } from "@/lib/service-deletion.server";
+import { deliverScheduleAssignmentInvitation } from "@/lib/schedule-assignment-delivery.server";
 
 const rangeInput = z.object({
   orgId: idSchema,
@@ -132,83 +133,13 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
     });
   });
 
-/** Remove one stopped show and only the operational data owned by it. */
 export const deleteService = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema, showId: idSchema }), value),
   )
   .handler(async ({ data }) => {
     await assertAccess(data.orgId, true);
-    const prisma = getPrisma();
-    const rundown = await prisma.rundown.findFirst({
-      where: { id: data.showId, orgId: data.orgId },
-      select: { id: true, serviceDate: true, status: true },
-    });
-    if (!rundown) throw new Error("Show not found");
-    if (rundown.status === "live") throw new Error("Stop the show before deleting it");
-
-    const timerSettings = await prisma.appSetting.findMany({
-      where: {
-        orgId: data.orgId,
-        key: { in: [`rundown-timer:${rundown.id}`, `rundown-timer:${rundown.serviceDate}`] },
-      },
-      select: { value: true },
-    });
-    for (const timerSetting of timerSettings) {
-      try {
-        const timer = JSON.parse(timerSetting.value) as { playback?: string } | null;
-        if (timer?.playback === "play" || timer?.playback === "pause") {
-          throw new Error("Stop the show before deleting it");
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message === "Stop the show before deleting it") throw error;
-      }
-    }
-
-    // Prisma and raw D1 use the same database, but separate calls are not one
-    // transaction. Keep the complete deletion in a single atomic D1 batch so
-    // a failed notification cleanup cannot leave half a show behind.
-    const db = getD1();
-    const showArgs = [data.orgId, rundown.id] as const;
-    await db.batch([
-      db.prepare("DELETE FROM content_reaction WHERE orgId = ? AND targetType = 'incident-comment' AND targetId IN (SELECT id FROM incident_comment WHERE orgId = ? AND incidentId IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?))").bind(data.orgId, data.orgId, ...showArgs),
-      db.prepare("DELETE FROM incident_comment WHERE orgId = ? AND incidentId IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
-      db.prepare("DELETE FROM notification WHERE orgId = ? AND source IN (SELECT id FROM incident WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
-      db.prepare("DELETE FROM notification WHERE orgId = ? AND source IN (SELECT id FROM service_assignment WHERE orgId = ? AND showId = ?)").bind(data.orgId, ...showArgs),
-      db.prepare("DELETE FROM cue_note WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM cue_sheet WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM checklist_entry WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM service_assignment WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM rundown_item WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM incident WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM mic_assignment WHERE orgId = ? AND showId = ?").bind(...showArgs),
-      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?)").bind(
-        data.orgId,
-        `rundown-items:${rundown.id}`,
-        `rundown-timer:${rundown.id}`,
-        `rundown-message:${rundown.id}`,
-        `rundown-ppslide:${rundown.id}`,
-      ),
-      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = 'active-show-id' AND value = ?").bind(data.orgId, rundown.id),
-      db.prepare("DELETE FROM rundown WHERE orgId = ? AND id = ?").bind(...showArgs),
-      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?) AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
-        data.orgId,
-        `rundown-items:${rundown.serviceDate}`,
-        `rundown-timer:${rundown.serviceDate}`,
-        `rundown-message:${rundown.serviceDate}`,
-        `rundown-ppslide:${rundown.serviceDate}`,
-        data.orgId,
-        rundown.serviceDate,
-      ),
-      db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = 'active-service-date' AND value = ? AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
-        data.orgId,
-        rundown.serviceDate,
-        data.orgId,
-        rundown.serviceDate,
-      ),
-    ]);
-
-    return { ok: true as const };
+    return deleteServiceForOrg(data);
   });
 
 async function assertAccess(orgId: string, manage = false) {
@@ -529,7 +460,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
           },
         });
         if (data.crewMemberId) {
-          const delivered = await notifyAssignment(
+          const delivered = await deliverScheduleAssignmentInvitation(
             data.orgId,
             replacement.id,
             replacement.serviceDate,
@@ -558,8 +489,14 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
             : {}),
         },
       });
+      if (personChanged) {
+        const { clearAssignmentInvitation } = await import(
+          "@/lib/assignment-notifications.server"
+        );
+        await clearAssignmentInvitation(data.orgId, updated.id);
+      }
       if (personChanged && data.crewMemberId) {
-        const delivered = await notifyAssignment(
+        const delivered = await deliverScheduleAssignmentInvitation(
           data.orgId,
           updated.id,
           updated.serviceDate,
@@ -589,7 +526,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
       },
     });
     if (data.crewMemberId && data.status === "assigned") {
-      const delivered = await notifyAssignment(
+      const delivered = await deliverScheduleAssignmentInvitation(
         data.orgId,
         assignment.id,
         data.serviceDate,
@@ -604,42 +541,6 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
     }
     return assignment;
   });
-
-async function notifyAssignment(
-  orgId: string,
-  assignmentId: string,
-  serviceDate: string,
-  role: string,
-  crewMemberId: string,
-  reminder = false,
-) {
-  try {
-    const { sendCrewScheduleInvite } = await import("@/lib/crew-schedule");
-    const headers = getRequestHeaders();
-    const host = headers.get("x-forwarded-host") ?? headers.get("host");
-    const protocol =
-      headers.get("x-forwarded-proto") ??
-      (host?.includes("localhost") || host?.startsWith("127.0.0.1")
-        ? "http"
-        : "https");
-    const origin =
-      headers.get("origin") ??
-      (host ? `${protocol}://${host}` : "https://showpilot.tech");
-    const result = await sendCrewScheduleInvite({
-      orgId,
-      assignmentId,
-      serviceDate,
-      role,
-      crewMemberId,
-      reminder,
-      origin,
-    });
-    return result;
-  } catch (error) {
-    console.error("[Schedule] Crew invitation delivery failed", error);
-    return { delivered: false, reason: "delivery-failed" as const };
-  }
-}
 
 export const remindServiceAssignment = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
@@ -657,7 +558,7 @@ export const remindServiceAssignment = createServerFn({ method: "POST" })
     });
     if (!assignment?.crewMemberId)
       throw new Error("Only pending assignments can be reminded");
-    const delivered = await notifyAssignment(
+    const delivered = await deliverScheduleAssignmentInvitation(
       data.orgId,
       assignment.id,
       assignment.serviceDate,
@@ -696,7 +597,7 @@ export const remindAllServiceAssignments = createServerFn({ method: "POST" })
     });
     const results = await Promise.all(
       assignments.map(async (assignment) => {
-        const delivered = await notifyAssignment(
+        const delivered = await deliverScheduleAssignmentInvitation(
           data.orgId,
           assignment.id,
           assignment.serviceDate,

@@ -22,15 +22,22 @@
       "id": "schedule",
       "label": "Schedule",
       "webPath": "schedule",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
         "src/app/schedule.tsx"
       ],
       "apiContracts": [
+        "/api/mobile/v1/rundowns",
         "/api/mobile/v1/schedule",
-        "/api/mobile/v1/schedule/respond"
+        "/api/mobile/v1/schedule/respond",
+        "/api/mobile/v1/schedule/assignments",
+        "/api/mobile/v1/schedule/inventory",
+        "/api/mobile/v1/schedule/provider",
+        "const scheduleAssignmentMatch",
+        "const scheduleInventoryMatch",
+        "const scheduleServiceMatch"
       ],
-      "gaps": "Assignment viewing and responses exist; complete schedule creation, editing, and crew administration remain."
+      "gaps": ""
     },
     {
       "id": "show-board",

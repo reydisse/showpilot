@@ -13,6 +13,26 @@ export function formatServiceTime(value: string | null, timeZone: string): strin
   }
 }
 
+export function serviceWallTimeInput(value: string | null, timeZone: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone,
+    }).formatToParts(date);
+    const values = new Map(parts.map((part) => [part.type, part.value]));
+    const hour = values.get("hour");
+    const minute = values.get("minute");
+    return hour && minute ? `${hour}:${minute}` : "";
+  } catch {
+    return "";
+  }
+}
+
 export function isServiceDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return false;

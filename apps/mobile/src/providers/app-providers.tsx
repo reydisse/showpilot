@@ -3,7 +3,6 @@ import * as Network from "expo-network";
 import * as SystemUI from "expo-system-ui";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { AppState, Platform } from "react-native";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useAppTheme } from "@/theme/tokens";
 
@@ -63,10 +62,8 @@ export function AppProviders({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </SafeAreaProvider>
   );
 }

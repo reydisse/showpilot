@@ -11,6 +11,7 @@ import { serviceTimeToIso } from "@/lib/utils";
 
 export interface CreateServiceForOrgInput {
   orgId: string;
+  requestId?: string;
   serviceDate: string;
   copyFrom?: string;
   copyFromShowId?: string;
@@ -28,12 +29,37 @@ export interface CreateServiceForOrgInput {
  */
 export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   const prisma = getPrisma();
-  const showCount = await prisma.rundown.count({ where: { orgId: data.orgId } });
-  await checkPlanLimit(data.orgId, "shows", showCount);
-
+  const timezone = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
+    select: { value: true },
+  });
   const inventory = data.inventoryId
     ? await readShowInventoryItem(data.orgId, data.inventoryId)
     : null;
+  if (data.requestId) {
+    const existing = await prisma.rundown.findUnique({
+      where: { id: data.requestId },
+      select: { id: true, orgId: true, serviceDate: true, name: true, location: true, scheduledStartTime: true },
+    });
+    if (existing) {
+      if (existing.orgId !== data.orgId) throw new Error("Show request ID is already in use");
+      const expectedStart = serviceTimeToIso(
+        data.serviceDate,
+        data.startTime || inventory?.defaultStartTime || "",
+        timezone?.value,
+      );
+      if (
+        existing.serviceDate !== data.serviceDate
+        || existing.name !== (data.name?.trim() || inventory?.name || "")
+        || existing.location !== (data.location || inventory?.location || "")
+        || (existing.scheduledStartTime?.toISOString() ?? null) !== expectedStart
+      ) throw new Error("Show request ID was already used with different details");
+      return { ok: true as const, showId: existing.id, serviceDate: existing.serviceDate };
+    }
+  }
+  const showCount = await prisma.rundown.count({ where: { orgId: data.orgId } });
+  await checkPlanLimit(data.orgId, "shows", showCount);
+
   if (data.inventoryId && !inventory) {
     throw new Error("Show inventory item not found");
   }
@@ -56,14 +82,11 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   }
 
   const startTime = data.startTime || inventory?.defaultStartTime || "";
-  const timezone = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
-    select: { value: true },
-  });
   const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, timezone?.value);
   const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
   const rundown = await prisma.rundown.create({
     data: {
+      ...(data.requestId ? { id: data.requestId } : {}),
       orgId: data.orgId,
       serviceDate: data.serviceDate,
       scheduledStartTime,

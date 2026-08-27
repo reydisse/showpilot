@@ -23,10 +23,12 @@ import { Page } from "@/components/page";
 import { ShowCard } from "@/components/show-card";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { createMobileRundown } from "@/lib/mobile-api";
+import { createLocalRequestId } from "@/lib/request-id";
 import { getServiceDateForTimeZone, isServiceDate } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 interface CreateShowDraft {
+  requestId: string;
   serviceDate: string;
   name: string;
   startTime: string;
@@ -43,6 +45,7 @@ export default function ShowsScreen() {
   const createMutation = useMutation({
     mutationFn: (draft: CreateShowDraft) => createMobileRundown({
       orgId: organization!.id,
+      requestId: draft.requestId,
       serviceDate: draft.serviceDate,
       name: draft.name.trim(),
       startTime: draft.startTime.trim() || undefined,
@@ -127,6 +130,7 @@ function CreateShowModal({
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [serviceDate, setServiceDate] = useState(() => getServiceDateForTimeZone(timeZone));
+  const [requestId] = useState(() => createLocalRequestId("show"));
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState("");
   const [location, setLocation] = useState("");
@@ -138,7 +142,7 @@ function CreateShowModal({
   const submit = () => {
     setSubmitted(true);
     if (!dateValid || !timeValid || !nameValid) return;
-    onCreate({ serviceDate, name, startTime, location });
+    onCreate({ requestId, serviceDate, name, startTime, location });
   };
 
   return (

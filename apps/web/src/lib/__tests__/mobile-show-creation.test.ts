@@ -82,6 +82,7 @@ describe("mobile show creation", () => {
   it("creates a show through the shared schedule mutation", async () => {
     const response = await createShow({
       orgId: "org-1",
+      requestId: "mobile-show-1",
       serviceDate: "2026-09-06",
       name: "  Sunday Morning  ",
       startTime: "09:30",
@@ -96,6 +97,7 @@ describe("mobile show creation", () => {
     });
     expect(mocks.createServiceForOrg).toHaveBeenCalledWith({
       orgId: "org-1",
+      requestId: "mobile-show-1",
       serviceDate: "2026-09-06",
       name: "Sunday Morning",
       startTime: "09:30",
@@ -113,6 +115,46 @@ describe("mobile show creation", () => {
     });
 
     expect(response.status).toBe(403);
+    expect(mocks.createServiceForOrg).not.toHaveBeenCalled();
+  });
+
+  it("passes one tenant-owned rundown source through the shared creation mutation", async () => {
+    const response = await createShow({
+      orgId: "org-1",
+      requestId: "mobile-show-from-inventory",
+      serviceDate: "2026-09-13",
+      name: "Sunday Morning",
+      inventoryId: "inventory-1",
+    });
+
+    expect(response.status).toBe(201);
+    expect(mocks.createServiceForOrg).toHaveBeenCalledWith({
+      orgId: "org-1",
+      requestId: "mobile-show-from-inventory",
+      serviceDate: "2026-09-13",
+      name: "Sunday Morning",
+      startTime: undefined,
+      location: "",
+      inventoryId: "inventory-1",
+    });
+  });
+
+  it("rejects conflicting or incomplete rundown sources at the HTTP boundary", async () => {
+    const conflicting = await createShow({
+      orgId: "org-1",
+      serviceDate: "2026-09-13",
+      inventoryId: "inventory-1",
+      copyFrom: "2026-09-06",
+      copyFromShowId: "show-previous",
+    });
+    const incomplete = await createShow({
+      orgId: "org-1",
+      serviceDate: "2026-09-13",
+      copyFrom: "2026-09-06",
+    });
+
+    expect(conflicting.status).toBe(400);
+    expect(incomplete.status).toBe(400);
     expect(mocks.createServiceForOrg).not.toHaveBeenCalled();
   });
 

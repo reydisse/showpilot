@@ -11,6 +11,15 @@ type AssignmentNotificationInput = {
   reminder?: boolean;
 };
 
+export async function clearAssignmentInvitation(orgId: string, assignmentId: string) {
+  await getD1()
+    .prepare(
+      "DELETE FROM notification WHERE orgId = ? AND source = ? AND type = 'assignment'",
+    )
+    .bind(orgId, assignmentId)
+    .run();
+}
+
 /**
  * Delivers a schedule invitation to the matching signed-in organization user.
  * Crew records intentionally remain usable without app accounts, so email is
@@ -37,12 +46,7 @@ export async function notifyAssignmentRecipient(
 
   // Reassignment must not leave an actionable invitation in the previous
   // assignee's inbox. Response notifications use different types and remain.
-  await db
-    .prepare(
-      "DELETE FROM notification WHERE orgId = ? AND source = ? AND type = 'assignment'",
-    )
-    .bind(input.orgId, input.assignmentId)
-    .run();
+  await clearAssignmentInvitation(input.orgId, input.assignmentId);
 
   const { notifyOperationalEvent } = await import(
     "@/lib/operational-notifications.server"

@@ -12,7 +12,7 @@ import {
   type Role,
 } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
-import { getTodayDateString } from "./utils";
+import { getTodayDateString, serviceTimeToIso } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
@@ -118,11 +118,31 @@ interface MobileRundownItemRow {
 }
 
 interface MobileScheduleRow extends MobileRundownRow {
+  updatedAt: string;
   completedItems: number;
   crewTotal: number;
   crewConfirmed: number;
   crewOpen: number;
   incidentCount: number;
+}
+
+interface MobileShowInventoryRow {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  defaultStartTime: string | null;
+  rundownJson: string;
+  sourceTemplateId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface MobileSavedRundownSource {
+  id: string;
+  name: string;
+  itemCount: number;
 }
 
 interface MobileAssignmentRow {
@@ -137,6 +157,10 @@ interface MobileAssignmentRow {
   responseNote: string;
   crewName: string | null;
   crewEmail: string | null;
+  crewMemberId: string | null;
+  invitedAt: string | null;
+  respondedAt: string | null;
+  updatedAt: string;
   scheduledStartTime: string | null;
   plannedDurationMs: number;
 }
@@ -555,7 +579,7 @@ async function rundown(request: Request, url: URL, showId: string, db: MobileApi
 
 async function createRundown(request: Request, db: MobileApiDatabase): Promise<Response> {
   const body = await readJson(request);
-  if (!body || !validId(body.orgId) || !validDate(body.serviceDate)) {
+  if (!body || !validId(body.orgId) || !validDate(body.serviceDate) || (body.requestId !== undefined && !validId(body.requestId))) {
     return json({ error: "Choose a valid workspace and service date." }, 400);
   }
 
@@ -574,6 +598,21 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
     : typeof body.startTime === "string"
       ? body.startTime.trim()
       : null;
+  const inventoryId = body.inventoryId === undefined || body.inventoryId === ""
+    ? undefined
+    : typeof body.inventoryId === "string"
+      ? body.inventoryId.trim()
+      : null;
+  const copyFrom = body.copyFrom === undefined || body.copyFrom === ""
+    ? undefined
+    : typeof body.copyFrom === "string"
+      ? body.copyFrom.trim()
+      : null;
+  const copyFromShowId = body.copyFromShowId === undefined || body.copyFromShowId === ""
+    ? undefined
+    : typeof body.copyFromShowId === "string"
+      ? body.copyFromShowId.trim()
+      : null;
   if (
     name === null
     || name.length > 120
@@ -581,8 +620,16 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
     || location.length > 240
     || startTime === null
     || (startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))
+    || inventoryId === null
+    || (inventoryId !== undefined && !validId(inventoryId))
+    || copyFrom === null
+    || (copyFrom !== undefined && !validDate(copyFrom))
+    || copyFromShowId === null
+    || (copyFromShowId !== undefined && !validId(copyFromShowId))
+    || Boolean(copyFrom) !== Boolean(copyFromShowId)
+    || Boolean(inventoryId) && Boolean(copyFrom)
   ) {
-    return json({ error: "Check the service title, start time, and location." }, 400);
+    return json({ error: "Check the show details and choose one valid rundown source." }, 400);
   }
 
   const url = new URL(request.url);
@@ -593,10 +640,13 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
   try {
     const result = await createServiceForOrg({
       orgId: access.orgId,
+      requestId: typeof body.requestId === "string" ? body.requestId : undefined,
       serviceDate: body.serviceDate,
       name,
       startTime,
       location,
+      ...(inventoryId ? { inventoryId } : {}),
+      ...(copyFrom && copyFromShowId ? { copyFrom, copyFromShowId } : {}),
     });
     return json(result, 201);
   } catch (error) {
@@ -834,6 +884,191 @@ async function applyChecklistSuggestions(request: Request, url: URL, db: MobileA
   return json({ ok: true, added });
 }
 
+function parseStoredRundownItems(value: string | null | undefined): Record<string, unknown>[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const items = Array.isArray(parsed)
+      ? parsed
+      : isRecord(parsed) && Array.isArray(parsed.items)
+        ? parsed.items
+        : [];
+    return items.filter(isRecord);
+  } catch {
+    return [];
+  }
+}
+
+function parseMobileSavedRundownSources(value: string | null | undefined): MobileSavedRundownSource[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => {
+      if (!isRecord(entry) || typeof entry.id !== "string" || typeof entry.name !== "string") return [];
+      return [{
+        id: entry.id,
+        name: entry.name,
+        itemCount: typeof entry.itemCount === "number" && Number.isFinite(entry.itemCount)
+          ? Math.max(0, Math.trunc(entry.itemCount))
+          : 0,
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function isMissingShowInventoryTable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /show_inventory_item|no such table|does not exist/i.test(message);
+}
+
+function summarizeMobileShowInventory(rows: MobileShowInventoryRow[]) {
+  return rows.map(({ rundownJson, ...row }) => ({
+    ...row,
+    itemCount: parseStoredRundownItems(rundownJson).length,
+  }));
+}
+
+async function loadMobileShowInventory(db: MobileApiDatabase, orgId: string) {
+  const templateIndex = await db.prepare(
+    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'rundown-saved-index' LIMIT 1",
+  ).bind(orgId).first<{ value: string }>();
+  try {
+    const result = await db.prepare(
+      `SELECT id, name, description, location, defaultStartTime, rundownJson,
+              sourceTemplateId, archivedAt, createdAt, updatedAt
+       FROM show_inventory_item WHERE orgId = ?
+       ORDER BY name ASC, createdAt DESC`,
+    ).bind(orgId).all<MobileShowInventoryRow>();
+    const items = summarizeMobileShowInventory(result.results ?? []);
+    return {
+      inventory: items.filter((item) => !item.archivedAt),
+      archivedInventory: items.filter((item) => Boolean(item.archivedAt)),
+      savedTemplates: parseMobileSavedRundownSources(templateIndex?.value),
+    };
+  } catch (error) {
+    if (!isMissingShowInventoryTable(error)) throw error;
+    return {
+      inventory: [],
+      archivedInventory: [],
+      savedTemplates: parseMobileSavedRundownSources(templateIndex?.value),
+    };
+  }
+}
+
+function parseMobileInventoryWrite(body: Record<string, unknown> | null) {
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const description = typeof body?.description === "string" ? body.description.trim() : "";
+  const location = typeof body?.location === "string" ? body.location.trim() : "";
+  const defaultStartTime = typeof body?.defaultStartTime === "string" ? body.defaultStartTime.trim() : "";
+  const sourceTemplateId = body?.sourceTemplateId === undefined || body.sourceTemplateId === null || body.sourceTemplateId === ""
+    ? null
+    : typeof body.sourceTemplateId === "string"
+      ? body.sourceTemplateId.trim()
+      : undefined;
+  if (
+    !validId(requestId)
+    || name.length < 1
+    || name.length > 120
+    || description.length > 500
+    || location.length > 240
+    || (defaultStartTime !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime))
+    || sourceTemplateId === undefined
+    || (sourceTemplateId !== null && !validId(sourceTemplateId))
+  ) return null;
+  return { requestId, name, description, location, defaultStartTime, sourceTemplateId };
+}
+
+async function createMobileShowInventory(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const input = parseMobileInventoryWrite(await readJson(request));
+  if (!input) return json({ error: "Check the reusable show details." }, 400);
+  const existing = await db.prepare(
+    `SELECT id, name, description, location, defaultStartTime, sourceTemplateId
+     FROM show_inventory_item WHERE id = ? LIMIT 1`,
+  ).bind(input.requestId).first<Pick<MobileShowInventoryRow, "id" | "name" | "description" | "location" | "defaultStartTime" | "sourceTemplateId">>();
+  if (existing) {
+    const sameRequest = existing.name === input.name
+      && existing.description === input.description
+      && existing.location === input.location
+      && existing.defaultStartTime === (input.defaultStartTime || null)
+      && existing.sourceTemplateId === input.sourceTemplateId;
+    const owned = await db.prepare(
+      "SELECT id FROM show_inventory_item WHERE id = ? AND orgId = ? LIMIT 1",
+    ).bind(input.requestId, access.orgId).first<{ id: string }>();
+    return owned && sameRequest
+      ? json({ ok: true, id: existing.id, created: false })
+      : json({ error: "That inventory request was already used. Refresh and try again." }, 409);
+  }
+  let rundownJson = "[]";
+  if (input.sourceTemplateId) {
+    const template = await db.prepare(
+      "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
+    ).bind(access.orgId, `rundown-saved:${input.sourceTemplateId}`).first<{ value: string }>();
+    if (!template) return json({ error: "Saved rundown template not found." }, 404);
+    rundownJson = JSON.stringify(parseStoredRundownItems(template.value).map((item, index) => ({
+      ...item,
+      id: `${input.requestId}-item-${index}`,
+      status: "upcoming",
+      scheduledStart: null,
+      expectedEnd: null,
+      actualStart: null,
+      actualEnd: null,
+    })));
+  }
+  try {
+    await db.prepare(
+      `INSERT INTO show_inventory_item
+        (id, orgId, name, description, location, defaultStartTime, rundownJson,
+         sourceTemplateId, archivedAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    ).bind(
+      input.requestId,
+      access.orgId,
+      input.name,
+      input.description,
+      input.location,
+      input.defaultStartTime || null,
+      rundownJson,
+      input.sourceTemplateId,
+    ).run();
+  } catch (error) {
+    if (isMissingShowInventoryTable(error)) {
+      return json({ error: "Show inventory is not available until its database migration is applied." }, 503);
+    }
+    throw error;
+  }
+  return json({ ok: true, id: input.requestId, created: true }, 201);
+}
+
+async function setMobileShowInventoryArchived(
+  request: Request,
+  url: URL,
+  inventoryId: string,
+  archived: boolean,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const expectedUpdatedAt = typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : "";
+  if (!expectedUpdatedAt || expectedUpdatedAt.length > 64) {
+    return json({ error: "Refresh the inventory and try again." }, 400);
+  }
+  const result = await db.prepare(
+    `UPDATE show_inventory_item
+     SET archivedAt = ${archived ? "CURRENT_TIMESTAMP" : "NULL"}, updatedAt = CURRENT_TIMESTAMP
+     WHERE id = ? AND orgId = ? AND updatedAt = ? AND archivedAt IS ${archived ? "NULL" : "NOT NULL"}`,
+  ).bind(inventoryId, access.orgId, expectedUpdatedAt).run();
+  return changedExactlyOneRow(result)
+    ? json({ ok: true })
+    : json({ error: "This inventory item changed on another device. Refresh and try again." }, 409);
+}
+
 async function schedule(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
@@ -848,7 +1083,7 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
   }
   const [settingsResult, selectedAssignment] = await Promise.all([
     db.prepare(
-      "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
+      "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile')",
     ).bind(access.orgId).all<{ key: string; value: string }>(),
     requestedAssignmentId
       ? db.prepare(
@@ -876,9 +1111,9 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
   const to = selectedDate ?? url.searchParams.get("to") ?? shiftDate(today, 45);
   if (!validDate(from) || !validDate(to) || from > to) return json({ error: "A valid date range is required." }, 400);
 
-  const [servicesResult, assignmentsResult] = await Promise.all([
+  const [servicesResult, assignmentsResult, crewResult, inventoryData] = await Promise.all([
     db.prepare(
-      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status,
+      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status, r.updatedAt,
               CAST(COUNT(DISTINCT i.id) AS INTEGER) AS itemCount,
               CAST(COUNT(DISTINCT CASE WHEN i.status = 'complete' THEN i.id END) AS INTEGER) AS completedItems,
               CAST(COUNT(DISTINCT a.id) AS INTEGER) AS crewTotal,
@@ -900,7 +1135,8 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
     ).bind(access.orgId, from, to, canViewFull ? 1 : 0, access.identity.email).all<MobileScheduleRow>(),
     db.prepare(
       `SELECT a.id, a.showId, a.serviceDate, a.role, a.department, a.status,
-              a.callTime, a.notes, a.responseNote, c.name AS crewName, c.email AS crewEmail,
+              a.callTime, a.notes, a.responseNote, a.crewMemberId, a.invitedAt,
+              a.respondedAt, a.updatedAt, c.name AS crewName, c.email AS crewEmail,
               r.scheduledStartTime,
               COALESCE((
                 SELECT SUM(ri.duration) FROM rundown_item ri
@@ -913,6 +1149,15 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
          AND (? = 1 OR LOWER(c.email) = ?)
        ORDER BY a.serviceDate ASC, a.department ASC, a.role ASC`,
     ).bind(access.orgId, from, to, canViewFull ? 1 : 0, access.identity.email).all<MobileAssignmentRow>(),
+    canViewFull
+      ? db.prepare(
+        `SELECT id, name, role, email FROM crew_member
+         WHERE orgId = ? ORDER BY name ASC, createdAt ASC`,
+      ).bind(access.orgId).all<{ id: string; name: string; role: string; email: string }>()
+      : Promise.resolve({ results: [] as { id: string; name: string; role: string; email: string }[] }),
+    canViewFull
+      ? loadMobileShowInventory(db, access.orgId)
+      : Promise.resolve({ inventory: [], archivedInventory: [], savedTemplates: [] }),
   ]);
   const assignments = assignmentsResult.results ?? [];
   const nowMs = Date.now();
@@ -933,6 +1178,16 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
     timeZone,
     canViewFull,
     canManage: access.identity.permissions.includes("schedule:manage"),
+    crew: crewResult.results ?? [],
+    provider: {
+      type: ["native", "planning-center", "faithteams", "other"].includes(settingMap["schedule-provider"])
+        ? settingMap["schedule-provider"]
+        : "native",
+      url: settingMap["schedule-provider-url"] ?? "",
+      label: settingMap["schedule-provider-label"] ?? "",
+    },
+    terminologyProfile: settingMap["terminology-profile"] || "general",
+    ...inventoryData,
     services,
     assignments: assignments.map((assignment) => {
       const responseWindow = getCrewScheduleResponseWindow(
@@ -953,6 +1208,453 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
       };
     }),
   });
+}
+
+interface MobileScheduleShowWriteRow {
+  id: string;
+  serviceDate: string;
+  status: string;
+  updatedAt: string;
+}
+
+interface MobileScheduleAssignmentWriteRow {
+  id: string;
+  orgId: string;
+  showId: string | null;
+  serviceDate: string;
+  crewMemberId: string | null;
+  role: string;
+  department: string;
+  status: string;
+  callTime: string;
+  notes: string;
+  responseNote: string;
+  invitedAt: string | null;
+  respondedAt: string | null;
+  updatedAt: string;
+}
+
+interface MobileScheduleAssignmentWrite {
+  requestId: string;
+  showId: string;
+  role: string;
+  department: string;
+  crewMemberId: string | null;
+  callTime: string;
+  notes: string;
+  expectedUpdatedAt: string | null;
+}
+
+function parseMobileScheduleAssignmentWrite(body: Record<string, unknown> | null): MobileScheduleAssignmentWrite | null {
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const showId = typeof body?.showId === "string" ? body.showId.trim() : "";
+  const role = typeof body?.role === "string" ? body.role.trim() : "";
+  const department = typeof body?.department === "string" ? body.department.trim() : "";
+  const crewMemberId = body?.crewMemberId === null || body?.crewMemberId === ""
+    ? null
+    : typeof body?.crewMemberId === "string" ? body.crewMemberId.trim() : undefined;
+  const callTime = typeof body?.callTime === "string" ? body.callTime.trim() : "";
+  const notes = typeof body?.notes === "string" ? body.notes.trim() : "";
+  const expectedUpdatedAt = body?.expectedUpdatedAt === null || body?.expectedUpdatedAt === undefined
+    ? null
+    : typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined;
+  if (
+    !validId(requestId) || !validId(showId)
+    || role.length < 1 || role.length > 120
+    || department.length < 1 || department.length > 80
+    || crewMemberId === undefined || (crewMemberId !== null && !validId(crewMemberId))
+    || (callTime !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime))
+    || notes.length > 500
+    || expectedUpdatedAt === undefined || (expectedUpdatedAt !== null && (expectedUpdatedAt.length < 1 || expectedUpdatedAt.length > 64))
+  ) return null;
+  return { requestId, showId, role, department, crewMemberId, callTime, notes, expectedUpdatedAt };
+}
+
+async function getMobileScheduleShow(db: MobileApiDatabase, orgId: string, showId: string) {
+  return db.prepare(
+    "SELECT id, serviceDate, status, updatedAt FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
+  ).bind(showId, orgId).first<MobileScheduleShowWriteRow>();
+}
+
+async function validateMobileScheduleCrew(db: MobileApiDatabase, orgId: string, crewMemberId: string | null) {
+  if (!crewMemberId) return { ok: true as const, crew: null };
+  const crew = await db.prepare(
+    "SELECT id, name, email FROM crew_member WHERE id = ? AND orgId = ? LIMIT 1",
+  ).bind(crewMemberId, orgId).first<{ id: string; name: string; email: string }>();
+  if (!crew) return { ok: false as const, error: "Crew member not found." };
+  if (!crew.email.trim()) return { ok: false as const, error: `Add an email address to ${crew.name} before assigning them.` };
+  return { ok: true as const, crew };
+}
+
+async function clearMobileAssignmentInvitation(orgId: string, assignmentId: string) {
+  try {
+    const { clearAssignmentInvitation } = await import("./assignment-notifications.server");
+    await clearAssignmentInvitation(orgId, assignmentId);
+  } catch (error) {
+    console.error("[Mobile schedule] Failed to clear stale assignment invitation", error);
+  }
+}
+
+async function deliverMobileAssignmentInvitation(input: {
+  request: Request;
+  db: MobileApiDatabase;
+  orgId: string;
+  assignmentId: string;
+  showId: string;
+  serviceDate: string;
+  role: string;
+  crewMemberId: string;
+  reminder?: boolean;
+}) {
+  try {
+    const { sendCrewScheduleInvite } = await import("./crew-schedule");
+    const delivery = await sendCrewScheduleInvite({
+      orgId: input.orgId,
+      assignmentId: input.assignmentId,
+      crewMemberId: input.crewMemberId,
+      serviceDate: input.serviceDate,
+      role: input.role,
+      origin: new URL(input.request.url).origin,
+      reminder: input.reminder,
+    });
+    if (delivery.delivered) {
+      await input.db.prepare(
+        "UPDATE service_assignment SET invitedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND showId = ?",
+      ).bind(input.assignmentId, input.orgId, input.showId).run();
+    }
+    return delivery;
+  } catch (error) {
+    console.error("[Mobile schedule] Assignment delivery failed", error);
+    return { delivered: false, reason: "delivery-failed" as const };
+  }
+}
+
+async function createMobileScheduleAssignment(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const parsed = parseMobileScheduleAssignmentWrite(await readJson(request));
+  if (!parsed || parsed.expectedUpdatedAt !== null) return json({ error: "Check the assignment details and try again." }, 400);
+  const [show, crew, existing] = await Promise.all([
+    getMobileScheduleShow(db, access.orgId, parsed.showId),
+    validateMobileScheduleCrew(db, access.orgId, parsed.crewMemberId),
+    db.prepare(
+      `SELECT id, orgId, showId, serviceDate, crewMemberId, role, department, status,
+              callTime, notes, responseNote, invitedAt, respondedAt, updatedAt
+       FROM service_assignment WHERE id = ? LIMIT 1`,
+    ).bind(parsed.requestId).first<MobileScheduleAssignmentWriteRow>(),
+  ]);
+  if (!show) return json({ error: "Show not found." }, 404);
+  if (!crew.ok) return json({ error: crew.error }, 400);
+  if (existing) {
+    const sameRequest = existing.orgId === access.orgId
+      && existing.showId === show.id
+      && existing.role === parsed.role
+      && existing.department === parsed.department
+      && existing.crewMemberId === parsed.crewMemberId
+      && existing.callTime === parsed.callTime
+      && existing.notes === parsed.notes;
+    return sameRequest
+      ? json({ ok: true, id: existing.id, created: false, delivered: Boolean(existing.invitedAt) })
+      : json({ error: "That assignment request was already used. Refresh and try again." }, 409);
+  }
+  await db.prepare(
+    `INSERT INTO service_assignment
+      (id, orgId, showId, serviceDate, crewMemberId, role, department, status, callTime, notes, responseNote, invitedAt, respondedAt, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'assigned', ?, ?, '', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+  ).bind(
+    parsed.requestId,
+    access.orgId,
+    show.id,
+    show.serviceDate,
+    parsed.crewMemberId,
+    parsed.role,
+    parsed.department,
+    parsed.callTime,
+    parsed.notes,
+  ).run();
+  const delivery = parsed.crewMemberId
+    ? await deliverMobileAssignmentInvitation({
+      request, db, orgId: access.orgId, assignmentId: parsed.requestId, showId: show.id,
+      serviceDate: show.serviceDate, role: parsed.role, crewMemberId: parsed.crewMemberId,
+    })
+    : { delivered: false, reason: null };
+  return json({ ok: true, id: parsed.requestId, created: true, delivered: delivery.delivered }, 201);
+}
+
+async function copyMobileScheduleTeam(request: Request, url: URL, showId: string, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
+  const sourceShowId = typeof body?.sourceShowId === "string" ? body.sourceShowId.trim() : "";
+  if (!validId(requestId) || requestId.length > 96 || !validId(sourceShowId) || sourceShowId === showId) {
+    return json({ error: "Choose a valid previous show to copy." }, 400);
+  }
+  const [target, source, sourceResult, targetResult] = await Promise.all([
+    getMobileScheduleShow(db, access.orgId, showId),
+    getMobileScheduleShow(db, access.orgId, sourceShowId),
+    db.prepare(
+      `SELECT id, crewMemberId, role, department, callTime
+       FROM service_assignment WHERE orgId = ? AND showId = ?
+       ORDER BY department ASC, role ASC, createdAt ASC, id ASC`,
+    ).bind(access.orgId, sourceShowId).all<Pick<MobileScheduleAssignmentWriteRow, "id" | "crewMemberId" | "role" | "department" | "callTime">>(),
+    db.prepare(
+      `SELECT id, crewMemberId, role, department, callTime, invitedAt
+       FROM service_assignment WHERE orgId = ? AND showId = ?
+       ORDER BY id ASC`,
+    ).bind(access.orgId, showId).all<Pick<MobileScheduleAssignmentWriteRow, "id" | "crewMemberId" | "role" | "department" | "callTime" | "invitedAt">>(),
+  ]);
+  if (!target || !source) return json({ error: "Show not found." }, 404);
+  if (target.status === "running" || target.status === "paused") {
+    return json({ error: "A live show team cannot be replaced." }, 409);
+  }
+  if (source.serviceDate > target.serviceDate) {
+    return json({ error: "Choose a show that occurs before this one." }, 400);
+  }
+  const sourceRows = sourceResult.results ?? [];
+  if (sourceRows.length === 0) return json({ error: "That show has no team to copy." }, 409);
+  const expectedIds = sourceRows.map((_, index) => `${requestId}-${index}`);
+  const targetRows = targetResult.results ?? [];
+  const targetById = new Map(targetRows.map((row) => [row.id, row]));
+  const isRetry = targetRows.length === expectedIds.length
+    && expectedIds.every((id) => targetById.has(id));
+  if (targetRows.length > 0 && !isRetry) {
+    return json({ error: "This show already has positions. Remove them before copying another team." }, 409);
+  }
+  if (!isRetry) {
+    await db.batch(sourceRows.map((row, index) => db.prepare(
+      `INSERT INTO service_assignment
+        (id, orgId, showId, serviceDate, crewMemberId, role, department, status,
+         callTime, notes, responseNote, invitedAt, respondedAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'assigned', ?, '', '', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    ).bind(
+      expectedIds[index],
+      access.orgId,
+      target.id,
+      target.serviceDate,
+      row.crewMemberId,
+      row.role,
+      row.department,
+      row.callTime,
+    )));
+  }
+  const assignedRows = sourceRows.filter((row) => Boolean(row.crewMemberId));
+  const alreadyDelivered = isRetry
+    ? expectedIds.filter((id) => Boolean(targetById.get(id)?.invitedAt)).length
+    : 0;
+  const deliverable = sourceRows.flatMap((row, index) => {
+    const id = expectedIds[index];
+    if (!row.crewMemberId || (isRetry && targetById.get(id)?.invitedAt)) return [];
+    return [{ ...row, id, crewMemberId: row.crewMemberId }];
+  });
+  const deliveries = await Promise.all(deliverable.map((assignment) => deliverMobileAssignmentInvitation({
+    request,
+    db,
+    orgId: access.orgId,
+    assignmentId: assignment.id,
+    showId: target.id,
+    serviceDate: target.serviceDate,
+    role: assignment.role,
+    crewMemberId: assignment.crewMemberId,
+  })));
+  return json({
+    ok: true,
+    copied: sourceRows.length,
+    created: !isRetry,
+    delivered: alreadyDelivered + deliveries.filter((delivery) => delivery.delivered).length,
+    total: assignedRows.length,
+  }, isRetry ? 200 : 201);
+}
+
+async function updateMobileScheduleAssignment(
+  request: Request,
+  url: URL,
+  assignmentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const parsed = parseMobileScheduleAssignmentWrite(await readJson(request));
+  if (!parsed || parsed.expectedUpdatedAt === null) return json({ error: "Refresh the schedule and check the assignment details." }, 400);
+  const [existing, show, crew] = await Promise.all([
+    db.prepare(
+      `SELECT id, orgId, showId, serviceDate, crewMemberId, role, department, status,
+              callTime, notes, responseNote, invitedAt, respondedAt, updatedAt
+       FROM service_assignment WHERE id = ? AND orgId = ? LIMIT 1`,
+    ).bind(assignmentId, access.orgId).first<MobileScheduleAssignmentWriteRow>(),
+    getMobileScheduleShow(db, access.orgId, parsed.showId),
+    validateMobileScheduleCrew(db, access.orgId, parsed.crewMemberId),
+  ]);
+  if (!existing || !show || existing.showId !== show.id) return json({ error: "Assignment not found." }, 404);
+  if (!crew.ok) return json({ error: crew.error }, 400);
+  if (existing.updatedAt !== parsed.expectedUpdatedAt) {
+    return json({ error: "This assignment changed on another device. Refresh and try again." }, 409);
+  }
+  const personChanged = existing.crewMemberId !== parsed.crewMemberId;
+  if (personChanged && existing.status === "declined") {
+    const replacement = await createMobileScheduleAssignment(
+      new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify({ ...parsed, expectedUpdatedAt: null }) }),
+      url,
+      db,
+    );
+    return replacement;
+  }
+  const result = await db.prepare(
+    `UPDATE service_assignment
+     SET role = ?, department = ?, crewMemberId = ?, callTime = ?, notes = ?,
+         status = CASE WHEN ? = 1 THEN 'assigned' ELSE status END,
+         responseNote = CASE WHEN ? = 1 THEN '' ELSE responseNote END,
+         respondedAt = CASE WHEN ? = 1 THEN NULL ELSE respondedAt END,
+         invitedAt = CASE WHEN ? = 1 THEN NULL ELSE invitedAt END,
+         updatedAt = CURRENT_TIMESTAMP
+     WHERE id = ? AND orgId = ? AND showId = ? AND updatedAt = ?`,
+  ).bind(
+    parsed.role, parsed.department, parsed.crewMemberId, parsed.callTime, parsed.notes,
+    personChanged ? 1 : 0, personChanged ? 1 : 0, personChanged ? 1 : 0, personChanged ? 1 : 0,
+    assignmentId, access.orgId, show.id, parsed.expectedUpdatedAt,
+  ).run();
+  if (!changedExactlyOneRow(result)) return json({ error: "This assignment changed on another device. Refresh and try again." }, 409);
+  if (personChanged) await clearMobileAssignmentInvitation(access.orgId, assignmentId);
+  const delivery = personChanged && parsed.crewMemberId
+    ? await deliverMobileAssignmentInvitation({
+      request, db, orgId: access.orgId, assignmentId, showId: show.id,
+      serviceDate: show.serviceDate, role: parsed.role, crewMemberId: parsed.crewMemberId,
+    })
+    : { delivered: false, reason: null };
+  return json({ ok: true, id: assignmentId, created: false, delivered: delivery.delivered });
+}
+
+async function deleteMobileScheduleAssignment(
+  request: Request,
+  url: URL,
+  assignmentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const result = await db.batch([
+    db.prepare("DELETE FROM notification WHERE orgId = ? AND source = ?").bind(access.orgId, assignmentId),
+    db.prepare("DELETE FROM service_assignment WHERE orgId = ? AND id = ?").bind(access.orgId, assignmentId),
+  ]);
+  return changedExactlyOneRow(result[1]) ? json({ ok: true }) : json({ error: "Assignment not found." }, 404);
+}
+
+async function remindMobileScheduleAssignments(
+  request: Request,
+  url: URL,
+  input: { assignmentId?: string; showId?: string },
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const rows = input.assignmentId
+    ? await db.prepare(
+      `SELECT id, showId, serviceDate, crewMemberId, role FROM service_assignment
+       WHERE id = ? AND orgId = ? AND status = 'assigned' AND crewMemberId IS NOT NULL`,
+    ).bind(input.assignmentId, access.orgId).all<{ id: string; showId: string; serviceDate: string; crewMemberId: string; role: string }>()
+    : await db.prepare(
+      `SELECT id, showId, serviceDate, crewMemberId, role FROM service_assignment
+       WHERE showId = ? AND orgId = ? AND status = 'assigned' AND crewMemberId IS NOT NULL`,
+    ).bind(input.showId, access.orgId).all<{ id: string; showId: string; serviceDate: string; crewMemberId: string; role: string }>();
+  const assignments = rows.results ?? [];
+  if (input.assignmentId && assignments.length === 0) return json({ error: "Only pending assignments can be reminded." }, 404);
+  const deliveries = await Promise.all(assignments.map((assignment) => deliverMobileAssignmentInvitation({
+    request,
+    db,
+    orgId: access.orgId,
+    assignmentId: assignment.id,
+    showId: assignment.showId,
+    serviceDate: assignment.serviceDate,
+    role: assignment.role,
+    crewMemberId: assignment.crewMemberId,
+    reminder: true,
+  })));
+  const available = deliveries.filter((delivery) => delivery.reason !== "assignment-expired");
+  return json({ ok: true, delivered: available.filter((delivery) => delivery.delivered).length, total: available.length });
+}
+
+async function updateMobileScheduleService(
+  request: Request,
+  url: URL,
+  showId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const startTime = typeof body?.startTime === "string" ? body.startTime.trim() : "";
+  const location = typeof body?.location === "string" ? body.location.trim() : "";
+  const expectedUpdatedAt = typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : "";
+  if (name.length > 120 || location.length > 240 || (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) || !expectedUpdatedAt || expectedUpdatedAt.length > 64) {
+    return json({ error: "Check the service title, start time, and location." }, 400);
+  }
+  const [show, timezone] = await Promise.all([
+    getMobileScheduleShow(db, access.orgId, showId),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      .bind(access.orgId).first<{ value: string }>(),
+  ]);
+  if (!show) return json({ error: "Show not found." }, 404);
+  if (show.updatedAt !== expectedUpdatedAt) return json({ error: "This show changed on another device. Refresh and try again." }, 409);
+  const scheduledStartTime = serviceTimeToIso(show.serviceDate, startTime, timezone?.value) || null;
+  const result = await db.prepare(
+    `UPDATE rundown SET name = ?, scheduledStartTime = ?, location = ?, updatedAt = CURRENT_TIMESTAMP
+     WHERE id = ? AND orgId = ? AND updatedAt = ?`,
+  ).bind(name, scheduledStartTime, location, showId, access.orgId, expectedUpdatedAt).run();
+  return changedExactlyOneRow(result)
+    ? json({ ok: true })
+    : json({ error: "This show changed on another device. Refresh and try again." }, 409);
+}
+
+async function deleteMobileScheduleService(
+  request: Request,
+  url: URL,
+  showId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  try {
+    const { deleteServiceForOrg } = await import("./service-deletion.server");
+    return json(await deleteServiceForOrg({ orgId: access.orgId, showId }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to remove show.";
+    return json({ error: message }, message === "Show not found" ? 404 : 409);
+  }
+}
+
+async function saveMobileScheduleProvider(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const provider = typeof body?.provider === "string" ? body.provider : "";
+  const workspaceUrl = typeof body?.url === "string" ? body.url.trim() : "";
+  const label = typeof body?.label === "string" ? body.label.trim() : "";
+  const terminologyProfile = typeof body?.terminologyProfile === "string" ? body.terminologyProfile : "";
+  if (!["native", "planning-center", "faithteams", "other"].includes(provider)
+    || label.length > 80 || !["general", "church"].includes(terminologyProfile)) {
+    return json({ error: "Check the scheduling source and organization language." }, 400);
+  }
+  if (provider !== "native" && !workspaceUrl) return json({ error: "A scheduling workspace URL is required." }, 400);
+  if (workspaceUrl) {
+    try {
+      if (new URL(workspaceUrl).protocol !== "https:") throw new Error();
+    } catch {
+      return json({ error: "Scheduling links must use HTTPS." }, 400);
+    }
+  }
+  const values = [
+    ["schedule-provider", provider],
+    ["schedule-provider-url", workspaceUrl],
+    ["schedule-provider-label", label],
+    ["terminology-profile", terminologyProfile],
+  ];
+  await db.batch(values.map(([key, value]) => db.prepare(
+    `INSERT INTO app_setting (id, orgId, key, value, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
+  ).bind(crypto.randomUUID(), access.orgId, key, value)));
+  return json({ ok: true });
 }
 
 async function respondToAssignment(request: Request, db: MobileApiDatabase): Promise<Response> {
@@ -2585,6 +3287,9 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST") return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET") return schedule(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/respond" && request.method === "POST") return respondToAssignment(request, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/assignments" && request.method === "POST") return createMobileScheduleAssignment(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/inventory" && request.method === "POST") return createMobileShowInventory(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/provider" && request.method === "POST") return saveMobileScheduleProvider(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents/history" && request.method === "GET") return mobileIncidentHistory(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
@@ -2693,6 +3398,29 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     return deviceWriteMatch[2] === "remove"
       ? deleteMobileDevice(request, url, deviceId, env)
       : updateMobileDevice(request, url, deviceId, env);
+  }
+  const scheduleAssignmentMatch = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/assignments\/([^/]+)(?:\/(remove|remind))?$/);
+  if (scheduleAssignmentMatch && request.method === "POST") {
+    const assignmentId = decodePathId(scheduleAssignmentMatch[1]);
+    if (!assignmentId) return json({ error: "Not found." }, 404);
+    if (scheduleAssignmentMatch[2] === "remove") return deleteMobileScheduleAssignment(request, url, assignmentId, env.DB);
+    if (scheduleAssignmentMatch[2] === "remind") return remindMobileScheduleAssignments(request, url, { assignmentId }, env.DB);
+    return updateMobileScheduleAssignment(request, url, assignmentId, env.DB);
+  }
+  const scheduleInventoryMatch = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/inventory\/([^/]+)\/(archive|restore)$/);
+  if (scheduleInventoryMatch && request.method === "POST") {
+    const inventoryId = decodePathId(scheduleInventoryMatch[1]);
+    if (!inventoryId) return json({ error: "Inventory item not found." }, 404);
+    return setMobileShowInventoryArchived(request, url, inventoryId, scheduleInventoryMatch[2] === "archive", env.DB);
+  }
+  const scheduleServiceMatch = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/services\/([^/]+)(?:\/(remove|remind|copy-team))?$/);
+  if (scheduleServiceMatch && request.method === "POST") {
+    const showId = decodePathId(scheduleServiceMatch[1]);
+    if (!showId) return json({ error: "Not found." }, 404);
+    if (scheduleServiceMatch[2] === "remove") return deleteMobileScheduleService(request, url, showId, env.DB);
+    if (scheduleServiceMatch[2] === "remind") return remindMobileScheduleAssignments(request, url, { showId }, env.DB);
+    if (scheduleServiceMatch[2] === "copy-team") return copyMobileScheduleTeam(request, url, showId, env.DB);
+    return updateMobileScheduleService(request, url, showId, env.DB);
   }
   const rundownMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)$/);
   if (rundownMatch && request.method === "GET") {
