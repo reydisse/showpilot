@@ -12,6 +12,7 @@ export function notificationHref(actionUrl: string): Href | null {
       ? { pathname: "/checklist", params: { showId: route.showId } }
       : "/checklist";
   }
+  if (route.screen === "checkin") return "/checkin";
   if (route.screen === "shows") return "/shows";
   if (route.screen === "schedule") {
     return {

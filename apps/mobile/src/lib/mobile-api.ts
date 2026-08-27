@@ -164,6 +164,23 @@ const incidentsSchema = z.object({
   incidents: z.array(incidentSchema),
 });
 
+const checkInMemberSchema = z.object({
+  id: z.string(),
+  memberId: z.string(),
+  name: z.string(),
+  role: z.string(),
+  photoUrl: z.string(),
+  isOnline: z.boolean(),
+  lastCheckIn: z.string().nullable(),
+  lastCheckOut: z.string().nullable(),
+});
+
+const checkInSchema = z.object({
+  members: z.array(checkInMemberSchema),
+});
+
+const checkInStatusSchema = z.object({ member: checkInMemberSchema });
+
 export const checklistDepartmentSchema = z.enum(["audio", "video", "lighting", "stream", "general"]);
 
 const checklistShowSchema = rundownSchema.omit({ itemCount: true });
@@ -233,6 +250,8 @@ const devicesSchema = z.object({
 export type MobileSchedule = z.infer<typeof scheduleSchema>;
 export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
+export type MobileCheckIn = z.infer<typeof checkInSchema>;
+export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
 export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
@@ -353,6 +372,23 @@ export async function reportMobileIncident(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function getMobileCheckIn(orgId: string): Promise<MobileCheckIn> {
+  const response = await authenticatedFetch(`/api/mobile/v1/checkin?orgId=${encodeURIComponent(orgId)}`);
+  return checkInSchema.parse(await response.json());
+}
+
+export async function setMobileCheckInStatus(input: {
+  orgId: string;
+  memberId: string;
+  checkedIn: boolean;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checkin/members/${encodeURIComponent(input.memberId)}/status?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ checkedIn: input.checkedIn }) },
+  );
+  return checkInStatusSchema.parse(await response.json());
 }
 
 export async function getMobileChecklist(orgId: string, showId: string): Promise<MobileChecklist> {

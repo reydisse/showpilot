@@ -149,6 +149,17 @@ interface MobileIncidentRow {
   resolvedAt: string | null;
 }
 
+interface MobileCheckInMemberRow {
+  id: string;
+  memberId: string;
+  name: string;
+  role: string;
+  photoUrl: string;
+  isOnline: number | boolean;
+  lastCheckIn: string | null;
+  lastCheckOut: string | null;
+}
+
 interface MobileDeviceRow {
   id: string;
   name: string;
@@ -951,6 +962,50 @@ async function createIncident(request: Request, url: URL, db: MobileApiDatabase)
   return json({ ok: true, id }, 201);
 }
 
+function serializeCheckInMember(member: MobileCheckInMemberRow) {
+  return { ...member, isOnline: Boolean(member.isOnline) };
+}
+
+async function checkIn(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["checkin:access"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare(
+    `SELECT id, memberId, name, role, photoUrl, isOnline, lastCheckIn, lastCheckOut
+     FROM crew_member WHERE orgId = ? ORDER BY name ASC, id ASC`,
+  ).bind(access.orgId).all<MobileCheckInMemberRow>();
+  return json({ members: (result.results ?? []).map(serializeCheckInMember) });
+}
+
+async function setCheckInStatus(
+  request: Request,
+  url: URL,
+  memberId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["checkin:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (!body || typeof body.checkedIn !== "boolean") {
+    return json({ error: "Choose whether this crew member is checked in." }, 400);
+  }
+  const checkedIn = body.checkedIn;
+  const update = await db.prepare(
+    `UPDATE crew_member
+     SET isOnline = ?,
+         lastCheckIn = CASE WHEN ? = 1 AND isOnline = 0 THEN CURRENT_TIMESTAMP ELSE lastCheckIn END,
+         lastCheckOut = CASE WHEN ? = 0 AND isOnline = 1 THEN CURRENT_TIMESTAMP ELSE lastCheckOut END
+     WHERE id = ? AND orgId = ?`,
+  ).bind(checkedIn ? 1 : 0, checkedIn ? 1 : 0, checkedIn ? 1 : 0, memberId, access.orgId).run();
+  if (!changedExactlyOneRow(update)) return json({ error: "Crew member not found." }, 404);
+  const member = await db.prepare(
+    `SELECT id, memberId, name, role, photoUrl, isOnline, lastCheckIn, lastCheckOut
+     FROM crew_member WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(memberId, access.orgId).first<MobileCheckInMemberRow>();
+  return member
+    ? json({ member: serializeCheckInMember(member) })
+    : json({ error: "Crew member not found." }, 404);
+}
+
 async function devices(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["devices:access"]);
   if (access instanceof Response) return access;
@@ -1134,6 +1189,7 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/schedule/respond" && request.method === "POST") return respondToAssignment(request, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist" && request.method === "GET") return checklist(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist/items" && request.method === "POST") return addChecklistItemMobile(request, url, env.DB);
@@ -1141,6 +1197,13 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/checklist/suggestions/apply" && request.method === "POST") return applyChecklistSuggestions(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/notifications/read" && request.method === "POST") return notificationRead(request, env.DB);
   if (url.pathname === "/api/mobile/v1/push-token" && request.method === "POST") return pushToken(request, env.DB);
+  const checkInMemberMatch = url.pathname.match(/^\/api\/mobile\/v1\/checkin\/members\/([^/]+)\/status$/);
+  if (checkInMemberMatch && request.method === "POST") {
+    const memberId = decodePathId(checkInMemberMatch[1]);
+    return memberId
+      ? setCheckInStatus(request, url, memberId, env.DB)
+      : json({ error: "Not found." }, 404);
+  }
   const checklistEntryMatch = url.pathname.match(/^\/api\/mobile\/v1\/checklist\/entries\/([^/]+)\/(toggle|remove)$/);
   if (checklistEntryMatch && request.method === "POST") {
     const entryId = decodePathId(checklistEntryMatch[1]);

@@ -80,10 +80,15 @@
       "id": "check-in",
       "label": "Check-in",
       "webPath": "checkin",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native crew check-in has not been built."
+      "status": "complete",
+      "nativeRoutes": [
+        "src/app/checkin.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/checkin",
+        "const checkInMemberMatch"
+      ],
+      "gaps": ""
     },
     {
       "id": "team",

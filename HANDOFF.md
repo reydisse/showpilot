@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 75 test files and 630 unit tests, five
+- The current full web gate passes 76 test files and 635 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 495,108 bytes raw and 155,812
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  5,975,477 and 5,976,138 bytes. EAS linkage and signed-device push remain
+  6,005,577 and 6,006,276 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -589,9 +589,9 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - `apps/mobile/parity.config.json` is the machine-checked definition of primary
   web-to-native product parity. The mobile verifier derives all 20 source
   surfaces from the production web Sidebar and rejects missing, reordered, or
-  unsupported inventory claims. At this checkpoint Checklist is complete; Show,
-  Schedule, Rundown, Chat, Incidents, and Devices are partial; the remaining 13
-  primary surfaces are explicitly recorded as missing. Profile, Settings,
+  unsupported inventory claims. At this checkpoint Checklist and Check-in are
+  complete; Show, Schedule, Rundown, Chat, Incidents, and Devices are partial;
+  the remaining 12 primary surfaces are explicitly recorded as missing. Profile, Settings,
   authentication, organization selection, and Inbox are supporting mobile
   surfaces outside that primary-nav inventory. Do not describe the React Native
   product as full web parity until the manifest is green with all 20 complete.
@@ -600,6 +600,16 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   run: every installed iOS 26.3 simulator was shut down on 2026-08-27, and the
   simulator workflow correctly did not boot one without owner direction. Treat
   physical-device and rendered simulator verification as an outstanding gate.
+- Native Check-in now matches the authenticated web operator workflow with
+  member-ID lookup, searchable roster browsing, live in/out counts, photos,
+  explicit check-in/check-out confirmation, pull-to-refresh, 15-second
+  convergence polling, RBAC navigation, and direct notification routing. Its
+  server write accepts the desired final status instead of toggling stale client
+  state, so concurrent operators and safe retries converge. Every query and
+  update is organization-scoped. Five API tests prove tenant isolation,
+  idempotent retry behavior, foreign-member rejection, required target state,
+  and permission enforcement. No migration is required. Rendered device QA is
+  still outstanding alongside the Checklist screen.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
