@@ -443,9 +443,15 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Expo `android.blockedPermissions`; the mobile verifier now locks that rule.
   The rebuilt release manifest also excludes camera, microphone, broad storage,
   development-launcher entries, cleartext networking, and debug flags. Its JS
-  bundle contains `https://showpilot.tech` and no localhost or private-LAN API
-  host. The local APK is intentionally debug-signed and is not distributable;
-  EAS must inject the approved remote release keystore before review or upload.
+  bundle contains `https://showpilot.tech` and no private-LAN API host. The
+  React Native runtime retains its generic Metro fallback string
+  (`http://localhost:8081`), but the application API target is the production
+  origin. The exact `:app:bundleRelease` task used for Google Play also passes:
+  its 76,513,919-byte AAB has SHA-256
+  `bd0ff5b700e0e53f7818ad5783facbf9141e61eb0bcf07686faa839668d7223c`,
+  and `jarsigner` verifies every entry. The local APK and AAB are intentionally
+  debug-signed and are not distributable; EAS must inject the approved remote
+  release keystore before review or upload.
   Mobile verification remains green with Expo Doctor 18/18 and iOS/Android
   Hermes bundles of 5,903,740 and 5,904,444 bytes.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
