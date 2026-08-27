@@ -596,6 +596,109 @@ const mobileDeviceControlStateSchema = z.object({
   refreshedAt: z.number().nullable(),
 });
 
+const mobileOperationalShowSchema = z.object({
+  id: z.string(),
+  serviceDate: z.string(),
+  name: z.string(),
+  status: z.string().optional(),
+  scheduledStartTime: z.string().nullable().optional(),
+});
+
+const cueNoteSchema = z.object({
+  itemId: z.string(),
+  columnId: z.string(),
+  text: z.string(),
+  updatedAt: z.string().nullable(),
+  updatedBy: z.string(),
+});
+
+const cueSheetSchema = z.object({
+  show: mobileOperationalShowSchema.nullable(),
+  shows: z.array(mobileOperationalShowSchema),
+  canEdit: z.boolean().default(false),
+  canAddNotes: z.boolean().default(false),
+  columns: z.array(z.object({ id: z.string(), label: z.string(), color: z.string(), sortOrder: z.number(), width: z.number() })),
+  rows: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    type: z.string(),
+    duration: z.number(),
+    assignee: z.string(),
+    cue: z.string(),
+    status: z.string(),
+    sortOrder: z.number(),
+    notes: z.array(cueNoteSchema),
+  })),
+});
+
+const assetSchema = z.object({
+  id: z.string(), name: z.string(), category: z.string(), status: z.string(), location: z.string(),
+  serialNumber: z.string(), notes: z.string(), lastServiced: z.string().nullable(), nextService: z.string().nullable(), updatedAt: z.string(),
+});
+const assetsSchema = z.object({ canManage: z.boolean(), assets: z.array(assetSchema) });
+
+const streamingSchema = z.object({
+  canManage: z.boolean(),
+  inputs: z.array(z.object({
+    id: z.string(), name: z.string(), status: z.string(), rtmpUrl: z.string(), srtUrl: z.string(), createdAt: z.string(),
+    providerStatus: z.string().optional(), checkedAt: z.string().optional(), error: z.string().optional(),
+  })),
+  destinations: z.array(z.object({
+    id: z.string(), name: z.string(), platform: z.string(), rtmpUrl: z.string(), enabled: z.boolean(), connected: z.boolean(),
+    hasStreamKey: z.boolean(), cfOutputId: z.string(), liveInputId: z.string(), createdAt: z.string(),
+  })),
+});
+
+const graphicsSchema = z.object({
+  cloudEnabled: z.boolean(), canConfigure: z.boolean(), canTrigger: z.boolean(), activeIds: z.array(z.string()),
+  templates: z.array(z.object({ id: z.string(), name: z.string(), title: z.string(), subtitle: z.string(), style: z.string(), createdAt: z.string(), updatedAt: z.string() })),
+});
+
+const dashboardSchema = z.object({
+  kind: z.enum(["pm", "tm"]),
+  show: mobileOperationalShowSchema.nullable(),
+  items: z.object({ total: z.number(), complete: z.number(), missingDuration: z.number(), missingOwner: z.number() }),
+  assignments: z.array(z.object({ status: z.string(), count: z.number() })),
+  checklist: z.object({ total: z.number(), complete: z.number() }),
+  incidents: z.array(z.object({ id: z.string(), category: z.string(), severity: z.string(), description: z.string(), status: z.string(), assignedName: z.string().nullable(), timestamp: z.string().nullable() })),
+  equipment: z.array(z.object({ id: z.string(), name: z.string(), category: z.string(), status: z.string(), nextService: z.string().nullable() })),
+  inputs: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
+  destinations: z.array(z.object({ id: z.string(), name: z.string(), platform: z.string(), enabled: z.boolean(), connected: z.boolean(), cfOutputId: z.string() })),
+  devices: z.array(z.object({ id: z.string(), name: z.string(), category: z.string(), adapterType: z.string(), enabled: z.boolean() })),
+});
+
+const reportsSchema = z.object({
+  organization: z.string(), generatedAt: z.string(),
+  reports: z.array(z.object({
+    id: z.string(), serviceDate: z.string(), name: z.string(), location: z.string(), status: z.string(), scheduledStartTime: z.string().nullable(),
+    itemCount: z.number(), completedItems: z.number(), incidentCount: z.number(), assignmentCount: z.number(), confirmedAssignments: z.number(), checklistCount: z.number(), completedChecks: z.number(),
+  })),
+});
+
+const audioAssignmentSchema = z.object({
+  id: z.string(), showId: z.string().nullable(), channel: z.number(), label: z.string(), micType: z.string(), micModel: z.string(), notes: z.string(),
+  gainDb: z.number().nullable(), phantom: z.boolean(), muted: z.boolean(), group: z.string(), mixerConsole: z.string(), mixerChannel: z.number().nullable(),
+  mixerChannelType: z.string(), serviceDate: z.string(), updatedAt: z.string(),
+});
+const audioSchema = z.object({
+  show: mobileOperationalShowSchema.nullable(), shows: z.array(mobileOperationalShowSchema),
+  mixers: z.array(z.object({ id: z.string(), name: z.string(), adapterType: z.string() })), assignments: z.array(audioAssignmentSchema),
+});
+
+const timecodeValueSchema = z.object({ hours: z.number(), minutes: z.number(), seconds: z.number(), frames: z.number() });
+const timecodeStateSchema = z.object({
+  timecode: timecodeValueSchema,
+  display: z.string(),
+  source: z.enum(["internal-freerun", "internal-rundown", "mtc", "ltc-bridge", "network"]),
+  format: z.object({ frameRate: z.union([z.literal(24), z.literal(25), z.literal(29.97), z.literal(30)]), dropFrame: z.enum(["df", "ndf"]) }),
+  running: z.boolean(), serverTime: z.number(), totalFrames: z.number(),
+});
+const timecodeEventSchema = z.object({
+  id: z.string(), label: z.string(), triggerTimecode: timecodeValueSchema, triggerFrame: z.number(),
+  action: z.enum(["lower-third-show", "lower-third-clear", "rundown-advance", "rundown-start-item", "custom-webhook"]),
+  payload: z.record(z.string(), z.unknown()), fired: z.boolean(), toleranceFrames: z.number().optional(),
+});
+
 export type MobileSchedule = z.infer<typeof scheduleSchema>;
 export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
@@ -625,6 +728,32 @@ export type MobileChecklist = z.infer<typeof mobileChecklistSchema>;
 export type MobileChecklistEntry = z.infer<typeof checklistEntrySchema>;
 export type MobileChecklistDraft = z.infer<typeof mobileChecklistDraftSchema>;
 export type MobileChecklistSuggestion = z.infer<typeof checklistSuggestionSchema>;
+export type MobileCueSheet = z.infer<typeof cueSheetSchema>;
+export type MobileAsset = z.infer<typeof assetSchema>;
+export type MobileAssets = z.infer<typeof assetsSchema>;
+export type MobileStreaming = z.infer<typeof streamingSchema>;
+export type MobileGraphics = z.infer<typeof graphicsSchema>;
+export type MobileDashboard = z.infer<typeof dashboardSchema>;
+export type MobileReports = z.infer<typeof reportsSchema>;
+export type MobileAudio = z.infer<typeof audioSchema>;
+export type MobileAudioAssignment = z.infer<typeof audioAssignmentSchema>;
+export type MobileTimecodeState = z.infer<typeof timecodeStateSchema>;
+export type MobileTimecodeEvent = z.infer<typeof timecodeEventSchema>;
+
+export function parseMobileTimecodeState(value: unknown): MobileTimecodeState | null {
+  const result = timecodeStateSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
+export function parseMobileTimecodeEvents(value: unknown): MobileTimecodeEvent[] | null {
+  const result = z.array(timecodeEventSchema).safeParse(value);
+  return result.success ? result.data : null;
+}
+
+export function parseMobileTimecodeEvent(value: unknown): MobileTimecodeEvent | null {
+  const result = timecodeEventSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 async function authenticatedFetch(path: string, init?: FetchRequestInit) {
   const nativeCookieHeader = await getNativeCookieHeader();
@@ -1443,6 +1572,215 @@ export async function getMobileDeviceControlState(input: { orgId: string; device
     `/api/mobile/v1/devices/${encodeURIComponent(input.deviceId)}/control?orgId=${encodeURIComponent(input.orgId)}`,
   );
   return mobileDeviceControlStateSchema.parse(await response.json());
+}
+
+export async function getMobileCueSheet(orgId: string, showId?: string): Promise<MobileCueSheet> {
+  const query = new URLSearchParams({ orgId });
+  if (showId) query.set("showId", showId);
+  const response = await authenticatedFetch(`/api/mobile/v1/cue-sheets?${query}`);
+  return cueSheetSchema.parse(await response.json());
+}
+
+export async function writeMobileCueSheet(input: {
+  orgId: string;
+  action: "upsert-note" | "add-column" | "update-column" | "move-column" | "remove-column";
+  showId?: string;
+  itemId?: string;
+  columnId?: string;
+  text?: string;
+  label?: string;
+  color?: string;
+  sortOrder?: number;
+}) {
+  const response = await authenticatedFetch(`/api/mobile/v1/cue-sheets?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return okSchema.extend({ id: z.string().optional() }).parse(await response.json());
+}
+
+export interface MobileAssetWrite {
+  orgId: string;
+  name: string;
+  category: string;
+  status: string;
+  location: string;
+  serialNumber: string;
+  notes: string;
+}
+
+export async function getMobileAssets(orgId: string): Promise<MobileAssets> {
+  const response = await authenticatedFetch(`/api/mobile/v1/assets?orgId=${encodeURIComponent(orgId)}`);
+  return assetsSchema.parse(await response.json());
+}
+
+export async function createMobileAsset(input: MobileAssetWrite) {
+  const response = await authenticatedFetch(`/api/mobile/v1/assets?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.extend({ id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileAsset(input: MobileAssetWrite & { id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/assets/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileAsset(input: { orgId: string; id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/assets/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify({ action: "remove" }),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileStreaming(orgId: string): Promise<MobileStreaming> {
+  const response = await authenticatedFetch(`/api/mobile/v1/streaming?orgId=${encodeURIComponent(orgId)}`);
+  return streamingSchema.parse(await response.json());
+}
+
+export interface MobileDestinationWrite {
+  orgId: string;
+  name: string;
+  platform: string;
+  rtmpUrl: string;
+  streamKey?: string;
+}
+
+export async function createMobileDestination(input: MobileDestinationWrite) {
+  const response = await authenticatedFetch(`/api/mobile/v1/streaming/destinations?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.extend({ id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileDestination(input: MobileDestinationWrite & { id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/streaming/destinations/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function commandMobileDestination(input: { orgId: string; id: string; action: "toggle" | "remove"; enabled?: boolean }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/streaming/destinations/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileGraphics(orgId: string): Promise<MobileGraphics> {
+  const response = await authenticatedFetch(`/api/mobile/v1/graphics?orgId=${encodeURIComponent(orgId)}`);
+  return graphicsSchema.parse(await response.json());
+}
+
+export interface MobileGraphicWrite {
+  orgId: string;
+  name: string;
+  title: string;
+  subtitle: string;
+}
+
+export async function createMobileGraphic(input: MobileGraphicWrite) {
+  const response = await authenticatedFetch(`/api/mobile/v1/graphics?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.extend({ id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileGraphic(input: MobileGraphicWrite & { id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/graphics/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function commandMobileGraphic(input: { orgId: string; id?: string; action: "toggle" | "clear" | "remove" }) {
+  const path = input.id ? `/api/mobile/v1/graphics/${encodeURIComponent(input.id)}` : "/api/mobile/v1/graphics";
+  const response = await authenticatedFetch(`${path}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.extend({ activeIds: z.array(z.string()).optional() }).parse(await response.json());
+}
+
+export async function getMobileDashboard(orgId: string, kind: "pm" | "tm", showId?: string): Promise<MobileDashboard> {
+  const query = new URLSearchParams({ orgId });
+  if (showId) query.set("showId", showId);
+  const response = await authenticatedFetch(`/api/mobile/v1/dashboards/${kind}?${query}`);
+  return dashboardSchema.parse(await response.json());
+}
+
+export async function getMobileReports(orgId: string): Promise<MobileReports> {
+  const response = await authenticatedFetch(`/api/mobile/v1/reports?orgId=${encodeURIComponent(orgId)}`);
+  return reportsSchema.parse(await response.json());
+}
+
+export async function getMobileAudio(orgId: string, showId?: string): Promise<MobileAudio> {
+  const query = new URLSearchParams({ orgId });
+  if (showId) query.set("showId", showId);
+  const response = await authenticatedFetch(`/api/mobile/v1/audio?${query}`);
+  return audioSchema.parse(await response.json());
+}
+
+export interface MobileAudioWrite {
+  orgId: string;
+  showId: string;
+  channel: number;
+  label: string;
+  micType: string;
+  micModel: string;
+  notes: string;
+  gainDb?: number | null;
+  phantom: boolean;
+  muted: boolean;
+  group: string;
+  mixerConsole: string;
+  mixerChannel?: number | null;
+  mixerChannelType: string;
+}
+
+export async function createMobileAudioAssignment(input: MobileAudioWrite) {
+  const response = await authenticatedFetch(`/api/mobile/v1/audio?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.extend({ id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileAudioAssignment(input: MobileAudioWrite & { id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/audio/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileAudioAssignment(input: { orgId: string; id: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/audio/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify({ action: "remove" }),
+  });
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileTimecode(orgId: string): Promise<{ state: MobileTimecodeState; events: MobileTimecodeEvent[] }> {
+  const root = `/api/timecode/${encodeURIComponent(orgId)}`;
+  const [stateResponse, eventsResponse] = await Promise.all([
+    authenticatedFetch(`${root}/state`),
+    authenticatedFetch(`${root}/events`),
+  ]);
+  return {
+    state: timecodeStateSchema.parse(await stateResponse.json()),
+    events: z.array(timecodeEventSchema).parse(await eventsResponse.json()),
+  };
+}
+
+export async function commandMobileTimecode(input: {
+  orgId: string;
+  action: "start" | "stop" | "set-timecode" | "set-source" | "set-format" | "add-event" | "update-event" | "remove-event" | "reset-events";
+  payload?: Record<string, unknown>;
+}) {
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command`, {
+    method: "POST", body: JSON.stringify({ action: input.action, payload: input.payload }),
+  });
+  return okSchema.parse(await response.json());
 }
 
 export async function markNotificationRead(orgId: string, notificationId: string) {

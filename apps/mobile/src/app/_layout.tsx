@@ -73,11 +73,13 @@ function RootNavigator() {
           />
           <Stack.Screen name="show/[showId]" options={{ title: "Live rundown", headerBackTitle: "Shows" }} />
           <Stack.Screen name="live-show" options={{ title: "Live Show", headerBackTitle: "Shows" }} />
+          <Stack.Screen name="timecode" options={{ title: "Timecode", headerBackTitle: "Operate" }} />
           <Stack.Screen name="schedule" options={{ title: "Schedule", headerBackTitle: "Operate" }} />
           <Stack.Screen name="chat" options={{ title: "Production chat", headerBackTitle: "Operate" }} />
           <Stack.Screen name="incidents" options={{ title: "Incidents", headerBackTitle: "Operate" }} />
           <Stack.Screen name="incidents-history" options={{ title: "Incident history", headerBackTitle: "Incidents" }} />
           <Stack.Screen name="checklist" options={{ title: "Pre-show checklist", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="cue-sheets" options={{ title: "Cue Sheets", headerBackTitle: "Operate" }} />
           <Stack.Screen name="checkin" options={{ title: "Crew check-in", headerBackTitle: "Operate" }} />
           <Stack.Screen name="show-board" options={{ title: "Show Board", headerBackTitle: "Operate" }} />
           <Stack.Screen name="team-members" options={{ title: "Organization members", headerBackTitle: "Operate" }} />
@@ -85,6 +87,14 @@ function RootNavigator() {
           <Stack.Screen name="team" options={{ title: "Team access", headerBackTitle: "Operate" }} />
           <Stack.Screen name="devices" options={{ title: "Devices", headerBackTitle: "Operate" }} />
           <Stack.Screen name="device/[deviceId]" options={{ title: "Device control", headerBackTitle: "Devices" }} />
+          <Stack.Screen name="asset-inventory" options={{ title: "Assets", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="stream" options={{ title: "Stream Health", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="multi-platform" options={{ title: "Multi-Platform", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="lower-thirds" options={{ title: "Lower Thirds", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="prod-manager" options={{ title: "Prod Manager", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="reports" options={{ title: "Reports", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="tech-manager" options={{ title: "Tech Manager", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="audio" options={{ title: "Audio", headerBackTitle: "Operate" }} />
         </Stack.Protected>
       </Stack>
     </>

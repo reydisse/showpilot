@@ -55,6 +55,8 @@ import type {
 import { rundownRelayKey } from "./rundown-relay-key";
 import { parseRelayRundownItems, type RelayRundownItem } from "./rundown-relay-payload";
 import { fetchOntimeRuntimeState } from "./ontime-runtime";
+import { deleteStreamDestinationForOrg, setStreamDestinationEnabledForOrg } from "./stream-destinations";
+import { getLiveInputStatusForOrg } from "./stream";
 
 export interface MobileApiStatement {
   first<T>(): Promise<T | null>;
@@ -4094,6 +4096,482 @@ function decodePathId(value: string): string | null {
   }
 }
 
+const cueColumnColors = new Set(["slate", "amber", "green", "blue", "purple", "pink", "cyan", "red"]);
+const equipmentStatuses = new Set(["operational", "maintenance", "broken", "retired", "needs-repair", "out-of-service", "in-repair"]);
+const equipmentCategories = new Set(["audio", "video", "lighting", "streaming", "network", "power", "cables", "comms", "other"]);
+const micTypes = new Set(["wireless-handheld", "wireless-lav", "wired", "headset", "di-box", "other"]);
+const micGroups = new Set(["vocals", "band", "playback", "sfx", "other"]);
+
+function boundedText(value: unknown, maximum: number, required = false): string | null {
+  if (typeof value !== "string") return required ? null : "";
+  const text = value.trim();
+  if ((required && text.length === 0) || text.length > maximum) return null;
+  return text;
+}
+
+async function resolveMobileShow(
+  db: MobileApiDatabase,
+  orgId: string,
+  today: string,
+  requestedShowId?: unknown,
+): Promise<{ id: string; serviceDate: string; name: string; status: string } | null> {
+  if (requestedShowId !== undefined && !validId(requestedShowId)) return null;
+  if (typeof requestedShowId === "string") {
+    return db.prepare(
+      "SELECT id, serviceDate, name, status FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
+    ).bind(requestedShowId, orgId).first();
+  }
+  return db.prepare(
+    `SELECT id, serviceDate, name, status FROM rundown WHERE orgId = ?
+     ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END,
+       CASE WHEN serviceDate >= ? THEN serviceDate END ASC, serviceDate DESC,
+       scheduledStartTime ASC, createdAt ASC LIMIT 1`,
+  ).bind(orgId, today, today).first();
+}
+
+async function mobileCueSheet(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"]);
+  if (access instanceof Response) return access;
+  const show = await resolveMobileShow(db, access.orgId, access.identity.today, url.searchParams.get("showId") ?? undefined);
+  if (!show) {
+    const shows = await db.prepare(
+      "SELECT id, serviceDate, name, scheduledStartTime FROM rundown WHERE orgId = ? ORDER BY serviceDate DESC, scheduledStartTime DESC",
+    ).bind(access.orgId).all<Record<string, unknown>>();
+    return json({
+      show: null,
+      shows: shows.results ?? [],
+      canEdit: hasAny(access.identity, ["cuesheet:edit"]),
+      canAddNotes: hasAny(access.identity, ["cuesheet:edit", "cuesheet:add_notes"]),
+      columns: [],
+      rows: [],
+    });
+  }
+  const [columnsResult, itemResult, noteResult, showsResult] = await Promise.all([
+    db.prepare(
+      "SELECT id, label, color, sortOrder, width FROM cue_column WHERE orgId = ? ORDER BY sortOrder, createdAt",
+    ).bind(access.orgId).all<{ id: string; label: string; color: string; sortOrder: number; width: number }>(),
+    db.prepare(
+      `SELECT itemId AS id, title, type, duration, assignee, cue, status, sortOrder
+       FROM rundown_item WHERE orgId = ? AND showId = ? ORDER BY sortOrder, createdAt`,
+    ).bind(access.orgId, show.id).all<Record<string, unknown>>(),
+    db.prepare(
+      "SELECT itemId, columnId, text, updatedAt, updatedBy FROM cue_note WHERE orgId = ? AND showId = ?",
+    ).bind(access.orgId, show.id).all<Record<string, unknown>>(),
+    db.prepare(
+      "SELECT id, serviceDate, name, scheduledStartTime FROM rundown WHERE orgId = ? ORDER BY serviceDate DESC, scheduledStartTime DESC",
+    ).bind(access.orgId).all<Record<string, unknown>>(),
+  ]);
+  const notes = new Map((noteResult.results ?? []).map((note) => [`${note.itemId}:${note.columnId}`, note]));
+  const columns = columnsResult.results ?? [];
+  return json({
+    show,
+    shows: showsResult.results ?? [],
+    canEdit: hasAny(access.identity, ["cuesheet:edit"]),
+    canAddNotes: hasAny(access.identity, ["cuesheet:edit", "cuesheet:add_notes"]),
+    columns,
+    rows: (itemResult.results ?? []).map((item) => ({
+      ...item,
+      notes: columns.map((column) => notes.get(`${item.id}:${column.id}`) ?? {
+        itemId: item.id,
+        columnId: column.id,
+        text: "",
+        updatedAt: null,
+        updatedBy: "",
+      }),
+    })),
+  });
+}
+
+async function writeMobileCueSheet(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const body = await readJson(request);
+  const action = body?.action;
+  const permissions: Permission[] = action === "upsert-note"
+    ? ["cuesheet:edit", "cuesheet:add_notes"]
+    : ["cuesheet:edit"];
+  const access = await authorize(request, url, db, permissions);
+  if (access instanceof Response) return access;
+  if (action === "upsert-note") {
+    if (!validId(body?.showId) || !validId(body?.itemId) || !validId(body?.columnId)) return json({ error: "Valid cue targets are required." }, 400);
+    const text = boundedText(body?.text, 2_000);
+    if (text === null) return json({ error: "Cue notes may contain at most 2,000 characters." }, 400);
+    const targets = await db.prepare(
+      `SELECT 1 AS valid FROM rundown_item i JOIN cue_column c ON c.id = ? AND c.orgId = i.orgId
+       WHERE i.orgId = ? AND i.showId = ? AND i.itemId = ? LIMIT 1`,
+    ).bind(body.columnId, access.orgId, body.showId, body.itemId).first<{ valid: number }>();
+    if (!targets) return json({ error: "Cue row or column not found." }, 404);
+    await db.prepare(
+      `INSERT INTO cue_note (id, orgId, showId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
+       SELECT ?, ?, id, serviceDate, ?, ?, ?, CURRENT_TIMESTAMP, ? FROM rundown WHERE id = ? AND orgId = ?
+       ON CONFLICT(orgId, showId, itemId, columnId) DO UPDATE SET
+         text = excluded.text, updatedAt = CURRENT_TIMESTAMP, updatedBy = excluded.updatedBy`,
+    ).bind(crypto.randomUUID(), access.orgId, body.itemId, body.columnId, text, access.identity.name, body.showId, access.orgId).run();
+    return json({ ok: true });
+  }
+  if (action === "add-column") {
+    const label = boundedText(body?.label, 80, true);
+    const color = typeof body?.color === "string" && cueColumnColors.has(body.color) ? body.color : "slate";
+    if (!label) return json({ error: "A column label is required." }, 400);
+    const next = await db.prepare("SELECT COALESCE(MAX(sortOrder), -1) + 1 AS value FROM cue_column WHERE orgId = ?")
+      .bind(access.orgId).first<{ value: number }>();
+    const id = crypto.randomUUID();
+    await db.prepare(
+      "INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 160, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ).bind(id, access.orgId, label, color, next?.value ?? 0).run();
+    return json({ ok: true, id });
+  }
+  if (action === "update-column" || action === "move-column") {
+    if (!validId(body?.columnId)) return json({ error: "A valid column is required." }, 400);
+    const current = await db.prepare("SELECT label, color, sortOrder FROM cue_column WHERE id = ? AND orgId = ?")
+      .bind(body.columnId, access.orgId).first<{ label: string; color: string; sortOrder: number }>();
+    if (!current) return json({ error: "Cue column not found." }, 404);
+    const label = body.label === undefined ? current.label : boundedText(body.label, 80, true);
+    const color = body.color === undefined ? current.color : typeof body.color === "string" && cueColumnColors.has(body.color) ? body.color : null;
+    const sortOrder = action === "move-column" && typeof body.sortOrder === "number" && Number.isInteger(body.sortOrder)
+      ? Math.max(0, Math.min(100, body.sortOrder))
+      : current.sortOrder;
+    if (!label || !color) return json({ error: "Column values are invalid." }, 400);
+    if (action === "move-column" && sortOrder !== current.sortOrder) {
+      await db.prepare(
+        "UPDATE cue_column SET sortOrder = ?, updatedAt = CURRENT_TIMESTAMP WHERE orgId = ? AND sortOrder = ? AND id <> ?",
+      ).bind(current.sortOrder, access.orgId, sortOrder, body.columnId).run();
+    }
+    await db.prepare("UPDATE cue_column SET label = ?, color = ?, sortOrder = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?")
+      .bind(label, color, sortOrder, body.columnId, access.orgId).run();
+    return json({ ok: true });
+  }
+  if (action === "remove-column" && validId(body?.columnId)) {
+    await db.prepare("DELETE FROM cue_column WHERE id = ? AND orgId = ?").bind(body.columnId, access.orgId).run();
+    return json({ ok: true });
+  }
+  return json({ error: "Unsupported cue-sheet action." }, 400);
+}
+
+async function mobileAssets(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["assets:view", "assets:manage"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare(
+    `SELECT id, name, category, status, location, serialNumber, notes, lastServiced, nextService, updatedAt
+     FROM equipment WHERE orgId = ? ORDER BY category, name, createdAt`,
+  ).bind(access.orgId).all<Record<string, unknown>>();
+  return json({ canManage: hasAny(access.identity, ["assets:manage"]), assets: result.results ?? [] });
+}
+
+function parseAssetWrite(body: Record<string, unknown> | null) {
+  const name = boundedText(body?.name, 200, true);
+  const category = typeof body?.category === "string" ? body.category.toLowerCase() : "";
+  const status = typeof body?.status === "string" ? body.status.toLowerCase() : "";
+  const location = boundedText(body?.location, 240);
+  const serialNumber = boundedText(body?.serialNumber, 240);
+  const notes = boundedText(body?.notes, 2_000);
+  if (!name || !equipmentCategories.has(category) || !equipmentStatuses.has(status) || location === null || serialNumber === null || notes === null) return null;
+  return { name, category, status, location, serialNumber, notes };
+}
+
+async function writeMobileAsset(request: Request, url: URL, db: MobileApiDatabase, assetId?: string): Promise<Response> {
+  const access = await authorize(request, url, db, ["assets:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (body?.action === "remove" && assetId) {
+    const result = await db.prepare("DELETE FROM equipment WHERE id = ? AND orgId = ?").bind(assetId, access.orgId).run();
+    return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Asset not found." }, 404);
+  }
+  const write = parseAssetWrite(body);
+  if (!write) return json({ error: "Asset details are invalid." }, 400);
+  if (assetId) {
+    const result = await db.prepare(
+      `UPDATE equipment SET name = ?, category = ?, status = ?, location = ?, serialNumber = ?, notes = ?, updatedAt = CURRENT_TIMESTAMP
+       WHERE id = ? AND orgId = ?`,
+    ).bind(write.name, write.category, write.status, write.location, write.serialNumber, write.notes, assetId, access.orgId).run();
+    return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Asset not found." }, 404);
+  }
+  const id = crypto.randomUUID();
+  await db.prepare(
+    `INSERT INTO equipment (id, orgId, name, category, status, location, serialNumber, notes, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+  ).bind(id, access.orgId, write.name, write.category, write.status, write.location, write.serialNumber, write.notes).run();
+  return json({ ok: true, id });
+}
+
+async function mobileStreaming(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["stream_health:view", "stream_health:manage", "streaming_suite:access"]);
+  if (access instanceof Response) return access;
+  const [inputs, destinations] = await Promise.all([
+    db.prepare("SELECT id, name, status, rtmpUrl, srtUrl, createdAt FROM live_input WHERE orgId = ? ORDER BY createdAt")
+      .bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare(
+      `SELECT id, name, platform, rtmpUrl, enabled, cfOutputId, liveInputId, createdAt,
+        CASE WHEN streamKey = '' THEN 0 ELSE 1 END AS hasStreamKey
+       FROM stream_destination WHERE orgId = ? ORDER BY createdAt`,
+    ).bind(access.orgId).all<Record<string, unknown>>(),
+  ]);
+  const inputRows = inputs.results ?? [];
+  const liveStatuses = await Promise.all(inputRows.map((row) => getLiveInputStatusForOrg(access.orgId, String(row.id))));
+  return json({
+    canManage: hasAny(access.identity, ["stream_health:manage"]),
+    inputs: inputRows.map((row, index) => ({
+      ...row,
+      ...(liveStatuses[index] ?? {}),
+    })),
+    destinations: (destinations.results ?? []).map((row) => ({
+      ...row,
+      enabled: Boolean(row.enabled),
+      connected: typeof row.cfOutputId === "string" && row.cfOutputId.length > 0,
+      hasStreamKey: Boolean(row.hasStreamKey),
+    })),
+  });
+}
+
+async function writeMobileDestination(request: Request, url: URL, db: MobileApiDatabase, destinationId?: string): Promise<Response> {
+  const access = await authorize(request, url, db, ["stream_health:manage"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (body?.action === "remove" && destinationId) {
+    try {
+      await deleteStreamDestinationForOrg(access.orgId, destinationId);
+      return json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Destination removal failed.";
+      return json({ error: message }, /not found/i.test(message) ? 404 : 502);
+    }
+  }
+  if (body?.action === "toggle" && destinationId && typeof body.enabled === "boolean") {
+    try {
+      await setStreamDestinationEnabledForOrg(access.orgId, destinationId, body.enabled);
+      return json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Destination toggle failed.";
+      return json({ error: message }, /not found/i.test(message) ? 404 : 502);
+    }
+  }
+  const name = boundedText(body?.name, 200, true);
+  const platform = boundedText(body?.platform, 50, true)?.toLowerCase() ?? null;
+  const rtmpUrl = boundedText(body?.rtmpUrl, 500);
+  const streamKey = body?.streamKey === undefined ? undefined : boundedText(body.streamKey, 500);
+  if (!name || !platform || rtmpUrl === null || streamKey === null || !/^rtmps?:\/\//i.test(rtmpUrl)) {
+    return json({ error: "A name, platform, and valid RTMP URL are required." }, 400);
+  }
+  if (destinationId) {
+    const current = await db.prepare("SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination WHERE id = ? AND orgId = ?")
+      .bind(destinationId, access.orgId).first<{ rtmpUrl: string; streamKey: string; cfOutputId: string }>();
+    if (!current) return json({ error: "Destination not found." }, 404);
+    const changesCredentials = rtmpUrl !== current.rtmpUrl || Boolean(streamKey);
+    if (current.cfOutputId && changesCredentials) {
+      return json({ error: "Disable this destination before changing its RTMP credentials." }, 409);
+    }
+    await db.prepare(
+      "UPDATE stream_destination SET name = ?, platform = ?, rtmpUrl = ?, streamKey = ? WHERE id = ? AND orgId = ?",
+    ).bind(name, platform, rtmpUrl, streamKey === undefined || streamKey === "" ? current.streamKey : streamKey, destinationId, access.orgId).run();
+    return json({ ok: true });
+  }
+  if (!streamKey) return json({ error: "A stream key is required for a new destination." }, 400);
+  const id = crypto.randomUUID();
+  await db.prepare(
+    `INSERT INTO stream_destination (id, orgId, name, platform, rtmpUrl, streamKey, enabled, cfOutputId, liveInputId, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, 0, '', '', CURRENT_TIMESTAMP)`,
+  ).bind(id, access.orgId, name, platform, rtmpUrl, streamKey).run();
+  return json({ ok: true, id });
+}
+
+function parseActiveGraphicIds(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(validId) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function mobileGraphics(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["lowerthird:view", "lowerthird:trigger", "lowerthird:configure"]);
+  if (access instanceof Response) return access;
+  const [org, templates, active] = await Promise.all([
+    db.prepare("SELECT cloud_enabled AS cloudEnabled FROM organization WHERE id = ?").bind(access.orgId).first<{ cloudEnabled: number | boolean }>(),
+    db.prepare("SELECT id, name, title, subtitle, style, createdAt, updatedAt FROM graphic_template WHERE orgId = ? ORDER BY createdAt")
+      .bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'active-graphics'")
+      .bind(access.orgId).first<{ value: string }>(),
+  ]);
+  return json({
+    cloudEnabled: Boolean(org?.cloudEnabled),
+    canConfigure: hasAny(access.identity, ["lowerthird:configure"]),
+    canTrigger: hasAny(access.identity, ["lowerthird:trigger"]),
+    activeIds: parseActiveGraphicIds(active?.value),
+    templates: templates.results ?? [],
+  });
+}
+
+async function writeMobileGraphic(request: Request, url: URL, db: MobileApiDatabase, graphicId?: string): Promise<Response> {
+  const body = await readJson(request);
+  const triggerAction = body?.action === "toggle" || body?.action === "clear";
+  const access = await authorize(request, url, db, [triggerAction ? "lowerthird:trigger" : "lowerthird:configure"]);
+  if (access instanceof Response) return access;
+  const org = await db.prepare("SELECT cloud_enabled AS enabled FROM organization WHERE id = ?")
+    .bind(access.orgId).first<{ enabled: number | boolean }>();
+  if (!org?.enabled) return json({ error: "Cloud graphics are not enabled for this organization." }, 403);
+  if (body?.action === "clear") {
+    await db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN ('active-graphics', 'active-graphic')").bind(access.orgId).run();
+    return json({ ok: true, activeIds: [] });
+  }
+  if (body?.action === "toggle" && graphicId) {
+    const owns = await db.prepare("SELECT id FROM graphic_template WHERE id = ? AND orgId = ?").bind(graphicId, access.orgId).first<{ id: string }>();
+    if (!owns) return json({ error: "Graphic not found." }, 404);
+    const stored = await db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'active-graphics'").bind(access.orgId).first<{ value: string }>();
+    const current = parseActiveGraphicIds(stored?.value);
+    const next = current.includes(graphicId) ? current.filter((id) => id !== graphicId) : [...current, graphicId];
+    await db.prepare(
+      `INSERT INTO app_setting (id, orgId, key, value) VALUES (?, ?, 'active-graphics', ?)
+       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+    ).bind(crypto.randomUUID(), access.orgId, JSON.stringify(next)).run();
+    return json({ ok: true, activeIds: next });
+  }
+  if (body?.action === "remove" && graphicId) {
+    await db.prepare("DELETE FROM graphic_template WHERE id = ? AND orgId = ?").bind(graphicId, access.orgId).run();
+    return json({ ok: true });
+  }
+  const name = boundedText(body?.name, 200, true);
+  const title = boundedText(body?.title, 500, true);
+  const subtitle = boundedText(body?.subtitle, 500);
+  if (!name || !title || subtitle === null) return json({ error: "Graphic details are invalid." }, 400);
+  if (graphicId) {
+    const result = await db.prepare(
+      "UPDATE graphic_template SET name = ?, title = ?, subtitle = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?",
+    ).bind(name, title, subtitle, graphicId, access.orgId).run();
+    return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Graphic not found." }, 404);
+  }
+  const id = crypto.randomUUID();
+  await db.prepare(
+    "INSERT INTO graphic_template (id, orgId, name, title, subtitle, style, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+  ).bind(id, access.orgId, name, title, subtitle).run();
+  return json({ ok: true, id });
+}
+
+async function mobileDashboard(request: Request, url: URL, db: MobileApiDatabase, kind: "pm" | "tm"): Promise<Response> {
+  const permission: Permission = kind === "pm" ? "dashboard:pm" : "dashboard:tm";
+  const access = await authorize(request, url, db, [permission]);
+  if (access instanceof Response) return access;
+  const show = await resolveMobileShow(db, access.orgId, access.identity.today, url.searchParams.get("showId") ?? undefined);
+  const showId = show?.id ?? "";
+  const [items, assignments, checklist, incidents, equipment, inputs, destinations, devices] = await Promise.all([
+    db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'complete' THEN 1 ELSE 0 END) AS complete, SUM(CASE WHEN duration <= 0 THEN 1 ELSE 0 END) AS missingDuration, SUM(CASE WHEN TRIM(assignee) = '' THEN 1 ELSE 0 END) AS missingOwner FROM rundown_item WHERE orgId = ? AND showId = ?").bind(access.orgId, showId).first<Record<string, number | null>>(),
+    db.prepare("SELECT status, COUNT(*) AS count FROM service_assignment WHERE orgId = ? AND showId = ? GROUP BY status").bind(access.orgId, showId).all<Record<string, unknown>>(),
+    db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN checked = 1 THEN 1 ELSE 0 END) AS complete FROM checklist_entry WHERE orgId = ? AND showId = ?").bind(access.orgId, showId).first<Record<string, number | null>>(),
+    db.prepare("SELECT id, category, severity, description, status, assignedName, timestamp FROM incident WHERE orgId = ? AND status <> 'resolved' ORDER BY timestamp DESC LIMIT 12").bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT id, name, category, status, nextService FROM equipment WHERE orgId = ? ORDER BY CASE status WHEN 'operational' THEN 1 ELSE 0 END, name LIMIT 30").bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT id, name, status FROM live_input WHERE orgId = ? ORDER BY createdAt").bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT id, name, platform, enabled, cfOutputId FROM stream_destination WHERE orgId = ? ORDER BY createdAt").bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT id, name, category, adapterType, enabled FROM device WHERE orgId = ? ORDER BY name").bind(access.orgId).all<Record<string, unknown>>(),
+  ]);
+  return json({
+    kind,
+    show,
+    items: { total: items?.total ?? 0, complete: items?.complete ?? 0, missingDuration: items?.missingDuration ?? 0, missingOwner: items?.missingOwner ?? 0 },
+    assignments: assignments.results ?? [],
+    checklist: { total: checklist?.total ?? 0, complete: checklist?.complete ?? 0 },
+    incidents: incidents.results ?? [],
+    equipment: equipment.results ?? [],
+    inputs: inputs.results ?? [],
+    destinations: (destinations.results ?? []).map((row) => ({ ...row, enabled: Boolean(row.enabled), connected: Boolean(row.cfOutputId) })),
+    devices: (devices.results ?? []).map((row) => ({ ...row, enabled: Boolean(row.enabled) })),
+  });
+}
+
+async function mobileReports(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:view"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare(
+    `SELECT r.id, r.serviceDate, r.name, r.location, r.status, r.scheduledStartTime,
+      COUNT(DISTINCT i.id) AS itemCount,
+      COUNT(DISTINCT CASE WHEN i.status = 'complete' THEN i.id END) AS completedItems,
+      COUNT(DISTINCT f.id) AS incidentCount,
+      COUNT(DISTINCT a.id) AS assignmentCount,
+      COUNT(DISTINCT CASE WHEN a.status = 'confirmed' THEN a.id END) AS confirmedAssignments,
+      COUNT(DISTINCT c.id) AS checklistCount,
+      COUNT(DISTINCT CASE WHEN c.checked = 1 THEN c.id END) AS completedChecks
+     FROM rundown r
+     LEFT JOIN rundown_item i ON i.orgId = r.orgId AND i.showId = r.id
+     LEFT JOIN incident f ON f.orgId = r.orgId AND f.showId = r.id
+     LEFT JOIN service_assignment a ON a.orgId = r.orgId AND a.showId = r.id
+     LEFT JOIN checklist_entry c ON c.orgId = r.orgId AND c.showId = r.id
+     WHERE r.orgId = ? GROUP BY r.id ORDER BY r.serviceDate DESC, r.scheduledStartTime DESC LIMIT 100`,
+  ).bind(access.orgId).all<Record<string, unknown>>();
+  return json({ organization: access.orgId, generatedAt: new Date().toISOString(), reports: result.results ?? [] });
+}
+
+async function mobileAudio(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["dashboard:tm"]);
+  if (access instanceof Response) return access;
+  const show = await resolveMobileShow(db, access.orgId, access.identity.today, url.searchParams.get("showId") ?? undefined);
+  const [assignments, mixers, shows] = await Promise.all([
+    db.prepare(
+      `SELECT id, showId, channel, label, micType, micModel, notes, gainDb, phantom, muted, "group",
+        mixerConsole, mixerChannel, mixerChannelType, serviceDate, updatedAt
+       FROM mic_assignment WHERE orgId = ? AND showId = ? ORDER BY channel, createdAt`,
+    ).bind(access.orgId, show?.id ?? "").all<Record<string, unknown>>(),
+    db.prepare("SELECT id, name, adapterType FROM device WHERE orgId = ? AND category = 'mixer' AND enabled = 1 ORDER BY name")
+      .bind(access.orgId).all<Record<string, unknown>>(),
+    db.prepare("SELECT id, serviceDate, name, scheduledStartTime FROM rundown WHERE orgId = ? ORDER BY serviceDate DESC, scheduledStartTime DESC")
+      .bind(access.orgId).all<Record<string, unknown>>(),
+  ]);
+  return json({
+    show,
+    shows: shows.results ?? [],
+    mixers: mixers.results ?? [],
+    assignments: (assignments.results ?? []).map((row) => ({ ...row, phantom: Boolean(row.phantom), muted: Boolean(row.muted) })),
+  });
+}
+
+async function writeMobileAudio(request: Request, url: URL, db: MobileApiDatabase, assignmentId?: string): Promise<Response> {
+  const access = await authorize(request, url, db, ["dashboard:tm"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (body?.action === "remove" && assignmentId) {
+    const result = await db.prepare("DELETE FROM mic_assignment WHERE id = ? AND orgId = ?").bind(assignmentId, access.orgId).run();
+    return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Audio assignment not found." }, 404);
+  }
+  if (!validId(body?.showId) || typeof body?.channel !== "number" || !Number.isInteger(body.channel) || body.channel < 1 || body.channel > 512) {
+    return json({ error: "A show and channel from 1 to 512 are required." }, 400);
+  }
+  const label = boundedText(body.label, 200, true);
+  const micType = typeof body.micType === "string" && micTypes.has(body.micType) ? body.micType : null;
+  const group = typeof body.group === "string" && micGroups.has(body.group) ? body.group : null;
+  const micModel = boundedText(body.micModel, 200);
+  const notes = boundedText(body.notes, 2_000);
+  const mixerConsole = boundedText(body.mixerConsole, 200);
+  if (!label || !micType || !group || micModel === null || notes === null || mixerConsole === null) return json({ error: "Audio assignment details are invalid." }, 400);
+  const gainDb = body.gainDb === null || body.gainDb === undefined
+    ? null
+    : typeof body.gainDb === "number" && Number.isFinite(body.gainDb) && body.gainDb >= -200 && body.gainDb <= 200
+      ? body.gainDb
+      : undefined;
+  const mixerChannel = body.mixerChannel === null || body.mixerChannel === undefined
+    ? null
+    : typeof body.mixerChannel === "number" && Number.isInteger(body.mixerChannel) && body.mixerChannel >= 0 && body.mixerChannel <= 10_000
+      ? body.mixerChannel
+      : undefined;
+  const mixerChannelType = boundedText(body.mixerChannelType, 80);
+  if (gainDb === undefined || mixerChannel === undefined || mixerChannelType === null) {
+    return json({ error: "Audio gain and mixer channel details are invalid." }, 400);
+  }
+  const show = await db.prepare("SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ?")
+    .bind(body.showId, access.orgId).first<{ id: string; serviceDate: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  const values = [body.channel, label, micType, micModel, notes, gainDb, body.phantom === true, body.muted === true, group, mixerConsole, mixerChannel, mixerChannelType] as const;
+  if (assignmentId) {
+    const result = await db.prepare(
+      `UPDATE mic_assignment SET showId = ?, serviceDate = ?, channel = ?, label = ?, micType = ?, micModel = ?, notes = ?, gainDb = ?, phantom = ?, muted = ?, "group" = ?, mixerConsole = ?, mixerChannel = ?, mixerChannelType = ?, updatedAt = CURRENT_TIMESTAMP
+       WHERE id = ? AND orgId = ?`,
+    ).bind(show.id, show.serviceDate, ...values, assignmentId, access.orgId).run();
+    return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Audio assignment not found." }, 404);
+  }
+  const id = crypto.randomUUID();
+  await db.prepare(
+    `INSERT INTO mic_assignment (id, orgId, showId, channel, label, micType, micModel, notes, gainDb, phantom, muted, "group", mixerConsole, mixerChannel, mixerChannelType, serviceDate, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+  ).bind(id, access.orgId, show.id, ...values, show.serviceDate).run();
+  return json({ ok: true, id });
+}
+
 export async function handleMobileApi(request: Request, env: MobileApiEnvironment): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
@@ -4129,6 +4607,47 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/checklist/suggestions/apply" && request.method === "POST") return applyChecklistSuggestions(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/notifications/read" && request.method === "POST") return notificationRead(request, env.DB);
   if (url.pathname === "/api/mobile/v1/push-token" && request.method === "POST") return pushToken(request, env.DB);
+  if (url.pathname === "/api/mobile/v1/cue-sheets") {
+    if (request.method === "GET") return mobileCueSheet(request, url, env.DB);
+    if (request.method === "POST") return writeMobileCueSheet(request, url, env.DB);
+  }
+  if (url.pathname === "/api/mobile/v1/assets") {
+    if (request.method === "GET") return mobileAssets(request, url, env.DB);
+    if (request.method === "POST") return writeMobileAsset(request, url, env.DB);
+  }
+  if (url.pathname === "/api/mobile/v1/streaming" && request.method === "GET") return mobileStreaming(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/streaming/destinations" && request.method === "POST") return writeMobileDestination(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/graphics") {
+    if (request.method === "GET") return mobileGraphics(request, url, env.DB);
+    if (request.method === "POST") return writeMobileGraphic(request, url, env.DB);
+  }
+  if (url.pathname === "/api/mobile/v1/reports" && request.method === "GET") return mobileReports(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/audio") {
+    if (request.method === "GET") return mobileAudio(request, url, env.DB);
+    if (request.method === "POST") return writeMobileAudio(request, url, env.DB);
+  }
+  const mobileDashboardMatch = url.pathname.match(/^\/api\/mobile\/v1\/dashboards\/(pm|tm)$/);
+  if (mobileDashboardMatch && request.method === "GET") return mobileDashboard(request, url, env.DB, mobileDashboardMatch[1] as "pm" | "tm");
+  const mobileAssetMatch = url.pathname.match(/^\/api\/mobile\/v1\/assets\/([^/]+)$/);
+  if (mobileAssetMatch && request.method === "POST") {
+    const assetId = decodePathId(mobileAssetMatch[1]);
+    return assetId ? writeMobileAsset(request, url, env.DB, assetId) : json({ error: "Asset not found." }, 404);
+  }
+  const mobileDestinationMatch = url.pathname.match(/^\/api\/mobile\/v1\/streaming\/destinations\/([^/]+)$/);
+  if (mobileDestinationMatch && request.method === "POST") {
+    const destinationId = decodePathId(mobileDestinationMatch[1]);
+    return destinationId ? writeMobileDestination(request, url, env.DB, destinationId) : json({ error: "Destination not found." }, 404);
+  }
+  const mobileGraphicMatch = url.pathname.match(/^\/api\/mobile\/v1\/graphics\/([^/]+)$/);
+  if (mobileGraphicMatch && request.method === "POST") {
+    const graphicId = decodePathId(mobileGraphicMatch[1]);
+    return graphicId ? writeMobileGraphic(request, url, env.DB, graphicId) : json({ error: "Graphic not found." }, 404);
+  }
+  const mobileAudioMatch = url.pathname.match(/^\/api\/mobile\/v1\/audio\/([^/]+)$/);
+  if (mobileAudioMatch && request.method === "POST") {
+    const assignmentId = decodePathId(mobileAudioMatch[1]);
+    return assignmentId ? writeMobileAudio(request, url, env.DB, assignmentId) : json({ error: "Audio assignment not found." }, 404);
+  }
   const checkInMemberMatch = url.pathname.match(/^\/api\/mobile\/v1\/checkin\/members\/([^/]+)\/status$/);
   if (checkInMemberMatch && request.method === "POST") {
     const memberId = decodePathId(checkInMemberMatch[1]);

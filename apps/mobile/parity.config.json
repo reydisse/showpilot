@@ -78,10 +78,10 @@
       "id": "timecode",
       "label": "Timecode",
       "webPath": "timecode",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native timecode configuration and operation have not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/timecode.tsx"],
+      "apiContracts": ["const tcMatch"],
+      "gaps": ""
     },
     {
       "id": "chat",
@@ -139,10 +139,10 @@
       "id": "cue-sheets",
       "label": "Cue Sheets",
       "webPath": "production/cue-sheets",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native cue-sheet creation, editing, ordering, and operation have not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/cue-sheets.tsx"],
+      "apiContracts": ["/api/mobile/v1/cue-sheets"],
+      "gaps": ""
     },
     {
       "id": "checklist",
@@ -180,73 +180,73 @@
       "id": "assets",
       "label": "Assets",
       "webPath": "production/assets",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native asset library, upload, metadata, and usage workflows have not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/asset-inventory.tsx"],
+      "apiContracts": ["/api/mobile/v1/assets", "const mobileAssetMatch"],
+      "gaps": ""
     },
     {
       "id": "stream",
       "label": "Stream",
       "webPath": "streaming/health",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native stream-health monitoring has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/stream.tsx"],
+      "apiContracts": ["/api/mobile/v1/streaming"],
+      "gaps": ""
     },
     {
       "id": "multi-platform",
       "label": "Multi-Platform",
       "webPath": "streaming/platforms",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native multi-platform streaming management has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/multi-platform.tsx"],
+      "apiContracts": ["/api/mobile/v1/streaming/destinations", "const mobileDestinationMatch"],
+      "gaps": ""
     },
     {
       "id": "lower-thirds",
       "label": "Lower Thirds",
       "webPath": "streaming/graphics",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native lower-third and graphics control has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/lower-thirds.tsx"],
+      "apiContracts": ["/api/mobile/v1/graphics", "const mobileGraphicMatch"],
+      "gaps": ""
     },
     {
       "id": "prod-manager",
       "label": "Prod Manager",
       "webPath": "dashboard/prod-manager",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "The native production-manager dashboard has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/prod-manager.tsx", "src/components/manager-dashboard-screen.tsx"],
+      "apiContracts": ["const mobileDashboardMatch"],
+      "gaps": ""
     },
     {
       "id": "reports",
       "label": "Reports",
       "webPath": "reports",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native reporting and report export have not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/reports.tsx"],
+      "apiContracts": ["/api/mobile/v1/reports"],
+      "gaps": ""
     },
     {
       "id": "tech-manager",
       "label": "Tech Manager",
       "webPath": "dashboard/tech-manager",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "The native technical-manager dashboard has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/tech-manager.tsx", "src/components/manager-dashboard-screen.tsx"],
+      "apiContracts": ["const mobileDashboardMatch"],
+      "gaps": ""
     },
     {
       "id": "audio",
       "label": "Audio",
       "webPath": "dashboard/audio",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "The native audio dashboard has not been built."
+      "status": "complete",
+      "nativeRoutes": ["src/app/audio.tsx"],
+      "apiContracts": ["/api/mobile/v1/audio", "const mobileAudioMatch"],
+      "gaps": ""
     },
     {
       "id": "devices",

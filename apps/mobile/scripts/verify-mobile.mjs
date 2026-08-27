@@ -40,6 +40,16 @@ const featureContract = [
   ["src/app/team.tsx", "/api/mobile/v1/team/access"],
   ["src/app/devices.tsx", "/api/mobile/v1/devices"],
   ["src/app/device/[deviceId].tsx", "const deviceControlMatch"],
+  ["src/app/timecode.tsx", "const tcMatch"],
+  ["src/app/cue-sheets.tsx", "/api/mobile/v1/cue-sheets"],
+  ["src/app/asset-inventory.tsx", "/api/mobile/v1/assets"],
+  ["src/app/stream.tsx", "/api/mobile/v1/streaming"],
+  ["src/app/multi-platform.tsx", "/api/mobile/v1/streaming/destinations"],
+  ["src/app/lower-thirds.tsx", "/api/mobile/v1/graphics"],
+  ["src/app/prod-manager.tsx", "const mobileDashboardMatch"],
+  ["src/app/reports.tsx", "/api/mobile/v1/reports"],
+  ["src/app/tech-manager.tsx", "const mobileDashboardMatch"],
+  ["src/app/audio.tsx", "/api/mobile/v1/audio"],
   ["src/app/(app)/profile.tsx", "/api/user/avatar"],
 ];
 const sourceContract = [
@@ -86,6 +96,20 @@ const sourceContract = [
   ["src/app/team.tsx", "revokeMobileTeamAccess"],
   ["src/app/team.tsx", "<FlatList"],
   ["src/app/devices.tsx", "<FlatList"],
+  ["src/app/timecode.tsx", "commandMobileTimecode"],
+  ["src/app/cue-sheets.tsx", "writeMobileCueSheet"],
+  ["src/app/asset-inventory.tsx", "createMobileAsset"],
+  ["src/app/asset-inventory.tsx", "updateMobileAsset"],
+  ["src/app/asset-inventory.tsx", "removeMobileAsset"],
+  ["src/app/stream.tsx", "refetchInterval: 5_000"],
+  ["src/app/multi-platform.tsx", "commandMobileDestination"],
+  ["src/app/lower-thirds.tsx", "commandMobileGraphic"],
+  ["src/components/manager-dashboard-screen.tsx", "getMobileDashboard"],
+  ["src/app/reports.tsx", "Print.printToFileAsync"],
+  ["src/app/reports.tsx", "Sharing.shareAsync"],
+  ["src/app/audio.tsx", "createMobileAudioAssignment"],
+  ["src/app/audio.tsx", "updateMobileAudioAssignment"],
+  ["src/app/audio.tsx", "removeMobileAudioAssignment"],
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
   ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
   ["src/lib/mobile-api.ts", "accessAuthoritySchema.optional()"],
@@ -134,6 +158,18 @@ const apiContract = [
   "const teamGrantMatch",
   "/api/mobile/v1/devices",
   "const deviceControlMatch",
+  "/api/mobile/v1/cue-sheets",
+  "/api/mobile/v1/assets",
+  "const mobileAssetMatch",
+  "/api/mobile/v1/streaming",
+  "/api/mobile/v1/streaming/destinations",
+  "const mobileDestinationMatch",
+  "/api/mobile/v1/graphics",
+  "const mobileGraphicMatch",
+  "const mobileDashboardMatch",
+  "/api/mobile/v1/reports",
+  "/api/mobile/v1/audio",
+  "const mobileAudioMatch",
   "/api/mobile/v1/notifications/read",
   "/api/mobile/v1/push-token",
 ];
@@ -296,7 +332,7 @@ const signedInRoutes = rootLayout.match(
 if (!signedOutRoutes?.includes('name="(auth)"')) {
   throw new Error("Native authentication screens must remain inside the signed-out route guard.");
 }
-for (const route of ["organizations", "(app)", "settings", "show/[showId]", "live-show", "schedule", "chat", "incidents", "incidents-history", "checklist", "checkin", "show-board", "team", "devices", "device/[deviceId]"]) {
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "live-show", "timecode", "schedule", "chat", "incidents", "incidents-history", "checklist", "cue-sheets", "checkin", "show-board", "team", "devices", "device/[deviceId]", "asset-inventory", "stream", "multi-platform", "lower-thirds", "prod-manager", "reports", "tech-manager", "audio"]) {
   const marker = `name="${route}"`;
   if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
     throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);

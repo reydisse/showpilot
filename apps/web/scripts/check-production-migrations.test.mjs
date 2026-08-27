@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { auditMigrationManifest } from "./check-production-migrations.mjs";
@@ -63,4 +64,10 @@ test("rejects non-contiguous migration files", () => {
       ),
     /expected migration 0002/i,
   );
+});
+
+test("fresh streaming schema includes Stream Connect output ownership", async () => {
+  const migration = await readFile(new URL("../prisma/migrations/0002_streaming_graphics.sql", import.meta.url), "utf8");
+  assert.match(migration, /"cfOutputId" TEXT NOT NULL DEFAULT ''/);
+  assert.match(migration, /"liveInputId" TEXT NOT NULL DEFAULT ''/);
 });

@@ -20,6 +20,8 @@ CREATE TABLE "stream_destination" (
     "rtmpUrl" TEXT NOT NULL DEFAULT '',
     "streamKey" TEXT NOT NULL DEFAULT '',
     "enabled" INTEGER NOT NULL DEFAULT 1,
+    "cfOutputId" TEXT NOT NULL DEFAULT '',
+    "liveInputId" TEXT NOT NULL DEFAULT '',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "stream_destination_orgId_fkey" FOREIGN KEY ("orgId") REFERENCES "organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
