@@ -20,8 +20,8 @@ vi.mock("../effective-access", () => ({
   resolveAccessGrantAuthorityForAccess: vi.fn(),
 }));
 
-function database(cuesEnabled = true): MobileApiDatabase {
-  function statement(sql: string): MobileApiStatement {
+function database(cuesEnabled = true, writes: unknown[][] = []): MobileApiDatabase {
+  function statement(sql: string, bound: unknown[] = []): MobileApiStatement {
     return {
       async first<T>() {
         if (sql.startsWith("SELECT id FROM organization")) return { id: "org-1" } as T;
@@ -36,18 +36,20 @@ function database(cuesEnabled = true): MobileApiDatabase {
             { key: "propresenter-api-port", value: "1025" },
             { key: "propresenter-password", value: "venue-password" },
             { key: "propresenter-send-cues", value: String(cuesEnabled) },
+            { key: "propresenter-stage-display", value: "false" },
           ] as T[] };
         }
         return { results: [] as T[] };
       },
       async run() {
+        if (sql.includes("INSERT INTO app_setting")) writes.push(bound);
         return { success: true, meta: { changes: 1 } };
       },
     };
   }
   return {
     prepare(sql) {
-      return { bind: () => statement(sql) };
+      return { bind: (...values) => statement(sql, values) };
     },
     async batch(statements) {
       return Promise.all(statements.map((candidate) => candidate.run()));
@@ -55,7 +57,7 @@ function database(cuesEnabled = true): MobileApiDatabase {
   };
 }
 
-function environment(cuesEnabled = true) {
+function environment(cuesEnabled = true, writes: unknown[][] = []) {
   const dispatchBridgeMessage = vi.fn(async () => ({ success: true }));
   const bridge = {
     idFromName: vi.fn(() => ({ toString: () => "bridge-room" })),
@@ -69,7 +71,7 @@ function environment(cuesEnabled = true) {
     })),
   } as unknown as MobileApiEnvironment["BRIDGE_RELAY"];
   return {
-    env: { DB: database(cuesEnabled), BRIDGE_RELAY: bridge } satisfies MobileApiEnvironment,
+    env: { DB: database(cuesEnabled, writes), BRIDGE_RELAY: bridge } satisfies MobileApiEnvironment,
     dispatchBridgeMessage,
   };
 }
@@ -84,6 +86,19 @@ async function command(body: Record<string, unknown>, env: MobileApiEnvironment)
     },
   ), env);
   if (!response) throw new Error("Mobile API did not handle ProPresenter route");
+  return response;
+}
+
+async function stageDisplay(body: Record<string, unknown>, env: MobileApiEnvironment) {
+  const response = await handleMobileApi(new Request(
+    "https://showpilot.tech/api/mobile/v1/rundowns/show-1/propresenter/stage-display?orgId=org-1",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  ), env);
+  if (!response) throw new Error("Mobile API did not handle ProPresenter stage-display route");
   return response;
 }
 
@@ -132,5 +147,40 @@ describe("mobile ProPresenter control", () => {
 
     expect(response.status).toBe(409);
     expect(dispatchBridgeMessage).not.toHaveBeenCalled();
+  });
+
+  it("lets rundown editors switch the stage-display feed without device-control permission", async () => {
+    const writes: unknown[][] = [];
+    const { env, dispatchBridgeMessage } = environment(true, writes);
+    mocks.resolveAccess.mockResolvedValue({ role: "sm", permissions: ["rundown:edit"], today: "2026-08-27" });
+
+    const response = await stageDisplay({ enabled: true }, env);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, enabled: true });
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.slice(1)).toEqual(["org-1", "true"]);
+    expect(dispatchBridgeMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed stage-display state before writing", async () => {
+    const writes: unknown[][] = [];
+    const { env } = environment(true, writes);
+
+    const response = await stageDisplay({ enabled: "yes" }, env);
+
+    expect(response.status).toBe(400);
+    expect(writes).toHaveLength(0);
+  });
+
+  it("rejects stage-display changes without rundown edit or control access", async () => {
+    const writes: unknown[][] = [];
+    const { env } = environment(true, writes);
+    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["rundown:view"], today: "2026-08-27" });
+
+    const response = await stageDisplay({ enabled: true }, env);
+
+    expect(response.status).toBe(403);
+    expect(writes).toHaveLength(0);
   });
 });

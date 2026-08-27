@@ -140,6 +140,7 @@ export const mobileRundownSchema = z.object({
   proPresenter: z.object({
     configured: z.boolean(),
     cuesEnabled: z.boolean(),
+    stageDisplayEnabled: z.boolean().default(false),
     bridgeOnline: z.boolean(),
     connected: z.boolean(),
   }),
@@ -798,6 +799,18 @@ export async function controlMobileProPresenter(input: {
     { method: "POST", body: JSON.stringify({ command: input.command }) },
   );
   return z.object({ success: z.literal(true), response: z.string().optional() }).parse(await response.json());
+}
+
+export async function updateMobileProPresenterStageDisplay(input: {
+  orgId: string;
+  showId: string;
+  enabled: boolean;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/propresenter/stage-display?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ enabled: input.enabled }) },
+  );
+  return z.object({ ok: z.literal(true), enabled: z.boolean() }).parse(await response.json());
 }
 
 export async function createMobileRundown(input: {

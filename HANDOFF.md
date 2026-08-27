@@ -736,7 +736,7 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   `rundown:edit` grants can edit content without gaining transport control;
   Bridge, Timecode, Companion, and ProPresenter internal calls declare their
   intended relay access explicitly.
-- Native Rundown is now a near-complete vertical slice: add/edit/delete and
+- Native Rundown is now a complete primary vertical slice: add/edit/delete and
   move items; cue, notes, assignee, hard-stop and duration fields; countdown,
   count-up and clock modes; fixed/custom timer adjustment beyond assigned
   duration; priority stage messages; service title/time/location; saved
@@ -747,16 +747,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   organization/show scoped, requires `rundown:control`, honors the workspace
   `propresenter-send-cues` safety toggle, and connects the configured venue
   target before dispatch. The Bridge rejects unknown commands and false
-  success when ProPresenter is not connected. Native kiosk-link sharing and
-  the ProPresenter stage-display toggle remain the recorded Rundown gaps.
-- This checkpoint passes 92 web unit-test files and 746 tests, the Worker,
+  success when ProPresenter is not connected. Native operators can share the
+  active workspace's stage-display URL without constructing it manually, and
+  rundown editors can switch ProPresenter slide/scripture visibility on kiosk
+  displays. The setting write is organization/show scoped, validates a strict
+  boolean at the API boundary, and uses the same `rundown:edit` authority as
+  the web control.
+- This checkpoint passes 92 web unit-test files and 749 tests, the Worker,
   migration-manifest and accessible-control suites, web and native TypeScript,
   native lint, all 30 Bridge tests and its production build, and the full web
   client/SSR production build. The main client bundle is 497,788 bytes raw and
   156,427 bytes gzip. A real Expo all-platform export passes after the export
   gate caught and removed an icon path absent from the installed Lucide
-  package. Expo Doctor is 18/18; iOS and Android Hermes bundles are 5,235,234
-  and 5,234,259 bytes. The parity inventory is six complete, three partial,
+  package. Expo Doctor is 18/18; iOS and Android Hermes bundles are 5,242,362
+  and 5,241,252 bytes. The parity inventory is seven complete, two partial,
   and 11 missing. Authenticated physical-device and simultaneous multi-operator
   runtime QA remain launch gates; no simulator/device, push, deployment,
   production mutation, store action, or signing action was performed while the

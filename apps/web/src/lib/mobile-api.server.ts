@@ -539,6 +539,7 @@ interface MobileProPresenterSettings {
   apiPort: number;
   password: string;
   cuesEnabled: boolean;
+  stageDisplayEnabled: boolean;
 }
 
 async function readMobileProPresenterSettings(
@@ -549,7 +550,7 @@ async function readMobileProPresenterSettings(
     `SELECT key, value FROM app_setting
      WHERE orgId = ? AND key IN (
        'propresenter-host', 'propresenter-port', 'propresenter-api-port',
-       'propresenter-password', 'propresenter-send-cues'
+       'propresenter-password', 'propresenter-send-cues', 'propresenter-stage-display'
      )`,
   ).bind(orgId).all<{ key: string; value: string }>();
   const values = Object.fromEntries((result.results ?? []).map((setting) => [setting.key, setting.value]));
@@ -563,6 +564,7 @@ async function readMobileProPresenterSettings(
     apiPort: port(values["propresenter-api-port"], 1_025),
     password: values["propresenter-password"] ?? "",
     cuesEnabled: values["propresenter-send-cues"] === "true",
+    stageDisplayEnabled: values["propresenter-stage-display"] === "true",
   };
 }
 
@@ -607,6 +609,7 @@ async function rundown(request: Request, url: URL, showId: string, env: MobileAp
     proPresenter: {
       configured: Boolean(proPresenter.host),
       cuesEnabled: proPresenter.cuesEnabled,
+      stageDisplayEnabled: proPresenter.stageDisplayEnabled,
       bridgeOnline: bridge.bridgeOnline,
       connected: Boolean(proPresenterTarget),
     },
@@ -677,6 +680,31 @@ async function controlMobileProPresenter(
     command,
   });
   return json(result, result.success ? 200 : 502);
+}
+
+async function updateMobileProPresenterStageDisplay(
+  request: Request,
+  url: URL,
+  showId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
+  if (access instanceof Response) return access;
+  const show = await env.DB.prepare("SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1")
+    .bind(showId, access.orgId).first<{ id: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+
+  const body = await readJson(request);
+  if (typeof body?.enabled !== "boolean") {
+    return json({ error: "enabled must be true or false." }, 400);
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO app_setting (id, orgId, key, value, createdAt, updatedAt)
+     VALUES (?, ?, 'propresenter-stage-display', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
+  ).bind(crypto.randomUUID(), access.orgId, body.enabled ? "true" : "false").run();
+  return json({ ok: true, enabled: body.enabled });
 }
 
 interface MobileRundownTemplate {
@@ -4061,6 +4089,15 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     const showId = decodePathId(rundownProPresenterMatch[1]);
     return showId
       ? controlMobileProPresenter(request, url, showId, env)
+      : json({ error: "Not found." }, 404);
+  }
+  const rundownProPresenterStageDisplayMatch = url.pathname.match(
+    /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/propresenter\/stage-display$/,
+  );
+  if (rundownProPresenterStageDisplayMatch && request.method === "POST") {
+    const showId = decodePathId(rundownProPresenterStageDisplayMatch[1]);
+    return showId
+      ? updateMobileProPresenterStageDisplay(request, url, showId, env)
       : json({ error: "Not found." }, 404);
   }
   const rundownMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)$/);

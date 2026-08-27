@@ -4,6 +4,8 @@ import { Redirect, Stack, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import CircleStop from "lucide-react-native/icons/circle-stop";
 import Clock3 from "lucide-react-native/icons/clock-3";
+import Eye from "lucide-react-native/icons/eye";
+import EyeOff from "lucide-react-native/icons/eye-off";
 import Files from "lucide-react-native/icons/files";
 import Minus from "lucide-react-native/icons/minus";
 import Pause from "lucide-react-native/icons/pause";
@@ -16,10 +18,11 @@ import SkipForward from "lucide-react-native/icons/skip-forward";
 import Send from "lucide-react-native/icons/send";
 import Share2 from "lucide-react-native/icons/share-2";
 import Presentation from "lucide-react-native/icons/presentation";
+import ScreenShare from "lucide-react-native/icons/screen-share";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import Wifi from "lucide-react-native/icons/wifi";
 import WifiOff from "lucide-react-native/icons/wifi-off";
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { parseRundownDuration, RundownItemSheet } from "@/components/rundown-item-sheet";
@@ -27,6 +30,7 @@ import { RundownTemplateSheet } from "@/components/rundown-template-sheet";
 import { RundownShowSheet } from "@/components/rundown-show-sheet";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import { authClient } from "@/lib/auth-client";
+import { SHOWPILOT_URL } from "@/lib/env";
 import {
   deleteMobileRundownTemplate,
   controlMobileProPresenter,
@@ -36,6 +40,7 @@ import {
   loadMobileRundownTemplate,
   saveMobileRundownTemplate,
   updateMobileRundownMeta,
+  updateMobileProPresenterStageDisplay,
   type MobileRundown,
   type RundownItem,
 } from "@/lib/mobile-api";
@@ -139,7 +144,7 @@ function TimerPanel({
   );
 }
 
-function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: string }) {
+function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; orgId: string; orgSlug: string }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
@@ -149,6 +154,7 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
+  const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
   const seededRef = useRef(false);
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
   // Once the relay identifies this room, its empty list is authoritative.
@@ -169,6 +175,15 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
       command,
     }),
     onError: (error) => Alert.alert("ProPresenter command failed", error.message),
+  });
+  const stageDisplay = useMutation({
+    mutationFn: (enabled: boolean) => updateMobileProPresenterStageDisplay({
+      orgId,
+      showId: detail.show.id,
+      enabled,
+    }),
+    onSuccess: ({ enabled }) => setStageDisplayEnabled(enabled),
+    onError: (error) => Alert.alert("Stage display was not changed", error.message),
   });
   const liveReady = relay.status === "connected" && relay.hydrated && sameRoom;
   const controlsEnabled = detail.canControl && liveReady;
@@ -271,6 +286,17 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
     });
   }
 
+  function shareKioskLink() {
+    const url = `${SHOWPILOT_URL}/timer/${encodeURIComponent(orgSlug)}`;
+    void Share.share({
+      title: `${showTitle} stage display`,
+      message: `${showTitle} stage display\n${url}`,
+      url,
+    }).catch((error: unknown) => {
+      Alert.alert("Could not share stage display", error instanceof Error ? error.message : "Try again.");
+    });
+  }
+
   const connectionText = relay.status === "connected"
     ? "Live sync"
     : relay.status === "offline"
@@ -294,6 +320,7 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
               <View style={styles.permissionBadge}>
                 <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : canEdit ? "EDITOR" : "VIEW ONLY"}</Text>
               </View>
+              <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
               {canEdit ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
             <TimerPanel
@@ -306,15 +333,28 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
               timer={timer}
             />
             {relay.lastError ? <Text style={styles.syncError}>{relay.lastError}</Text> : null}
-            {detail.canControl && detail.proPresenter.configured ? <View style={styles.ppCard}>
+            {canEdit && detail.proPresenter.configured ? <View style={styles.ppCard}>
               <View style={styles.ppHeading}><View style={styles.ppTitleRow}><Presentation color={colors.amberText} size={17} /><Text style={styles.ppTitle}>PROPRESENTER</Text></View><Text style={[styles.ppStatus, detail.proPresenter.connected && styles.ppStatusConnected]}>{detail.proPresenter.connected ? "CONNECTED" : detail.proPresenter.bridgeOnline ? "READY" : "BRIDGE OFFLINE"}</Text></View>
               {relay.ppPreviewSlide ? <View style={styles.ppPreview}><Text numberOfLines={1} style={styles.ppPresentation}>{relay.ppPreviewSlide.presentationName || "Current slide"}</Text><Text numberOfLines={5} style={styles.ppText}>{relay.ppPreviewSlide.text || "Blank slide"}</Text>{relay.ppPreviewSlide.notes ? <Text numberOfLines={2} style={styles.ppNotes}>{relay.ppPreviewSlide.notes}</Text> : null}</View> : <Text style={styles.ppEmpty}>No active slide preview. Commands will connect through the Venue Bridge.</Text>}
-              {!detail.proPresenter.cuesEnabled ? <Text style={styles.ppWarning}>Enable “Send cues” in Settings → ProPresenter before using remote slide controls.</Text> : null}
-              <View style={styles.ppControls}>
-                <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Previous" onPress={() => proPresenter.mutate("previous")}><SkipBack color={colors.textMuted} size={16} /></MiniButton>
-                <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Next" onPress={() => proPresenter.mutate("next")}><SkipForward color={colors.textMuted} size={16} /></MiniButton>
-                <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Clear" onPress={() => proPresenter.mutate("clear")}><CircleStop color={colors.red} size={16} /></MiniButton>
-              </View>
+              <Pressable
+                accessibilityLabel="Show ProPresenter slides on stage displays"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: stageDisplayEnabled, disabled: stageDisplay.isPending }}
+                disabled={stageDisplay.isPending}
+                onPress={() => stageDisplay.mutate(!stageDisplayEnabled)}
+                style={[styles.ppStageToggle, stageDisplayEnabled && styles.ppStageToggleActive, stageDisplay.isPending && styles.disabled]}
+              >
+                {stageDisplayEnabled ? <Eye color={colors.green} size={17} /> : <EyeOff color={colors.textFaint} size={17} />}
+                <View style={styles.ppStageCopy}><Text style={styles.ppStageTitle}>{stageDisplayEnabled ? "Visible on stage displays" : "Hidden from stage displays"}</Text><Text style={styles.ppStageHint}>Controls live slide and scripture streaming on kiosk displays.</Text></View>
+              </Pressable>
+              {detail.canControl ? <>
+                {!detail.proPresenter.cuesEnabled ? <Text style={styles.ppWarning}>Enable “Send cues” in Settings → ProPresenter before using remote slide controls.</Text> : null}
+                <View style={styles.ppControls}>
+                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Previous" onPress={() => proPresenter.mutate("previous")}><SkipBack color={colors.textMuted} size={16} /></MiniButton>
+                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Next" onPress={() => proPresenter.mutate("next")}><SkipForward color={colors.textMuted} size={16} /></MiniButton>
+                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Clear" onPress={() => proPresenter.mutate("clear")}><CircleStop color={colors.red} size={16} /></MiniButton>
+                </View>
+              </> : null}
             </View> : null}
             {canEdit ? <View style={styles.messageCard}>
               <View style={styles.messageHeading}><Text style={styles.messageTitle}>STAGE MESSAGE</Text>{relay.stageMessage ? <Text style={styles.messageLive}>LIVE</Text> : null}</View>
@@ -457,7 +497,7 @@ export default function ShowDetailScreen() {
       </Page>
     );
   }
-  return <RundownContent key={query.data.show.id} detail={query.data} orgId={organization.id} />;
+  return <RundownContent key={query.data.show.id} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
@@ -506,6 +546,11 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   ppText: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 20 },
   ppNotes: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 16 },
   ppEmpty: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18 },
+  ppStageToggle: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 10 },
+  ppStageToggleActive: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
+  ppStageCopy: { flex: 1, minWidth: 0, gap: 2 },
+  ppStageTitle: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
+  ppStageHint: { color: colors.textFaint, fontFamily, fontSize: 10, lineHeight: 15 },
   ppWarning: { color: colors.amberText, fontFamily, fontSize: 11, lineHeight: 17 },
   ppControls: { flexDirection: "row", gap: 8 },
   messageCard: { gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 13 },

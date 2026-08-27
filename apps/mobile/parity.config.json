@@ -52,7 +52,7 @@
       "id": "rundown",
       "label": "Rundown",
       "webPath": "rundown",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
         "src/app/show/[showId].tsx"
       ],
@@ -63,9 +63,10 @@
         "const rundownTemplatesMatch",
         "const rundownMetaMatch",
         "const rundownProPresenterMatch",
+        "const rundownProPresenterStageDisplayMatch",
         "const rundownMatch"
       ],
-      "gaps": "Core native parity now includes revision-safe live editing and reordering, three timer modes, custom adjustments, priority stage messages, show metadata, templates, previous-show loading, CSV/PDF export, and Bridge-routed ProPresenter preview/control. Native kiosk-link sharing and the ProPresenter stage-display toggle remain."
+      "gaps": ""
     },
     {
       "id": "timecode",
