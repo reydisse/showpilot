@@ -11,6 +11,7 @@ const repositoryRoot = resolve(mobileRoot, "../..");
 const appConfig = JSON.parse(readFileSync(resolve(mobileRoot, "app.json"), "utf8"));
 const packageConfig = JSON.parse(readFileSync(resolve(mobileRoot, "package.json"), "utf8"));
 const easConfig = JSON.parse(readFileSync(resolve(mobileRoot, "eas.json"), "utf8"));
+const storeConfig = JSON.parse(readFileSync(resolve(mobileRoot, "store.config.json"), "utf8"));
 const requireReleaseLink = process.argv.slice(2).includes("--release");
 const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--release");
 if (unknownArguments.length > 0) {
@@ -102,6 +103,15 @@ const workflowContracts = [
     path: ".eas/workflows/create-production-builds.yml",
     profile: "production",
   },
+];
+const storeDocumentContracts = [
+  ["store/README.md", "Do not commit App Review passwords"],
+  ["store/listing/en-US.md", "Run synchronized shows, crews, cues, timers, chat, and production devices."],
+  ["store/privacy-data-safety.md", "https://showpilot.tech/delete-account"],
+  ["store/screenshots.md", "1320 × 2868"],
+  ["store/screenshots.md", "2064 × 2752"],
+  ["store/screenshots.md", "1024 × 500"],
+  ["store/submission-gates.md", "Migration `0033_chat_user_room_index.sql`"],
 ];
 
 function sourceFiles(directory) {
@@ -203,6 +213,66 @@ for (const [profile, expected] of Object.entries(buildProfiles)) {
 }
 if (!easConfig.submit || typeof easConfig.submit.production !== "object") {
   throw new Error("EAS must retain an explicit production submit profile.");
+}
+if (storeConfig.configVersion !== 0 || !storeConfig.apple) {
+  throw new Error("store.config.json must use the reviewed EAS Metadata schema version 0.");
+}
+const appleStoreInfo = storeConfig.apple.info?.["en-US"];
+if (!appleStoreInfo) throw new Error("Apple metadata must include the en-US locale.");
+for (const [field, minimum, maximum] of [
+  ["title", 2, 30],
+  ["subtitle", 1, 30],
+  ["description", 10, 4_000],
+  ["promoText", 1, 170],
+]) {
+  const value = appleStoreInfo[field];
+  if (typeof value !== "string" || value.length < minimum || value.length > maximum) {
+    throw new Error(`Apple ${field} must be ${minimum}–${maximum} characters.`);
+  }
+}
+if (!Array.isArray(appleStoreInfo.keywords) || new Set(appleStoreInfo.keywords).size !== appleStoreInfo.keywords.length) {
+  throw new Error("Apple keywords must be a unique list.");
+}
+if (appleStoreInfo.keywords.join(",").length > 100) {
+  throw new Error("Apple keywords must fit the 100-character App Store field.");
+}
+const requiredStoreUrls = {
+  marketingUrl: "https://showpilot.tech",
+  supportUrl: "https://showpilot.tech/support",
+  privacyPolicyUrl: "https://showpilot.tech/privacy",
+  privacyChoicesUrl: "https://showpilot.tech/delete-account",
+};
+for (const [field, expected] of Object.entries(requiredStoreUrls)) {
+  if (appleStoreInfo[field] !== expected) throw new Error(`Apple ${field} must remain ${expected}.`);
+}
+if (storeConfig.apple.categories?.join(",") !== "BUSINESS,PRODUCTIVITY") {
+  throw new Error("Apple categories must remain Business and Productivity.");
+}
+if (storeConfig.apple.release?.automaticRelease !== false) {
+  throw new Error("The first mobile release must require manual release after store approval.");
+}
+if (storeConfig.apple.advisory?.unrestrictedWebAccess !== false || storeConfig.apple.advisory?.gambling !== false) {
+  throw new Error("Apple age-rating answers do not match the submitted app.");
+}
+for (const [path, marker] of storeDocumentContracts) {
+  const source = readFileSync(resolve(mobileRoot, path), "utf8");
+  if (!source.includes(marker)) throw new Error(`Missing store-readiness marker ${marker} from ${path}`);
+}
+const googleListing = readFileSync(resolve(mobileRoot, "store/listing/en-US.md"), "utf8");
+const googleTitle = googleListing.match(/Title \([^)]*\):\s*\n\s*> ([^\n]+)/)?.[1];
+const googleShortDescription = googleListing.match(/Short description \([^)]*\):\s*\n\s*> ([^\n]+)/)?.[1];
+if (!googleTitle || googleTitle.length > 30) throw new Error("Google Play title must be present and at most 30 characters.");
+if (!googleShortDescription || googleShortDescription.length > 80) {
+  throw new Error("Google Play short description must be present and at most 80 characters.");
+}
+const mobileSettingsSource = readFileSync(resolve(mobileRoot, "src/app/settings.tsx"), "utf8");
+if (!mobileSettingsSource.includes('openExternal("/delete-account")')) {
+  throw new Error("Native Settings must retain the in-app account-deletion entry point.");
+}
+for (const route of ["support.tsx", "delete-account.tsx", "account-deleted.tsx", "privacy.tsx"]) {
+  if (!existsSync(resolve(repositoryRoot, "apps/web/src/routes", route))) {
+    throw new Error(`The public store resource is missing: ${route}`);
+  }
 }
 for (const workflow of workflowContracts) {
   const source = readFileSync(resolve(mobileRoot, workflow.path), "utf8");
@@ -333,4 +403,4 @@ for (const platform of ["ios", "android"]) {
 const releaseState = projectId
   ? `linked EAS project ${projectId}`
   : "local app contracts; EAS project linkage remains pending";
-console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, ${apiContract.length} API contracts, and ${releaseState} across iOS, Android, and web exports.`);
+console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, ${apiContract.length} API contracts, store metadata, and ${releaseState} across iOS, Android, and web exports.`);

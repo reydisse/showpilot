@@ -557,12 +557,24 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Settings link to the direct deletion resource. Founder/legal review of the
   privacy-policy template, legal entity, province, and retention periods is
   still an external publication gate.
+- `apps/mobile/store.config.json` now holds versioned Apple metadata for the
+  en-US listing: reviewed field lengths, Business/Productivity categories,
+  least-restrictive age-rating answers, public support/privacy/deletion URLs,
+  and manual release after approval. The adjacent `store/` package contains
+  Google Play copy, exact iPhone/iPad/Android screenshot dimensions and a
+  six-shot capture story, the privacy/Data Safety worksheet, and a publication
+  gate checklist. The ordinary mobile verifier now fails on over-length store
+  copy, missing public resources, broken privacy choices, automatic release,
+  or missing store documents. Copyright owner, review contact, production demo
+  credentials, final privacy declarations, accessibility labels, and signed
+  screenshots remain owner/account-controlled gates and are intentionally not
+  fabricated or committed.
 - The current full web gate passes 74 test files and 623 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 495,108 bytes raw and 155,812
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  5,909,673 and 5,910,334 bytes. EAS linkage and signed-device push remain
+  5,909,673 and 5,910,333 bytes. EAS linkage and signed-device push remain
   external gates.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device

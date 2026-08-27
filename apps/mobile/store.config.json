@@ -1,0 +1,42 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "categories": ["BUSINESS", "PRODUCTIVITY"],
+    "advisory": {
+      "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+      "contests": "NONE",
+      "gamblingSimulated": "NONE",
+      "horrorOrFearThemes": "NONE",
+      "matureOrSuggestiveThemes": "NONE",
+      "medicalOrTreatmentInformation": "NONE",
+      "profanityOrCrudeHumor": "NONE",
+      "sexualContentGraphicAndNudity": "NONE",
+      "sexualContentOrNudity": "NONE",
+      "violenceCartoonOrFantasy": "NONE",
+      "violenceRealistic": "NONE",
+      "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+      "gambling": false,
+      "unrestrictedWebAccess": false,
+      "kidsAgeBand": null,
+      "ageRatingOverride": "NONE",
+      "koreaAgeRatingOverride": "NONE"
+    },
+    "info": {
+      "en-US": {
+        "title": "ShowPilot",
+        "subtitle": "Live Production Operations",
+        "description": "Run live productions from one synchronized workspace. ShowPilot keeps your shows, rundowns, timers, crew schedules, assignments, incidents, production chat, notifications, and supported devices together so every operator works from the same live state.\n\nBuild and select upcoming shows, follow the active rundown, start and adjust live timers, coordinate assignments and custom call times, respond to incidents, receive mentions and schedule alerts, and stay in contact with the production team. Authorized operators can also reach supported equipment through the organization’s configured ShowPilot Bridge.\n\nShowPilot is designed for production teams in churches, venues, broadcasts, conferences, and live events. An existing ShowPilot account and internet connection are required.",
+        "keywords": ["production", "rundown", "timer", "crew", "schedule", "show", "cues", "stage", "church", "events"],
+        "promoText": "One synchronized workspace for live rundowns, timers, crews, incidents, chat, alerts, and supported production devices.",
+        "marketingUrl": "https://showpilot.tech",
+        "supportUrl": "https://showpilot.tech/support",
+        "privacyPolicyUrl": "https://showpilot.tech/privacy",
+        "privacyChoicesUrl": "https://showpilot.tech/delete-account"
+      }
+    },
+    "release": {
+      "automaticRelease": false,
+      "phasedRelease": false
+    }
+  }
+}
