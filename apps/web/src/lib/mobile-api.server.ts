@@ -2986,6 +2986,27 @@ async function checkIn(request: Request, url: URL, db: MobileApiDatabase): Promi
   return json({ members: (result.results ?? []).map(serializeCheckInMember) });
 }
 
+async function showBoard(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["showboard:view"]);
+  if (access instanceof Response) return access;
+  const [result, clockFormat, timeZone] = await Promise.all([
+    db.prepare(
+      `SELECT id, memberId, name, role, photoUrl, isOnline, lastCheckIn, lastCheckOut
+       FROM crew_member WHERE orgId = ?
+       ORDER BY isOnline DESC, name ASC, id ASC`,
+    ).bind(access.orgId).all<MobileCheckInMemberRow>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'clock-format' LIMIT 1")
+      .bind(access.orgId).first<{ value: string }>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      .bind(access.orgId).first<{ value: string }>(),
+  ]);
+  return json({
+    clockFormat: clockFormat?.value === "24hr" ? "24hr" : "12hr",
+    timeZone: timeZone?.value || "Africa/Accra",
+    members: (result.results ?? []).map(serializeCheckInMember),
+  });
+}
+
 async function teamMembers(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["settings:members"]);
   if (access instanceof Response) return access;
@@ -3926,6 +3947,7 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/chat/passes/crew" && request.method === "POST") return createMobileCrewChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/chat/passes/planning" && request.method === "POST") return createMobilePlanningChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/show-board" && request.method === "GET") return showBoard(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/members" && request.method === "GET") return teamMembers(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/invitations" && request.method === "POST") return inviteTeamMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "GET") return teamCrew(request, url, env.DB);

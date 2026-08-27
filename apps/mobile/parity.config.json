@@ -43,10 +43,14 @@
       "id": "show-board",
       "label": "Show Board",
       "webPath": "board",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "A dedicated native Show Board has not been built."
+      "status": "complete",
+      "nativeRoutes": [
+        "src/app/show-board.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/show-board"
+      ],
+      "gaps": ""
     },
     {
       "id": "rundown",

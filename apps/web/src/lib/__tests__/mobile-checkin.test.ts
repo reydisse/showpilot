@@ -78,6 +78,8 @@ function fakeDatabase(members: CrewFixture[]): MobileApiDatabase {
           return (params[0] === "org-1" ? { id: "org-1" } : null) as T | null;
         }
         if (sql.startsWith("SELECT id FROM organization WHERE slug = ?")) return null;
+        if (sql.includes("key = 'clock-format'")) return { value: "24hr" } as T;
+        if (sql.includes("key = 'org-timezone'")) return { value: "Africa/Accra" } as T;
         if (sql.includes("FROM crew_member WHERE id = ? AND orgId = ?")) {
           const member = members.find((candidate) => candidate.id === params[0] && candidate.orgId === params[1]);
           return (member ? selectMember(member) : null) as T | null;
@@ -195,6 +197,33 @@ describe("mobile check-in", () => {
   it("rejects users without check-in access", async () => {
     mocks.resolveAccess.mockResolvedValue({ role: "viewer", permissions: ["show:view"] });
     const response = await mobileRequest(fakeDatabase(createMembers()), "/api/mobile/v1/checkin?orgId=org-1");
+    expect(response.status).toBe(403);
+  });
+
+  it("returns a tenant-scoped Show Board to users with Show Board access", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "viewer", permissions: ["showboard:view"] });
+
+    const response = await mobileRequest(fakeDatabase(createMembers()), "/api/mobile/v1/show-board?orgId=org-1");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      clockFormat: "24hr",
+      timeZone: "Africa/Accra",
+      members: [{
+        id: "crew-1",
+        memberId: "TD3917",
+        name: "Ada Director",
+        role: "Technical Director",
+        photoUrl: "",
+        isOnline: false,
+        lastCheckIn: null,
+        lastCheckOut: null,
+      }],
+    });
+  });
+
+  it("does not treat check-in access as Show Board access", async () => {
+    const response = await mobileRequest(fakeDatabase(createMembers()), "/api/mobile/v1/show-board?orgId=org-1");
     expect(response.status).toBe(403);
   });
 });

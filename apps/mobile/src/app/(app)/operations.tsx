@@ -2,6 +2,7 @@ import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import Cable from "lucide-react-native/icons/cable";
 import CalendarClock from "lucide-react-native/icons/calendar-clock";
 import MessageSquareText from "lucide-react-native/icons/message-square-text";
+import MonitorPlay from "lucide-react-native/icons/monitor-play";
 import ListChecks from "lucide-react-native/icons/list-checks";
 import UserCheck from "lucide-react-native/icons/user-check";
 import UserCog from "lucide-react-native/icons/user-cog";
@@ -23,6 +24,7 @@ export default function OperationsScreen() {
   const canDevices = permissions.has("devices:access");
   const canChecklist = permissions.has("checklist:view") || permissions.has("checklist:access");
   const canCheckIn = permissions.has("checkin:access");
+  const canShowBoard = permissions.has("showboard:view");
   const canManageMembers = permissions.has("settings:members");
   const canManageAccess = data?.accessAuthority?.canManage === true;
 
@@ -34,6 +36,7 @@ export default function OperationsScreen() {
         {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat")} /> : null}
         {canChecklist ? <FeatureLink icon={ListChecks} title="Pre-show checklist" description="Prepare each department, generate checks from the rundown, and track completion live." onPress={() => router.push("/checklist")} /> : null}
         {canCheckIn ? <FeatureLink icon={UserCheck} title="Crew check-in" description="Find crew by member ID or roster and keep attendance synchronized for every operator." onPress={() => router.push("/checkin")} /> : null}
+        {canShowBoard ? <FeatureLink icon={MonitorPlay} title="Show Board" description="Live crew status, venue clock, and the public check-in QR for phones and tablets." badge="LIVE" onPress={() => router.push("/show-board")} /> : null}
         {canManageMembers ? <FeatureLink icon={UserCog} title="Organization members" description="Invite sign-in users, assign roles, cancel invitations, or revoke workspace membership." onPress={() => router.push("/team-members")} /> : null}
         {canManageMembers ? <FeatureLink icon={UserRound} title="Crew roster" description="Create and maintain production identities, badges, roles, emails, and photos." onPress={() => router.push("/team-crew")} /> : null}
         {canManageAccess ? <FeatureLink icon={UsersRound} title="Team access" description="Grant or revoke weekly and ongoing operational capabilities." onPress={() => router.push("/team")} /> : null}

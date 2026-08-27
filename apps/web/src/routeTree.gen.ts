@@ -48,6 +48,7 @@ import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
 import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$token'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
 import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
+import { Route as ApiCheckinQrOrgSlugRouteImport } from './routes/api/checkin-qr/$orgSlug'
 import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
@@ -279,6 +280,11 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
 const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
   id: '/api/overlay/$orgSlug',
   path: '/api/overlay/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCheckinQrOrgSlugRoute = ApiCheckinQrOrgSlugRouteImport.update({
+  id: '/api/checkin-qr/$orgSlug',
+  path: '/api/checkin-qr/$orgSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
@@ -539,6 +545,7 @@ export interface FileRoutesByFullPath {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/checkin-qr/$orgSlug': typeof ApiCheckinQrOrgSlugRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/crew/schedule/$token': typeof CrewScheduleTokenRoute
@@ -616,6 +623,7 @@ export interface FileRoutesByTo {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/checkin-qr/$orgSlug': typeof ApiCheckinQrOrgSlugRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/crew/schedule/$token': typeof CrewScheduleTokenRoute
@@ -696,6 +704,7 @@ export interface FileRoutesById {
   '/$slug/streaming/platforms': typeof SlugStreamingPlatformsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/session': typeof ApiAuthSessionRoute
+  '/api/checkin-qr/$orgSlug': typeof ApiCheckinQrOrgSlugRoute
   '/api/overlay/$orgSlug': typeof ApiOverlayOrgSlugRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/crew/schedule/$token': typeof CrewScheduleTokenRoute
@@ -776,6 +785,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/auth/session'
+    | '/api/checkin-qr/$orgSlug'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
     | '/crew/schedule/$token'
@@ -853,6 +863,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/auth/session'
+    | '/api/checkin-qr/$orgSlug'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
     | '/crew/schedule/$token'
@@ -932,6 +943,7 @@ export interface FileRouteTypes {
     | '/$slug/streaming/platforms'
     | '/api/auth/$'
     | '/api/auth/session'
+    | '/api/checkin-qr/$orgSlug'
     | '/api/overlay/$orgSlug'
     | '/api/stripe/webhook'
     | '/crew/schedule/$token'
@@ -978,6 +990,7 @@ export interface RootRouteChildren {
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthSessionRoute: typeof ApiAuthSessionRoute
+  ApiCheckinQrOrgSlugRoute: typeof ApiCheckinQrOrgSlugRoute
   ApiOverlayOrgSlugRoute: typeof ApiOverlayOrgSlugRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   CrewScheduleTokenRoute: typeof CrewScheduleTokenRoute
@@ -1278,6 +1291,13 @@ declare module '@tanstack/react-router' {
       path: '/api/overlay/$orgSlug'
       fullPath: '/api/overlay/$orgSlug'
       preLoaderRoute: typeof ApiOverlayOrgSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/checkin-qr/$orgSlug': {
+      id: '/api/checkin-qr/$orgSlug'
+      path: '/api/checkin-qr/$orgSlug'
+      fullPath: '/api/checkin-qr/$orgSlug'
+      preLoaderRoute: typeof ApiCheckinQrOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/session': {
@@ -1674,6 +1694,7 @@ const rootRouteChildren: RootRouteChildren = {
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthSessionRoute: ApiAuthSessionRoute,
+  ApiCheckinQrOrgSlugRoute: ApiCheckinQrOrgSlugRoute,
   ApiOverlayOrgSlugRoute: ApiOverlayOrgSlugRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   CrewScheduleTokenRoute: CrewScheduleTokenRoute,

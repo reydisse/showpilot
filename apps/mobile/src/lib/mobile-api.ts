@@ -355,6 +355,11 @@ const checkInSchema = z.object({
   members: z.array(checkInMemberSchema),
 });
 
+const showBoardSchema = checkInSchema.extend({
+  clockFormat: z.enum(["12hr", "24hr"]),
+  timeZone: z.string().min(1),
+});
+
 const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
 const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string() });
@@ -532,6 +537,7 @@ export type MobileIncidentReactionEmoji = z.infer<typeof incidentReactionEmojiSc
 export type MobileIncidentHistory = z.infer<typeof incidentHistorySchema>;
 export type MobileCheckIn = z.infer<typeof checkInSchema>;
 export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
+export type MobileShowBoard = z.infer<typeof showBoardSchema>;
 export type MobileTeamCrewMember = z.infer<typeof teamCrewMemberSchema>;
 export type MobileTeamAccess = z.infer<typeof teamAccessSchema>;
 export type MobileTeamAccessGrant = z.infer<typeof teamAccessGrantSchema>;
@@ -1108,6 +1114,11 @@ export async function setMobileIncidentCommentReaction(input: {
 export async function getMobileCheckIn(orgId: string): Promise<MobileCheckIn> {
   const response = await authenticatedFetch(`/api/mobile/v1/checkin?orgId=${encodeURIComponent(orgId)}`);
   return checkInSchema.parse(await response.json());
+}
+
+export async function getMobileShowBoard(orgId: string): Promise<MobileShowBoard> {
+  const response = await authenticatedFetch(`/api/mobile/v1/show-board?orgId=${encodeURIComponent(orgId)}`);
+  return showBoardSchema.parse(await response.json());
 }
 
 export async function setMobileCheckInStatus(input: {
