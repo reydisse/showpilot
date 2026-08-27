@@ -115,6 +115,21 @@ const requiredLaunchContracts = [
     pattern: /CREATE UNIQUE INDEX[\s\S]+checklist_entry[\s\S]+orgId[\s\S]+showId[\s\S]+templateId/,
     message: "Migration 0032 must enforce checklist entry uniqueness in D1.",
   },
+  {
+    path: "src/routes/__root.tsx",
+    pattern: /name:\s*"description"[\s\S]+content:/,
+    message: "The application shell must retain a search and sharing description.",
+  },
+  {
+    path: "src/routes/_auth.tsx",
+    pattern: /<main[\s\S]+<Outlet\s*\/>[\s\S]+<\/main>/,
+    message: "Authentication pages must retain a main landmark.",
+  },
+  {
+    path: "src/routes/_auth\/login.tsx",
+    pattern: /aria-label=\{showPassword[\s\S]+className="[^"]*size-10/,
+    message: "The password visibility control must retain a 40px touch target.",
+  },
 ];
 
 for (const contract of requiredLaunchContracts) {

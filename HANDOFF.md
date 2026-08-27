@@ -394,13 +394,22 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   one Workers-runtime D1 integration test, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
-  Expo Doctor 18/18, and native lint. The web main bundle is 493,651 bytes raw
-  and 155,354 bytes gzip. The iOS and Android Hermes bundles are 5,903,770 and
-  5,904,395 bytes, respectively, below the enforced 6.5 MB ceiling.
-- A live Core Web Vitals trace is still outstanding because the current agent
-  environment does not expose the Chrome DevTools MCP required by the
-  performance-audit workflow. Production web bundle budgets and browser smoke
-  tests pass, but they are not substitutes for that trace.
+  Expo Doctor 18/18, and native lint. The web main bundle is 493,741 bytes raw
+  and 155,381 bytes gzip. The iOS and Android Hermes bundles are 5,903,771 and
+  5,904,394 bytes, respectively, below the enforced 6.5 MB ceiling.
+- A release-artifact Lighthouse audit of the authentication entry point scores
+  99 performance and 100 accessibility, best practices, and SEO. FCP, LCP,
+  speed index, and interactive are 0.8 seconds; blocking time and layout shift
+  are zero; the local Worker document response is 50 ms; and the transfer is
+  298 KiB. The audit found and fixed a missing main landmark, an 18px password
+  visibility target, and a missing global description. Static build contracts
+  now lock the landmark, 40px target, and description. Rendered 390px light
+  and dark QA has no overflow or browser errors.
+- A field-data Core Web Vitals trace is still outstanding because the current
+  agent environment does not expose the Chrome DevTools MCP required by the
+  performance-audit workflow. The built-artifact Lighthouse lab audit,
+  production web bundle budgets, and browser smoke tests pass, but they are not
+  substitutes for real-user field data.
 - A repeated read-only production audit on 2026-08-27 found that
   `www.showpilot.tech` still serves the Worker version created on 2026-06-12
   without the download center. `/downloads`, `/downloads/manifest.json`, and

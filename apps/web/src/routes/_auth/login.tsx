@@ -129,13 +129,13 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 6 characters"
-                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-12 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 aria-label={showPassword ? "Hide password" : "Show password"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted/60 hover:text-board-muted transition-colors"
+                className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-board-muted/60 transition-colors hover:text-board-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fire-500"
               >
                 {showPassword ? (
                   <EyeOff className="size-[18px]" />

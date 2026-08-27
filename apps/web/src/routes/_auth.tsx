@@ -43,7 +43,7 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
   return (
-    <div
+    <main
       className="flex min-h-dvh items-center justify-center bg-board-bg py-8 text-board-text"
       style={{
         backgroundImage:
@@ -53,6 +53,6 @@ function AuthLayout() {
       <div className="w-full max-w-md px-4">
         <Outlet />
       </div>
-    </div>
+    </main>
   );
 }
