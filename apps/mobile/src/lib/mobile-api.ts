@@ -360,6 +360,58 @@ const showBoardSchema = checkInSchema.extend({
   timeZone: z.string().min(1),
 });
 
+const ontimeEventSchema = z.object({
+  id: z.string(),
+  type: z.literal("event"),
+  title: z.string(),
+  cue: z.string(),
+  timeStart: z.number(),
+  timeEnd: z.number(),
+  duration: z.number(),
+  colour: z.string(),
+  note: z.string(),
+  skip: z.boolean(),
+});
+
+const ontimeTimerSchema = z.object({
+  addedTime: z.number(),
+  current: z.number().nullable(),
+  duration: z.number().nullable(),
+  elapsed: z.number().nullable(),
+  playback: z.enum(["play", "pause", "armed", "stop", "roll"]),
+  startedAt: z.number().nullable(),
+  expectedFinish: z.number().nullable(),
+  finishedAt: z.number().nullable(),
+});
+
+const showWorkspaceSchema = z.object({
+  clockFormat: z.enum(["12hr", "24hr"]),
+  timeZone: z.string().min(1),
+  configuredAdapter: z.enum(["native", "ontime", "propresenter", "planning-center"]),
+  adapterStatus: z.enum(["ready", "fallback"]),
+  chatAvailable: z.boolean(),
+  showBoardAvailable: z.boolean(),
+  canOpenRundown: z.boolean(),
+  crew: z.array(checkInMemberSchema),
+  runtime: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("native"),
+      show: rundownSchema.omit({ itemCount: true }).extend({ updatedAt: z.string() }).nullable(),
+      items: z.array(rundownItemSchema),
+      timer: timerSchema,
+    }),
+    z.object({
+      kind: z.literal("ontime"),
+      timer: ontimeTimerSchema,
+      eventNow: ontimeEventSchema.nullable(),
+      eventNext: ontimeEventSchema.nullable(),
+      clock: z.number(),
+      events: z.array(ontimeEventSchema),
+      connected: z.literal(true),
+    }),
+  ]),
+});
+
 const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
 const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string() });
@@ -538,6 +590,7 @@ export type MobileIncidentHistory = z.infer<typeof incidentHistorySchema>;
 export type MobileCheckIn = z.infer<typeof checkInSchema>;
 export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
 export type MobileShowBoard = z.infer<typeof showBoardSchema>;
+export type MobileShowWorkspace = z.infer<typeof showWorkspaceSchema>;
 export type MobileTeamCrewMember = z.infer<typeof teamCrewMemberSchema>;
 export type MobileTeamAccess = z.infer<typeof teamAccessSchema>;
 export type MobileTeamAccessGrant = z.infer<typeof teamAccessGrantSchema>;
@@ -1119,6 +1172,11 @@ export async function getMobileCheckIn(orgId: string): Promise<MobileCheckIn> {
 export async function getMobileShowBoard(orgId: string): Promise<MobileShowBoard> {
   const response = await authenticatedFetch(`/api/mobile/v1/show-board?orgId=${encodeURIComponent(orgId)}`);
   return showBoardSchema.parse(await response.json());
+}
+
+export async function getMobileShowWorkspace(orgId: string): Promise<MobileShowWorkspace> {
+  const response = await authenticatedFetch(`/api/mobile/v1/show-workspace?orgId=${encodeURIComponent(orgId)}`);
+  return showWorkspaceSchema.parse(await response.json());
 }
 
 export async function setMobileCheckInStatus(input: {

@@ -7,16 +7,18 @@
       "id": "show",
       "label": "Show",
       "webPath": "show",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
         "src/app/(app)/shows.tsx",
+        "src/app/live-show.tsx",
         "src/app/show/[showId].tsx"
       ],
       "apiContracts": [
         "/api/mobile/v1/bootstrap",
+        "/api/mobile/v1/show-workspace",
         "/api/mobile/v1/rundowns"
       ],
-      "gaps": "Native show execution exists, but the web Show workspace is not yet reproduced feature-for-feature."
+      "gaps": ""
     },
     {
       "id": "schedule",

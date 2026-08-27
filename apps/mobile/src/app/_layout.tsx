@@ -72,6 +72,7 @@ function RootNavigator() {
             }}
           />
           <Stack.Screen name="show/[showId]" options={{ title: "Live rundown", headerBackTitle: "Shows" }} />
+          <Stack.Screen name="live-show" options={{ title: "Live Show", headerBackTitle: "Shows" }} />
           <Stack.Screen name="schedule" options={{ title: "Schedule", headerBackTitle: "Operate" }} />
           <Stack.Screen name="chat" options={{ title: "Production chat", headerBackTitle: "Operate" }} />
           <Stack.Screen name="incidents" options={{ title: "Incidents", headerBackTitle: "Operate" }} />

@@ -34,6 +34,7 @@ const featureContract = [
   ["src/app/checklist.tsx", "/api/mobile/v1/checklist"],
   ["src/app/checkin.tsx", "/api/mobile/v1/checkin"],
   ["src/app/show-board.tsx", "/api/mobile/v1/show-board"],
+  ["src/app/live-show.tsx", "/api/mobile/v1/show-workspace"],
   ["src/app/team-members.tsx", "/api/mobile/v1/team/members"],
   ["src/app/team-crew.tsx", "/api/mobile/v1/team/crew"],
   ["src/app/team.tsx", "/api/mobile/v1/team/access"],
@@ -68,7 +69,12 @@ const sourceContract = [
   ["src/app/checkin.tsx", "<FlatList"],
   ["src/app/show-board.tsx", "refetchInterval: 3_000"],
   ["src/app/show-board.tsx", "<SvgUri"],
+  ["src/app/live-show.tsx", "useRundownRelay"],
+  ["src/app/live-show.tsx", 'runtime.kind === "ontime"'],
+  ["src/app/live-show.tsx", "<FlatList"],
+  ["src/app/(app)/operations.tsx", 'permissions.has("show:view")'],
   ["src/app/(app)/operations.tsx", 'permissions.has("showboard:view")'],
+  ["src/app/_layout.tsx", 'name="live-show"'],
   ["src/app/_layout.tsx", 'name="show-board"'],
   ["src/app/team-members.tsx", "inviteMobileTeamMember"],
   ["src/app/team-members.tsx", "updateMobileTeamMemberRole"],
@@ -116,6 +122,7 @@ const apiContract = [
   "const checklistTemplateMatch",
   "/api/mobile/v1/checkin",
   "/api/mobile/v1/show-board",
+  "/api/mobile/v1/show-workspace",
   "const checkInMemberMatch",
   "/api/mobile/v1/team/members",
   "/api/mobile/v1/team/invitations",
@@ -289,7 +296,7 @@ const signedInRoutes = rootLayout.match(
 if (!signedOutRoutes?.includes('name="(auth)"')) {
   throw new Error("Native authentication screens must remain inside the signed-out route guard.");
 }
-for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "incidents-history", "checklist", "checkin", "team", "devices", "device/[deviceId]"]) {
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "live-show", "schedule", "chat", "incidents", "incidents-history", "checklist", "checkin", "show-board", "team", "devices", "device/[deviceId]"]) {
   const marker = `name="${route}"`;
   if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
     throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);

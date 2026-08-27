@@ -53,6 +53,7 @@ import type {
 } from "../durable-objects/BridgeRelay";
 import { rundownRelayKey } from "./rundown-relay-key";
 import { parseRelayRundownItems, type RelayRundownItem } from "./rundown-relay-payload";
+import { fetchOntimeRuntimeState } from "./ontime-runtime";
 
 export interface MobileApiStatement {
   first<T>(): Promise<T | null>;
@@ -613,23 +614,7 @@ async function rundown(request: Request, url: URL, showId: string, env: MobileAp
       bridgeOnline: bridge.bridgeOnline,
       connected: Boolean(proPresenterTarget),
     },
-    items: (itemsResult.results ?? []).map((item) => ({
-      id: item.itemId,
-      title: item.title,
-      type: item.type,
-      duration: item.duration,
-      notes: item.notes,
-      assignee: item.assignee,
-      cue: item.cue,
-      status: item.status,
-      sortOrder: item.sortOrder,
-      hardStop: Boolean(item.hardStop),
-      lowerThirdId: item.lowerThirdId ?? undefined,
-      scheduledStart: item.scheduledStart,
-      expectedEnd: item.expectedEnd,
-      actualStart: item.actualStart,
-      actualEnd: item.actualEnd,
-    })),
+    items: (itemsResult.results ?? []).map(serializeMobileRundownItem),
     timer: parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === showId ? dateTimerSetting?.value : null)),
   });
 }
@@ -2976,6 +2961,26 @@ function serializeCheckInMember(member: MobileCheckInMemberRow) {
   return { ...member, isOnline: Boolean(member.isOnline) };
 }
 
+function serializeMobileRundownItem(item: MobileRundownItemRow) {
+  return {
+    id: item.itemId,
+    title: item.title,
+    type: item.type,
+    duration: item.duration,
+    notes: item.notes,
+    assignee: item.assignee,
+    cue: item.cue,
+    status: item.status,
+    sortOrder: item.sortOrder,
+    hardStop: Boolean(item.hardStop),
+    lowerThirdId: item.lowerThirdId ?? undefined,
+    scheduledStart: item.scheduledStart,
+    expectedEnd: item.expectedEnd,
+    actualStart: item.actualStart,
+    actualEnd: item.actualEnd,
+  };
+}
+
 async function checkIn(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["checkin:access"]);
   if (access instanceof Response) return access;
@@ -3004,6 +3009,101 @@ async function showBoard(request: Request, url: URL, db: MobileApiDatabase): Pro
     clockFormat: clockFormat?.value === "24hr" ? "24hr" : "12hr",
     timeZone: timeZone?.value || "Africa/Accra",
     members: (result.results ?? []).map(serializeCheckInMember),
+  });
+}
+
+async function showWorkspace(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["show:view"]);
+  if (access instanceof Response) return access;
+  const { orgId, identity } = access;
+  const [settingsResult, crewResult] = await Promise.all([
+    db.prepare(
+      `SELECT key, value FROM app_setting
+       WHERE orgId = ? AND key IN (
+         'org-timezone', 'clock-format', 'rundown-adapter', 'ontime-url', 'active-show-id'
+       )`,
+    ).bind(orgId).all<{ key: string; value: string }>(),
+    db.prepare(
+      `SELECT id, memberId, name, role, photoUrl, isOnline, lastCheckIn, lastCheckOut
+       FROM crew_member WHERE orgId = ?
+       ORDER BY isOnline DESC, name ASC, id ASC`,
+    ).bind(orgId).all<MobileCheckInMemberRow>(),
+  ]);
+  const settings = Object.fromEntries((settingsResult.results ?? []).map((setting) => [setting.key, setting.value]));
+  const timeZone = settings["org-timezone"] || "Africa/Accra";
+  const today = getTodayDateString(timeZone);
+  const configuredAdapter = new Set(["native", "ontime", "propresenter", "planning-center"])
+    .has(settings["rundown-adapter"])
+    ? settings["rundown-adapter"]
+    : "native";
+  const common = {
+    clockFormat: settings["clock-format"] === "24hr" ? "24hr" : "12hr",
+    timeZone,
+    configuredAdapter,
+    chatAvailable: identity.permissions.includes("chat:access"),
+    showBoardAvailable: identity.permissions.includes("showboard:view"),
+    canOpenRundown: hasAny(identity, ["rundown:view", "rundown:edit", "rundown:control"]),
+    crew: (crewResult.results ?? []).map(serializeCheckInMember),
+  };
+
+  const ontimeUrl = settings["ontime-url"]?.trim();
+  if (configuredAdapter === "ontime" && ontimeUrl) {
+    const ontime = await fetchOntimeRuntimeState(ontimeUrl);
+    if (ontime.connected) {
+      return json({
+        ...common,
+        adapterStatus: "ready",
+        runtime: { kind: "ontime", ...ontime },
+      });
+    }
+  }
+
+  const activeShowId = settings["active-show-id"] ?? "";
+  const show = await db.prepare(
+    `SELECT id, serviceDate, name, scheduledStartTime, location, status, updatedAt
+     FROM rundown
+     WHERE orgId = ? AND (status IN ('running', 'paused') OR serviceDate >= ?)
+     ORDER BY CASE
+       WHEN id = ? THEN 0
+       WHEN status IN ('running', 'paused') THEN 1
+       ELSE 2
+     END, serviceDate ASC, scheduledStartTime ASC, createdAt ASC
+     LIMIT 1`,
+  ).bind(orgId, today, activeShowId).first<Omit<MobileRundownRow, "itemCount"> & { updatedAt: string }>();
+
+  if (!show) {
+    return json({
+      ...common,
+      adapterStatus: configuredAdapter === "ontime" ? "fallback" : "ready",
+      runtime: { kind: "native", show: null, items: [], timer: parseTimer(null) },
+    });
+  }
+
+  const [itemsResult, showTimerSetting, dateTimerSetting, legacyOwner] = await Promise.all([
+    db.prepare(
+      `SELECT itemId, title, type, duration, notes, assignee, cue, status,
+              sortOrder, hardStop, lowerThirdId, scheduledStart, expectedEnd, actualStart, actualEnd
+       FROM rundown_item WHERE orgId = ? AND showId = ?
+       ORDER BY sortOrder ASC, createdAt ASC`,
+    ).bind(orgId, show.id).all<MobileRundownItemRow>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
+      .bind(orgId, `rundown-timer:${show.id}`).first<{ value: string }>(),
+    db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
+      .bind(orgId, `rundown-timer:${show.serviceDate}`).first<{ value: string }>(),
+    db.prepare(
+      `SELECT id FROM rundown WHERE orgId = ? AND serviceDate = ?
+       ORDER BY scheduledStartTime ASC, createdAt ASC LIMIT 1`,
+    ).bind(orgId, show.serviceDate).first<{ id: string }>(),
+  ]);
+  return json({
+    ...common,
+    adapterStatus: configuredAdapter === "ontime" ? "fallback" : "ready",
+    runtime: {
+      kind: "native",
+      show,
+      items: (itemsResult.results ?? []).map(serializeMobileRundownItem),
+      timer: parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === show.id ? dateTimerSetting?.value : null)),
+    },
   });
 }
 
@@ -3948,6 +4048,7 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/chat/passes/planning" && request.method === "POST") return createMobilePlanningChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/show-board" && request.method === "GET") return showBoard(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/show-workspace" && request.method === "GET") return showWorkspace(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/members" && request.method === "GET") return teamMembers(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/invitations" && request.method === "POST") return inviteTeamMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "GET") return teamCrew(request, url, env.DB);

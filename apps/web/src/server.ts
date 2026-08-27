@@ -291,6 +291,7 @@ export default {
       const canControl = canUse(access, "rundown:control");
       const canEdit = canUse(access, "rundown:edit");
       const canObserveRundown = canUse(access, [
+        "show:view",
         "rundown:view",
         "rundown:edit",
         "cuesheet:view",

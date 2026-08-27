@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Plus from "lucide-react-native/icons/plus";
 import X from "lucide-react-native/icons/x";
+import RadioTower from "lucide-react-native/icons/radio-tower";
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +21,7 @@ import * as Haptics from "@/lib/haptics";
 import { AppButton } from "@/components/app-button";
 import { AppField } from "@/components/app-field";
 import { Page } from "@/components/page";
+import { FeatureLink } from "@/components/feature-link";
 import { ShowCard } from "@/components/show-card";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { createMobileRundown } from "@/lib/mobile-api";
@@ -42,6 +44,7 @@ export default function ShowsScreen() {
   const { organization, data, isPending, isRefetching, error, refetch } = useMobileBootstrap();
   const [creating, setCreating] = useState(false);
   const canCreate = Boolean(data?.identity.permissions.includes("schedule:manage"));
+  const canViewLiveShow = Boolean(data?.identity.permissions.includes("show:view"));
   const createMutation = useMutation({
     mutationFn: (draft: CreateShowDraft) => createMobileRundown({
       orgId: organization!.id,
@@ -87,6 +90,7 @@ export default function ShowsScreen() {
         ListHeaderComponent={(
           <View style={styles.listHeader}>
             <Text style={styles.intro}>Upcoming and active shows for {organization.name}.</Text>
+            {canViewLiveShow ? <FeatureLink icon={RadioTower} title="Open Live Show" description="One synchronized workspace for the live timer, cues, crew, chat, and full rundown." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
             {isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
             {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
           </View>

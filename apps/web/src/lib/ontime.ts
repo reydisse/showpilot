@@ -3,7 +3,11 @@ import { getPrisma } from "@/lib/db";
 import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
-import type { OntimeTimer, OntimeEvent, OntimeRuntimeState } from "@/types/ontime";
+import type { OntimeRuntimeState } from "@/types/ontime";
+import {
+  defaultOntimeTimer,
+  fetchOntimeRuntimeState,
+} from "@/lib/ontime-runtime";
 
 async function readOntimeConfigForOrg(orgId: string) {
   const prisma = getPrisma();
@@ -36,72 +40,7 @@ export const getOntimeState = createServerFn({ method: "GET" })
       };
     }
 
-    const baseUrl = config.url;
-
-    try {
-      // OnTime v3 uses /api/poll for live state and /data/rundown for event list
-      type PollResponse = {
-        payload?: {
-          timer?: Partial<OntimeTimer>;
-          eventNow?: OntimeEvent | null;
-          eventNext?: OntimeEvent | null;
-          clock?: number;
-        };
-      };
-      type RundownResponse =
-        | OntimeEvent[]
-        | { order?: string[]; entries?: Record<string, OntimeEvent> };
-      const [pollRes, rundownRes] = (await Promise.all([
-        fetch(`${baseUrl}/api/poll`).then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetch(`${baseUrl}/data/rundown`).then((r) => r.ok ? r.json() : null).catch(() => null),
-      ])) as [PollResponse | null, RundownResponse | null];
-
-      const poll = pollRes?.payload;
-      if (!poll) {
-        return { timer: defaultTimer, eventNow: null, eventNext: null, clock: 0, events: [], connected: false };
-      }
-
-      const timer: OntimeTimer = {
-        addedTime: poll.timer?.addedTime ?? 0,
-        current: poll.timer?.current ?? null,
-        duration: poll.timer?.duration ?? null,
-        elapsed: poll.timer?.elapsed ?? null,
-        playback: poll.timer?.playback ?? "stop",
-        startedAt: poll.timer?.startedAt ?? null,
-        expectedFinish: poll.timer?.expectedFinish ?? null,
-        finishedAt: poll.timer?.finishedAt ?? null,
-      };
-      const eventNow: OntimeEvent | null = poll.eventNow ?? null;
-      const eventNext: OntimeEvent | null = poll.eventNext ?? null;
-      const clock = poll.clock ?? Date.now();
-
-      // Extract events from rundown — /data/rundown returns a flat array
-      let events: OntimeEvent[] = [];
-      if (rundownRes) {
-        if (Array.isArray(rundownRes)) {
-          events = rundownRes.filter(
-            (e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip
-          );
-        } else if (rundownRes.order && rundownRes.entries) {
-          // Fallback: v3 format with order + entries map
-          const entries = rundownRes.entries;
-          events = rundownRes.order
-            .map((id: string) => entries[id])
-            .filter((e: { type: string; skip?: boolean }) => e?.type === "event" && !e?.skip);
-        }
-      }
-
-      return { timer, eventNow, eventNext, clock, events, connected: true };
-    } catch {
-      return {
-        timer: defaultTimer,
-        eventNow: null,
-        eventNext: null,
-        clock: 0,
-        events: [],
-        connected: false,
-      };
-    }
+    return fetchOntimeRuntimeState(config.url);
   });
 
 /**
@@ -141,16 +80,7 @@ export const testOntimeConnection = createServerFn({ method: "POST" })
     }
   });
 
-const defaultTimer: OntimeTimer = {
-  addedTime: 0,
-  current: null,
-  duration: null,
-  elapsed: null,
-  playback: "stop",
-  startedAt: null,
-  expectedFinish: null,
-  finishedAt: null,
-};
+const defaultTimer = defaultOntimeTimer;
 
 // ─── Formatting Utilities ─────────────────────────────────────
 

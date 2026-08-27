@@ -787,6 +787,31 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   5,264,577 bytes on Android. The parity inventory is eight complete, two
   partial, and ten missing; the verifier now covers 15 native screens and 29
   mobile API contracts.
+- Native Show is now a complete primary surface. The new Live Show workspace
+  combines the authoritative timer, current and next cues, full ordered
+  sequence, checked-in crew, and direct Chat, full-Rundown, and Show Board
+  transitions in one role-aware phone/tablet view. Native relay updates remain
+  the live source; the 100 ms timer repaint is isolated to its card instead of
+  rerendering the sequence. Members with only `show:view` receive full
+  read-only relay state, while edit and transport commands still require their
+  distinct rundown permissions. The tenant-scoped mobile endpoint selects only
+  running, paused, current, or upcoming shows, so a stale past rundown cannot
+  populate an empty live workspace. It honors the configured 12/24-hour venue
+  clock and supports OnTime's flat and ordered v3 payloads through a validated
+  server proxy; an unreachable OnTime source falls back visibly to native.
+  Focused tests cover adapter parsing, tenant scoping, capabilities, permission
+  denial, and the stale-past-show regression.
+- Rendered Expo web QA passed at 320x700 and 768x1024 with no clipping or
+  overlap; the nested live list scrolls, active/completed cues remain distinct,
+  and the Full rundown action opened the native control surface. The Browser
+  plugin was unavailable, so the existing agent-browser CLI exercised a local
+  mocked release artifact. The Show checkpoint passes 95 web unit-test files
+  and 758 tests, the Worker, migration-manifest and accessible-control suites,
+  web/native TypeScript, native lint, the full client/SSR production build,
+  Expo Doctor 18/18, and real iOS/Android/web exports. Hermes bundles are
+  5,306,902 bytes on iOS and 5,306,040 bytes on Android. The parity inventory
+  is nine complete, one partial, and ten missing; the verifier covers 16 native
+  screens and 30 mobile API contracts.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

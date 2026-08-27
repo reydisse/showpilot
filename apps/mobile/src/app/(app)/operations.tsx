@@ -3,6 +3,7 @@ import Cable from "lucide-react-native/icons/cable";
 import CalendarClock from "lucide-react-native/icons/calendar-clock";
 import MessageSquareText from "lucide-react-native/icons/message-square-text";
 import MonitorPlay from "lucide-react-native/icons/monitor-play";
+import RadioTower from "lucide-react-native/icons/radio-tower";
 import ListChecks from "lucide-react-native/icons/list-checks";
 import UserCheck from "lucide-react-native/icons/user-check";
 import UserCog from "lucide-react-native/icons/user-cog";
@@ -25,6 +26,7 @@ export default function OperationsScreen() {
   const canChecklist = permissions.has("checklist:view") || permissions.has("checklist:access");
   const canCheckIn = permissions.has("checkin:access");
   const canShowBoard = permissions.has("showboard:view");
+  const canViewShow = permissions.has("show:view");
   const canManageMembers = permissions.has("settings:members");
   const canManageAccess = data?.accessAuthority?.canManage === true;
 
@@ -33,6 +35,7 @@ export default function OperationsScreen() {
       <Text style={styles.intro}>Native tools available to your current role and on-duty access grants.</Text>
       <View style={styles.list}>
         <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule")} />
+        {canViewShow ? <FeatureLink icon={RadioTower} title="Live Show" description="Follow the authoritative timer, current and next cues, active crew, chat, and rundown from one workspace." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
         {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat")} /> : null}
         {canChecklist ? <FeatureLink icon={ListChecks} title="Pre-show checklist" description="Prepare each department, generate checks from the rundown, and track completion live." onPress={() => router.push("/checklist")} /> : null}
         {canCheckIn ? <FeatureLink icon={UserCheck} title="Crew check-in" description="Find crew by member ID or roster and keep attendance synchronized for every operator." onPress={() => router.push("/checkin")} /> : null}

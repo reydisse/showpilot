@@ -133,6 +133,14 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     pendingRef.current = null;
     clearPendingTimer();
 
+    if (!orgId || !serviceDate || !showId) {
+      setStatus("offline");
+      setHydrated(false);
+      return () => {
+        disposed = true;
+      };
+    }
+
     function clearKeepalive() {
       if (keepaliveTimer) clearInterval(keepaliveTimer);
       keepaliveTimer = null;
