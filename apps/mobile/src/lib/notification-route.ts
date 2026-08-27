@@ -4,6 +4,7 @@ export type MobileNotificationRoute =
   | { screen: "devices" }
   | { screen: "incidents" }
   | { screen: "operations" }
+  | { screen: "checklist"; showId?: string }
   | { screen: "shows" }
   | { screen: "schedule"; date?: string; assignmentId?: string }
   | { screen: "chat"; room: string }
@@ -44,9 +45,12 @@ export function notificationRoute(actionUrl: string): MobileNotificationRoute | 
   const path = withoutOrganizationPrefix(internalPath(actionUrl));
   if (path === "dashboard/tech-manager" || path.startsWith("dashboard/devices")) return { screen: "devices" };
   if (path === "rundown" || path === "board") return { screen: "shows" };
+  if (path === "production/checklist" || path.startsWith("production/checklist?")) {
+    const showId = searchFor(path).get("show") || searchFor(path).get("showId");
+    return { screen: "checklist", ...(showId ? { showId } : {}) };
+  }
   if (
     path === "production/cue-sheets"
-    || path === "production/checklist"
     || path === "checkin"
     || path === "timecode"
     || path === "streaming/graphics"

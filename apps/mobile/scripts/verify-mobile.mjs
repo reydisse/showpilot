@@ -12,6 +12,7 @@ const appConfig = JSON.parse(readFileSync(resolve(mobileRoot, "app.json"), "utf8
 const packageConfig = JSON.parse(readFileSync(resolve(mobileRoot, "package.json"), "utf8"));
 const easConfig = JSON.parse(readFileSync(resolve(mobileRoot, "eas.json"), "utf8"));
 const storeConfig = JSON.parse(readFileSync(resolve(mobileRoot, "store.config.json"), "utf8"));
+const parityConfig = JSON.parse(readFileSync(resolve(mobileRoot, "parity.config.json"), "utf8"));
 const requireReleaseLink = process.argv.slice(2).includes("--release");
 const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--release");
 if (unknownArguments.length > 0) {
@@ -29,6 +30,7 @@ const featureContract = [
   ["src/app/(app)/shows.tsx", "/api/mobile/v1/rundowns"],
   ["src/app/schedule.tsx", "/api/mobile/v1/schedule"],
   ["src/app/incidents.tsx", "/api/mobile/v1/incidents"],
+  ["src/app/checklist.tsx", "/api/mobile/v1/checklist"],
   ["src/app/devices.tsx", "/api/mobile/v1/devices"],
   ["src/app/device/[deviceId].tsx", "const deviceControlMatch"],
   ["src/app/(app)/profile.tsx", "/api/user/avatar"],
@@ -45,6 +47,9 @@ const sourceContract = [
   ["src/app/show/[showId].tsx", "<FlatList"],
   ["src/app/schedule.tsx", "<FlatList"],
   ["src/app/incidents.tsx", "<FlatList"],
+  ["src/app/checklist.tsx", "getMobileChecklistDraft"],
+  ["src/app/checklist.tsx", "toggleMobileChecklistEntry"],
+  ["src/app/checklist.tsx", "<FlatList"],
   ["src/app/devices.tsx", "<FlatList"],
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
   ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
@@ -70,6 +75,10 @@ const apiContract = [
   "/api/mobile/v1/schedule",
   "/api/mobile/v1/schedule/respond",
   "/api/mobile/v1/incidents",
+  "/api/mobile/v1/checklist/items",
+  "/api/mobile/v1/checklist/suggestions",
+  "const checklistEntryMatch",
+  "const checklistTemplateMatch",
   "/api/mobile/v1/devices",
   "const deviceControlMatch",
   "/api/mobile/v1/notifications/read",
@@ -114,6 +123,18 @@ const storeDocumentContracts = [
   ["store/submission-gates.md", "Migration `0033_chat_user_room_index.sql`"],
 ];
 
+function extractWebNavigation(source) {
+  const navigation = [];
+  for (const name of ["mainNav", "productionNav", "streamingNav", "dashboardNav"]) {
+    const block = source.match(new RegExp(`const ${name}: NavItem\\[\\] = \\[([\\s\\S]*?)\\n\\];`))?.[1];
+    if (!block) throw new Error(`Unable to read ${name} from the web Sidebar.`);
+    for (const match of block.matchAll(/label:\s*"([^"]+)"[\s\S]*?path:\s*"([^"]+)"/g)) {
+      navigation.push({ label: match[1], webPath: match[2] });
+    }
+  }
+  return navigation;
+}
+
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(directory, entry.name);
@@ -137,6 +158,69 @@ function readPngHeader(relativePath) {
 const workerApi = readFileSync(resolve(repositoryRoot, "apps/web/src/lib/mobile-api.server.ts"), "utf8");
 const workerEntry = readFileSync(resolve(repositoryRoot, "apps/web/src/server.ts"), "utf8");
 const serverContract = `${workerApi}\n${workerEntry}`;
+const webSidebar = readFileSync(resolve(repositoryRoot, parityConfig.source), "utf8");
+const webNavigation = extractWebNavigation(webSidebar);
+if (parityConfig.version !== 1 || !Array.isArray(parityConfig.surfaces)) {
+  throw new Error("parity.config.json must use schema version 1 and define surfaces.");
+}
+if (parityConfig.surfaces.length !== webNavigation.length) {
+  throw new Error(
+    `Native parity inventory has ${parityConfig.surfaces.length} surfaces; web navigation has ${webNavigation.length}.`,
+  );
+}
+const parityIds = new Set();
+const parityPaths = new Set();
+const parityStatuses = new Set(["complete", "partial", "missing"]);
+for (const [index, surface] of parityConfig.surfaces.entries()) {
+  const webSurface = webNavigation[index];
+  if (surface.label !== webSurface.label || surface.webPath !== webSurface.webPath) {
+    throw new Error(
+      `Parity surface ${index + 1} must match web navigation ${webSurface.label} (${webSurface.webPath}).`,
+    );
+  }
+  if (typeof surface.id !== "string" || !surface.id || parityIds.has(surface.id)) {
+    throw new Error(`Parity surface IDs must be non-empty and unique: ${String(surface.id)}.`);
+  }
+  if (parityPaths.has(surface.webPath)) {
+    throw new Error(`Parity web paths must be unique: ${surface.webPath}.`);
+  }
+  parityIds.add(surface.id);
+  parityPaths.add(surface.webPath);
+  if (!parityStatuses.has(surface.status)) {
+    throw new Error(`Unknown parity status for ${surface.label}: ${String(surface.status)}.`);
+  }
+  if (!Array.isArray(surface.nativeRoutes) || !Array.isArray(surface.apiContracts)) {
+    throw new Error(`Parity evidence for ${surface.label} must use route and API arrays.`);
+  }
+  if (typeof surface.gaps !== "string") {
+    throw new Error(`Parity gaps for ${surface.label} must be a string.`);
+  }
+  if (surface.status === "missing") {
+    if (surface.nativeRoutes.length > 0 || surface.apiContracts.length > 0 || !surface.gaps) {
+      throw new Error(`Missing surface ${surface.label} must have only a clear gap statement.`);
+    }
+    continue;
+  }
+  if (surface.nativeRoutes.length === 0) {
+    throw new Error(`${surface.status} surface ${surface.label} must cite at least one native route.`);
+  }
+  for (const route of surface.nativeRoutes) {
+    if (!existsSync(resolve(mobileRoot, route))) {
+      throw new Error(`Parity evidence route for ${surface.label} is missing: ${route}.`);
+    }
+  }
+  for (const endpoint of surface.apiContracts) {
+    if (!serverContract.includes(endpoint)) {
+      throw new Error(`Parity API evidence for ${surface.label} is missing: ${endpoint}.`);
+    }
+  }
+  if (surface.status === "complete" && (surface.apiContracts.length === 0 || surface.gaps !== "")) {
+    throw new Error(`Complete surface ${surface.label} needs API evidence and no recorded gaps.`);
+  }
+  if (surface.status === "partial" && !surface.gaps) {
+    throw new Error(`Partial surface ${surface.label} must name its remaining gap.`);
+  }
+}
 for (const [screen, endpoint] of featureContract) {
   if (!existsSync(resolve(mobileRoot, screen))) throw new Error(`Missing native screen: ${screen}`);
   if (!serverContract.includes(endpoint)) throw new Error(`Missing Worker endpoint: ${endpoint}`);
@@ -159,7 +243,7 @@ const signedInRoutes = rootLayout.match(
 if (!signedOutRoutes?.includes('name="(auth)"')) {
   throw new Error("Native authentication screens must remain inside the signed-out route guard.");
 }
-for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "devices", "device/[deviceId]"]) {
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "checklist", "devices", "device/[deviceId]"]) {
   const marker = `name="${route}"`;
   if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
     throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);
@@ -403,4 +487,14 @@ for (const platform of ["ios", "android"]) {
 const releaseState = projectId
   ? `linked EAS project ${projectId}`
   : "local app contracts; EAS project linkage remains pending";
+const parityCounts = Object.fromEntries(
+  [...parityStatuses].map((status) => [
+    status,
+    parityConfig.surfaces.filter((surface) => surface.status === status).length,
+  ]),
+);
+console.log(
+  `Native parity inventory: ${parityCounts.complete} complete, ${parityCounts.partial} partial, ` +
+  `${parityCounts.missing} missing of ${parityConfig.surfaces.length} web product surfaces.`,
+);
 console.log(`Verified ${featureContract.length + 1} native screens, settings persistence, ${apiContract.length} API contracts, store metadata, and ${releaseState} across iOS, Android, and web exports.`);

@@ -11,6 +11,7 @@ describe("mobile notification destinations", () => {
     expect(notificationRoute("production/incidents?incident=i1")).toEqual({ screen: "incidents" });
     expect(notificationRoute("dashboard/tech-manager")).toEqual({ screen: "devices" });
     expect(notificationRoute("show?showId=s1")).toEqual({ screen: "show", showId: "s1" });
+    expect(notificationRoute("production/checklist?show=s1")).toEqual({ screen: "checklist", showId: "s1" });
     expect(notificationRoute("https://showpilot.tech/faithfire-production/schedule?assignment=a1")).toEqual({
       screen: "schedule",
       assignmentId: "a1",
@@ -35,7 +36,6 @@ describe("mobile notification destinations", () => {
     expect(notificationRoute("dashboard/tech-manager")).toEqual({ screen: "devices" });
     for (const path of [
       "production/cue-sheets",
-      "production/checklist",
       "checkin",
       "timecode",
       "streaming/graphics",
@@ -45,6 +45,7 @@ describe("mobile notification destinations", () => {
     ]) {
       expect(notificationRoute(path)).toEqual({ screen: "operations" });
     }
+    expect(notificationRoute("production/checklist")).toEqual({ screen: "checklist" });
     expect(notificationRoute("https://showpilot.tech/faithfire-production/streaming/graphics")).toEqual({ screen: "operations" });
   });
 

@@ -30,14 +30,22 @@ interface Env {
   EXPO_ACCESS_TOKEN?: string;
 }
 
+interface D1Result {
+  success?: boolean;
+  meta?: { changes?: number };
+}
+
+interface D1PreparedStatement {
+  first<T>(): Promise<T | null>;
+  all<T>(): Promise<{ results?: T[] }>;
+  run(): Promise<D1Result>;
+}
+
 interface D1Database {
   prepare(sql: string): {
-    bind(...params: unknown[]): {
-      first<T>(): Promise<T | null>;
-      all<T>(): Promise<{ results?: T[] }>;
-      run(): Promise<unknown>;
-    };
+    bind(...params: unknown[]): D1PreparedStatement;
   };
+  batch(statements: D1PreparedStatement[]): Promise<D1Result[]>;
 }
 
 function withApiCorsHeaders(request: Request, response: Response): Response {

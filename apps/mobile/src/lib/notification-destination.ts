@@ -7,6 +7,11 @@ export function notificationHref(actionUrl: string): Href | null {
   if (route.screen === "devices") return "/devices";
   if (route.screen === "incidents") return "/incidents";
   if (route.screen === "operations") return "/operations";
+  if (route.screen === "checklist") {
+    return route.showId
+      ? { pathname: "/checklist", params: { showId: route.showId } }
+      : "/checklist";
+  }
   if (route.screen === "shows") return "/shows";
   if (route.screen === "schedule") {
     return {

@@ -569,13 +569,37 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 74 test files and 623 unit tests, five
+- The current full web gate passes 75 test files and 630 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 495,108 bytes raw and 155,812
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  5,909,673 and 5,910,333 bytes. EAS linkage and signed-device push remain
+  5,975,477 and 5,976,138 bytes. EAS linkage and signed-device push remain
   external gates.
+- Native Checklist is now a complete mobile vertical slice. The Worker exposes
+  tenant- and show-scoped reads, atomic idempotent adds, authenticated
+  completion attribution, service-only removal, department retagging, and
+  server-regenerated smart rundown suggestions. The responsive native screen
+  includes dated service navigation, grouped progress, add and retag controls,
+  optimistic completion, pull-to-refresh, review-before-apply smart generation,
+  view-only RBAC, accessible controls, and notification deep links. Seven
+  focused API tests cover scoping, server-derived service dates, completion,
+  retag/removal semantics, duplicate convergence, invented smart suggestions,
+  and write denial. No migration is required.
+- `apps/mobile/parity.config.json` is the machine-checked definition of primary
+  web-to-native product parity. The mobile verifier derives all 20 source
+  surfaces from the production web Sidebar and rejects missing, reordered, or
+  unsupported inventory claims. At this checkpoint Checklist is complete; Show,
+  Schedule, Rundown, Chat, Incidents, and Devices are partial; the remaining 13
+  primary surfaces are explicitly recorded as missing. Profile, Settings,
+  authentication, organization selection, and Inbox are supporting mobile
+  surfaces outside that primary-nav inventory. Do not describe the React Native
+  product as full web parity until the manifest is green with all 20 complete.
+- The new Checklist screen has passed static, contract, TypeScript, lint, export,
+  bundle-budget, and full server tests. Rendered iOS Checklist QA has not yet
+  run: every installed iOS 26.3 simulator was shut down on 2026-08-27, and the
+  simulator workflow correctly did not boot one without owner direction. Treat
+  physical-device and rendered simulator verification as an outstanding gate.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

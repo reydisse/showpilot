@@ -24,6 +24,9 @@ vi.mock("../service-creation.server", () => ({
 }));
 
 const database: MobileApiDatabase = {
+  async batch(statements) {
+    return Promise.all(statements.map((statement) => statement.run()));
+  },
   prepare(sql: string) {
     return {
       bind() {

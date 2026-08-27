@@ -8,19 +8,41 @@ import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
+import {
+  createChecklistTemplateId,
+  findChecklistTemplateId,
+  type ChecklistTemplateWrite,
+} from "./checklist-core";
+import {
+  persistChecklistItem,
+  type ChecklistWriteDatabase,
+  type ChecklistWriteResult,
+} from "./checklist-write.server";
+import {
+  DEPARTMENT_ORDER,
+  normalizeCategory,
+  type DepartmentKey,
+} from "./departments";
+import {
+  deriveChecklistSuggestions,
+  normalizeChecklistLabel,
+  type ChecklistRundownItem,
+} from "./smart-checklist-rules";
 import type {
   BridgeDispatchMessage,
   BridgeDispatchResult,
   BridgeRelay,
 } from "../durable-objects/BridgeRelay";
 
-export interface MobileApiDatabase {
+export interface MobileApiStatement {
+  first<T>(): Promise<T | null>;
+  all<T>(): Promise<{ results?: T[] }>;
+  run(): Promise<ChecklistWriteResult>;
+}
+
+export interface MobileApiDatabase extends ChecklistWriteDatabase {
   prepare(sql: string): {
-    bind(...params: unknown[]): {
-      first<T>(): Promise<T | null>;
-      all<T>(): Promise<{ results?: T[] }>;
-      run(): Promise<unknown>;
-    };
+    bind(...params: unknown[]): MobileApiStatement;
   };
 }
 
@@ -153,6 +175,26 @@ interface MobileTimerState {
   pausedAt: number | null;
   mode: "count-down" | "count-up" | "clock";
   serverTime?: number;
+}
+
+interface MobileChecklistEntryRow {
+  id: string;
+  templateId: string;
+  checked: number | boolean;
+  checkedBy: string | null;
+  checkedAt: string | null;
+  label: string;
+  category: string;
+  sortOrder: number;
+}
+
+interface MobileChecklistTemplateRow {
+  id: string;
+  label: string;
+}
+
+interface MobileChecklistRundownItemRow extends Omit<ChecklistRundownItem, "hardStop"> {
+  hardStop: number | boolean;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -433,6 +475,235 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
     if (error instanceof PlanLimitError) return json({ error: error.message }, error.status);
     throw error;
   }
+}
+
+function validChecklistCategory(value: unknown): value is DepartmentKey {
+  return typeof value === "string" && DEPARTMENT_ORDER.some((category) => category === value);
+}
+
+async function getChecklistShow(orgId: string, showId: string, db: MobileApiDatabase) {
+  return db.prepare(
+    `SELECT id, serviceDate, name, scheduledStartTime, location, status
+     FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(showId, orgId).first<Omit<MobileRundownRow, "itemCount">>();
+}
+
+async function buildMobileChecklistDraft(orgId: string, showId: string, db: MobileApiDatabase) {
+  const show = await getChecklistShow(orgId, showId, db);
+  if (!show) return null;
+  const [templatesResult, entriesResult, itemsResult] = await Promise.all([
+    db.prepare(
+      `SELECT id, label FROM checklist_template
+       WHERE orgId = ? ORDER BY sortOrder ASC, createdAt ASC`,
+    ).bind(orgId).all<MobileChecklistTemplateRow>(),
+    db.prepare(
+      `SELECT templateId FROM checklist_entry
+       WHERE orgId = ? AND showId = ?`,
+    ).bind(orgId, showId).all<{ templateId: string }>(),
+    db.prepare(
+      `SELECT itemId AS id, title, type, duration, notes, assignee, cue, hardStop
+       FROM rundown_item WHERE orgId = ? AND showId = ?
+       ORDER BY sortOrder ASC, createdAt ASC`,
+    ).bind(orgId, showId).all<MobileChecklistRundownItemRow>(),
+  ]);
+  const entryTemplateIds = new Set((entriesResult.results ?? []).map((entry) => entry.templateId));
+  const templatesByLabel = new Map(
+    (templatesResult.results ?? []).map((template) => [normalizeChecklistLabel(template.label), template]),
+  );
+  const items = (itemsResult.results ?? []).map((item): ChecklistRundownItem => ({
+    ...item,
+    hardStop: Boolean(item.hardStop),
+  }));
+  const suggestions = deriveChecklistSuggestions(items).flatMap((suggestion) => {
+    const existing = templatesByLabel.get(normalizeChecklistLabel(suggestion.label));
+    if (existing && entryTemplateIds.has(existing.id)) return [];
+    return [{ ...suggestion, existingTemplateId: existing?.id ?? null }];
+  });
+  return { show, suggestions };
+}
+
+async function checklist(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:view", "checklist:access"]);
+  if (access instanceof Response) return access;
+  const showId = url.searchParams.get("showId");
+  if (!validId(showId)) return json({ error: "Choose a valid show." }, 400);
+  const show = await getChecklistShow(access.orgId, showId, db);
+  if (!show) return json({ error: "Show not found." }, 404);
+  const [entriesResult, showsResult] = await Promise.all([
+    db.prepare(
+      `SELECT e.id, e.templateId, e.checked, e.checkedBy, e.checkedAt,
+              t.label, t.category, t.sortOrder
+       FROM checklist_entry e
+       JOIN checklist_template t ON t.id = e.templateId AND t.orgId = e.orgId
+       WHERE e.orgId = ? AND e.showId = ?
+       ORDER BY t.sortOrder ASC, t.createdAt ASC, e.id ASC`,
+    ).bind(access.orgId, showId).all<MobileChecklistEntryRow>(),
+    db.prepare(
+      `SELECT id, serviceDate, name, scheduledStartTime, location, status
+       FROM rundown
+       WHERE orgId = ? AND serviceDate BETWEEN ? AND ?
+       ORDER BY serviceDate ASC, scheduledStartTime ASC, createdAt ASC
+       LIMIT 250`,
+    ).bind(access.orgId, shiftDate(show.serviceDate, -180), shiftDate(show.serviceDate, 365))
+      .all<Omit<MobileRundownRow, "itemCount">>(),
+  ]);
+  return json({
+    show,
+    shows: showsResult.results ?? [],
+    canManage: access.identity.permissions.includes("checklist:access"),
+    entries: (entriesResult.results ?? []).map((entry) => ({
+      ...entry,
+      checked: Boolean(entry.checked),
+      category: normalizeCategory(entry.category),
+    })),
+  });
+}
+
+async function addChecklistItemMobile(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const showId = body?.showId;
+  const label = typeof body?.label === "string" ? body.label.trim() : "";
+  const category = body?.category;
+  if (
+    !validId(showId)
+    || label.length === 0
+    || label.length > 200
+    || !normalizeChecklistLabel(label)
+    || !validChecklistCategory(category)
+  ) {
+    return json({ error: "Enter a checklist item, department, and valid show." }, 400);
+  }
+  const [show, templatesResult] = await Promise.all([
+    getChecklistShow(access.orgId, showId, db),
+    db.prepare(
+      `SELECT id, label FROM checklist_template
+       WHERE orgId = ? ORDER BY sortOrder ASC, createdAt ASC`,
+    ).bind(access.orgId).all<MobileChecklistTemplateRow>(),
+  ]);
+  if (!show) return json({ error: "Show not found." }, 404);
+  const existingTemplateId = findChecklistTemplateId(templatesResult.results ?? [], label);
+  const template: ChecklistTemplateWrite = existingTemplateId
+    ? { kind: "existing", id: existingTemplateId }
+    : {
+        kind: "new",
+        id: await createChecklistTemplateId(access.orgId, label),
+        label,
+        category,
+      };
+  const result = await persistChecklistItem({
+    orgId: access.orgId,
+    showId,
+    serviceDate: show.serviceDate,
+    template,
+  }, db);
+  return json({ ok: true, ...result }, result.added ? 201 : 200);
+}
+
+async function toggleChecklistEntryMobile(
+  request: Request,
+  url: URL,
+  entryId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (!body || typeof body.checked !== "boolean") return json({ error: "Choose a valid checklist state." }, 400);
+  const result = await db.prepare(
+    `UPDATE checklist_entry
+     SET checked = ?, checkedBy = ?, checkedAt = ?
+     WHERE id = ? AND orgId = ?`,
+  ).bind(
+    body.checked ? 1 : 0,
+    body.checked ? access.identity.name : null,
+    body.checked ? new Date().toISOString() : null,
+    entryId,
+    access.orgId,
+  ).run();
+  if (!changedExactlyOneRow(result)) return json({ error: "Checklist item not found." }, 404);
+  return json({ ok: true });
+}
+
+async function removeChecklistEntryMobile(
+  request: Request,
+  url: URL,
+  entryId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare("DELETE FROM checklist_entry WHERE id = ? AND orgId = ?")
+    .bind(entryId, access.orgId).run();
+  if (!changedExactlyOneRow(result)) return json({ error: "Checklist item not found." }, 404);
+  return json({ ok: true });
+}
+
+async function updateChecklistCategoryMobile(
+  request: Request,
+  url: URL,
+  templateId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (!body || !validChecklistCategory(body.category)) return json({ error: "Choose a valid department." }, 400);
+  const result = await db.prepare(
+    "UPDATE checklist_template SET category = ? WHERE id = ? AND orgId = ?",
+  ).bind(body.category, templateId, access.orgId).run();
+  if (!changedExactlyOneRow(result)) return json({ error: "Checklist item not found." }, 404);
+  return json({ ok: true });
+}
+
+async function checklistSuggestions(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const showId = url.searchParams.get("showId");
+  if (!validId(showId)) return json({ error: "Choose a valid show." }, 400);
+  const draft = await buildMobileChecklistDraft(access.orgId, showId, db);
+  if (!draft) return json({ error: "Show not found." }, 404);
+  return json({ show: draft.show, suggestions: draft.suggestions });
+}
+
+async function applyChecklistSuggestions(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["checklist:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const showId = body?.showId;
+  const suggestionIds = body?.suggestionIds;
+  if (
+    !validId(showId)
+    || !Array.isArray(suggestionIds)
+    || suggestionIds.length > 30
+    || suggestionIds.some((id) => typeof id !== "string" || id.length === 0 || id.length > 100)
+  ) {
+    return json({ error: "Choose a valid show and up to 30 checklist suggestions." }, 400);
+  }
+  const draft = await buildMobileChecklistDraft(access.orgId, showId, db);
+  if (!draft) return json({ error: "Show not found." }, 404);
+  const requested = new Set(suggestionIds);
+  const selected = draft.suggestions.filter((suggestion) => requested.has(suggestion.id));
+  let added = 0;
+  for (const suggestion of selected) {
+    const template: ChecklistTemplateWrite = suggestion.existingTemplateId
+      ? { kind: "existing", id: suggestion.existingTemplateId }
+      : {
+          kind: "new",
+          id: await createChecklistTemplateId(access.orgId, suggestion.label),
+          label: suggestion.label,
+          category: suggestion.category,
+        };
+    const result = await persistChecklistItem({
+      orgId: access.orgId,
+      showId,
+      serviceDate: draft.show.serviceDate,
+      template,
+    }, db);
+    if (result.added) added += 1;
+  }
+  return json({ ok: true, added });
 }
 
 async function schedule(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
@@ -864,8 +1135,27 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/checklist" && request.method === "GET") return checklist(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/checklist/items" && request.method === "POST") return addChecklistItemMobile(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/checklist/suggestions" && request.method === "GET") return checklistSuggestions(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/checklist/suggestions/apply" && request.method === "POST") return applyChecklistSuggestions(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/notifications/read" && request.method === "POST") return notificationRead(request, env.DB);
   if (url.pathname === "/api/mobile/v1/push-token" && request.method === "POST") return pushToken(request, env.DB);
+  const checklistEntryMatch = url.pathname.match(/^\/api\/mobile\/v1\/checklist\/entries\/([^/]+)\/(toggle|remove)$/);
+  if (checklistEntryMatch && request.method === "POST") {
+    const entryId = decodePathId(checklistEntryMatch[1]);
+    if (!entryId) return json({ error: "Not found." }, 404);
+    return checklistEntryMatch[2] === "toggle"
+      ? toggleChecklistEntryMobile(request, url, entryId, env.DB)
+      : removeChecklistEntryMobile(request, url, entryId, env.DB);
+  }
+  const checklistTemplateMatch = url.pathname.match(/^\/api\/mobile\/v1\/checklist\/templates\/([^/]+)\/category$/);
+  if (checklistTemplateMatch && request.method === "POST") {
+    const templateId = decodePathId(checklistTemplateMatch[1]);
+    return templateId
+      ? updateChecklistCategoryMobile(request, url, templateId, env.DB)
+      : json({ error: "Not found." }, 404);
+  }
   const deviceControlMatch = url.pathname.match(/^\/api\/mobile\/v1\/devices\/([^/]+)\/control$/);
   if (deviceControlMatch && request.method === "POST") {
     const deviceId = decodePathId(deviceControlMatch[1]);

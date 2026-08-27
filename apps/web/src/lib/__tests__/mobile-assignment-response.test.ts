@@ -66,6 +66,9 @@ function fakeDatabase(input: {
   updateChanges?: number;
 } = {}): MobileApiDatabase {
   return {
+    async batch(statements) {
+      return Promise.all(statements.map((statement) => statement.run()));
+    },
     prepare(sql: string) {
       return {
         bind(...params: unknown[]) {

@@ -14,10 +14,15 @@ type Rule = {
   label: string;
   category: DepartmentKey;
   reason: string;
-  matches: (item: RundownItem, searchable: string) => boolean;
+  matches: (item: ChecklistRundownItem, searchable: string) => boolean;
 };
 
 type BaselineCheck = Omit<ChecklistSuggestion, "sourceItemIds">;
+
+export type ChecklistRundownItem = Pick<
+  RundownItem,
+  "id" | "title" | "type" | "duration" | "notes" | "assignee" | "cue" | "hardStop"
+>;
 
 /**
  * The boring checks are the valuable ones under pressure. These apply to
@@ -94,7 +99,7 @@ const EVERY_SHOW_CHECKS: BaselineCheck[] = [
   },
 ];
 
-const contains = (pattern: RegExp) => (_item: RundownItem, searchable: string) => pattern.test(searchable);
+const contains = (pattern: RegExp) => (_item: ChecklistRundownItem, searchable: string) => pattern.test(searchable);
 
 const RULES: Rule[] = [
   {
@@ -187,12 +192,12 @@ const RULES: Rule[] = [
   },
 ];
 
-function searchableText(item: RundownItem): string {
+function searchableText(item: ChecklistRundownItem): string {
   return `${item.title} ${item.notes} ${item.cue} ${item.assignee}`.toLowerCase();
 }
 
 /** Pure, deterministic generation so a draft is explainable and works without an AI service. */
-export function deriveChecklistSuggestions(items: RundownItem[]): ChecklistSuggestion[] {
+export function deriveChecklistSuggestions(items: ChecklistRundownItem[]): ChecklistSuggestion[] {
   const realItems = items.filter((item) => item.type !== "header");
 
   const rundownSuggestions = RULES.flatMap((rule) => {

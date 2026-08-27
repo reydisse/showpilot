@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "source": "apps/web/src/components/layout/Sidebar.tsx",
+  "scope": "Primary organization navigation shared by the production web app",
+  "surfaces": [
+    {
+      "id": "show",
+      "label": "Show",
+      "webPath": "show",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/(app)/shows.tsx",
+        "src/app/show/[showId].tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/bootstrap",
+        "/api/mobile/v1/rundowns"
+      ],
+      "gaps": "Native show execution exists, but the web Show workspace is not yet reproduced feature-for-feature."
+    },
+    {
+      "id": "schedule",
+      "label": "Schedule",
+      "webPath": "schedule",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/schedule.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/schedule",
+        "/api/mobile/v1/schedule/respond"
+      ],
+      "gaps": "Assignment viewing and responses exist; complete schedule creation, editing, and crew administration remain."
+    },
+    {
+      "id": "show-board",
+      "label": "Show Board",
+      "webPath": "board",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "A dedicated native Show Board has not been built."
+    },
+    {
+      "id": "rundown",
+      "label": "Rundown",
+      "webPath": "rundown",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/show/[showId].tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/rundowns"
+      ],
+      "gaps": "Live viewing and control exist; full rundown editing and template workflows remain."
+    },
+    {
+      "id": "timecode",
+      "label": "Timecode",
+      "webPath": "timecode",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native timecode configuration and operation have not been built."
+    },
+    {
+      "id": "chat",
+      "label": "Chat",
+      "webPath": "chat",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/chat.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/bootstrap"
+      ],
+      "gaps": "Native production, planning, and direct chat exist; remaining web collaboration behavior still needs parity verification."
+    },
+    {
+      "id": "check-in",
+      "label": "Check-in",
+      "webPath": "checkin",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native crew check-in has not been built."
+    },
+    {
+      "id": "team",
+      "label": "Team",
+      "webPath": "team",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native team, invitation, role, and temporary-access management have not been built."
+    },
+    {
+      "id": "cue-sheets",
+      "label": "Cue Sheets",
+      "webPath": "production/cue-sheets",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native cue-sheet creation, editing, ordering, and operation have not been built."
+    },
+    {
+      "id": "checklist",
+      "label": "Checklist",
+      "webPath": "production/checklist",
+      "status": "complete",
+      "nativeRoutes": [
+        "src/app/checklist.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/checklist",
+        "/api/mobile/v1/checklist/items",
+        "/api/mobile/v1/checklist/suggestions"
+      ],
+      "gaps": ""
+    },
+    {
+      "id": "incidents",
+      "label": "Incidents",
+      "webPath": "production/incidents",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/incidents.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/incidents"
+      ],
+      "gaps": "Incident reporting and viewing exist; the complete acknowledgement, resolution, editing, and history workflows remain."
+    },
+    {
+      "id": "assets",
+      "label": "Assets",
+      "webPath": "production/assets",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native asset library, upload, metadata, and usage workflows have not been built."
+    },
+    {
+      "id": "stream",
+      "label": "Stream",
+      "webPath": "streaming/health",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native stream-health monitoring has not been built."
+    },
+    {
+      "id": "multi-platform",
+      "label": "Multi-Platform",
+      "webPath": "streaming/platforms",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native multi-platform streaming management has not been built."
+    },
+    {
+      "id": "lower-thirds",
+      "label": "Lower Thirds",
+      "webPath": "streaming/graphics",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native lower-third and graphics control has not been built."
+    },
+    {
+      "id": "prod-manager",
+      "label": "Prod Manager",
+      "webPath": "dashboard/prod-manager",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "The native production-manager dashboard has not been built."
+    },
+    {
+      "id": "reports",
+      "label": "Reports",
+      "webPath": "reports",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Native reporting and report export have not been built."
+    },
+    {
+      "id": "tech-manager",
+      "label": "Tech Manager",
+      "webPath": "dashboard/tech-manager",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "The native technical-manager dashboard has not been built."
+    },
+    {
+      "id": "audio",
+      "label": "Audio",
+      "webPath": "dashboard/audio",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "The native audio dashboard has not been built."
+    },
+    {
+      "id": "devices",
+      "label": "Devices",
+      "webPath": "dashboard/devices",
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/devices.tsx",
+        "src/app/device/[deviceId].tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/devices"
+      ],
+      "gaps": "Native ATEM and mixer control exists; complete device setup, connection, bridge, and diagnostics parity remains."
+    }
+  ]
+}

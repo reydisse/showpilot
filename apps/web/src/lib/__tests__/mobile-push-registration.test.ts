@@ -21,6 +21,9 @@ interface StatementCall {
 
 function fakeDatabase(calls: StatementCall[]): MobileApiDatabase {
   return {
+    async batch(statements) {
+      return Promise.all(statements.map((statement) => statement.run()));
+    },
     prepare(sql: string) {
       return {
         bind(...params: unknown[]) {
@@ -35,7 +38,7 @@ function fakeDatabase(calls: StatementCall[]): MobileApiDatabase {
               return { results: [] as T[] };
             },
             async run() {
-              return {};
+              return { success: true, meta: { changes: 1 } };
             },
           };
         },

@@ -164,6 +164,45 @@ const incidentsSchema = z.object({
   incidents: z.array(incidentSchema),
 });
 
+export const checklistDepartmentSchema = z.enum(["audio", "video", "lighting", "stream", "general"]);
+
+const checklistShowSchema = rundownSchema.omit({ itemCount: true });
+
+const checklistEntrySchema = z.object({
+  id: z.string(),
+  templateId: z.string(),
+  checked: z.boolean(),
+  checkedBy: z.string().nullable(),
+  checkedAt: z.string().nullable(),
+  label: z.string(),
+  category: checklistDepartmentSchema,
+  sortOrder: z.number(),
+});
+
+const mobileChecklistSchema = z.object({
+  show: checklistShowSchema,
+  shows: z.array(checklistShowSchema),
+  canManage: z.boolean(),
+  entries: z.array(checklistEntrySchema),
+});
+
+const checklistSuggestionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  category: checklistDepartmentSchema,
+  reason: z.string(),
+  sourceItemIds: z.array(z.string()),
+  existingTemplateId: z.string().nullable(),
+});
+
+const mobileChecklistDraftSchema = z.object({
+  show: checklistShowSchema,
+  suggestions: z.array(checklistSuggestionSchema),
+});
+
+const okSchema = z.object({ ok: z.literal(true) });
+const checklistApplySchema = okSchema.extend({ added: z.number().int().nonnegative() });
+
 const mobileDeviceActionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -197,6 +236,11 @@ export type MobileIncidents = z.infer<typeof incidentsSchema>;
 export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
+export type ChecklistDepartment = z.infer<typeof checklistDepartmentSchema>;
+export type MobileChecklist = z.infer<typeof mobileChecklistSchema>;
+export type MobileChecklistEntry = z.infer<typeof checklistEntrySchema>;
+export type MobileChecklistDraft = z.infer<typeof mobileChecklistDraftSchema>;
+export type MobileChecklistSuggestion = z.infer<typeof checklistSuggestionSchema>;
 
 async function authenticatedFetch(path: string, init?: FetchRequestInit) {
   const response = await expoFetch(`${SHOWPILOT_URL}${path}`, {
@@ -309,6 +353,78 @@ export async function reportMobileIncident(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function getMobileChecklist(orgId: string, showId: string): Promise<MobileChecklist> {
+  const query = new URLSearchParams({ orgId, showId });
+  const response = await authenticatedFetch(`/api/mobile/v1/checklist?${query}`);
+  return mobileChecklistSchema.parse(await response.json());
+}
+
+export async function addMobileChecklistItem(input: {
+  orgId: string;
+  showId: string;
+  label: string;
+  category: ChecklistDepartment;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checklist/items?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function toggleMobileChecklistEntry(input: {
+  orgId: string;
+  entryId: string;
+  checked: boolean;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checklist/entries/${encodeURIComponent(input.entryId)}/toggle?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ checked: input.checked }) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileChecklistEntry(input: {
+  orgId: string;
+  entryId: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checklist/entries/${encodeURIComponent(input.entryId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function updateMobileChecklistCategory(input: {
+  orgId: string;
+  templateId: string;
+  category: ChecklistDepartment;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checklist/templates/${encodeURIComponent(input.templateId)}/category?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ category: input.category }) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function getMobileChecklistDraft(orgId: string, showId: string): Promise<MobileChecklistDraft> {
+  const query = new URLSearchParams({ orgId, showId });
+  const response = await authenticatedFetch(`/api/mobile/v1/checklist/suggestions?${query}`);
+  return mobileChecklistDraftSchema.parse(await response.json());
+}
+
+export async function applyMobileChecklistDraft(input: {
+  orgId: string;
+  showId: string;
+  suggestionIds: string[];
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/checklist/suggestions/apply?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return checklistApplySchema.parse(await response.json());
 }
 
 export async function getMobileDevices(orgId: string): Promise<MobileDevices> {

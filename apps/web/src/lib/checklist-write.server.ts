@@ -8,6 +8,21 @@ export interface ChecklistItemWrite {
   template: ChecklistTemplateWrite;
 }
 
+export interface ChecklistWriteResult {
+  meta?: { changes?: number };
+}
+
+export interface ChecklistWriteStatement {
+  run(): Promise<ChecklistWriteResult>;
+}
+
+export interface ChecklistWriteDatabase {
+  prepare(sql: string): {
+    bind(...params: unknown[]): ChecklistWriteStatement;
+  };
+  batch(statements: ChecklistWriteStatement[]): Promise<ChecklistWriteResult[]>;
+}
+
 /**
  * Persist one logical checklist item. Cloudflare D1 batch is a real SQL
  * transaction, unlike Prisma's D1 $transaction implementation. A failed entry
@@ -18,8 +33,8 @@ export async function persistChecklistItem({
   showId,
   serviceDate,
   template,
-}: ChecklistItemWrite) {
-  const database = getD1();
+}: ChecklistItemWrite, suppliedDatabase?: ChecklistWriteDatabase) {
+  const database = suppliedDatabase ?? getD1();
   const entryId = crypto.randomUUID();
   const entryStatement = database
     .prepare(
@@ -31,7 +46,7 @@ export async function persistChecklistItem({
 
   if (template.kind === "existing") {
     const result = await entryStatement.run();
-    return { added: result.meta.changes > 0, entryId, templateId: template.id };
+    return { added: (result.meta?.changes ?? 0) > 0, entryId, templateId: template.id };
   }
 
   const results = await database.batch([
@@ -46,7 +61,7 @@ export async function persistChecklistItem({
   ]);
 
   return {
-    added: results[1].meta.changes > 0,
+    added: (results[1]?.meta?.changes ?? 0) > 0,
     entryId,
     templateId: template.id,
   };
