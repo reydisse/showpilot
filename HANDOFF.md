@@ -673,6 +673,25 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   project ceiling. Authenticated rendered phone QA, two-device chat convergence,
   background push receipt, and opening each document type remain physical-device
   gates; no simulator or device was started while the owner was away.
+- Native Devices now has searchable fleet management, configured/connected/
+  adapter counts, add/edit/enable/remove workflows for every registered device
+  definition, schema-driven configuration fields, and live Venue Bridge health
+  with version, uptime, and connected-device count. Password and token fields
+  are never returned to the app; the API reports only whether a secret exists
+  and preserves it when an edit leaves the field blank. Unknown settings are
+  discarded, adapter/category metadata is server-derived, plan limits are
+  enforced before inserts, and every read/write is organization-scoped. The
+  Bridge now reports its exact unique connection targets—including stateless
+  HTTP adapters—and stores that diagnostic snapshot with its hibernating socket,
+  so native cards and control screens no longer invent connection state after
+  navigation. Eight focused mobile API tests and all 30 Bridge tests cover
+  health derivation, secret redaction/preservation, required configuration,
+  plan-limit invocation, tenant isolation, deletion scope, and target counting.
+  Devices remains partial until the non-ATEM/non-mixer adapters expose their
+  complete remote actions and feedback in React Native. No migration is needed.
+  The full mobile verifier passes all 18 checks and exports iOS, Android, and
+  web; release Hermes bundles are 6,287,330 bytes on iOS and 6,287,937 bytes on
+  Android against the 6,500,000-byte ceiling.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field

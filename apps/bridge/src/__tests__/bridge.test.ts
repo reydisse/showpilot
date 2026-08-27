@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bridgeWebSocketOptions,
+  connectedBridgeTargets,
   isSupportedConnectProtocol,
 } from "../bridge.js";
 
@@ -35,5 +36,13 @@ describe("bridge WebSocket authentication", () => {
     expect(isSupportedConnectProtocol("atem")).toBe(true);
     expect(isSupportedConnectProtocol("propresenter")).toBe(true);
     expect(isSupportedConnectProtocol("made-up-protocol")).toBe(false);
+  });
+
+  it("reports every unique connected target, including stateless HTTP adapters", () => {
+    expect(connectedBridgeTargets(
+      ["10.0.0.3:9910", "10.0.0.2:4455"],
+      ["10.0.0.3:9910"],
+      ["10.0.0.4:80"],
+    )).toEqual(["10.0.0.2:4455", "10.0.0.3:9910", "10.0.0.4:80"]);
   });
 });

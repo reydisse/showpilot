@@ -43,6 +43,19 @@ interface Env {
 interface SocketAttachment {
   role: "bridge" | "client";
   orgId: string;
+  bridgeInfo?: BridgeRelayStatusInfo;
+}
+
+interface BridgeRelayStatusInfo {
+  version?: string;
+  devices?: number;
+  uptime?: number;
+  connectedTargets: string[];
+}
+
+export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
+  bridgeOnline: boolean;
+  clientCount: number;
 }
 
 interface PendingDispatch {
@@ -60,7 +73,7 @@ export class BridgeRelay extends DurableObject<Env> {
   private bridgeWs: WebSocket | null = null;
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
-  private bridgeInfo: { version?: string; devices?: number; uptime?: number } = {};
+  private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [] };
   private orgId = "";
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
@@ -79,6 +92,7 @@ export class BridgeRelay extends DurableObject<Env> {
       if (attachment.role === "bridge") {
         this.bridgeWs = ws;
         this.bridgeOnline = true;
+        if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
       } else {
         this.clientSessions.add(ws);
       }
@@ -118,7 +132,7 @@ export class BridgeRelay extends DurableObject<Env> {
           }
           this.bridgeWs = server;
           this.bridgeOnline = true;
-          this.bridgeInfo = {};
+          this.bridgeInfo = { connectedTargets: [] };
           // Notify all clients bridge is online
           this.broadcastToClients(
             JSON.stringify({
@@ -148,14 +162,18 @@ export class BridgeRelay extends DurableObject<Env> {
     }
 
     if (url.pathname === "/status") {
-      return Response.json({
-        bridgeOnline: this.bridgeOnline,
-        clientCount: this.clientSessions.size,
-        ...this.bridgeInfo,
-      });
+      return Response.json(this.getBridgeStatus());
     }
 
     return new Response("Not found", { status: 404 });
+  }
+
+  getBridgeStatus(): BridgeRelayStatus {
+    return {
+      bridgeOnline: this.bridgeOnline,
+      clientCount: this.clientSessions.size,
+      ...this.bridgeInfo,
+    };
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
@@ -215,7 +233,7 @@ export class BridgeRelay extends DurableObject<Env> {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
       this.bridgeOnline = false;
-      this.bridgeInfo = {};
+      this.bridgeInfo = { connectedTargets: [] };
       this.failPendingDispatches("Venue Bridge disconnected");
       this.clearPreviewSlide();
       this.broadcastToClients(JSON.stringify({
@@ -240,7 +258,11 @@ export class BridgeRelay extends DurableObject<Env> {
           version: msg.version as string | undefined,
           devices: msg.devices as number | undefined,
           uptime: msg.uptime as number | undefined,
+          connectedTargets: Array.isArray(msg.targets)
+            ? msg.targets.filter((target): target is string => typeof target === "string")
+            : this.bridgeInfo.connectedTargets,
         };
+        this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
         this.broadcastToClients(JSON.stringify({
           type: "bridge-status",
           online: true,
@@ -274,6 +296,11 @@ export class BridgeRelay extends DurableObject<Env> {
 
       case "device-status":
         if (typeof msg.target === "string") {
+          const targets = new Set(this.bridgeInfo.connectedTargets);
+          if (msg.connected === true) targets.add(msg.target);
+          else targets.delete(msg.target);
+          this.bridgeInfo = { ...this.bridgeInfo, connectedTargets: [...targets].sort(), devices: targets.size };
+          this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
           const pending = this.pendingConnections.get(msg.target);
           if (pending) {
             clearTimeout(pending.timer);

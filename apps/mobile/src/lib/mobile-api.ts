@@ -380,14 +380,45 @@ const mobileDeviceActionSchema = z.object({
   })),
 });
 
+const mobileDeviceFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  placeholder: z.string(),
+  type: z.enum(["text", "number", "password", "select"]),
+  required: z.boolean(),
+  options: z.array(z.object({ value: z.string(), label: z.string() })),
+});
+
+const mobileDeviceAdapterSchema = z.object({
+  adapterType: z.string(),
+  displayName: z.string(),
+  category: z.string(),
+  connectivity: z.enum(["browser-direct", "bridge-required"]),
+  description: z.string(),
+  fields: z.array(mobileDeviceFieldSchema),
+});
+
 const devicesSchema = z.object({
+  bridge: z.object({
+    online: z.boolean(),
+    clientCount: z.number().int().nonnegative(),
+    version: z.string().nullable(),
+    deviceCount: z.number().int().nonnegative(),
+    uptime: z.number().nonnegative().nullable(),
+  }),
+  adapters: z.array(mobileDeviceAdapterSchema),
   devices: z.array(z.object({
     id: z.string(),
     name: z.string(),
     category: z.string(),
     adapterType: z.string(),
     enabled: z.boolean(),
+    connected: z.boolean(),
     updatedAt: z.string(),
+    configuration: z.array(mobileDeviceFieldSchema.extend({
+      value: z.string(),
+      secretConfigured: z.boolean(),
+    })),
     controls: z.array(mobileDeviceActionSchema),
   })),
 });
@@ -411,6 +442,7 @@ export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileChatMember = z.infer<typeof chatMemberSchema>;
 export type MobileChatAttachment = z.infer<typeof chatAttachmentSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
+export type MobileDeviceAdapter = z.infer<typeof mobileDeviceAdapterSchema>;
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
 export type ChecklistDepartment = z.infer<typeof checklistDepartmentSchema>;
 export type MobileChecklist = z.infer<typeof mobileChecklistSchema>;
@@ -901,6 +933,43 @@ export async function applyMobileChecklistDraft(input: {
 export async function getMobileDevices(orgId: string): Promise<MobileDevices> {
   const response = await authenticatedFetch(`/api/mobile/v1/devices?orgId=${encodeURIComponent(orgId)}`);
   return devicesSchema.parse(await response.json());
+}
+
+export async function createMobileDevice(input: {
+  orgId: string;
+  name: string;
+  adapterType: string;
+  enabled: boolean;
+  settings: Record<string, string>;
+}) {
+  const response = await authenticatedFetch(`/api/mobile/v1/devices?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return z.object({ ok: z.literal(true), id: z.string() }).parse(await response.json());
+}
+
+export async function updateMobileDevice(input: {
+  orgId: string;
+  deviceId: string;
+  name: string;
+  adapterType: string;
+  enabled: boolean;
+  settings: Record<string, string>;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/devices/${encodeURIComponent(input.deviceId)}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileDevice(input: { orgId: string; deviceId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/devices/${encodeURIComponent(input.deviceId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
 }
 
 export async function controlMobileDevice(input: {

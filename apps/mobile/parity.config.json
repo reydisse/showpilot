@@ -238,9 +238,11 @@
         "src/app/device/[deviceId].tsx"
       ],
       "apiContracts": [
-        "/api/mobile/v1/devices"
+        "/api/mobile/v1/devices",
+        "const deviceControlMatch",
+        "const deviceWriteMatch"
       ],
-      "gaps": "Native ATEM and mixer control exists; complete device setup, connection, bridge, and diagnostics parity remains."
+      "gaps": "Native setup, secret-preserving configuration, truthful Bridge diagnostics, and ATEM/mixer control exist; remaining adapter controls and live feedback still need parity."
     }
   ]
 }

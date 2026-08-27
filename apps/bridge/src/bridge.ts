@@ -52,6 +52,10 @@ export function isSupportedConnectProtocol(protocol: string): boolean {
   return CONNECT_DEVICE_PROTOCOLS.has(protocol);
 }
 
+export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] {
+  return [...new Set(groups.flatMap((group) => [...group]))].sort();
+}
+
 type IncomingMessage =
   | CommandMessage
   | ConnectDeviceMessage
@@ -685,14 +689,18 @@ export class Bridge {
   }
 
   private sendStatus(): void {
+    const targets = connectedBridgeTargets(
+      this.tcpConnections.keys(),
+      this.udpConnections.keys(),
+      this.ppConnections.keys(),
+      this.atemConnections.keys(),
+      this.httpDeviceSettings.keys(),
+    );
     this.send({
       type: "bridge-status",
       version: BRIDGE_VERSION,
-      devices:
-        this.tcpConnections.size +
-        this.udpConnections.size +
-        this.ppConnections.size +
-        this.atemConnections.size,
+      devices: targets.length,
+      targets,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
     });
   }

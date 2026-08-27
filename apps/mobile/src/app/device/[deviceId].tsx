@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Cable from "lucide-react-native/icons/cable";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
 import CirclePower from "lucide-react-native/icons/circle-power";
@@ -97,16 +97,20 @@ export default function DeviceControlScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const [connected, setConnected] = useState(false);
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["mobile-devices", organization?.id],
     queryFn: () => getMobileDevices(organization!.id),
     enabled: Boolean(organization?.id),
+    refetchInterval: 5_000,
   });
   const device = useMemo(() => query.data?.devices.find((candidate) => candidate.id === deviceId), [deviceId, query.data]);
+  useEffect(() => setConnected(device?.connected ?? false), [device?.connected]);
   const connection = useMutation({
     mutationFn: (operation: "connect" | "disconnect") => controlMobileDevice({ orgId: organization!.id, deviceId, operation }),
     onSuccess: async (_, operation) => {
       setConnected(operation === "connect");
+      await queryClient.invalidateQueries({ queryKey: ["mobile-devices", organization?.id] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
     onError: (error) => Alert.alert("Device connection failed", error.message),
@@ -129,8 +133,8 @@ export default function DeviceControlScreen() {
         <View style={styles.deviceIcon}><Cable color={colors.amber} size={23} /></View>
         <View style={styles.connectionCopy}><Text style={styles.adapter}>{device.adapterType}</Text><View style={styles.statusRow}>{connected ? <CheckCircle2 color={colors.green} size={14} /> : <CirclePower color={colors.textFaint} size={14} />}<Text style={[styles.status, connected && styles.statusOnline]}>{connected ? "CONNECTED" : "NOT CONNECTED"}</Text></View></View>
       </View>
-      <View style={styles.bridgeNote}><RadioTower color={colors.amber} size={18} /><Text style={styles.bridgeText}>Remote commands travel through your organization’s venue Bridge. ShowPilot never sends device credentials to this app.</Text></View>
-      <AppButton label={connection.isPending ? (connected ? "Disconnecting…" : "Connecting…") : connected ? "Disconnect device" : "Connect through venue Bridge"} loading={connection.isPending} onPress={() => connection.mutate(connected ? "disconnect" : "connect")} variant={connected ? "danger" : "primary"} />
+      <View style={[styles.bridgeNote, query.data?.bridge.online ? styles.bridgeOnline : styles.bridgeOffline]}><RadioTower color={query.data?.bridge.online ? colors.green : colors.red} size={18} /><Text style={styles.bridgeText}>{query.data?.bridge.online ? `Venue Bridge online${query.data.bridge.version ? ` · v${query.data.bridge.version}` : ""}. Remote commands stay on the trusted network.` : "Venue Bridge offline. Start it on the venue network before connecting this device."}</Text></View>
+      <AppButton disabled={!connected && !query.data?.bridge.online} label={connection.isPending ? (connected ? "Disconnecting…" : "Connecting…") : connected ? "Disconnect device" : query.data?.bridge.online ? "Connect through venue Bridge" : "Venue Bridge is offline"} loading={connection.isPending} onPress={() => connection.mutate(connected ? "disconnect" : "connect")} variant={connected ? "danger" : "primary"} />
       <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE CONTROLS</Text><Text style={styles.sectionCount}>{device.controls.length}</Text></View>
       <View style={styles.actionList}>{device.controls.map((action) => <ActionCard action={action} busy={command.isPending} connected={connected} key={action.id} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} />)}</View>
     </Page>
@@ -146,6 +150,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   status: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 0.7 },
   statusOnline: { color: colors.green },
   bridgeNote: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: radii.medium, backgroundColor: colors.amberSoft, padding: spacing.medium },
+  bridgeOnline: { borderWidth: 1, borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
+  bridgeOffline: { borderWidth: 1, borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   bridgeText: { flex: 1, color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 17 },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.3 },

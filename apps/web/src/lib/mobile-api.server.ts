@@ -49,6 +49,7 @@ import type {
   BridgeDispatchMessage,
   BridgeDispatchResult,
   BridgeRelay,
+  BridgeRelayStatus,
 } from "../durable-objects/BridgeRelay";
 
 export interface MobileApiStatement {
@@ -1977,28 +1978,229 @@ async function revokeTeamAccess(
   }
 }
 
-async function devices(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
-  const access = await authorize(request, url, db, ["devices:access"]);
+async function mobileBridgeStatus(env: MobileApiEnvironment, orgId: string): Promise<BridgeRelayStatus> {
+  const fallback: BridgeRelayStatus = { bridgeOnline: false, clientCount: 0, connectedTargets: [] };
+  if (!env.BRIDGE_RELAY) return fallback;
+  try {
+    const id = env.BRIDGE_RELAY.idFromName(orgId);
+    return await env.BRIDGE_RELAY.get(id).getBridgeStatus();
+  } catch {
+    return fallback;
+  }
+}
+
+interface MobileDeviceAdapterField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type: "text" | "number" | "password" | "select";
+  required: boolean;
+  options: { value: string; label: string }[];
+}
+
+interface MobileDeviceAdapter {
+  adapterType: string;
+  displayName: string;
+  category: string;
+  connectivity: "browser-direct" | "bridge-required";
+  description: string;
+  fields: MobileDeviceAdapterField[];
+}
+
+async function mobileDeviceAdapters(): Promise<MobileDeviceAdapter[]> {
+  await import("./device-modules/register-all");
+  const { moduleRegistry } = await import("./device-modules/registry");
+  return moduleRegistry.getAll().map((definition) => ({
+    adapterType: definition.adapterType,
+    displayName: definition.displayName,
+    category: definition.category,
+    connectivity: definition.connectivity,
+    description: definition.description,
+    fields: definition.configFields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      placeholder: field.placeholder ?? "",
+      type: field.type ?? "text",
+      required: field.required === true,
+      options: field.options ?? [],
+    })),
+  })).sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+function serializeMobileDeviceConfiguration(
+  adapter: MobileDeviceAdapter | undefined,
+  settings: Record<string, unknown> | null,
+) {
+  return (adapter?.fields ?? []).map((field) => {
+    const raw = settings?.[field.key];
+    return {
+      ...field,
+      value: field.type === "password" || raw === null || raw === undefined ? "" : String(raw),
+      secretConfigured: field.type === "password" && typeof raw === "string" && raw.length > 0,
+    };
+  });
+}
+
+function mobileDeviceTarget(
+  device: Pick<MobileDeviceListRow, "adapterType" | "settings">,
+  adapter: MobileDeviceAdapter | undefined,
+): string | null {
+  const settings = parsedSettings(device.settings);
+  if (!adapter || adapter.connectivity !== "bridge-required") return null;
+  if (device.adapterType === "homeassistant") {
+    const baseUrl = typeof settings?.baseUrl === "string" ? settings.baseUrl.trim() : "";
+    return settings?.connectionMode === "bridge-required" && baseUrl ? baseUrl : null;
+  }
+  const host = typeof settings?.host === "string" ? settings.host.trim() : "";
+  if (!host) return null;
+  const consoleType = String(settings?.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+  const configuredPortField = adapter.fields.find((field) => field.key === "port");
+  const placeholderPort = Number(configuredPortField?.placeholder);
+  const defaultPort = device.adapterType === "atem"
+    ? 9910
+    : device.adapterType === "osc-mixer"
+      ? consoleType === "wing" ? 2223 : 10023
+      : Number.isInteger(placeholderPort) ? placeholderPort : 0;
+  const port = Number(settings?.port || defaultPort);
+  return Number.isInteger(port) && port >= 1 && port <= 65_535 ? `${host}:${port}` : null;
+}
+
+async function devices(request: Request, url: URL, env: MobileApiEnvironment): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["devices:access"]);
   if (access instanceof Response) return access;
-  const result = await db.prepare(
+  const [result, bridge, adapters] = await Promise.all([env.DB.prepare(
     `SELECT id, name, category, adapterType, enabled, updatedAt, settings
      FROM device WHERE orgId = ? ORDER BY enabled DESC, name ASC`,
-  ).bind(access.orgId).all<MobileDeviceListRow>();
+  ).bind(access.orgId).all<MobileDeviceListRow>(), mobileBridgeStatus(env, access.orgId), mobileDeviceAdapters()]);
+  const connectedTargets = new Set(bridge.connectedTargets);
+  const adaptersByType = new Map(adapters.map((adapter) => [adapter.adapterType, adapter]));
   return json({
+    bridge: {
+      online: bridge.bridgeOnline,
+      clientCount: bridge.clientCount,
+      version: bridge.version ?? null,
+      deviceCount: bridge.devices ?? connectedTargets.size,
+      uptime: bridge.uptime ?? null,
+    },
+    adapters,
     devices: (result.results ?? []).map((device) => {
       const settings = parsedSettings(device.settings);
+      const adapter = adaptersByType.get(device.adapterType);
       const consoleType = String(settings?.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
+      const target = mobileDeviceTarget(device, adapter);
       return {
         id: device.id,
         name: device.name,
         category: device.category,
         adapterType: device.adapterType,
         enabled: Boolean(device.enabled),
+        connected: Boolean(device.enabled && target && connectedTargets.has(target)),
         updatedAt: device.updatedAt,
+        configuration: serializeMobileDeviceConfiguration(adapter, settings),
         controls: actionsForMobileAdapter(device.adapterType, consoleType),
       };
     }),
   });
+}
+
+async function parseMobileDeviceWrite(
+  body: Record<string, unknown> | null,
+  existing: MobileDeviceControlRow | null,
+) {
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const adapterType = typeof body?.adapterType === "string" ? body.adapterType.trim() : "";
+  const enabled = typeof body?.enabled === "boolean" ? body.enabled : true;
+  const suppliedSettings = isRecord(body?.settings) ? body.settings : {};
+  if (!name || name.length > 200 || !adapterType) return { error: "Enter a device name and adapter." } as const;
+  const adapter = (await mobileDeviceAdapters()).find((candidate) => candidate.adapterType === adapterType);
+  if (!adapter) return { error: "Choose a supported device adapter." } as const;
+  const existingSettings = existing?.adapterType === adapterType ? parsedSettings(existing.settings) : null;
+  const settings: Record<string, string | number> = {};
+  for (const field of adapter.fields) {
+    const raw = suppliedSettings[field.key];
+    if (field.type === "password" && (raw === undefined || raw === "") && typeof existingSettings?.[field.key] === "string") {
+      settings[field.key] = existingSettings[field.key] as string;
+      continue;
+    }
+    if (field.type === "number") {
+      if (raw === undefined || raw === "") {
+        if (field.required) return { error: `${field.label} is required.` } as const;
+        continue;
+      }
+      const value = Number(raw);
+      if (!Number.isFinite(value) || (field.key.toLowerCase().includes("port") && (!Number.isInteger(value) || value < 1 || value > 65_535))) {
+        return { error: `${field.label} is not valid.` } as const;
+      }
+      settings[field.key] = value;
+      continue;
+    }
+    const value = typeof raw === "string" ? raw.trim() : "";
+    if (field.required && !value) return { error: `${field.label} is required.` } as const;
+    if (value.length > 4_096) return { error: `${field.label} is too long.` } as const;
+    if (field.type === "select" && value && !field.options.some((option) => option.value === value)) {
+      return { error: `${field.label} is not valid.` } as const;
+    }
+    if (value) settings[field.key] = value;
+  }
+  const serializedSettings = JSON.stringify(settings);
+  if (serializedSettings.length > 20_000) return { error: "Device settings are too large." } as const;
+  return { value: { name, adapterType, category: adapter.category, enabled, settings: serializedSettings } } as const;
+}
+
+async function createMobileDevice(request: Request, url: URL, env: MobileApiEnvironment): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["devices:access"]);
+  if (access instanceof Response) return access;
+  const parsed = await parseMobileDeviceWrite(await readJson(request), null);
+  if ("error" in parsed) return json({ error: parsed.error }, 400);
+  const count = await env.DB.prepare("SELECT CAST(COUNT(*) AS INTEGER) AS count FROM device WHERE orgId = ?")
+    .bind(access.orgId).first<{ count: number }>();
+  try {
+    const { checkPlanLimit } = await import("./plan-limits");
+    await checkPlanLimit(access.orgId, "devices", count?.count ?? 0);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Device limit reached." }, error instanceof PlanLimitError ? error.status : 400);
+  }
+  const id = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO device (id, orgId, name, category, adapterType, settings, enabled, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+  ).bind(id, access.orgId, parsed.value.name, parsed.value.category, parsed.value.adapterType, parsed.value.settings, parsed.value.enabled).run();
+  return json({ ok: true, id }, 201);
+}
+
+async function updateMobileDevice(
+  request: Request,
+  url: URL,
+  deviceId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["devices:access"]);
+  if (access instanceof Response) return access;
+  const existing = await env.DB.prepare(
+    `SELECT id, orgId, name, category, adapterType, settings, enabled, updatedAt
+     FROM device WHERE id = ? AND orgId = ? LIMIT 1`,
+  ).bind(deviceId, access.orgId).first<MobileDeviceControlRow>();
+  if (!existing) return json({ error: "Device not found." }, 404);
+  const parsed = await parseMobileDeviceWrite(await readJson(request), existing);
+  if ("error" in parsed) return json({ error: parsed.error }, 400);
+  const result = await env.DB.prepare(
+    `UPDATE device SET name = ?, category = ?, adapterType = ?, settings = ?, enabled = ?, updatedAt = CURRENT_TIMESTAMP
+     WHERE id = ? AND orgId = ?`,
+  ).bind(parsed.value.name, parsed.value.category, parsed.value.adapterType, parsed.value.settings, parsed.value.enabled, deviceId, access.orgId).run();
+  return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Device changed elsewhere. Refresh and try again." }, 409);
+}
+
+async function deleteMobileDevice(
+  request: Request,
+  url: URL,
+  deviceId: string,
+  env: MobileApiEnvironment,
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["devices:access"]);
+  if (access instanceof Response) return access;
+  const result = await env.DB.prepare("DELETE FROM device WHERE id = ? AND orgId = ?")
+    .bind(deviceId, access.orgId).run();
+  return changedExactlyOneRow(result) ? json({ ok: true }) : json({ error: "Device not found." }, 404);
 }
 
 function parsedSettings(value: string): Record<string, unknown> | null {
@@ -2398,7 +2600,8 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "POST") return createTeamCrewMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/access" && request.method === "GET") return teamAccess(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/access/grants" && request.method === "POST") return grantTeamAccess(request, url, env.DB);
-  if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env);
+  if (url.pathname === "/api/mobile/v1/devices" && request.method === "POST") return createMobileDevice(request, url, env);
   if (url.pathname === "/api/mobile/v1/checklist" && request.method === "GET") return checklist(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist/items" && request.method === "POST") return addChecklistItemMobile(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist/suggestions" && request.method === "GET") return checklistSuggestions(request, url, env.DB);
@@ -2482,6 +2685,14 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (deviceControlMatch && request.method === "POST") {
     const deviceId = decodePathId(deviceControlMatch[1]);
     return deviceId ? controlDevice(request, url, deviceId, env) : json({ error: "Not found." }, 404);
+  }
+  const deviceWriteMatch = url.pathname.match(/^\/api\/mobile\/v1\/devices\/([^/]+)(?:\/(remove))?$/);
+  if (deviceWriteMatch && request.method === "POST") {
+    const deviceId = decodePathId(deviceWriteMatch[1]);
+    if (!deviceId) return json({ error: "Not found." }, 404);
+    return deviceWriteMatch[2] === "remove"
+      ? deleteMobileDevice(request, url, deviceId, env)
+      : updateMobileDevice(request, url, deviceId, env);
   }
   const rundownMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)$/);
   if (rundownMatch && request.method === "GET") {
