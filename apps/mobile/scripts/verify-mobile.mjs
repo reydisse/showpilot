@@ -48,6 +48,10 @@ const sourceContract = [
   ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
   ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
   ["src/app/(app)/_layout.tsx", "isPending || organizationPending"],
+  ["src/app/_layout.tsx", "<Stack.Protected guard={!session}>"],
+  ["src/app/_layout.tsx", "<Stack.Protected guard={Boolean(session)}>"],
+  ["src/app/_layout.tsx", "!session && error"],
+  ["src/components/session-recovery-view.tsx", "Your sign-in is still stored safely on this device"],
   ["src/app/chat.tsx", "memo(function MessageCard"],
   ["src/app/schedule.tsx", "useLocalSearchParams"],
   ["src/app/schedule.tsx", "requestedAssignmentId"],
@@ -133,6 +137,22 @@ for (const [file, marker] of sourceContract) {
 for (const [file, marker] of forbiddenSourceContract) {
   const source = readFileSync(resolve(mobileRoot, file), "utf8");
   if (source.includes(marker)) throw new Error(`Unexpected ${marker} in ${file}`);
+}
+const rootLayout = readFileSync(resolve(mobileRoot, "src/app/_layout.tsx"), "utf8");
+const signedOutRoutes = rootLayout.match(
+  /<Stack\.Protected guard=\{!session\}>([\s\S]*?)<\/Stack\.Protected>/,
+)?.[1];
+const signedInRoutes = rootLayout.match(
+  /<Stack\.Protected guard=\{Boolean\(session\)\}>([\s\S]*?)<\/Stack\.Protected>/,
+)?.[1];
+if (!signedOutRoutes?.includes('name="(auth)"')) {
+  throw new Error("Native authentication screens must remain inside the signed-out route guard.");
+}
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "devices", "device/[deviceId]"]) {
+  const marker = `name="${route}"`;
+  if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
+    throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);
+  }
 }
 for (const file of sourceFiles(resolve(mobileRoot, "src"))) {
   const source = readFileSync(file, "utf8");

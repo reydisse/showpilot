@@ -396,7 +396,8 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 493,741 bytes raw
   and 155,381 bytes gzip. The iOS and Android Hermes bundles are 5,903,771 and
-  5,904,394 bytes, respectively, below the enforced 6.5 MB ceiling.
+  5,904,394 bytes in that audit, respectively, below the enforced 6.5 MB
+  ceiling; the latest native figures are recorded below.
 - A release-artifact Lighthouse audit of the authentication entry point scores
   99 performance and 100 accessibility, best practices, and SEO. FCP, LCP,
   speed index, and interactive are 0.8 seconds; blocking time and layout shift
@@ -458,7 +459,7 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   debug-signed and are not distributable; EAS must inject the approved remote
   release keystore before review or upload.
   Mobile verification remains green with Expo Doctor 18/18 and iOS/Android
-  Hermes bundles of 5,903,739 and 5,904,444 bytes.
+  Hermes bundles of 5,907,725 and 5,908,356 bytes on the latest pass.
 - Real Android native runtime QA also passes on an Android 14 arm64 emulator
   using the repository's SDK 54 development client and the local Workers API.
   The QA account signed in; Home, Shows, Operate, Inbox, Profile, and Settings
@@ -472,6 +473,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   that deletion live and returned to zero items with Start disabled. The earlier
   one-item list/detail discrepancy was an out-of-band local QA fixture written
   after a deliberate relay clear, not a failure of the normal product path.
+- Follow-up Android product QA proves display-name and profile-photo saving,
+  sign-out/sign-in, workspace selection, and persistent native chat. A test
+  message rehydrated after a full force-stop and relaunch, then a web operator
+  deleted it and Android received the deletion live. The QA display name and
+  original avatar were restored afterward. This run exposed a root navigation
+  race: if Android's photo editor reclaimed the app while a session check was
+  temporarily unreachable, a valid stored cookie could be sent to Sign In.
+  The root navigator now owns authenticated route protection, waits during
+  session resolution, and shows a retryable connection state instead of
+  treating network failure as logout. A forced emulator network outage proved
+  the recovery screen, and restoring the network plus Retry returned directly
+  to the authenticated Home screen. The verifier locks these route guards and
+  recovery UI; authenticated and unauthenticated navigation both passed on the
+  native runtime.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
