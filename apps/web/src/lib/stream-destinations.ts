@@ -40,11 +40,19 @@ export const getStreamDestinations = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
-    return await prisma.streamDestination.findMany({
+    const destinations = await prisma.streamDestination.findMany({
       where: { orgId: data.orgId },
       orderBy: { createdAt: "asc" },
     });
+    return destinations.map(redactStreamDestination);
   });
+
+export function redactStreamDestination<T extends { streamKey: string }>(
+  destination: T,
+): Omit<T, "streamKey"> & { hasStreamKey: boolean } {
+  const { streamKey, ...safeDestination } = destination;
+  return { ...safeDestination, hasStreamKey: streamKey.trim().length > 0 };
+}
 
 export const addStreamDestination = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -53,8 +61,8 @@ export const addStreamDestination = createServerFn({ method: "POST" })
         orgId: idSchema,
         name: labelSchema,
         platform: z.string().min(1).max(50),
-        rtmpUrl: z.string().max(500).optional(),
-        streamKey: z.string().max(500).optional(),
+        rtmpUrl: z.string().regex(/^rtmps?:\/\//i).max(500),
+        streamKey: z.string().min(1).max(500),
       }),
       data,
     ),
@@ -67,8 +75,9 @@ export const addStreamDestination = createServerFn({ method: "POST" })
         orgId: data.orgId,
         name: data.name,
         platform: data.platform,
-        rtmpUrl: data.rtmpUrl ?? "",
-        streamKey: data.streamKey ?? "",
+        rtmpUrl: data.rtmpUrl,
+        streamKey: data.streamKey,
+        enabled: false,
       },
     });
   });
@@ -82,9 +91,8 @@ export const updateStreamDestination = createServerFn({ method: "POST" })
           .object({
             name: labelSchema,
             platform: z.string().min(1).max(50),
-            rtmpUrl: z.string().max(500),
+            rtmpUrl: z.string().regex(/^rtmps?:\/\//i).max(500),
             streamKey: z.string().max(500),
-            enabled: z.boolean(),
           })
           .partial(),
       }),
@@ -94,9 +102,19 @@ export const updateStreamDestination = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertDestinationAccess(data.id);
     const prisma = getPrisma();
+    const destination = await prisma.streamDestination.findUnique({ where: { id: data.id } });
+    if (!destination) throw new Error("Destination not found");
+    const changesCredentials = (
+      data.updates.rtmpUrl !== undefined && data.updates.rtmpUrl !== destination.rtmpUrl
+    ) || Boolean(data.updates.streamKey?.trim());
+    if (destination.cfOutputId && changesCredentials) {
+      throw new Error("Disable this destination before changing its RTMP credentials");
+    }
+    const updates = { ...data.updates };
+    if (!updates.streamKey?.trim()) delete updates.streamKey;
     return await prisma.streamDestination.update({
       where: { id: data.id },
-      data: data.updates,
+      data: updates,
     });
   });
 
@@ -104,8 +122,9 @@ export const deleteStreamDestination = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
   .handler(async ({ data }) => {
     await assertDestinationAccess(data.id);
-    const prisma = getPrisma();
-    await prisma.streamDestination.delete({ where: { id: data.id } });
+    const destination = await getPrisma().streamDestination.findUnique({ where: { id: data.id }, select: { orgId: true } });
+    if (!destination) throw new Error("Destination not found");
+    await deleteStreamDestinationForOrg(destination.orgId, data.id);
   });
 
 export const toggleStreamDestination = createServerFn({ method: "POST" })
@@ -114,51 +133,46 @@ export const toggleStreamDestination = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertDestinationAccess(data.id);
-    const prisma = getPrisma();
-    const dest = await prisma.streamDestination.findUnique({ where: { id: data.id } });
-    if (!dest) throw new Error("Destination not found");
-
-    if (data.enabled && !dest.cfOutputId) {
-      // Enabling: create a Stream Connect output on the live input
-      const liveInput = await prisma.liveInput.findFirst({
-        where: { orgId: dest.orgId },
-        orderBy: { createdAt: "asc" },
-      });
-      if (liveInput?.cfInputId) {
-        try {
-          const outputId = await createCfOutput(liveInput.cfInputId, dest.rtmpUrl, dest.streamKey);
-          return await prisma.streamDestination.update({
-            where: { id: data.id },
-            data: { enabled: true, cfOutputId: outputId, liveInputId: liveInput.id },
-          });
-        } catch (err) {
-          // Still enable locally even if CF fails
-          console.error("[Stream Connect] Failed to create output:", err);
-        }
-      }
-    } else if (!data.enabled && dest.cfOutputId) {
-      // Disabling: delete the Stream Connect output
-      const liveInput = await prisma.liveInput.findFirst({
-        where: { id: dest.liveInputId, orgId: dest.orgId },
-      });
-      if (liveInput?.cfInputId) {
-        try {
-          await deleteCfOutput(liveInput.cfInputId, dest.cfOutputId);
-        } catch (err) {
-          console.error("[Stream Connect] Failed to delete output:", err);
-        }
-      }
-      return await prisma.streamDestination.update({
-        where: { id: data.id },
-        data: { enabled: false, cfOutputId: "", liveInputId: "" },
-      });
-    }
-
-    return await prisma.streamDestination.update({
-      where: { id: data.id },
-      data: { enabled: data.enabled },
-    });
+    const destination = await getPrisma().streamDestination.findUnique({ where: { id: data.id }, select: { orgId: true } });
+    if (!destination) throw new Error("Destination not found");
+    return setStreamDestinationEnabledForOrg(destination.orgId, data.id, data.enabled);
   });
+
+/** Tenant-scoped Stream Connect toggle shared by web, native, and future adapters. */
+export async function setStreamDestinationEnabledForOrg(orgId: string, id: string, enabled: boolean) {
+  const prisma = getPrisma();
+  const destination = await prisma.streamDestination.findFirst({ where: { id, orgId } });
+  if (!destination) throw new Error("Destination not found");
+
+  if (enabled && !destination.cfOutputId) {
+    const liveInput = await prisma.liveInput.findFirst({ where: { orgId }, orderBy: { createdAt: "asc" } });
+    if (!liveInput?.cfInputId) throw new Error("Configure a live input before enabling this destination");
+    const outputId = await createCfOutput(liveInput.cfInputId, destination.rtmpUrl, destination.streamKey);
+    return prisma.streamDestination.update({
+      where: { id: destination.id },
+      data: { enabled: true, cfOutputId: outputId, liveInputId: liveInput.id },
+    });
+  } else if (!enabled && destination.cfOutputId) {
+    const liveInput = await prisma.liveInput.findFirst({ where: { id: destination.liveInputId, orgId } });
+    if (!liveInput?.cfInputId) throw new Error("The connected live input could not be found");
+    await deleteCfOutput(liveInput.cfInputId, destination.cfOutputId);
+    return prisma.streamDestination.update({
+      where: { id: destination.id },
+      data: { enabled: false, cfOutputId: "", liveInputId: "" },
+    });
+  }
+
+  return prisma.streamDestination.update({ where: { id: destination.id }, data: { enabled } });
+}
+
+/** Disconnect first so deleting a row cannot orphan a paid provider output. */
+export async function deleteStreamDestinationForOrg(orgId: string, id: string): Promise<void> {
+  const prisma = getPrisma();
+  const destination = await prisma.streamDestination.findFirst({ where: { id, orgId } });
+  if (!destination) throw new Error("Destination not found");
+  if (destination.cfOutputId) await setStreamDestinationEnabledForOrg(orgId, id, false);
+  await prisma.streamDestination.delete({ where: { id } });
+}
 
 // ─── Cloudflare Stream Connect API ──────────────────────────
 
@@ -196,10 +210,17 @@ async function deleteCfOutput(cfInputId: string, cfOutputId: string): Promise<vo
   const accountId = getAccountId();
   const headers = getCfHeaders();
 
-  await fetch(
+  const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/live_inputs/${cfInputId}/outputs/${cfOutputId}`,
     { method: "DELETE", headers }
   );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      (body as { errors?: Array<{ message: string }> }).errors?.[0]?.message
+        || `Cloudflare API error: ${response.status}`,
+    );
+  }
 }
 
 /** Check Stream Connect output status for all connected destinations */
@@ -341,13 +362,10 @@ export async function disconnectAllForOrg(orgId: string): Promise<void> {
     const liveInput = await prisma.liveInput.findFirst({
       where: { id: dest.liveInputId, orgId },
     });
-    if (liveInput?.cfInputId && dest.cfOutputId) {
-      try {
-        await deleteCfOutput(liveInput.cfInputId, dest.cfOutputId);
-      } catch {
-        // Continue
-      }
+    if (!liveInput?.cfInputId || !dest.cfOutputId) {
+      throw new Error(`The connected live input for ${dest.name} could not be found`);
     }
+    await deleteCfOutput(liveInput.cfInputId, dest.cfOutputId);
     await prisma.streamDestination.update({
       where: { id: dest.id },
       data: { cfOutputId: "", liveInputId: "" },

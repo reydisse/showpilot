@@ -35,7 +35,12 @@ export const Route = createFileRoute("/$slug/streaming/health")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "stream_health:view", context.slug, context.orgId);
-    const inputs = await getLiveInputs({ data: { orgId: context.orgId } });
+    const canManageStreamHealth = hasEffectivePermission(
+      context.role,
+      context.grantedPermissions,
+      "stream_health:manage",
+    );
+    const inputs = await getLiveInputs({ data: { orgId: context.orgId, includeCredentials: canManageStreamHealth } });
     return {
       inputs,
       orgId: context.orgId,

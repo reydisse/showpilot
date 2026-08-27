@@ -6,8 +6,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Eye,
-  EyeOff,
   ToggleLeft,
   ToggleRight,
   Zap,
@@ -78,7 +76,6 @@ function PlatformsPage() {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editDest, setEditDest] = useState<typeof destinations[0] | null>(null);
-  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -138,18 +135,6 @@ function PlatformsPage() {
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete destination");
     }
-  };
-
-  const toggleKeyVisibility = (id: string) => {
-    setRevealedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
   };
 
   const handleGoLive = async () => {
@@ -332,7 +317,6 @@ function PlatformsPage() {
             {destinations.map((dest) => {
               const platformCfg =
                 PLATFORM_CONFIG[dest.platform as Platform] ?? PLATFORM_CONFIG.custom;
-              const keyRevealed = revealedKeys.has(dest.id);
               const isConnected = !!dest.cfOutputId;
               const outputStatus = outputStatuses[dest.id];
               const isLive = outputStatus?.status === "connected";
@@ -437,25 +421,10 @@ function PlatformsPage() {
                     </p>
                   )}
 
-                  {dest.streamKey && (
-                    <div className="flex items-center gap-2">
-                      <code className="text-[11px] text-board-muted/60 font-mono truncate">
-                        {keyRevealed ? dest.streamKey : "••••••••••••••••"}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => toggleKeyVisibility(dest.id)}
-                        aria-label={`${keyRevealed ? "Hide" : "Show"} ${dest.name} stream key`}
-                        title={`${keyRevealed ? "Hide" : "Show"} ${dest.name} stream key`}
-                        className="p-1 rounded text-board-muted hover:text-board-text transition-colors"
-                      >
-                        {keyRevealed ? (
-                          <EyeOff className="w-3 h-3" />
-                        ) : (
-                          <Eye className="w-3 h-3" />
-                        )}
-                      </button>
-                    </div>
+                  {dest.hasStreamKey && (
+                    <p className="text-[11px] text-board-muted/60">
+                      Stream key stored securely · enter a new key to replace it
+                    </p>
                   )}
                 </div>
               );
@@ -535,8 +504,9 @@ function DestinationFormModal({
   const [rtmpUrl, setRtmpUrl] = useState(
     existing?.rtmpUrl ?? PLATFORM_CONFIG.youtube.defaultRtmp
   );
-  const [streamKey, setStreamKey] = useState(existing?.streamKey ?? "");
+  const [streamKey, setStreamKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const handlePlatformChange = (p: Platform) => {
     setPlatform(p);
@@ -550,33 +520,37 @@ function DestinationFormModal({
     e.preventDefault();
     if (!name.trim()) return;
     setSaving(true);
-
-    if (existing) {
-      await updateStreamDestination({
-        data: {
-          id: existing.id,
-          updates: {
+    setError("");
+    try {
+      if (existing) {
+        await updateStreamDestination({
+          data: {
+            id: existing.id,
+            updates: {
+              name: name.trim(),
+              platform,
+              rtmpUrl: rtmpUrl.trim(),
+              streamKey: streamKey.trim(),
+            },
+          },
+        });
+      } else {
+        await addStreamDestination({
+          data: {
+            orgId,
             name: name.trim(),
             platform,
             rtmpUrl: rtmpUrl.trim(),
             streamKey: streamKey.trim(),
           },
-        },
-      });
-    } else {
-      await addStreamDestination({
-        data: {
-          orgId,
-          name: name.trim(),
-          platform,
-          rtmpUrl: rtmpUrl.trim(),
-          streamKey: streamKey.trim(),
-        },
-      });
+        });
+      }
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Destination update failed");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    onSaved();
   };
 
   return (
@@ -654,16 +628,18 @@ function DestinationFormModal({
           {/* Stream Key */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
-              Stream Key
+              {existing ? "New stream key" : "Stream key"}
             </label>
             <input
               type="password"
               value={streamKey}
               onChange={(e) => setStreamKey(e.target.value)}
-              placeholder="Your stream key"
+              placeholder={existing ? "Leave blank to keep the stored key" : "Your stream key"}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
             />
           </div>
+
+          {error ? <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p> : null}
 
           <div className="flex gap-3 pt-2">
             <button
@@ -675,7 +651,7 @@ function DestinationFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || !name.trim()}
+              disabled={saving || !name.trim() || !rtmpUrl.trim() || (!existing && !streamKey.trim())}
               className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               {saving ? "Saving..." : existing ? "Update" : "Add"}
