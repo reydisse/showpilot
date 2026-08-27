@@ -363,8 +363,13 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   one August entry. Reusing it in September kept one template and produced one
   entry per show. All temporary QA rows were deleted afterward.
 - The launch audit now enforces least-privilege access at the server boundary
-  for Assets, Audio, external chat, OnTime, lower-third library resets, and
-  ProPresenter control. Member-visible organization settings are explicitly
+  for Assets, Audio, crew management, report exports, native and external chat,
+  rundown reads, OnTime, lower-third library resets, and ProPresenter control.
+  Check-in operators now receive a read-only crew roster while organization
+  member administrators retain add/edit/delete controls. Reactions now enforce
+  the permission for their actual content type, and chat notification links use
+  the organization slug resolved by the server instead of client-supplied
+  routing data. Member-visible organization settings are explicitly
   allowlisted so integration credentials and API keys cannot leak through the
   shared settings reader. ProPresenter proxy requests use the saved
   organization target instead of a client-supplied host, and unused legacy

@@ -20,7 +20,6 @@ interface UseChatOptions {
   senderRole?: string;
   guestToken?: string;
   roomId?: string;
-  orgSlug?: string;
 }
 
 interface UseChatReturn {
@@ -60,7 +59,7 @@ function createAdapter(orgId: string, type: ChatAdapterType, guest?: { token: st
  * Creates the appropriate chat adapter based on org settings.
  * Manages connection lifecycle, message state, and unread tracking.
  */
-export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole, guestToken, roomId = "production", orgSlug }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole, guestToken, roomId = "production" }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -214,13 +213,13 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
           void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);
         }
       }
-      if (orgSlug && !guestToken) {
+      if (!guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
-          data: { orgId, orgSlug, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
+          data: { orgId, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
         })).catch(() => undefined);
       }
     },
-    [chatAdapter, guestToken, orgId, orgSlug, roomId, userName, userRole],
+    [chatAdapter, guestToken, orgId, roomId, userName, userRole],
   );
 
   const editMessage = useCallback(async (messageId: string, text: string) => {

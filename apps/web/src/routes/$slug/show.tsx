@@ -174,7 +174,6 @@ function ChatPanel({
   userName,
   userRole,
   userId,
-  orgSlug,
   mentionMembers,
   liveStatus,
 }: {
@@ -183,13 +182,11 @@ function ChatPanel({
   userName: string;
   userRole: string;
   userId: string;
-  orgSlug: string;
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
   const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping } = useChat({
     orgId,
-    orgSlug,
     isVisible: true,
     chatAdapter,
     senderName: userName,
@@ -773,7 +770,7 @@ function ShowPageWithNative({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} orgSlug={slug} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
     </div>
   );
 
@@ -958,7 +955,7 @@ function ShowPageWithOntime({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} orgSlug={slug} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
+      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
     </div>
   );
 

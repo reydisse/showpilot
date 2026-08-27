@@ -18,19 +18,23 @@ export interface ContentReaction {
   createdAt: string;
 }
 
-async function assertAccess(orgId: string) {
-  const { user } = await assertOrgPermission(orgId, [
-    "chat:access",
-    "incidents:report",
-    "incidents:access",
-  ]);
+async function assertAccess(
+  orgId: string,
+  type: ContentReaction["targetType"],
+) {
+  const { user } = await assertOrgPermission(
+    orgId,
+    type === "chat-message"
+      ? "chat:access"
+      : ["incidents:report", "incidents:access"],
+  );
   return user;
 }
 
 export const getContentReactions = createServerFn({ method: "GET" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, targetType, targetIds: z.array(idSchema).max(200) }), value))
   .handler(async ({ data }): Promise<ContentReaction[]> => {
-    await assertAccess(data.orgId);
+    await assertAccess(data.orgId, data.targetType);
     if (data.targetIds.length === 0) return [];
     const placeholders = data.targetIds.map(() => "?").join(",");
     const rows = await getD1().prepare(
@@ -44,7 +48,7 @@ export const getContentReactions = createServerFn({ method: "GET" })
 export const toggleContentReaction = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, targetType, targetId: idSchema, emoji: reactionEmoji }), value))
   .handler(async ({ data }) => {
-    const user = await assertAccess(data.orgId);
+    const user = await assertAccess(data.orgId, data.targetType);
     const existing = await getD1().prepare(
       "SELECT id FROM content_reaction WHERE orgId = ? AND targetType = ? AND targetId = ? AND userId = ? AND emoji = ?",
     ).bind(data.orgId, data.targetType, data.targetId, user.id, data.emoji).first<{ id: string }>();

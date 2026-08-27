@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
@@ -426,27 +425,6 @@ async function getRundownStateFromStorage(
   };
 }
 
-async function getOrgMemberRole(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true, role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-
-  return member.role ?? "member";
-}
-
-async function assertOrgAccess(orgId: string) {
-  await getOrgMemberRole(orgId);
-}
-
 async function assertRundownEditAccess(orgId: string) {
   await assertEffectiveOrgPermission(orgId, "rundown:edit");
 }
@@ -504,7 +482,7 @@ function rundownTimerKey(serviceDate: string) {
 export const getRundownState = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
   .handler(async ({ data }): Promise<RundownState> => {
-    await assertOrgAccess(data.orgId);
+    await assertEffectiveOrgPermission(data.orgId, "rundown:view");
     return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
   });
 
@@ -738,7 +716,7 @@ export const getRundownOpeningDate = createServerFn({ method: "GET" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertEffectiveOrgPermission(data.orgId, "rundown:view");
     const prisma = getPrisma();
     const [shows, activeDate, activeShow] = await Promise.all([
       prisma.rundown.findMany({

@@ -31,11 +31,13 @@ function MemberCard({
   onEdit,
   onDelete,
   deleting,
+  canManage,
 }: {
   member: Member;
   onEdit: (m: Member) => void;
   onDelete: (m: Member) => void;
   deleting: boolean;
+  canManage: boolean;
 }) {
   const dept = getDepartment(member.role);
   const config = DEPARTMENTS[dept];
@@ -81,7 +83,7 @@ function MemberCard({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
+      {canManage ? <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
         <button
           onClick={() => onEdit(member)}
           className="p-2 rounded-lg hover:bg-board-border transition-colors text-board-muted hover:text-board-text"
@@ -95,12 +97,12 @@ function MemberCard({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
-      </div>
+      </div> : null}
     </div>
   );
 }
 
-function EmptyState({ onAdd }: { onAdd: () => void }) {
+function EmptyState({ onAdd, canManage }: { onAdd: () => void; canManage: boolean }) {
   return (
     <div className="flex flex-col items-center py-20">
       <div className="relative mb-8">
@@ -120,7 +122,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
         managers, and everyone in between.
       </p>
 
-      <button
+      {canManage ? <button
         onClick={onAdd}
         className="flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
         style={{
@@ -129,7 +131,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       >
         <UserPlus className="w-5 h-5" />
         Add Your First Member
-      </button>
+      </button> : null}
 
       <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg">
         {[
@@ -158,9 +160,10 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 interface MemberTableProps {
   members: Member[];
   orgId: string;
+  canManage: boolean;
 }
 
-export function MemberTable({ members, orgId }: MemberTableProps) {
+export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -259,7 +262,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
             </p>
           )}
         </div>
-        {members.length > 0 && (
+        {canManage && members.length > 0 && (
           <button
             onClick={handleAdd}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
@@ -274,7 +277,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
       </div>
 
       {members.length === 0 ? (
-        <EmptyState onAdd={handleAdd} />
+        <EmptyState onAdd={handleAdd} canManage={canManage} />
       ) : (
         <>
           {/* Search + filters */}
@@ -358,6 +361,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
                           onEdit={handleEdit}
                           onDelete={handleDelete}
                           deleting={deleting === member.id}
+                          canManage={canManage}
                         />
                       ))}
                     </div>
@@ -374,6 +378,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                   deleting={deleting === member.id}
+                  canManage={canManage}
                 />
               ))}
             </div>
@@ -381,7 +386,7 @@ export function MemberTable({ members, orgId }: MemberTableProps) {
         </>
       )}
 
-      {showForm && (
+      {canManage && showForm && (
         <MemberForm
           orgId={orgId}
           member={editingMember}

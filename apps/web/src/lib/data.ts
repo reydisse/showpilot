@@ -22,27 +22,6 @@ const longTextSchema = z.string().max(10_000);
 const photoUrlSchema = z.string().max(2_100_000);
 const optionalCrewEmailSchema = z.union([z.literal(""), z.email("Enter a valid email address").max(254)]);
 
-async function getOrgMemberRole(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true, role: true },
-  });
-  if (!member) throw new Error("Forbidden");
-
-  return member.role ?? "member";
-}
-
-async function assertOrgAccess(orgId: string) {
-  await getOrgMemberRole(orgId);
-}
-
 async function assertOrgPermission(orgId: string, permission: Permission | Permission[]) {
   await assertEffectiveOrgPermission(orgId, permission);
 }
@@ -52,7 +31,7 @@ async function assertOrgPermission(orgId: string, permission: Permission | Permi
 export const getCrewMembers = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "show:view");
     const prisma = getPrisma();
     return await prisma.crewMember.findMany({
       where: { orgId: data.orgId },
@@ -75,7 +54,7 @@ export const addCrewMember = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     return await prisma.crewMember.create({
       data: {
@@ -110,7 +89,7 @@ export const updateCrewMember = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     const existing = await prisma.crewMember.findFirst({
       where: { id: data.id, orgId: data.orgId },
@@ -133,7 +112,7 @@ export const deleteCrewMember = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
     const result = await prisma.crewMember.deleteMany({
       where: { id: data.id, orgId: data.orgId },

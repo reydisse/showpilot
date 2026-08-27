@@ -1,26 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { assertOrgPermission } from "@/lib/org-access";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import { isHeaderItem } from "@/types/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
 import { z } from "zod";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-
-async function assertOrgAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!member) throw new Error("Forbidden");
-}
 
 export type ShowReport = {
   generatedAt: string;
@@ -75,7 +60,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }): Promise<ShowReport> => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "schedule:view");
 
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({

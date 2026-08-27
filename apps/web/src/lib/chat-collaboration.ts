@@ -40,7 +40,6 @@ export const getChatMembers = createServerFn({ method: "GET" })
 export const notifyChatMessage = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({
     orgId: idSchema,
-    orgSlug: z.string().min(1).max(100),
     roomId: roomIdSchema,
     text: z.string().max(4000),
     mentionedUserIds: z.array(idSchema).max(20).optional(),
@@ -48,6 +47,11 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
   }), data))
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);
+    const organization = await getPrisma().organization.findUnique({
+      where: { id: data.orgId },
+      select: { slug: true },
+    });
+    if (!organization) throw new Error("Organization not found");
     const recipients = new Map<string, "dm" | "mention">();
     const dmParts = data.roomId.split(":");
     if (dmParts.length === 3 && dmParts[0] === "dm" && dmParts.slice(1).includes(sender.id)) {
@@ -88,7 +92,7 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
       await deliverPushToUser(data.orgId, userId, {
         title,
         body: cleanText,
-        url: `/${encodeURIComponent(data.orgSlug)}/${actionUrl}`,
+        url: `/${encodeURIComponent(organization.slug)}/${actionUrl}`,
         tag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
         notificationId,
       });

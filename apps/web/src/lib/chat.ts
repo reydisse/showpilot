@@ -4,21 +4,7 @@ import { getPrisma } from "@/lib/db";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { hasPermission } from "@/lib/app-permissions";
-
-async function assertOrgAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!member) throw new Error("Forbidden");
-}
+import { assertOrgPermission } from "@/lib/org-access";
 
 async function assertChatAdmin(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -36,7 +22,7 @@ async function assertChatAdmin(orgId: string) {
 export const getChatMessages = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string; limit?: number }) => data)
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "chat:access");
     const prisma = getPrisma();
     return await prisma.chatMessage.findMany({
       where: { orgId: data.orgId },
@@ -50,6 +36,7 @@ export const sendChatMessage = createServerFn({ method: "POST" })
     parseOrThrow(z.object({ orgId: idSchema, message: z.string().min(1).max(4000) }), data),
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "chat:access");
     const { getAuth } = await import("@/lib/auth");
     const auth = getAuth();
     const headers = getRequestHeaders();

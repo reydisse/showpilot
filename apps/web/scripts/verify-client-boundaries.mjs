@@ -132,6 +132,10 @@ function exportedConstBlock(relativePath, exportName) {
 }
 
 const serverPermissionContracts = [
+  ["src/lib/data.ts", "getCrewMembers", /assertOrgPermission\(data\.orgId, "show:view"\)/],
+  ["src/lib/data.ts", "addCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
+  ["src/lib/data.ts", "updateCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
+  ["src/lib/data.ts", "deleteCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
   ["src/lib/data.ts", "getEquipment", /assertOrgPermission\(data\.orgId, "assets:view"\)/],
   ["src/lib/data.ts", "addEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)/],
   ["src/lib/data.ts", "updateEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
@@ -147,6 +151,13 @@ const serverPermissionContracts = [
   ["src/lib/chat-proxy.ts", "testChatConnection", /assertOrgPermission\(data\.orgId, "settings:integrations"\)/],
   ["src/lib/chat-proxy.ts", "sendExternalChatMessage", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
   ["src/lib/chat-proxy.ts", "getExternalChatHistory", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
+  ["src/lib/chat.ts", "getChatMessages", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
+  ["src/lib/chat.ts", "sendChatMessage", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
+  ["src/lib/content-reactions.ts", "getContentReactions", /assertAccess\(data\.orgId, data\.targetType\)/],
+  ["src/lib/content-reactions.ts", "toggleContentReaction", /assertAccess\(data\.orgId, data\.targetType\)/],
+  ["src/lib/report.ts", "exportShowReport", /assertOrgPermission\(data\.orgId, "schedule:view"\)/],
+  ["src/lib/rundown.ts", "getRundownState", /assertEffectiveOrgPermission\(data\.orgId, "rundown:view"\)/],
+  ["src/lib/rundown.ts", "getRundownOpeningDate", /assertEffectiveOrgPermission\(data\.orgId, "rundown:view"\)/],
   ["src/lib/rundown.ts", "pollProPresenterSlide", /assertEffectiveOrgPermission\(data\.orgId, \["lowerthird:trigger", "rundown:control"\]\)/],
   ["src/lib/rundown.ts", "sendProPresenterCommand", /assertRundownControlAccess\(data\.orgId\)/],
   ["src/lib/rundown.ts", "testProPresenterConnection", /assertEffectiveOrgPermission\(data\.orgId, "settings:integrations"\)/],

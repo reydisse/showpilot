@@ -30,7 +30,7 @@ export const Route = createFileRoute("/$slug/chat")({
 });
 
 function ChatPage() {
-  const { orgId, slug, userId, userName, userRole, chatAdapter, members, showId, serviceDate } = Route.useLoaderData();
+  const { orgId, userId, userName, userRole, chatAdapter, members, showId, serviceDate } = Route.useLoaderData();
   const { room: requestedRoom, message: focusedMessageId } = Route.useSearch();
   const navigate = Route.useNavigate();
   const roomId = requestedRoom || "production";
@@ -38,7 +38,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, orgSlug: slug, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
+  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null

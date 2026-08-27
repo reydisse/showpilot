@@ -176,7 +176,11 @@ function TeamPage() {
           grants={accessManagement.grants}
         />
       ) : (
-        <MemberTable members={crewMembers} orgId={orgId} />
+        <MemberTable
+          members={crewMembers}
+          orgId={orgId}
+          canManage={canManageMembers}
+        />
       )}
     </div>
   );
