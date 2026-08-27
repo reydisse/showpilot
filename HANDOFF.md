@@ -429,6 +429,14 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   platform credentials, and a signed internal build. Apple distribution also
   waits on the owner's developer enrollment. Those external actions are not
   authorized or complete.
+- Native simulator tooling had retained a stale workspace under
+  `/private/tmp/showpilot-react-native-mobile`. The repository now owns
+  `.xcodebuildmcp/config.yaml` with a relative path to the active checkout's
+  `apps/mobile/ios/ShowPilot.xcworkspace`, the `ShowPilot` scheme, bundle ID,
+  and a portable iPhone 17 Pro selector. The latest CLI resolved that config
+  and found the correct scheme. CocoaPods are installed locally in the active
+  worktree; those generated files stay ignored. No simulator was booted on
+  2026-08-27, so runtime UI automation still waits for the owner to open one.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

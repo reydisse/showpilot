@@ -1,0 +1,10 @@
+schemaVersion: 1
+enabledWorkflows: ["simulator", "ui-automation", "debugging"]
+sessionDefaults:
+  workspacePath: ./apps/mobile/ios/ShowPilot.xcworkspace
+  scheme: ShowPilot
+  configuration: Debug
+  simulatorName: iPhone 17 Pro
+  simulatorPlatform: iOS Simulator
+  useLatestOS: true
+  bundleId: tech.showpilot.mobile
