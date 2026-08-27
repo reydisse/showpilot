@@ -163,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0032_checklist_entry_uniqueness.sql`). They deliberately do **not** use wrangler's
+`0034_better_auth_account_issuer.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -204,7 +204,7 @@ The check rejects gaps, duplicate entries, unknown files, and out-of-order
 entries. The deploy workflow runs the same command and stops before either
 Worker changes if any migration remains pending.
 
-For migrations 0030 through 0032, use these read-only preflights:
+For migrations 0030 through 0034, use these read-only preflights where noted:
 
 ```sh
 # 0030: must return 0.
@@ -212,6 +212,11 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command='SELECT COUNT(*) A
 
 # 0032: must return 0.
 pnpm exec wrangler d1 execute showpilot-db --remote --command='SELECT COUNT(*) AS duplicate_checklist_groups FROM (SELECT 1 FROM "checklist_entry" WHERE "showId" IS NOT NULL GROUP BY "orgId", "showId", "templateId" HAVING COUNT(*) > 1)'
+
+# 0034: both counts must return 0. Any non-credential provider or duplicate
+# credential account needs an explicit provider-owned backfill before rollout.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS non_credential_accounts FROM \"account\" WHERE \"providerId\" <> 'credential'"
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS duplicate_credential_users FROM (SELECT \"userId\" FROM \"account\" WHERE \"providerId\" = 'credential' GROUP BY \"userId\" HAVING COUNT(*) > 1)"
 ```
 
 After applying each file, require its exact postcondition:
@@ -225,6 +230,14 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"type\", 
 
 # After 0032: returns checklist_entry_orgId_showId_templateId_key.
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM \"sqlite_master\" WHERE \"type\" = 'index' AND \"name\" = 'checklist_entry_orgId_showId_templateId_key'"
+
+# After 0033: returns the table and its lookup index.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"type\", \"name\" FROM \"sqlite_master\" WHERE \"name\" IN ('chat_user_room', 'chat_user_room_userId_idx') ORDER BY \"type\", \"name\""
+
+# After 0034: returns accountId, issuer, providerId, userId and then
+# account_issuer_accountId_uidx.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM pragma_table_info('account') WHERE \"name\" IN ('accountId', 'issuer', 'providerId', 'userId') ORDER BY \"name\""
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM \"sqlite_master\" WHERE \"type\" = 'index' AND \"name\" = 'account_issuer_accountId_uidx'"
 
 # After all files: returns no rows.
 pnpm exec wrangler d1 execute showpilot-db --remote --command='PRAGMA foreign_key_check'
@@ -264,19 +277,19 @@ a fresh local state directory.
 
 The production manifest records every migration through
 `0029_weekly_access_grants.sql`. Migrations
-`0030_multitenant_push_subscriptions.sql` and
-`0031_expo_push_receipts.sql` are intentionally pending until the native
-mobile launch stack is authorized for production. Apply them in order through
-the protected procedure above before deploying code that depends on signed
-device push delivery. `0032_checklist_entry_uniqueness.sql` is also pending and
-must be applied before deploying the atomic checklist creation path. Its
-read-only production preflight reported zero duplicate endpoint/organization
-groups and zero duplicate checklist groups on 2026-08-27. `PRAGMA
-foreign_key_check` returned no rows. The only one of the six audited schema
-objects currently present is the old `push_subscription_endpoint_key`, which
-0030 replaces. These checks wrote zero rows. They prove the current preflight
-passes, but must be rerun immediately before applying because production data
-can change.
+`0030_multitenant_push_subscriptions.sql` through
+`0034_better_auth_account_issuer.sql` are pending. Apply all five in order
+through the protected procedure above before deploying this launch candidate:
+0030–0031 support signed device push, 0032 protects atomic checklist creation,
+0033 supports complete chat cleanup during account deletion, and 0034 is
+required by Better Auth 1.7. The read-only 0030 and 0032 production preflights
+reported zero duplicate endpoint/organization groups and zero duplicate
+checklist groups on 2026-08-27. Rerun those preflights and the two 0034 account
+preflights immediately before applying because production data can change. `PRAGMA
+foreign_key_check` returned no rows. The earlier read-only audit found only the
+old `push_subscription_endpoint_key` among the six objects created by
+0030–0032. Migration 0030 replaces that index. Run every preflight again during
+the production change window.
 
 ---
 

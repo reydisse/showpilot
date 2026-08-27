@@ -100,9 +100,10 @@ Complete these steps only from the reviewed release branch and only after the re
    run `pnpm dlx eas-cli@22.4.0 workflow:run
    .eas/workflows/create-internal-builds.yml --wait`. This workflow is manual
    and produces signed preview builds for both platforms.
-5. Apply migrations `0030_multitenant_push_subscriptions.sql` and
-   `0031_expo_push_receipts.sql` through the protected production migration
-   workflow before deploying the matching Worker endpoints.
+5. Apply migrations `0030_multitenant_push_subscriptions.sql` through
+   `0034_better_auth_account_issuer.sql`, in order, through the protected
+   production migration workflow before deploying the matching Worker and
+   authentication endpoints.
 6. On signed physical devices, verify sign-in, workspace switching, profile-
    photo upload, push receipt delivery, notification routing, chat history,
    schedule-response expiry, Bridge controls, and simultaneous rundown/timer
