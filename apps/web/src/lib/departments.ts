@@ -9,7 +9,16 @@
  * invisible.
  */
 
-export type DepartmentKey = "audio" | "video" | "lighting" | "stream" | "general";
+/** Display order. General last: it is the bucket, not a department. */
+export const DEPARTMENT_ORDER = [
+  "audio",
+  "video",
+  "lighting",
+  "stream",
+  "general",
+] as const;
+
+export type DepartmentKey = (typeof DEPARTMENT_ORDER)[number];
 
 export const DEPARTMENT_LABELS: Record<DepartmentKey, string> = {
   audio: "Audio",
@@ -18,15 +27,6 @@ export const DEPARTMENT_LABELS: Record<DepartmentKey, string> = {
   stream: "Stream",
   general: "General",
 };
-
-/** Display order. General last: it is the bucket, not a department. */
-export const DEPARTMENT_ORDER: DepartmentKey[] = [
-  "audio",
-  "video",
-  "lighting",
-  "stream",
-  "general",
-];
 
 /**
  * Fold any category string onto a department key. Unknown values become

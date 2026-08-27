@@ -290,6 +290,7 @@ model ChecklistEntry {
   @@index([orgId, serviceDate])
   @@index([orgId, showId])
   @@index([templateId])
+  @@unique([orgId, showId, templateId])
   @@map("checklist_entry")
 }
 

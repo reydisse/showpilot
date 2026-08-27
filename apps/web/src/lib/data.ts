@@ -2,8 +2,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import type { Permission } from "@/lib/app-permissions";
-import { deleteChecklistEntryCore } from "@/lib/checklist-core";
+import {
+  createChecklistTemplateId,
+  deleteChecklistEntryCore,
+  findChecklistTemplateId,
+  type ChecklistTemplateWrite,
+} from "@/lib/checklist-core";
+import { persistChecklistItem } from "@/lib/checklist-write.server";
 import { getPrisma } from "@/lib/db";
+import { DEPARTMENT_ORDER } from "@/lib/departments";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import { deriveChecklistSuggestions, normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
@@ -353,25 +360,15 @@ export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
 
 // ─── Checklist ──────────────────────────────────────────────
 
-export const getChecklistTemplates = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, ["checklist:view", "checklist:access"]);
-    const prisma = getPrisma();
-    return await prisma.checklistTemplate.findMany({
-      where: { orgId: data.orgId },
-      orderBy: { sortOrder: "asc" },
-    });
-  });
-
-export const addChecklistTemplate = createServerFn({ method: "POST" })
+export const addChecklistItem = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
       z.object({
         orgId: idSchema,
         label: labelSchema,
-        category: z.string().max(100),
-        sortOrder: z.number().int().optional(),
+        category: z.enum(DEPARTMENT_ORDER),
+        serviceDate: serviceDateSchema,
+        showId: idSchema,
       }),
       data,
     ),
@@ -379,13 +376,34 @@ export const addChecklistTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
     const prisma = getPrisma();
-    return await prisma.checklistTemplate.create({
-      data: {
-        orgId: data.orgId,
-        label: data.label,
-        category: data.category,
-        sortOrder: data.sortOrder ?? 0,
-      },
+    const [show, templates] = await Promise.all([
+      prisma.rundown.findFirst({
+        where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+        select: { id: true },
+      }),
+      prisma.checklistTemplate.findMany({
+        where: { orgId: data.orgId },
+        select: { id: true, label: true },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      }),
+    ]);
+    if (!show) throw new Error("Show not found");
+
+    const label = data.label.trim();
+    const existingTemplateId = findChecklistTemplateId(templates, label);
+    const template: ChecklistTemplateWrite = existingTemplateId
+      ? { kind: "existing", id: existingTemplateId }
+      : {
+          kind: "new",
+          id: await createChecklistTemplateId(data.orgId, label),
+          label,
+          category: data.category,
+        };
+    return persistChecklistItem({
+      orgId: data.orgId,
+      showId: data.showId,
+      serviceDate: data.serviceDate,
+      template,
     });
   });
 
@@ -396,7 +414,7 @@ export const updateChecklistTemplate = createServerFn({ method: "POST" })
         orgId: idSchema,
         id: idSchema,
         updates: z
-          .object({ label: labelSchema, category: z.string().max(100), sortOrder: z.number().int() })
+          .object({ category: z.enum(DEPARTMENT_ORDER), sortOrder: z.number().int() })
           .partial(),
       }),
       data,
@@ -472,38 +490,6 @@ export const toggleChecklistEntry = createServerFn({ method: "POST" })
     if (result.count === 0) throw new Error("Checklist entry not found");
   });
 
-export const addChecklistEntry = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({ orgId: idSchema, templateId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "checklist:access");
-    const prisma = getPrisma();
-    const template = await prisma.checklistTemplate.findFirst({
-      where: { id: data.templateId, orgId: data.orgId },
-      select: { id: true },
-    });
-    if (!template) throw new Error("Checklist template not found");
-    if (data.showId) {
-      const show = await prisma.rundown.findFirst({
-        where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
-        select: { id: true },
-      });
-      if (!show) throw new Error("Show not found");
-    }
-    return await prisma.checklistEntry.create({
-      data: {
-        orgId: data.orgId,
-        showId: data.showId,
-        templateId: data.templateId,
-        serviceDate: data.serviceDate,
-      },
-    });
-  });
-
 export type SmartChecklistDraft = ReturnType<typeof deriveChecklistSuggestions>[number] & {
   existingTemplateId: string | null;
 };
@@ -544,7 +530,7 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
       z.object({
         orgId: idSchema,
         serviceDate: serviceDateSchema,
-        showId: idSchema.optional(),
+        showId: idSchema,
         suggestionIds: z.array(z.string().min(1).max(100)).max(30),
       }),
       data,
@@ -555,32 +541,24 @@ export const applySmartChecklistDraft = createServerFn({ method: "POST" })
     const requested = new Set(data.suggestionIds);
     const draft = await buildSmartChecklistDraft(data.orgId, data.serviceDate, data.showId);
     const selected = draft.filter((suggestion) => requested.has(suggestion.id));
-    const prisma = getPrisma();
     let added = 0;
 
     for (const suggestion of selected) {
-      let templateId = suggestion.existingTemplateId;
-      if (!templateId) {
-        const template = await prisma.checklistTemplate.create({
-          data: {
-            orgId: data.orgId,
+      const template: ChecklistTemplateWrite = suggestion.existingTemplateId
+        ? { kind: "existing", id: suggestion.existingTemplateId }
+        : {
+            kind: "new",
+            id: await createChecklistTemplateId(data.orgId, suggestion.label),
             label: suggestion.label,
             category: suggestion.category,
-            sortOrder: 0,
-          },
-        });
-        templateId = template.id;
-      }
-
-      const duplicate = await prisma.checklistEntry.findFirst({
-        where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }), templateId },
-        select: { id: true },
+          };
+      const result = await persistChecklistItem({
+        orgId: data.orgId,
+        showId: data.showId,
+        serviceDate: data.serviceDate,
+        template,
       });
-      if (duplicate) continue;
-      await prisma.checklistEntry.create({
-        data: { orgId: data.orgId, showId: data.showId, serviceDate: data.serviceDate, templateId },
-      });
-      added += 1;
+      if (result.added) added += 1;
     }
 
     return { added };

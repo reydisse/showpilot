@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { deleteChecklistEntryCore, type ChecklistEntryIdentity } from "../checklist-core";
+import {
+  createChecklistTemplateId,
+  deleteChecklistEntryCore,
+  findChecklistTemplateId,
+  type ChecklistEntryIdentity,
+} from "../checklist-core";
 
 function inMemoryStore(rows: ChecklistEntryIdentity[]) {
   return {
@@ -43,5 +48,30 @@ describe("checklist entry deletion", () => {
       entry: { id: "entry-1", orgId: "org-a" },
     })).rejects.toThrow("Checklist entry not found");
     expect(fixture.rows).toEqual([{ id: "entry-1", orgId: "org-b" }]);
+  });
+});
+
+describe("checklist template identity", () => {
+  it("reuses a matching template across casing and punctuation", () => {
+    expect(findChecklistTemplateId([
+      { id: "template-a", label: "Test VIDEO playback!" },
+      { id: "template-b", label: "Comms check" },
+    ], " test video playback ")).toBe("template-a");
+  });
+
+  it("rejects labels without a meaningful identity", () => {
+    expect(() => findChecklistTemplateId([], " !!! ")).toThrow(
+      "Checklist items must include letters or numbers",
+    );
+  });
+
+  it("creates a stable id for concurrent creators in one organization", async () => {
+    const first = await createChecklistTemplateId("org-a", "Camera checks");
+    const retry = await createChecklistTemplateId("org-a", " camera checks! ");
+    const otherOrganization = await createChecklistTemplateId("org-b", "Camera checks");
+
+    expect(first).toBe(retry);
+    expect(first).toMatch(/^checklist-[a-f0-9]{40}$/);
+    expect(otherOrganization).not.toBe(first);
   });
 });

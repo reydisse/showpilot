@@ -5,8 +5,7 @@ import { ChevronLeft, ChevronRight, CheckCircle2, Circle, ListChecks, Loader2, P
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   getChecklistEntries,
-  addChecklistTemplate,
-  addChecklistEntry,
+  addChecklistItem,
   toggleChecklistEntry,
   deleteChecklistEntry,
   updateChecklistTemplate,
@@ -144,12 +143,9 @@ function ChecklistPage() {
     if (!newLabel.trim()) return;
     setAdding(true);
     try {
-      const tpl = await addChecklistTemplate({
-        data: { orgId, label: newLabel.trim(), category: newCategory },
+      await addChecklistItem({
+        data: { orgId, label: newLabel.trim(), category: newCategory, serviceDate, showId },
       });
-      if (tpl) {
-        await addChecklistEntry({ data: { orgId, templateId: tpl.id, serviceDate, showId } });
-      }
       setNewLabel("");
       // The department is deliberately sticky. Checks are written in
       // runs — five audio items, then four camera items — and resetting

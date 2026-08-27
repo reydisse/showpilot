@@ -68,6 +68,11 @@ const launchIntegrityContracts = [
     message: "A service checklist must not delete its reusable template and cascade into other shows.",
   },
   {
+    path: "src/lib/data.ts",
+    pattern: /\b(?:addChecklistTemplate|addChecklistEntry)\s*=/,
+    message: "Checklist template and service-entry creation must stay one atomic server-owned command.",
+  },
+  {
     path: "src/lib/permissions.ts",
     pattern: /\bPLANNED\b/,
     message: "The production permission registry must contain only implemented capabilities.",
@@ -77,6 +82,29 @@ const launchIntegrityContracts = [
 for (const contract of launchIntegrityContracts) {
   const source = readFileSync(resolve(webRoot, contract.path), "utf8");
   if (contract.pattern.test(source)) throw new Error(contract.message);
+}
+
+const requiredLaunchContracts = [
+  {
+    path: "src/lib/checklist-write.server.ts",
+    pattern: /database\.batch\s*\(/,
+    message: "Checklist template and first-entry creation must use an atomic native D1 batch.",
+  },
+  {
+    path: "prisma/schema.prisma",
+    pattern: /@@unique\(\[orgId,\s*showId,\s*templateId\]\)/,
+    message: "The Prisma schema must keep one checklist template entry per show.",
+  },
+  {
+    path: "prisma/migrations/0032_checklist_entry_uniqueness.sql",
+    pattern: /CREATE UNIQUE INDEX[\s\S]+checklist_entry[\s\S]+orgId[\s\S]+showId[\s\S]+templateId/,
+    message: "Migration 0032 must enforce checklist entry uniqueness in D1.",
+  },
+];
+
+for (const contract of requiredLaunchContracts) {
+  const source = readFileSync(resolve(webRoot, contract.path), "utf8");
+  if (!contract.pattern.test(source)) throw new Error(contract.message);
 }
 
 console.log("Client boundary check passed.");

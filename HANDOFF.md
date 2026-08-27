@@ -109,8 +109,9 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 
 - The migration manifest records migrations through
   `0029_weekly_access_grants.sql`.
-- The launch candidate adds `0030_multitenant_push_subscriptions.sql` and
-  `0031_expo_push_receipts.sql`. Neither is applied to production yet.
+- The launch candidate adds `0030_multitenant_push_subscriptions.sql`,
+  `0031_expo_push_receipts.sql`, and `0032_checklist_entry_uniqueness.sql`.
+  None is applied to production yet.
 - Do not run a remote migration merely for local testing.
 - Future code changes must start on a checked, purpose-specific feature/fix
   branch and require fresh authorization before push, merge, deployment,
@@ -349,11 +350,23 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   shared one template, removed the August entry through the UI, and confirmed
   both visually and in D1 that the September entry and template survived. All
   temporary QA rows were deleted afterward.
-- Current verification passes 69 web test files and 605 tests, web and mobile
+- Adding a checklist item is now one server-owned operation. New templates and
+  their first service entry use an atomic native D1 batch because Prisma's D1
+  transaction adapter does not provide atomicity. Stable template identities,
+  `INSERT OR IGNORE`, and migration `0032_checklist_entry_uniqueness.sql` make
+  retries and concurrent operators converge on one entry per show. The old
+  split template/entry endpoints are removed and blocked by the production
+  verifier. A read-only production preflight found zero duplicate groups and
+  zero orphan templates. A fresh local database applied all 32 migrations
+  twice, the unique index rejected a real duplicate insert, and two signed-in
+  browser sessions adding the same item concurrently produced one template and
+  one August entry. Reusing it in September kept one template and produced one
+  entry per show. All temporary QA rows were deleted afterward.
+- Current verification passes 69 web test files and 608 tests, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
-  Expo Doctor 18/18, and native lint. The web main bundle is 493,864 bytes raw
-  and 155,454 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
+  Expo Doctor 18/18, and native lint. The web main bundle is 493,651 bytes raw
+  and 155,354 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
   5,902,629 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
@@ -374,9 +387,9 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   platform credentials, and a signed internal build. Apple distribution also
   waits on the owner's developer enrollment. Those external actions are not
   authorized or complete.
-- Before deploying the mobile Worker endpoints, apply migrations 0030 and 0031
-  through the protected migration workflow, then perform signed-device push,
-  profile upload, organization switching, chat, Bridge control, and
+- Before deploying this launch candidate, apply migrations 0030 through 0032
+  in order through the protected migration workflow. Then perform signed-device
+  push, profile upload, organization switching, chat, Bridge control, and
   multi-operator rundown tests.
 - Existing web, Desktop `0.1.0`, Desktop `0.1.1`, and Bridge `0.1.7` clients
   remain compatible with the current production protocol. Older Desktop builds

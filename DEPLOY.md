@@ -163,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0031_expo_push_receipts.sql`). They deliberately do **not** use wrangler's
+`0032_checklist_entry_uniqueness.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -208,7 +208,11 @@ The production manifest records every migration through
 `0031_expo_push_receipts.sql` are intentionally pending until the native
 mobile launch stack is authorized for production. Apply them in order through
 the protected procedure above before deploying code that depends on signed
-device push delivery.
+device push delivery. `0032_checklist_entry_uniqueness.sql` is also pending and
+must be applied before deploying the atomic checklist creation path. Its
+read-only production preflight reported zero duplicate checklist groups on
+2026-08-27, so the unique index can be applied without deleting or rewriting
+customer data.
 
 ---
 
