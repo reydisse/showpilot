@@ -94,6 +94,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     if (!orgId) return;
     const activeOrgId = orgId;
     let disposed = false;
+    let connecting = false;
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     setMessages([]);
@@ -133,17 +134,33 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
       setStatus("reconnecting");
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        connect();
+        void connect();
       }, Math.min(1_000 * 2 ** attempts++, 30_000));
     }
 
-    function connect() {
-      if (disposed || AppState.currentState !== "active") return;
+    async function connect() {
+      if (disposed || connecting || AppState.currentState !== "active") return;
       const existingSocket = socketRef.current;
       if (existingSocket?.readyState === WebSocket.CONNECTING || existingSocket?.readyState === WebSocket.OPEN) return;
-      const socket = createAuthenticatedWebSocket(chatUrl(activeOrgId, roomId));
-      socketRef.current = socket;
+      connecting = true;
       setStatus(attempts ? "reconnecting" : "connecting");
+      let socket: WebSocket;
+      try {
+        socket = await createAuthenticatedWebSocket(chatUrl(activeOrgId, roomId));
+      } catch (error) {
+        connecting = false;
+        if (!disposed) {
+          setLastError(error instanceof Error ? error.message : "Chat authentication failed.");
+          reconnect();
+        }
+        return;
+      }
+      connecting = false;
+      if (disposed || AppState.currentState !== "active") {
+        socket.close();
+        return;
+      }
+      socketRef.current = socket;
       socket.onopen = () => {
         if (disposed || socketRef.current !== socket) return;
         attempts = 0;
@@ -215,13 +232,13 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     }
 
     const appState = AppState.addEventListener("change", (next) => {
-      if (next === "active") connect();
+      if (next === "active") void connect();
       else {
         setStatus("offline");
         socketRef.current?.close();
       }
     });
-    connect();
+    void connect();
     const typingTimers = typingTimersRef.current;
     return () => {
       disposed = true;
@@ -308,9 +325,10 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
     setLoadingOlder(true);
     try {
+      const nativeCookieHeader = await getNativeCookieHeader();
       const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
         credentials: getAuthenticatedFetchCredentials(),
-        headers: { Accept: "application/json", ...getNativeCookieHeader() },
+        headers: { Accept: "application/json", ...nativeCookieHeader },
       });
       if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
       const payload: unknown = await response.json();

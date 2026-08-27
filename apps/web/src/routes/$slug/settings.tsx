@@ -2089,49 +2089,48 @@ function DangerSection({
             .join("\n"),
         ], { type: "text/csv" });
       } else {
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.utils.book_new();
+        const { default: writeExcelFile } = await import("write-excel-file/browser");
+        const excelValue = (value: unknown): string | number | boolean | Date => {
+          if (value === undefined || value === null) return "";
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value instanceof Date) {
+            return value;
+          }
+          return JSON.stringify(value);
+        };
+        const excelRows = <T extends object>(records: readonly T[]) => {
+          const entries = records.map((record) => Object.entries(record));
+          const columns = [...new Set(entries.flatMap((record) => record.map(([key]) => key)))];
+          return [
+            columns.map((column) => ({ value: column, fontWeight: "bold" as const })),
+            ...entries.map((record) => {
+              const values = new Map(record);
+              return columns.map((column) => excelValue(values.get(column)));
+            }),
+          ];
+        };
+        const sheets: Array<{
+          sheet: string;
+          data: ReturnType<typeof excelRows>;
+          stickyRowsCount: number;
+        }> = [];
 
         if (selectedSections.includes("summary")) {
-          XLSX.utils.book_append_sheet(
-            workbook,
-            XLSX.utils.json_to_sheet([report.summary]),
-            "Summary",
-          );
+          sheets.push({ sheet: "Summary", data: excelRows([report.summary]), stickyRowsCount: 1 });
         }
         if (selectedSections.includes("rundown")) {
-          XLSX.utils.book_append_sheet(
-            workbook,
-            XLSX.utils.json_to_sheet(report.rundown.items),
-            "Rundown",
-          );
+          sheets.push({ sheet: "Rundown", data: excelRows(report.rundown.items), stickyRowsCount: 1 });
         }
         if (selectedSections.includes("incidents")) {
-          XLSX.utils.book_append_sheet(
-            workbook,
-            XLSX.utils.json_to_sheet(report.incidents),
-            "Incidents",
-          );
+          sheets.push({ sheet: "Incidents", data: excelRows(report.incidents), stickyRowsCount: 1 });
         }
         if (selectedSections.includes("checklist")) {
-          XLSX.utils.book_append_sheet(
-            workbook,
-            XLSX.utils.json_to_sheet(report.checklist),
-            "Checklist",
-          );
+          sheets.push({ sheet: "Checklist", data: excelRows(report.checklist), stickyRowsCount: 1 });
         }
         if (selectedSections.includes("cueSheets")) {
-          XLSX.utils.book_append_sheet(
-            workbook,
-            XLSX.utils.json_to_sheet(report.cueSheets),
-            "Cue Sheets",
-          );
+          sheets.push({ sheet: "Cue Sheets", data: excelRows(report.cueSheets), stickyRowsCount: 1 });
         }
 
-        const array = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-        blob = new Blob([array], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        });
+        blob = await writeExcelFile(sheets).toBlob();
       }
 
       const url = URL.createObjectURL(blob);

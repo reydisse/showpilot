@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { getDevelopmentTrustedOrigins, isAllowedApiOrigin } from "../auth-origins";
+import {
+  getDevelopmentTrustedOrigins,
+  isAllowedApiOrigin,
+  requireBetterAuthRuntimeConfig,
+  requireShowPilotBaseUrl,
+} from "../auth-origins";
+
+describe("auth runtime configuration", () => {
+  it("accepts production and explicitly local origins", () => {
+    expect(requireShowPilotBaseUrl("https://showpilot.tech")).toBe("https://showpilot.tech");
+    expect(requireShowPilotBaseUrl("http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000");
+    expect(requireBetterAuthRuntimeConfig({
+      BETTER_AUTH_URL: "https://admin.showpilot.tech",
+      BETTER_AUTH_SECRET: "a".repeat(32),
+    })).toEqual({ baseURL: "https://admin.showpilot.tech", secret: "a".repeat(32) });
+  });
+
+  it("fails closed on missing, weak, or public development configuration", () => {
+    expect(() => requireShowPilotBaseUrl(undefined)).toThrow("not configured");
+    expect(() => requireShowPilotBaseUrl("https://example.com")).toThrow("ShowPilot HTTPS");
+    expect(() => requireShowPilotBaseUrl("https://showpilot.tech/path")).toThrow("only an origin");
+    expect(() => requireBetterAuthRuntimeConfig({
+      BETTER_AUTH_URL: "https://showpilot.tech",
+      BETTER_AUTH_SECRET: "short",
+    })).toThrow("at least 32");
+  });
+});
 
 describe("development auth origins", () => {
   it("trusts any development port on the configured private LAN host", () => {

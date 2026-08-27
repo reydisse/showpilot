@@ -22,6 +22,12 @@ const webStorage = {
       // Browser storage can be unavailable in privacy-restricted contexts.
     }
   },
+  async getItemAsync(key: string): Promise<string | null> {
+    return this.getItem(key);
+  },
+  async setItemAsync(key: string, value: string): Promise<void> {
+    this.setItem(key, value);
+  },
 };
 
 const authStorage = Platform.OS === "web" ? webStorage : SecureStore;

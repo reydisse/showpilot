@@ -627,13 +627,14 @@ export type MobileChecklistDraft = z.infer<typeof mobileChecklistDraftSchema>;
 export type MobileChecklistSuggestion = z.infer<typeof checklistSuggestionSchema>;
 
 async function authenticatedFetch(path: string, init?: FetchRequestInit) {
+  const nativeCookieHeader = await getNativeCookieHeader();
   const response = await expoFetch(`${SHOWPILOT_URL}${path}`, {
     ...init,
     credentials: getAuthenticatedFetchCredentials() ?? init?.credentials,
     headers: {
       Accept: "application/json",
       ...(typeof init?.body === "string" ? { "Content-Type": "application/json" } : {}),
-      ...getNativeCookieHeader(),
+      ...nativeCookieHeader,
       ...init?.headers,
     },
   });

@@ -9,122 +9,88 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TermsRouteImport } from './routes/terms'
-import { Route as SupportRouteImport } from './routes/support'
-import { Route as SuperadminRouteImport } from './routes/superadmin'
-import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as OrgDeletedRouteImport } from './routes/org-deleted'
-import { Route as DeleteAccountRouteImport } from './routes/delete-account'
-import { Route as AccountDeletedRouteImport } from './routes/account-deleted'
-import { Route as AuthRouteImport } from './routes/_auth'
-import { Route as SlugRouteImport } from './routes/$slug'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SlugRouteImport } from './routes/$slug'
+import { Route as AuthRouteImport } from './routes/_auth'
+import { Route as AccountDeletedRouteImport } from './routes/account-deleted'
+import { Route as DeleteAccountRouteImport } from './routes/delete-account'
+import { Route as OrgDeletedRouteImport } from './routes/org-deleted'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as SuperadminRouteImport } from './routes/superadmin'
+import { Route as SupportRouteImport } from './routes/support'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SlugIndexRouteImport } from './routes/$slug/index'
-import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
-import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
-import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
-import { Route as CheckinSlugRouteImport } from './routes/checkin/$slug'
-import { Route as AuthVerifyEmailRouteImport } from './routes/_auth/verify-email'
-import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
-import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
-import { Route as AuthLoginRouteImport } from './routes/_auth/login'
-import { Route as AuthInvitationsRouteImport } from './routes/_auth/invitations'
-import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
-import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
-import { Route as SlugTeamRouteImport } from './routes/$slug/team'
-import { Route as SlugShowRouteImport } from './routes/$slug/show'
-import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
-import { Route as SlugScheduleRouteImport } from './routes/$slug/schedule'
-import { Route as SlugRundownPinRouteImport } from './routes/$slug/rundown-pin'
-import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
-import { Route as SlugReportsRouteImport } from './routes/$slug/reports'
-import { Route as SlugCrewChatRouteImport } from './routes/$slug/crew-chat'
-import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
-import { Route as SlugChatRouteImport } from './routes/$slug/chat'
-import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
-import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
-import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
-import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$token'
-import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
-import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
-import { Route as ApiCheckinQrOrgSlugRouteImport } from './routes/api/checkin-qr/$orgSlug'
-import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
-import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
-import { Route as SlugStreamingLowerThirdsDisabledRouteImport } from './routes/$slug/streaming/lower-thirds-disabled'
-import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
-import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
-import { Route as SlugProductionIncidentsHistoryRouteImport } from './routes/$slug/production/incidents-history'
-import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
-import { Route as SlugProductionCueSheetsRouteImport } from './routes/$slug/production/cue-sheets'
-import { Route as SlugProductionChecklistRouteImport } from './routes/$slug/production/checklist'
-import { Route as SlugProductionAssetsRouteImport } from './routes/$slug/production/assets'
-import { Route as SlugDashboardTechManagerRouteImport } from './routes/$slug/dashboard/tech-manager'
-import { Route as SlugDashboardProdManagerRouteImport } from './routes/$slug/dashboard/prod-manager'
-import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboard/devices'
+import { Route as SlugBoardRouteImport } from './routes/$slug/board'
+import { Route as SlugChatRouteImport } from './routes/$slug/chat'
+import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
+import { Route as SlugCrewChatRouteImport } from './routes/$slug/crew-chat'
+import { Route as SlugReportsRouteImport } from './routes/$slug/reports'
+import { Route as SlugRundownRouteImport } from './routes/$slug/rundown'
+import { Route as SlugRundownPinRouteImport } from './routes/$slug/rundown-pin'
+import { Route as SlugScheduleRouteImport } from './routes/$slug/schedule'
+import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
+import { Route as SlugShowRouteImport } from './routes/$slug/show'
+import { Route as SlugTeamRouteImport } from './routes/$slug/team'
+import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
+import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
+import { Route as AuthInvitationsRouteImport } from './routes/_auth/invitations'
+import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AuthResetPasswordRouteImport } from './routes/_auth/reset-password'
+import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
+import { Route as AuthVerifyEmailRouteImport } from './routes/_auth/verify-email'
+import { Route as CheckinSlugRouteImport } from './routes/checkin/$slug'
+import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
+import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
+import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
-import { Route as JoinChatPlanningTokenRouteImport } from './routes/join/chat/planning/$token'
-import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
-import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
-import { Route as ApiV1KioskDisplayRouteImport } from './routes/api/v1/kiosk/display'
-import { Route as ApiV1KioskBoardRouteImport } from './routes/api/v1/kiosk/board'
-import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
-import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
-import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
+import { Route as SlugDashboardDevicesRouteImport } from './routes/$slug/dashboard/devices'
+import { Route as SlugDashboardProdManagerRouteImport } from './routes/$slug/dashboard/prod-manager'
+import { Route as SlugDashboardTechManagerRouteImport } from './routes/$slug/dashboard/tech-manager'
+import { Route as SlugProductionAssetsRouteImport } from './routes/$slug/production/assets'
+import { Route as SlugProductionChecklistRouteImport } from './routes/$slug/production/checklist'
+import { Route as SlugProductionCueSheetsRouteImport } from './routes/$slug/production/cue-sheets'
+import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
+import { Route as SlugProductionIncidentsHistoryRouteImport } from './routes/$slug/production/incidents-history'
+import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
+import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
+import { Route as SlugStreamingLowerThirdsDisabledRouteImport } from './routes/$slug/streaming/lower-thirds-disabled'
+import { Route as SlugStreamingLtPreviewRouteImport } from './routes/$slug/streaming/lt-preview'
+import { Route as SlugStreamingPlatformsRouteImport } from './routes/$slug/streaming/platforms'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiAuthSessionRouteImport } from './routes/api/auth/session'
+import { Route as ApiCheckinQrOrgSlugRouteImport } from './routes/api/checkin-qr/$orgSlug'
+import { Route as ApiOverlayOrgSlugRouteImport } from './routes/api/overlay/$orgSlug'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhook'
+import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
+import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$token'
+import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
-import { Route as ApiV1CompanionTimerSubtractRouteImport } from './routes/api/v1/companion/timer/subtract'
-import { Route as ApiV1CompanionTimerStopRouteImport } from './routes/api/v1/companion/timer/stop'
-import { Route as ApiV1CompanionTimerStartRouteImport } from './routes/api/v1/companion/timer/start'
-import { Route as ApiV1CompanionTimerAddRouteImport } from './routes/api/v1/companion/timer/add'
-import { Route as ApiV1CompanionStreamStopRouteImport } from './routes/api/v1/companion/stream/stop'
-import { Route as ApiV1CompanionStreamGoLiveRouteImport } from './routes/api/v1/companion/stream/go-live'
-import { Route as ApiV1CompanionRundownPreviousRouteImport } from './routes/api/v1/companion/rundown/previous'
-import { Route as ApiV1CompanionRundownNextRouteImport } from './routes/api/v1/companion/rundown/next'
-import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/api/v1/companion/propresenter/lyrics'
-import { Route as ApiV1CompanionLowerThirdTriggerRouteImport } from './routes/api/v1/companion/lower-third/trigger'
-import { Route as ApiV1CompanionLowerThirdClearRouteImport } from './routes/api/v1/companion/lower-third/clear'
-import { Route as ApiV1CompanionKioskBlankRouteImport } from './routes/api/v1/companion/kiosk/blank'
+import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
+import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
+import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
+import { Route as ApiV1KioskBoardRouteImport } from './routes/api/v1/kiosk/board'
+import { Route as ApiV1KioskDisplayRouteImport } from './routes/api/v1/kiosk/display'
+import { Route as ApiV1KioskOrgRouteImport } from './routes/api/v1/kiosk/org'
+import { Route as ApiV1KioskRosterRouteImport } from './routes/api/v1/kiosk/roster'
+import { Route as JoinChatPlanningTokenRouteImport } from './routes/join/chat/planning/$token'
 import { Route as ApiCrewScheduleTokenCalendarRouteImport } from './routes/api/crew/schedule/$token/calendar'
+import { Route as ApiV1CompanionKioskBlankRouteImport } from './routes/api/v1/companion/kiosk/blank'
+import { Route as ApiV1CompanionLowerThirdClearRouteImport } from './routes/api/v1/companion/lower-third/clear'
+import { Route as ApiV1CompanionLowerThirdTriggerRouteImport } from './routes/api/v1/companion/lower-third/trigger'
+import { Route as ApiV1CompanionPropresenterLyricsRouteImport } from './routes/api/v1/companion/propresenter/lyrics'
+import { Route as ApiV1CompanionRundownNextRouteImport } from './routes/api/v1/companion/rundown/next'
+import { Route as ApiV1CompanionRundownPreviousRouteImport } from './routes/api/v1/companion/rundown/previous'
+import { Route as ApiV1CompanionStreamGoLiveRouteImport } from './routes/api/v1/companion/stream/go-live'
+import { Route as ApiV1CompanionStreamStopRouteImport } from './routes/api/v1/companion/stream/stop'
+import { Route as ApiV1CompanionTimerAddRouteImport } from './routes/api/v1/companion/timer/add'
+import { Route as ApiV1CompanionTimerStartRouteImport } from './routes/api/v1/companion/timer/start'
+import { Route as ApiV1CompanionTimerStopRouteImport } from './routes/api/v1/companion/timer/stop'
+import { Route as ApiV1CompanionTimerSubtractRouteImport } from './routes/api/v1/companion/timer/subtract'
 
-const TermsRoute = TermsRouteImport.update({
-  id: '/terms',
-  path: '/terms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SupportRoute = SupportRouteImport.update({
-  id: '/support',
-  path: '/support',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SuperadminRoute = SuperadminRouteImport.update({
-  id: '/superadmin',
-  path: '/superadmin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyRoute = PrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrgDeletedRoute = OrgDeletedRouteImport.update({
-  id: '/org-deleted',
-  path: '/org-deleted',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DeleteAccountRoute = DeleteAccountRouteImport.update({
-  id: '/delete-account',
-  path: '/delete-account',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AccountDeletedRoute = AccountDeletedRouteImport.update({
-  id: '/account-deleted',
-  path: '/account-deleted',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRoute = AuthRouteImport.update({
-  id: '/_auth',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SlugRoute = SlugRouteImport.update({
@@ -132,9 +98,43 @@ const SlugRoute = SlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AuthRoute = AuthRouteImport.update({
+  id: '/_auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountDeletedRoute = AccountDeletedRouteImport.update({
+  id: '/account-deleted',
+  path: '/account-deleted',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeleteAccountRoute = DeleteAccountRouteImport.update({
+  id: '/delete-account',
+  path: '/delete-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrgDeletedRoute = OrgDeletedRouteImport.update({
+  id: '/org-deleted',
+  path: '/org-deleted',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuperadminRoute = SuperadminRouteImport.update({
+  id: '/superadmin',
+  path: '/superadmin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SlugIndexRoute = SlugIndexRouteImport.update({
@@ -142,109 +142,9 @@ const SlugIndexRoute = SlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SlugRoute,
 } as any)
-const TimerOrgSlugRoute = TimerOrgSlugRouteImport.update({
-  id: '/timer/$orgSlug',
-  path: '/timer/$orgSlug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
-  id: '/overlay/$orgSlug',
-  path: '/overlay/$orgSlug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
-  id: '/invite/$invitationId',
-  path: '/invite/$invitationId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CheckinSlugRoute = CheckinSlugRouteImport.update({
-  id: '/checkin/$slug',
-  path: '/checkin/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
-  id: '/verify-email',
-  path: '/verify-email',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthSetupRoute = AuthSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthLoginRoute = AuthLoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthInvitationsRoute = AuthInvitationsRouteImport.update({
-  id: '/invitations',
-  path: '/invitations',
-  getParentRoute: () => AuthRoute,
-} as any)
-const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
-  id: '/forgot-password',
-  path: '/forgot-password',
-  getParentRoute: () => AuthRoute,
-} as any)
-const SlugTimecodeRoute = SlugTimecodeRouteImport.update({
-  id: '/timecode',
-  path: '/timecode',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugTeamRoute = SlugTeamRouteImport.update({
-  id: '/team',
-  path: '/team',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugShowRoute = SlugShowRouteImport.update({
-  id: '/show',
-  path: '/show',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugSettingsRoute = SlugSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugScheduleRoute = SlugScheduleRouteImport.update({
-  id: '/schedule',
-  path: '/schedule',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugRundownPinRoute = SlugRundownPinRouteImport.update({
-  id: '/rundown-pin',
-  path: '/rundown-pin',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugRundownRoute = SlugRundownRouteImport.update({
-  id: '/rundown',
-  path: '/rundown',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugReportsRoute = SlugReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugCrewChatRoute = SlugCrewChatRouteImport.update({
-  id: '/crew-chat',
-  path: '/crew-chat',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugCheckinRoute = SlugCheckinRouteImport.update({
-  id: '/checkin',
-  path: '/checkin',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugChatRoute = SlugChatRouteImport.update({
-  id: '/chat',
-  path: '/chat',
+const SlugAdminRoute = SlugAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugBoardRoute = SlugBoardRouteImport.update({
@@ -252,75 +152,151 @@ const SlugBoardRoute = SlugBoardRouteImport.update({
   path: '/board',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugAdminRoute = SlugAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
+const SlugChatRoute = SlugChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => SlugRoute,
 } as any)
-const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
-  id: '/api/waitlist/',
-  path: '/api/waitlist/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const JoinChatTokenRoute = JoinChatTokenRouteImport.update({
-  id: '/join/chat/$token',
-  path: '/join/chat/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CrewScheduleTokenRoute = CrewScheduleTokenRouteImport.update({
-  id: '/crew/schedule/$token',
-  path: '/crew/schedule/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
-  id: '/api/stripe/webhook',
-  path: '/api/stripe/webhook',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
-  id: '/api/overlay/$orgSlug',
-  path: '/api/overlay/$orgSlug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCheckinQrOrgSlugRoute = ApiCheckinQrOrgSlugRouteImport.update({
-  id: '/api/checkin-qr/$orgSlug',
-  path: '/api/checkin-qr/$orgSlug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
-  id: '/api/auth/session',
-  path: '/api/auth/session',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SlugStreamingPlatformsRoute = SlugStreamingPlatformsRouteImport.update({
-  id: '/streaming/platforms',
-  path: '/streaming/platforms',
+const SlugCheckinRoute = SlugCheckinRouteImport.update({
+  id: '/checkin',
+  path: '/checkin',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugStreamingLtPreviewRoute = SlugStreamingLtPreviewRouteImport.update({
-  id: '/streaming/lt-preview',
-  path: '/streaming/lt-preview',
+const SlugCrewChatRoute = SlugCrewChatRouteImport.update({
+  id: '/crew-chat',
+  path: '/crew-chat',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugStreamingLowerThirdsDisabledRoute =
-  SlugStreamingLowerThirdsDisabledRouteImport.update({
-    id: '/streaming/lower-thirds-disabled',
-    path: '/streaming/lower-thirds-disabled',
+const SlugReportsRoute = SlugReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugRundownRoute = SlugRundownRouteImport.update({
+  id: '/rundown',
+  path: '/rundown',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugRundownPinRoute = SlugRundownPinRouteImport.update({
+  id: '/rundown-pin',
+  path: '/rundown-pin',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugScheduleRoute = SlugScheduleRouteImport.update({
+  id: '/schedule',
+  path: '/schedule',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugSettingsRoute = SlugSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugShowRoute = SlugShowRouteImport.update({
+  id: '/show',
+  path: '/show',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugTeamRoute = SlugTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugTimecodeRoute = SlugTimecodeRouteImport.update({
+  id: '/timecode',
+  path: '/timecode',
+  getParentRoute: () => SlugRoute,
+} as any)
+const AuthForgotPasswordRoute = AuthForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthInvitationsRoute = AuthInvitationsRouteImport.update({
+  id: '/invitations',
+  path: '/invitations',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthSetupRoute = AuthSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AuthRoute,
+} as any)
+const AuthVerifyEmailRoute = AuthVerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
+  getParentRoute: () => AuthRoute,
+} as any)
+const CheckinSlugRoute = CheckinSlugRouteImport.update({
+  id: '/checkin/$slug',
+  path: '/checkin/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
+  id: '/invite/$invitationId',
+  path: '/invite/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
+  id: '/overlay/$orgSlug',
+  path: '/overlay/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TimerOrgSlugRoute = TimerOrgSlugRouteImport.update({
+  id: '/timer/$orgSlug',
+  path: '/timer/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SlugDashboardAudioRoute = SlugDashboardAudioRouteImport.update({
+  id: '/dashboard/audio',
+  path: '/dashboard/audio',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugDashboardDevicesRoute = SlugDashboardDevicesRouteImport.update({
+  id: '/dashboard/devices',
+  path: '/dashboard/devices',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugDashboardProdManagerRoute =
+  SlugDashboardProdManagerRouteImport.update({
+    id: '/dashboard/prod-manager',
+    path: '/dashboard/prod-manager',
     getParentRoute: () => SlugRoute,
   } as any)
-const SlugStreamingHealthRoute = SlugStreamingHealthRouteImport.update({
-  id: '/streaming/health',
-  path: '/streaming/health',
+const SlugDashboardTechManagerRoute =
+  SlugDashboardTechManagerRouteImport.update({
+    id: '/dashboard/tech-manager',
+    path: '/dashboard/tech-manager',
+    getParentRoute: () => SlugRoute,
+  } as any)
+const SlugProductionAssetsRoute = SlugProductionAssetsRouteImport.update({
+  id: '/production/assets',
+  path: '/production/assets',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugStreamingGraphicsRoute = SlugStreamingGraphicsRouteImport.update({
-  id: '/streaming/graphics',
-  path: '/streaming/graphics',
+const SlugProductionChecklistRoute = SlugProductionChecklistRouteImport.update({
+  id: '/production/checklist',
+  path: '/production/checklist',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugProductionCueSheetsRoute = SlugProductionCueSheetsRouteImport.update({
+  id: '/production/cue-sheets',
+  path: '/production/cue-sheets',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugProductionIncidentsRoute = SlugProductionIncidentsRouteImport.update({
+  id: '/production/incidents',
+  path: '/production/incidents',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugProductionIncidentsHistoryRoute =
@@ -329,71 +305,87 @@ const SlugProductionIncidentsHistoryRoute =
     path: '/production/incidents-history',
     getParentRoute: () => SlugRoute,
   } as any)
-const SlugProductionIncidentsRoute = SlugProductionIncidentsRouteImport.update({
-  id: '/production/incidents',
-  path: '/production/incidents',
+const SlugStreamingGraphicsRoute = SlugStreamingGraphicsRouteImport.update({
+  id: '/streaming/graphics',
+  path: '/streaming/graphics',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugProductionCueSheetsRoute = SlugProductionCueSheetsRouteImport.update({
-  id: '/production/cue-sheets',
-  path: '/production/cue-sheets',
+const SlugStreamingHealthRoute = SlugStreamingHealthRouteImport.update({
+  id: '/streaming/health',
+  path: '/streaming/health',
   getParentRoute: () => SlugRoute,
 } as any)
-const SlugProductionChecklistRoute = SlugProductionChecklistRouteImport.update({
-  id: '/production/checklist',
-  path: '/production/checklist',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugProductionAssetsRoute = SlugProductionAssetsRouteImport.update({
-  id: '/production/assets',
-  path: '/production/assets',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugDashboardTechManagerRoute =
-  SlugDashboardTechManagerRouteImport.update({
-    id: '/dashboard/tech-manager',
-    path: '/dashboard/tech-manager',
+const SlugStreamingLowerThirdsDisabledRoute =
+  SlugStreamingLowerThirdsDisabledRouteImport.update({
+    id: '/streaming/lower-thirds-disabled',
+    path: '/streaming/lower-thirds-disabled',
     getParentRoute: () => SlugRoute,
   } as any)
-const SlugDashboardProdManagerRoute =
-  SlugDashboardProdManagerRouteImport.update({
-    id: '/dashboard/prod-manager',
-    path: '/dashboard/prod-manager',
-    getParentRoute: () => SlugRoute,
+const SlugStreamingLtPreviewRoute = SlugStreamingLtPreviewRouteImport.update({
+  id: '/streaming/lt-preview',
+  path: '/streaming/lt-preview',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugStreamingPlatformsRoute = SlugStreamingPlatformsRouteImport.update({
+  id: '/streaming/platforms',
+  path: '/streaming/platforms',
+  getParentRoute: () => SlugRoute,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSessionRoute = ApiAuthSessionRouteImport.update({
+  id: '/api/auth/session',
+  path: '/api/auth/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCheckinQrOrgSlugRoute = ApiCheckinQrOrgSlugRouteImport.update({
+  id: '/api/checkin-qr/$orgSlug',
+  path: '/api/checkin-qr/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOverlayOrgSlugRoute = ApiOverlayOrgSlugRouteImport.update({
+  id: '/api/overlay/$orgSlug',
+  path: '/api/overlay/$orgSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe/webhook',
+  path: '/api/stripe/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWaitlistIndexRoute = ApiWaitlistIndexRouteImport.update({
+  id: '/api/waitlist/',
+  path: '/api/waitlist/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CrewScheduleTokenRoute = CrewScheduleTokenRouteImport.update({
+  id: '/crew/schedule/$token',
+  path: '/crew/schedule/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinChatTokenRoute = JoinChatTokenRouteImport.update({
+  id: '/join/chat/$token',
+  path: '/join/chat/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SlugDashboardDevicesDeviceIdRoute =
+  SlugDashboardDevicesDeviceIdRouteImport.update({
+    id: '/$deviceId',
+    path: '/$deviceId',
+    getParentRoute: () => SlugDashboardDevicesRoute,
   } as any)
-const SlugDashboardDevicesRoute = SlugDashboardDevicesRouteImport.update({
-  id: '/dashboard/devices',
-  path: '/dashboard/devices',
-  getParentRoute: () => SlugRoute,
-} as any)
-const SlugDashboardAudioRoute = SlugDashboardAudioRouteImport.update({
-  id: '/dashboard/audio',
-  path: '/dashboard/audio',
-  getParentRoute: () => SlugRoute,
-} as any)
-const JoinChatPlanningTokenRoute = JoinChatPlanningTokenRouteImport.update({
-  id: '/join/chat/planning/$token',
-  path: '/join/chat/planning/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiV1KioskRosterRoute = ApiV1KioskRosterRouteImport.update({
-  id: '/api/v1/kiosk/roster',
-  path: '/api/v1/kiosk/roster',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiV1KioskOrgRoute = ApiV1KioskOrgRouteImport.update({
-  id: '/api/v1/kiosk/org',
-  path: '/api/v1/kiosk/org',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiV1KioskDisplayRoute = ApiV1KioskDisplayRouteImport.update({
-  id: '/api/v1/kiosk/display',
-  path: '/api/v1/kiosk/display',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiV1KioskBoardRoute = ApiV1KioskBoardRouteImport.update({
-  id: '/api/v1/kiosk/board',
-  path: '/api/v1/kiosk/board',
+const SlugStreamingGraphicsOverlayRoute =
+  SlugStreamingGraphicsOverlayRouteImport.update({
+    id: '/overlay',
+    path: '/overlay',
+    getParentRoute: () => SlugStreamingGraphicsRoute,
+  } as any)
+const ApiV1CompanionStateRoute = ApiV1CompanionStateRouteImport.update({
+  id: '/api/v1/companion/state',
+  path: '/api/v1/companion/state',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiV1KioskAssetsRoute = ApiV1KioskAssetsRouteImport.update({
@@ -401,85 +393,35 @@ const ApiV1KioskAssetsRoute = ApiV1KioskAssetsRouteImport.update({
   path: '/api/v1/kiosk/assets',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1CompanionStateRoute = ApiV1CompanionStateRouteImport.update({
-  id: '/api/v1/companion/state',
-  path: '/api/v1/companion/state',
+const ApiV1KioskBoardRoute = ApiV1KioskBoardRouteImport.update({
+  id: '/api/v1/kiosk/board',
+  path: '/api/v1/kiosk/board',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SlugStreamingGraphicsOverlayRoute =
-  SlugStreamingGraphicsOverlayRouteImport.update({
-    id: '/overlay',
-    path: '/overlay',
-    getParentRoute: () => SlugStreamingGraphicsRoute,
-  } as any)
-const SlugDashboardDevicesDeviceIdRoute =
-  SlugDashboardDevicesDeviceIdRouteImport.update({
-    id: '/$deviceId',
-    path: '/$deviceId',
-    getParentRoute: () => SlugDashboardDevicesRoute,
-  } as any)
-const ApiV1CompanionTimerSubtractRoute =
-  ApiV1CompanionTimerSubtractRouteImport.update({
-    id: '/api/v1/companion/timer/subtract',
-    path: '/api/v1/companion/timer/subtract',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionTimerStopRoute = ApiV1CompanionTimerStopRouteImport.update({
-  id: '/api/v1/companion/timer/stop',
-  path: '/api/v1/companion/timer/stop',
+const ApiV1KioskDisplayRoute = ApiV1KioskDisplayRouteImport.update({
+  id: '/api/v1/kiosk/display',
+  path: '/api/v1/kiosk/display',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1CompanionTimerStartRoute =
-  ApiV1CompanionTimerStartRouteImport.update({
-    id: '/api/v1/companion/timer/start',
-    path: '/api/v1/companion/timer/start',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionTimerAddRoute = ApiV1CompanionTimerAddRouteImport.update({
-  id: '/api/v1/companion/timer/add',
-  path: '/api/v1/companion/timer/add',
+const ApiV1KioskOrgRoute = ApiV1KioskOrgRouteImport.update({
+  id: '/api/v1/kiosk/org',
+  path: '/api/v1/kiosk/org',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1CompanionStreamStopRoute =
-  ApiV1CompanionStreamStopRouteImport.update({
-    id: '/api/v1/companion/stream/stop',
-    path: '/api/v1/companion/stream/stop',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionStreamGoLiveRoute =
-  ApiV1CompanionStreamGoLiveRouteImport.update({
-    id: '/api/v1/companion/stream/go-live',
-    path: '/api/v1/companion/stream/go-live',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionRundownPreviousRoute =
-  ApiV1CompanionRundownPreviousRouteImport.update({
-    id: '/api/v1/companion/rundown/previous',
-    path: '/api/v1/companion/rundown/previous',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionRundownNextRoute =
-  ApiV1CompanionRundownNextRouteImport.update({
-    id: '/api/v1/companion/rundown/next',
-    path: '/api/v1/companion/rundown/next',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionPropresenterLyricsRoute =
-  ApiV1CompanionPropresenterLyricsRouteImport.update({
-    id: '/api/v1/companion/propresenter/lyrics',
-    path: '/api/v1/companion/propresenter/lyrics',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionLowerThirdTriggerRoute =
-  ApiV1CompanionLowerThirdTriggerRouteImport.update({
-    id: '/api/v1/companion/lower-third/trigger',
-    path: '/api/v1/companion/lower-third/trigger',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiV1CompanionLowerThirdClearRoute =
-  ApiV1CompanionLowerThirdClearRouteImport.update({
-    id: '/api/v1/companion/lower-third/clear',
-    path: '/api/v1/companion/lower-third/clear',
+const ApiV1KioskRosterRoute = ApiV1KioskRosterRouteImport.update({
+  id: '/api/v1/kiosk/roster',
+  path: '/api/v1/kiosk/roster',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinChatPlanningTokenRoute = JoinChatPlanningTokenRouteImport.update({
+  id: '/join/chat/planning/$token',
+  path: '/join/chat/planning/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCrewScheduleTokenCalendarRoute =
+  ApiCrewScheduleTokenCalendarRouteImport.update({
+    id: '/api/crew/schedule/$token/calendar',
+    path: '/api/crew/schedule/$token/calendar',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1CompanionKioskBlankRoute =
@@ -488,10 +430,68 @@ const ApiV1CompanionKioskBlankRoute =
     path: '/api/v1/companion/kiosk/blank',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiCrewScheduleTokenCalendarRoute =
-  ApiCrewScheduleTokenCalendarRouteImport.update({
-    id: '/api/crew/schedule/$token/calendar',
-    path: '/api/crew/schedule/$token/calendar',
+const ApiV1CompanionLowerThirdClearRoute =
+  ApiV1CompanionLowerThirdClearRouteImport.update({
+    id: '/api/v1/companion/lower-third/clear',
+    path: '/api/v1/companion/lower-third/clear',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionLowerThirdTriggerRoute =
+  ApiV1CompanionLowerThirdTriggerRouteImport.update({
+    id: '/api/v1/companion/lower-third/trigger',
+    path: '/api/v1/companion/lower-third/trigger',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionPropresenterLyricsRoute =
+  ApiV1CompanionPropresenterLyricsRouteImport.update({
+    id: '/api/v1/companion/propresenter/lyrics',
+    path: '/api/v1/companion/propresenter/lyrics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionRundownNextRoute =
+  ApiV1CompanionRundownNextRouteImport.update({
+    id: '/api/v1/companion/rundown/next',
+    path: '/api/v1/companion/rundown/next',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionRundownPreviousRoute =
+  ApiV1CompanionRundownPreviousRouteImport.update({
+    id: '/api/v1/companion/rundown/previous',
+    path: '/api/v1/companion/rundown/previous',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionStreamGoLiveRoute =
+  ApiV1CompanionStreamGoLiveRouteImport.update({
+    id: '/api/v1/companion/stream/go-live',
+    path: '/api/v1/companion/stream/go-live',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionStreamStopRoute =
+  ApiV1CompanionStreamStopRouteImport.update({
+    id: '/api/v1/companion/stream/stop',
+    path: '/api/v1/companion/stream/stop',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionTimerAddRoute = ApiV1CompanionTimerAddRouteImport.update({
+  id: '/api/v1/companion/timer/add',
+  path: '/api/v1/companion/timer/add',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CompanionTimerStartRoute =
+  ApiV1CompanionTimerStartRouteImport.update({
+    id: '/api/v1/companion/timer/start',
+    path: '/api/v1/companion/timer/start',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1CompanionTimerStopRoute = ApiV1CompanionTimerStopRouteImport.update({
+  id: '/api/v1/companion/timer/stop',
+  path: '/api/v1/companion/timer/stop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1CompanionTimerSubtractRoute =
+  ApiV1CompanionTimerSubtractRouteImport.update({
+    id: '/api/v1/companion/timer/subtract',
+    path: '/api/v1/companion/timer/subtract',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -1020,60 +1020,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/terms': {
-      id: '/terms'
-      path: '/terms'
-      fullPath: '/terms'
-      preLoaderRoute: typeof TermsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/support': {
-      id: '/support'
-      path: '/support'
-      fullPath: '/support'
-      preLoaderRoute: typeof SupportRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/superadmin': {
-      id: '/superadmin'
-      path: '/superadmin'
-      fullPath: '/superadmin'
-      preLoaderRoute: typeof SuperadminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy': {
-      id: '/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/org-deleted': {
-      id: '/org-deleted'
-      path: '/org-deleted'
-      fullPath: '/org-deleted'
-      preLoaderRoute: typeof OrgDeletedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/delete-account': {
-      id: '/delete-account'
-      path: '/delete-account'
-      fullPath: '/delete-account'
-      preLoaderRoute: typeof DeleteAccountRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/account-deleted': {
-      id: '/account-deleted'
-      path: '/account-deleted'
-      fullPath: '/account-deleted'
-      preLoaderRoute: typeof AccountDeletedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_auth': {
-      id: '/_auth'
-      path: ''
+    '/': {
+      id: '/'
+      path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof AuthRouteImport
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$slug': {
@@ -1083,11 +1034,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
+    '/_auth': {
+      id: '/_auth'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account-deleted': {
+      id: '/account-deleted'
+      path: '/account-deleted'
+      fullPath: '/account-deleted'
+      preLoaderRoute: typeof AccountDeletedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/delete-account': {
+      id: '/delete-account'
+      path: '/delete-account'
+      fullPath: '/delete-account'
+      preLoaderRoute: typeof DeleteAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/org-deleted': {
+      id: '/org-deleted'
+      path: '/org-deleted'
+      fullPath: '/org-deleted'
+      preLoaderRoute: typeof OrgDeletedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/superadmin': {
+      id: '/superadmin'
+      path: '/superadmin'
+      fullPath: '/superadmin'
+      preLoaderRoute: typeof SuperadminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$slug/': {
@@ -1097,151 +1097,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugIndexRouteImport
       parentRoute: typeof SlugRoute
     }
-    '/timer/$orgSlug': {
-      id: '/timer/$orgSlug'
-      path: '/timer/$orgSlug'
-      fullPath: '/timer/$orgSlug'
-      preLoaderRoute: typeof TimerOrgSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/overlay/$orgSlug': {
-      id: '/overlay/$orgSlug'
-      path: '/overlay/$orgSlug'
-      fullPath: '/overlay/$orgSlug'
-      preLoaderRoute: typeof OverlayOrgSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/invite/$invitationId': {
-      id: '/invite/$invitationId'
-      path: '/invite/$invitationId'
-      fullPath: '/invite/$invitationId'
-      preLoaderRoute: typeof InviteInvitationIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/checkin/$slug': {
-      id: '/checkin/$slug'
-      path: '/checkin/$slug'
-      fullPath: '/checkin/$slug'
-      preLoaderRoute: typeof CheckinSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_auth/verify-email': {
-      id: '/_auth/verify-email'
-      path: '/verify-email'
-      fullPath: '/verify-email'
-      preLoaderRoute: typeof AuthVerifyEmailRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/setup': {
-      id: '/_auth/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof AuthSetupRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/reset-password': {
-      id: '/_auth/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof AuthResetPasswordRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/login': {
-      id: '/_auth/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof AuthLoginRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/invitations': {
-      id: '/_auth/invitations'
-      path: '/invitations'
-      fullPath: '/invitations'
-      preLoaderRoute: typeof AuthInvitationsRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/_auth/forgot-password': {
-      id: '/_auth/forgot-password'
-      path: '/forgot-password'
-      fullPath: '/forgot-password'
-      preLoaderRoute: typeof AuthForgotPasswordRouteImport
-      parentRoute: typeof AuthRoute
-    }
-    '/$slug/timecode': {
-      id: '/$slug/timecode'
-      path: '/timecode'
-      fullPath: '/$slug/timecode'
-      preLoaderRoute: typeof SlugTimecodeRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/team': {
-      id: '/$slug/team'
-      path: '/team'
-      fullPath: '/$slug/team'
-      preLoaderRoute: typeof SlugTeamRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/show': {
-      id: '/$slug/show'
-      path: '/show'
-      fullPath: '/$slug/show'
-      preLoaderRoute: typeof SlugShowRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/settings': {
-      id: '/$slug/settings'
-      path: '/settings'
-      fullPath: '/$slug/settings'
-      preLoaderRoute: typeof SlugSettingsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/schedule': {
-      id: '/$slug/schedule'
-      path: '/schedule'
-      fullPath: '/$slug/schedule'
-      preLoaderRoute: typeof SlugScheduleRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/rundown-pin': {
-      id: '/$slug/rundown-pin'
-      path: '/rundown-pin'
-      fullPath: '/$slug/rundown-pin'
-      preLoaderRoute: typeof SlugRundownPinRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/rundown': {
-      id: '/$slug/rundown'
-      path: '/rundown'
-      fullPath: '/$slug/rundown'
-      preLoaderRoute: typeof SlugRundownRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/reports': {
-      id: '/$slug/reports'
-      path: '/reports'
-      fullPath: '/$slug/reports'
-      preLoaderRoute: typeof SlugReportsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/crew-chat': {
-      id: '/$slug/crew-chat'
-      path: '/crew-chat'
-      fullPath: '/$slug/crew-chat'
-      preLoaderRoute: typeof SlugCrewChatRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/checkin': {
-      id: '/$slug/checkin'
-      path: '/checkin'
-      fullPath: '/$slug/checkin'
-      preLoaderRoute: typeof SlugCheckinRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/chat': {
-      id: '/$slug/chat'
-      path: '/chat'
-      fullPath: '/$slug/chat'
-      preLoaderRoute: typeof SlugChatRouteImport
+    '/$slug/admin': {
+      id: '/$slug/admin'
+      path: '/admin'
+      fullPath: '/$slug/admin'
+      preLoaderRoute: typeof SlugAdminRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/board': {
@@ -1251,151 +1111,158 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugBoardRouteImport
       parentRoute: typeof SlugRoute
     }
-    '/$slug/admin': {
-      id: '/$slug/admin'
-      path: '/admin'
-      fullPath: '/$slug/admin'
-      preLoaderRoute: typeof SlugAdminRouteImport
+    '/$slug/chat': {
+      id: '/$slug/chat'
+      path: '/chat'
+      fullPath: '/$slug/chat'
+      preLoaderRoute: typeof SlugChatRouteImport
       parentRoute: typeof SlugRoute
     }
-    '/api/waitlist/': {
-      id: '/api/waitlist/'
-      path: '/api/waitlist'
-      fullPath: '/api/waitlist/'
-      preLoaderRoute: typeof ApiWaitlistIndexRouteImport
+    '/$slug/checkin': {
+      id: '/$slug/checkin'
+      path: '/checkin'
+      fullPath: '/$slug/checkin'
+      preLoaderRoute: typeof SlugCheckinRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/crew-chat': {
+      id: '/$slug/crew-chat'
+      path: '/crew-chat'
+      fullPath: '/$slug/crew-chat'
+      preLoaderRoute: typeof SlugCrewChatRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/reports': {
+      id: '/$slug/reports'
+      path: '/reports'
+      fullPath: '/$slug/reports'
+      preLoaderRoute: typeof SlugReportsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/rundown': {
+      id: '/$slug/rundown'
+      path: '/rundown'
+      fullPath: '/$slug/rundown'
+      preLoaderRoute: typeof SlugRundownRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/rundown-pin': {
+      id: '/$slug/rundown-pin'
+      path: '/rundown-pin'
+      fullPath: '/$slug/rundown-pin'
+      preLoaderRoute: typeof SlugRundownPinRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/schedule': {
+      id: '/$slug/schedule'
+      path: '/schedule'
+      fullPath: '/$slug/schedule'
+      preLoaderRoute: typeof SlugScheduleRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/settings': {
+      id: '/$slug/settings'
+      path: '/settings'
+      fullPath: '/$slug/settings'
+      preLoaderRoute: typeof SlugSettingsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/show': {
+      id: '/$slug/show'
+      path: '/show'
+      fullPath: '/$slug/show'
+      preLoaderRoute: typeof SlugShowRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/team': {
+      id: '/$slug/team'
+      path: '/team'
+      fullPath: '/$slug/team'
+      preLoaderRoute: typeof SlugTeamRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/timecode': {
+      id: '/$slug/timecode'
+      path: '/timecode'
+      fullPath: '/$slug/timecode'
+      preLoaderRoute: typeof SlugTimecodeRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/_auth/forgot-password': {
+      id: '/_auth/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof AuthForgotPasswordRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/invitations': {
+      id: '/_auth/invitations'
+      path: '/invitations'
+      fullPath: '/invitations'
+      preLoaderRoute: typeof AuthInvitationsRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/login': {
+      id: '/_auth/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/reset-password': {
+      id: '/_auth/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof AuthResetPasswordRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/setup': {
+      id: '/_auth/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof AuthSetupRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/_auth/verify-email': {
+      id: '/_auth/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof AuthVerifyEmailRouteImport
+      parentRoute: typeof AuthRoute
+    }
+    '/checkin/$slug': {
+      id: '/checkin/$slug'
+      path: '/checkin/$slug'
+      fullPath: '/checkin/$slug'
+      preLoaderRoute: typeof CheckinSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/join/chat/$token': {
-      id: '/join/chat/$token'
-      path: '/join/chat/$token'
-      fullPath: '/join/chat/$token'
-      preLoaderRoute: typeof JoinChatTokenRouteImport
+    '/invite/$invitationId': {
+      id: '/invite/$invitationId'
+      path: '/invite/$invitationId'
+      fullPath: '/invite/$invitationId'
+      preLoaderRoute: typeof InviteInvitationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/crew/schedule/$token': {
-      id: '/crew/schedule/$token'
-      path: '/crew/schedule/$token'
-      fullPath: '/crew/schedule/$token'
-      preLoaderRoute: typeof CrewScheduleTokenRouteImport
+    '/overlay/$orgSlug': {
+      id: '/overlay/$orgSlug'
+      path: '/overlay/$orgSlug'
+      fullPath: '/overlay/$orgSlug'
+      preLoaderRoute: typeof OverlayOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/stripe/webhook': {
-      id: '/api/stripe/webhook'
-      path: '/api/stripe/webhook'
-      fullPath: '/api/stripe/webhook'
-      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+    '/timer/$orgSlug': {
+      id: '/timer/$orgSlug'
+      path: '/timer/$orgSlug'
+      fullPath: '/timer/$orgSlug'
+      preLoaderRoute: typeof TimerOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/overlay/$orgSlug': {
-      id: '/api/overlay/$orgSlug'
-      path: '/api/overlay/$orgSlug'
-      fullPath: '/api/overlay/$orgSlug'
-      preLoaderRoute: typeof ApiOverlayOrgSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/checkin-qr/$orgSlug': {
-      id: '/api/checkin-qr/$orgSlug'
-      path: '/api/checkin-qr/$orgSlug'
-      fullPath: '/api/checkin-qr/$orgSlug'
-      preLoaderRoute: typeof ApiCheckinQrOrgSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/session': {
-      id: '/api/auth/session'
-      path: '/api/auth/session'
-      fullPath: '/api/auth/session'
-      preLoaderRoute: typeof ApiAuthSessionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$slug/streaming/platforms': {
-      id: '/$slug/streaming/platforms'
-      path: '/streaming/platforms'
-      fullPath: '/$slug/streaming/platforms'
-      preLoaderRoute: typeof SlugStreamingPlatformsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/streaming/lt-preview': {
-      id: '/$slug/streaming/lt-preview'
-      path: '/streaming/lt-preview'
-      fullPath: '/$slug/streaming/lt-preview'
-      preLoaderRoute: typeof SlugStreamingLtPreviewRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/streaming/lower-thirds-disabled': {
-      id: '/$slug/streaming/lower-thirds-disabled'
-      path: '/streaming/lower-thirds-disabled'
-      fullPath: '/$slug/streaming/lower-thirds-disabled'
-      preLoaderRoute: typeof SlugStreamingLowerThirdsDisabledRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/streaming/health': {
-      id: '/$slug/streaming/health'
-      path: '/streaming/health'
-      fullPath: '/$slug/streaming/health'
-      preLoaderRoute: typeof SlugStreamingHealthRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/streaming/graphics': {
-      id: '/$slug/streaming/graphics'
-      path: '/streaming/graphics'
-      fullPath: '/$slug/streaming/graphics'
-      preLoaderRoute: typeof SlugStreamingGraphicsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/production/incidents-history': {
-      id: '/$slug/production/incidents-history'
-      path: '/production/incidents-history'
-      fullPath: '/$slug/production/incidents-history'
-      preLoaderRoute: typeof SlugProductionIncidentsHistoryRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/production/incidents': {
-      id: '/$slug/production/incidents'
-      path: '/production/incidents'
-      fullPath: '/$slug/production/incidents'
-      preLoaderRoute: typeof SlugProductionIncidentsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/production/cue-sheets': {
-      id: '/$slug/production/cue-sheets'
-      path: '/production/cue-sheets'
-      fullPath: '/$slug/production/cue-sheets'
-      preLoaderRoute: typeof SlugProductionCueSheetsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/production/checklist': {
-      id: '/$slug/production/checklist'
-      path: '/production/checklist'
-      fullPath: '/$slug/production/checklist'
-      preLoaderRoute: typeof SlugProductionChecklistRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/production/assets': {
-      id: '/$slug/production/assets'
-      path: '/production/assets'
-      fullPath: '/$slug/production/assets'
-      preLoaderRoute: typeof SlugProductionAssetsRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/dashboard/tech-manager': {
-      id: '/$slug/dashboard/tech-manager'
-      path: '/dashboard/tech-manager'
-      fullPath: '/$slug/dashboard/tech-manager'
-      preLoaderRoute: typeof SlugDashboardTechManagerRouteImport
-      parentRoute: typeof SlugRoute
-    }
-    '/$slug/dashboard/prod-manager': {
-      id: '/$slug/dashboard/prod-manager'
-      path: '/dashboard/prod-manager'
-      fullPath: '/$slug/dashboard/prod-manager'
-      preLoaderRoute: typeof SlugDashboardProdManagerRouteImport
+    '/$slug/dashboard/audio': {
+      id: '/$slug/dashboard/audio'
+      path: '/dashboard/audio'
+      fullPath: '/$slug/dashboard/audio'
+      preLoaderRoute: typeof SlugDashboardAudioRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/dashboard/devices': {
@@ -1405,46 +1272,165 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugDashboardDevicesRouteImport
       parentRoute: typeof SlugRoute
     }
-    '/$slug/dashboard/audio': {
-      id: '/$slug/dashboard/audio'
-      path: '/dashboard/audio'
-      fullPath: '/$slug/dashboard/audio'
-      preLoaderRoute: typeof SlugDashboardAudioRouteImport
+    '/$slug/dashboard/prod-manager': {
+      id: '/$slug/dashboard/prod-manager'
+      path: '/dashboard/prod-manager'
+      fullPath: '/$slug/dashboard/prod-manager'
+      preLoaderRoute: typeof SlugDashboardProdManagerRouteImport
       parentRoute: typeof SlugRoute
     }
-    '/join/chat/planning/$token': {
-      id: '/join/chat/planning/$token'
-      path: '/join/chat/planning/$token'
-      fullPath: '/join/chat/planning/$token'
-      preLoaderRoute: typeof JoinChatPlanningTokenRouteImport
+    '/$slug/dashboard/tech-manager': {
+      id: '/$slug/dashboard/tech-manager'
+      path: '/dashboard/tech-manager'
+      fullPath: '/$slug/dashboard/tech-manager'
+      preLoaderRoute: typeof SlugDashboardTechManagerRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/assets': {
+      id: '/$slug/production/assets'
+      path: '/production/assets'
+      fullPath: '/$slug/production/assets'
+      preLoaderRoute: typeof SlugProductionAssetsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/checklist': {
+      id: '/$slug/production/checklist'
+      path: '/production/checklist'
+      fullPath: '/$slug/production/checklist'
+      preLoaderRoute: typeof SlugProductionChecklistRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/cue-sheets': {
+      id: '/$slug/production/cue-sheets'
+      path: '/production/cue-sheets'
+      fullPath: '/$slug/production/cue-sheets'
+      preLoaderRoute: typeof SlugProductionCueSheetsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/incidents': {
+      id: '/$slug/production/incidents'
+      path: '/production/incidents'
+      fullPath: '/$slug/production/incidents'
+      preLoaderRoute: typeof SlugProductionIncidentsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/production/incidents-history': {
+      id: '/$slug/production/incidents-history'
+      path: '/production/incidents-history'
+      fullPath: '/$slug/production/incidents-history'
+      preLoaderRoute: typeof SlugProductionIncidentsHistoryRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/streaming/graphics': {
+      id: '/$slug/streaming/graphics'
+      path: '/streaming/graphics'
+      fullPath: '/$slug/streaming/graphics'
+      preLoaderRoute: typeof SlugStreamingGraphicsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/streaming/health': {
+      id: '/$slug/streaming/health'
+      path: '/streaming/health'
+      fullPath: '/$slug/streaming/health'
+      preLoaderRoute: typeof SlugStreamingHealthRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/streaming/lower-thirds-disabled': {
+      id: '/$slug/streaming/lower-thirds-disabled'
+      path: '/streaming/lower-thirds-disabled'
+      fullPath: '/$slug/streaming/lower-thirds-disabled'
+      preLoaderRoute: typeof SlugStreamingLowerThirdsDisabledRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/streaming/lt-preview': {
+      id: '/$slug/streaming/lt-preview'
+      path: '/streaming/lt-preview'
+      fullPath: '/$slug/streaming/lt-preview'
+      preLoaderRoute: typeof SlugStreamingLtPreviewRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/streaming/platforms': {
+      id: '/$slug/streaming/platforms'
+      path: '/streaming/platforms'
+      fullPath: '/$slug/streaming/platforms'
+      preLoaderRoute: typeof SlugStreamingPlatformsRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/kiosk/roster': {
-      id: '/api/v1/kiosk/roster'
-      path: '/api/v1/kiosk/roster'
-      fullPath: '/api/v1/kiosk/roster'
-      preLoaderRoute: typeof ApiV1KioskRosterRouteImport
+    '/api/auth/session': {
+      id: '/api/auth/session'
+      path: '/api/auth/session'
+      fullPath: '/api/auth/session'
+      preLoaderRoute: typeof ApiAuthSessionRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/kiosk/org': {
-      id: '/api/v1/kiosk/org'
-      path: '/api/v1/kiosk/org'
-      fullPath: '/api/v1/kiosk/org'
-      preLoaderRoute: typeof ApiV1KioskOrgRouteImport
+    '/api/checkin-qr/$orgSlug': {
+      id: '/api/checkin-qr/$orgSlug'
+      path: '/api/checkin-qr/$orgSlug'
+      fullPath: '/api/checkin-qr/$orgSlug'
+      preLoaderRoute: typeof ApiCheckinQrOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/kiosk/display': {
-      id: '/api/v1/kiosk/display'
-      path: '/api/v1/kiosk/display'
-      fullPath: '/api/v1/kiosk/display'
-      preLoaderRoute: typeof ApiV1KioskDisplayRouteImport
+    '/api/overlay/$orgSlug': {
+      id: '/api/overlay/$orgSlug'
+      path: '/api/overlay/$orgSlug'
+      fullPath: '/api/overlay/$orgSlug'
+      preLoaderRoute: typeof ApiOverlayOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/kiosk/board': {
-      id: '/api/v1/kiosk/board'
-      path: '/api/v1/kiosk/board'
-      fullPath: '/api/v1/kiosk/board'
-      preLoaderRoute: typeof ApiV1KioskBoardRouteImport
+    '/api/stripe/webhook': {
+      id: '/api/stripe/webhook'
+      path: '/api/stripe/webhook'
+      fullPath: '/api/stripe/webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/waitlist/': {
+      id: '/api/waitlist/'
+      path: '/api/waitlist'
+      fullPath: '/api/waitlist/'
+      preLoaderRoute: typeof ApiWaitlistIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/crew/schedule/$token': {
+      id: '/crew/schedule/$token'
+      path: '/crew/schedule/$token'
+      fullPath: '/crew/schedule/$token'
+      preLoaderRoute: typeof CrewScheduleTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/chat/$token': {
+      id: '/join/chat/$token'
+      path: '/join/chat/$token'
+      fullPath: '/join/chat/$token'
+      preLoaderRoute: typeof JoinChatTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$slug/dashboard/devices/$deviceId': {
+      id: '/$slug/dashboard/devices/$deviceId'
+      path: '/$deviceId'
+      fullPath: '/$slug/dashboard/devices/$deviceId'
+      preLoaderRoute: typeof SlugDashboardDevicesDeviceIdRouteImport
+      parentRoute: typeof SlugDashboardDevicesRoute
+    }
+    '/$slug/streaming/graphics/overlay': {
+      id: '/$slug/streaming/graphics/overlay'
+      path: '/overlay'
+      fullPath: '/$slug/streaming/graphics/overlay'
+      preLoaderRoute: typeof SlugStreamingGraphicsOverlayRouteImport
+      parentRoute: typeof SlugStreamingGraphicsRoute
+    }
+    '/api/v1/companion/state': {
+      id: '/api/v1/companion/state'
+      path: '/api/v1/companion/state'
+      fullPath: '/api/v1/companion/state'
+      preLoaderRoute: typeof ApiV1CompanionStateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/kiosk/assets': {
@@ -1454,102 +1440,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1KioskAssetsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/companion/state': {
-      id: '/api/v1/companion/state'
-      path: '/api/v1/companion/state'
-      fullPath: '/api/v1/companion/state'
-      preLoaderRoute: typeof ApiV1CompanionStateRouteImport
+    '/api/v1/kiosk/board': {
+      id: '/api/v1/kiosk/board'
+      path: '/api/v1/kiosk/board'
+      fullPath: '/api/v1/kiosk/board'
+      preLoaderRoute: typeof ApiV1KioskBoardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$slug/streaming/graphics/overlay': {
-      id: '/$slug/streaming/graphics/overlay'
-      path: '/overlay'
-      fullPath: '/$slug/streaming/graphics/overlay'
-      preLoaderRoute: typeof SlugStreamingGraphicsOverlayRouteImport
-      parentRoute: typeof SlugStreamingGraphicsRoute
-    }
-    '/$slug/dashboard/devices/$deviceId': {
-      id: '/$slug/dashboard/devices/$deviceId'
-      path: '/$deviceId'
-      fullPath: '/$slug/dashboard/devices/$deviceId'
-      preLoaderRoute: typeof SlugDashboardDevicesDeviceIdRouteImport
-      parentRoute: typeof SlugDashboardDevicesRoute
-    }
-    '/api/v1/companion/timer/subtract': {
-      id: '/api/v1/companion/timer/subtract'
-      path: '/api/v1/companion/timer/subtract'
-      fullPath: '/api/v1/companion/timer/subtract'
-      preLoaderRoute: typeof ApiV1CompanionTimerSubtractRouteImport
+    '/api/v1/kiosk/display': {
+      id: '/api/v1/kiosk/display'
+      path: '/api/v1/kiosk/display'
+      fullPath: '/api/v1/kiosk/display'
+      preLoaderRoute: typeof ApiV1KioskDisplayRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/companion/timer/stop': {
-      id: '/api/v1/companion/timer/stop'
-      path: '/api/v1/companion/timer/stop'
-      fullPath: '/api/v1/companion/timer/stop'
-      preLoaderRoute: typeof ApiV1CompanionTimerStopRouteImport
+    '/api/v1/kiosk/org': {
+      id: '/api/v1/kiosk/org'
+      path: '/api/v1/kiosk/org'
+      fullPath: '/api/v1/kiosk/org'
+      preLoaderRoute: typeof ApiV1KioskOrgRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/companion/timer/start': {
-      id: '/api/v1/companion/timer/start'
-      path: '/api/v1/companion/timer/start'
-      fullPath: '/api/v1/companion/timer/start'
-      preLoaderRoute: typeof ApiV1CompanionTimerStartRouteImport
+    '/api/v1/kiosk/roster': {
+      id: '/api/v1/kiosk/roster'
+      path: '/api/v1/kiosk/roster'
+      fullPath: '/api/v1/kiosk/roster'
+      preLoaderRoute: typeof ApiV1KioskRosterRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/companion/timer/add': {
-      id: '/api/v1/companion/timer/add'
-      path: '/api/v1/companion/timer/add'
-      fullPath: '/api/v1/companion/timer/add'
-      preLoaderRoute: typeof ApiV1CompanionTimerAddRouteImport
+    '/join/chat/planning/$token': {
+      id: '/join/chat/planning/$token'
+      path: '/join/chat/planning/$token'
+      fullPath: '/join/chat/planning/$token'
+      preLoaderRoute: typeof JoinChatPlanningTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/companion/stream/stop': {
-      id: '/api/v1/companion/stream/stop'
-      path: '/api/v1/companion/stream/stop'
-      fullPath: '/api/v1/companion/stream/stop'
-      preLoaderRoute: typeof ApiV1CompanionStreamStopRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/stream/go-live': {
-      id: '/api/v1/companion/stream/go-live'
-      path: '/api/v1/companion/stream/go-live'
-      fullPath: '/api/v1/companion/stream/go-live'
-      preLoaderRoute: typeof ApiV1CompanionStreamGoLiveRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/rundown/previous': {
-      id: '/api/v1/companion/rundown/previous'
-      path: '/api/v1/companion/rundown/previous'
-      fullPath: '/api/v1/companion/rundown/previous'
-      preLoaderRoute: typeof ApiV1CompanionRundownPreviousRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/rundown/next': {
-      id: '/api/v1/companion/rundown/next'
-      path: '/api/v1/companion/rundown/next'
-      fullPath: '/api/v1/companion/rundown/next'
-      preLoaderRoute: typeof ApiV1CompanionRundownNextRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/propresenter/lyrics': {
-      id: '/api/v1/companion/propresenter/lyrics'
-      path: '/api/v1/companion/propresenter/lyrics'
-      fullPath: '/api/v1/companion/propresenter/lyrics'
-      preLoaderRoute: typeof ApiV1CompanionPropresenterLyricsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/lower-third/trigger': {
-      id: '/api/v1/companion/lower-third/trigger'
-      path: '/api/v1/companion/lower-third/trigger'
-      fullPath: '/api/v1/companion/lower-third/trigger'
-      preLoaderRoute: typeof ApiV1CompanionLowerThirdTriggerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/v1/companion/lower-third/clear': {
-      id: '/api/v1/companion/lower-third/clear'
-      path: '/api/v1/companion/lower-third/clear'
-      fullPath: '/api/v1/companion/lower-third/clear'
-      preLoaderRoute: typeof ApiV1CompanionLowerThirdClearRouteImport
+    '/api/crew/schedule/$token/calendar': {
+      id: '/api/crew/schedule/$token/calendar'
+      path: '/api/crew/schedule/$token/calendar'
+      fullPath: '/api/crew/schedule/$token/calendar'
+      preLoaderRoute: typeof ApiCrewScheduleTokenCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/companion/kiosk/blank': {
@@ -1559,11 +1489,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1CompanionKioskBlankRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/crew/schedule/$token/calendar': {
-      id: '/api/crew/schedule/$token/calendar'
-      path: '/api/crew/schedule/$token/calendar'
-      fullPath: '/api/crew/schedule/$token/calendar'
-      preLoaderRoute: typeof ApiCrewScheduleTokenCalendarRouteImport
+    '/api/v1/companion/lower-third/clear': {
+      id: '/api/v1/companion/lower-third/clear'
+      path: '/api/v1/companion/lower-third/clear'
+      fullPath: '/api/v1/companion/lower-third/clear'
+      preLoaderRoute: typeof ApiV1CompanionLowerThirdClearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/lower-third/trigger': {
+      id: '/api/v1/companion/lower-third/trigger'
+      path: '/api/v1/companion/lower-third/trigger'
+      fullPath: '/api/v1/companion/lower-third/trigger'
+      preLoaderRoute: typeof ApiV1CompanionLowerThirdTriggerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/propresenter/lyrics': {
+      id: '/api/v1/companion/propresenter/lyrics'
+      path: '/api/v1/companion/propresenter/lyrics'
+      fullPath: '/api/v1/companion/propresenter/lyrics'
+      preLoaderRoute: typeof ApiV1CompanionPropresenterLyricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/rundown/next': {
+      id: '/api/v1/companion/rundown/next'
+      path: '/api/v1/companion/rundown/next'
+      fullPath: '/api/v1/companion/rundown/next'
+      preLoaderRoute: typeof ApiV1CompanionRundownNextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/rundown/previous': {
+      id: '/api/v1/companion/rundown/previous'
+      path: '/api/v1/companion/rundown/previous'
+      fullPath: '/api/v1/companion/rundown/previous'
+      preLoaderRoute: typeof ApiV1CompanionRundownPreviousRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/stream/go-live': {
+      id: '/api/v1/companion/stream/go-live'
+      path: '/api/v1/companion/stream/go-live'
+      fullPath: '/api/v1/companion/stream/go-live'
+      preLoaderRoute: typeof ApiV1CompanionStreamGoLiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/stream/stop': {
+      id: '/api/v1/companion/stream/stop'
+      path: '/api/v1/companion/stream/stop'
+      fullPath: '/api/v1/companion/stream/stop'
+      preLoaderRoute: typeof ApiV1CompanionStreamStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/add': {
+      id: '/api/v1/companion/timer/add'
+      path: '/api/v1/companion/timer/add'
+      fullPath: '/api/v1/companion/timer/add'
+      preLoaderRoute: typeof ApiV1CompanionTimerAddRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/start': {
+      id: '/api/v1/companion/timer/start'
+      path: '/api/v1/companion/timer/start'
+      fullPath: '/api/v1/companion/timer/start'
+      preLoaderRoute: typeof ApiV1CompanionTimerStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/stop': {
+      id: '/api/v1/companion/timer/stop'
+      path: '/api/v1/companion/timer/stop'
+      fullPath: '/api/v1/companion/timer/stop'
+      preLoaderRoute: typeof ApiV1CompanionTimerStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/companion/timer/subtract': {
+      id: '/api/v1/companion/timer/subtract'
+      path: '/api/v1/companion/timer/subtract'
+      fullPath: '/api/v1/companion/timer/subtract'
+      preLoaderRoute: typeof ApiV1CompanionTimerSubtractRouteImport
       parentRoute: typeof rootRouteImport
     }
   }

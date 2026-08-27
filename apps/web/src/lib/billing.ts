@@ -7,12 +7,13 @@ import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { getEffectivePlan, getPublicLaunchDate, type Plan } from "@/lib/plan-limits";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
+import { requireShowPilotBaseUrl } from "@/lib/auth-origins";
 
 export { getPublicLaunchDate };
 
 function getBaseUrl(): string {
   const cfEnv = env as unknown as Record<string, unknown>;
-  return (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
+  return requireShowPilotBaseUrl(cfEnv.BETTER_AUTH_URL);
 }
 
 // ─── Auth ────────────────────────────────────────────────────

@@ -11,15 +11,15 @@ export function getAuthenticatedFetchCredentials(): "include" | undefined {
   return Platform.OS === "web" ? "include" : undefined;
 }
 
-export function getNativeCookieHeader(): Record<string, string> {
-  return Platform.OS === "web" ? {} : { Cookie: authClient.getCookie() };
+export async function getNativeCookieHeader(): Promise<Record<string, string>> {
+  return Platform.OS === "web" ? {} : { Cookie: await authClient.getCookie() };
 }
 
-export function createAuthenticatedWebSocket(url: string): WebSocket {
+export async function createAuthenticatedWebSocket(url: string): Promise<WebSocket> {
   if (Platform.OS === "web") return new WebSocket(url);
 
   const NativeWebSocket = WebSocket as unknown as NativeWebSocketConstructor;
   return new NativeWebSocket(url, null, {
-    headers: { Cookie: authClient.getCookie() },
+    headers: { Cookie: await authClient.getCookie() },
   });
 }

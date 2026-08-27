@@ -75,6 +75,7 @@ function absoluteChatFileUrl(url: string) {
 }
 
 interface MessageCardProps {
+  attachmentHeaders: Record<string, string>;
   currentUserId?: string;
   focused: boolean;
   message: MobileChatMessage;
@@ -88,6 +89,7 @@ interface MessageCardProps {
 }
 
 const MessageCard = memo(function MessageCard({
+  attachmentHeaders,
   currentUserId,
   focused,
   message,
@@ -137,7 +139,7 @@ const MessageCard = memo(function MessageCard({
             {isImage ? (
               <Image
                 resizeMode="cover"
-                source={{ uri: absoluteChatFileUrl(attachment.url), headers: getNativeCookieHeader() }}
+                source={{ uri: absoluteChatFileUrl(attachment.url), headers: attachmentHeaders }}
                 style={styles.attachmentImage}
               />
             ) : <ImageIcon color={styles.attachmentName.color} size={20} />}
@@ -247,6 +249,7 @@ export default function ChatScreen() {
   const [shareHours, setShareHours] = useState(4);
   const [selectedShareMemberIds, setSelectedShareMemberIds] = useState<string[]>([]);
   const [sharing, setSharing] = useState(false);
+  const [attachmentHeaders, setAttachmentHeaders] = useState<Record<string, string>>({});
   const [actionTarget, setActionTarget] = useState<MobileChatMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
@@ -255,6 +258,15 @@ export default function ChatScreen() {
   const stickToBottomRef = useRef(true);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNotificationsRef = useRef(new Map<string, { text: string; mentionedUserIds: string[] }>());
+  useEffect(() => {
+    let active = true;
+    void getNativeCookieHeader().then((headers) => {
+      if (active) setAttachmentHeaders(headers);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   const members = useMemo(() => membersQuery.data?.members ?? [], [membersQuery.data?.members]);
   const currentUserId = membersQuery.data?.currentUserId ?? session?.user.id;
   const otherDmUserId = roomId.startsWith("dm:") ? roomParts.slice(1).find((userId) => userId !== currentUserId) : null;
@@ -493,6 +505,7 @@ export default function ChatScreen() {
     ({ item }) => {
       return (
         <MessageCard
+          attachmentHeaders={attachmentHeaders}
           currentUserId={currentUserId}
           focused={item.id === focusedMessageId}
           message={item}
@@ -506,7 +519,7 @@ export default function ChatScreen() {
         />
       );
     },
-    [currentUserId, focusedMessageId, latestOwnMessageId, openMessageActions, otherReadAt, roomId, toggleReaction, votePoll],
+    [attachmentHeaders, currentUserId, focusedMessageId, latestOwnMessageId, openMessageActions, otherReadAt, roomId, toggleReaction, votePoll],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;

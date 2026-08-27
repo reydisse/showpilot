@@ -19,6 +19,48 @@ export function isLocalDevelopmentHost(hostname: string): boolean {
   );
 }
 
+function isShowPilotHost(hostname: string): boolean {
+  return hostname === "showpilot.tech"
+    || hostname.endsWith(".showpilot.tech")
+    || hostname === "showpilot.reydisse.workers.dev";
+}
+
+export function requireShowPilotBaseUrl(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("BETTER_AUTH_URL is not configured");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("BETTER_AUTH_URL is invalid");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isProduction = parsed.protocol === "https:" && isShowPilotHost(host);
+  const isDevelopment = parsed.protocol === "http:" && isLocalDevelopmentHost(host);
+  if (!isProduction && !isDevelopment) {
+    throw new Error("BETTER_AUTH_URL must be a ShowPilot HTTPS origin or local development origin");
+  }
+  if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    throw new Error("BETTER_AUTH_URL must contain only an origin");
+  }
+  return parsed.origin;
+}
+
+export function requireBetterAuthRuntimeConfig(runtime: Record<string, unknown>): {
+  baseURL: string;
+  secret: string;
+} {
+  const secret = runtime.BETTER_AUTH_SECRET;
+  if (typeof secret !== "string" || secret.length < 32) {
+    throw new Error("BETTER_AUTH_SECRET must contain at least 32 characters");
+  }
+  return {
+    baseURL: requireShowPilotBaseUrl(runtime.BETTER_AUTH_URL),
+    secret,
+  };
+}
+
 /**
  * Credentialed browser requests may come from ShowPilot's HTTPS origins. LAN
  * origins are accepted only when the API endpoint is also local development;
@@ -37,11 +79,7 @@ export function isAllowedApiOrigin(origin: string | null, apiUrl: string): boole
   }
 
   const originHost = parsedOrigin.hostname.toLowerCase();
-  const isShowPilotOrigin = parsedOrigin.protocol === "https:" && (
-    originHost === "showpilot.tech" ||
-    originHost.endsWith(".showpilot.tech") ||
-    originHost === "showpilot.reydisse.workers.dev"
-  );
+  const isShowPilotOrigin = parsedOrigin.protocol === "https:" && isShowPilotHost(originHost);
   if (isShowPilotOrigin) return true;
 
   return (

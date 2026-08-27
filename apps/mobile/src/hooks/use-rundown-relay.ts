@@ -123,6 +123,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
 
   useEffect(() => {
     let disposed = false;
+    let connecting = false;
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -153,7 +154,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       attempts = Math.min(attempts + 1, 6);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        connect();
+        void connect();
       }, delay);
     }
 
@@ -209,13 +210,29 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       dispatchNext();
     }
 
-    function connect() {
-      if (disposed || AppState.currentState !== "active") return;
+    async function connect() {
+      if (disposed || connecting || AppState.currentState !== "active") return;
       const existing = socketRef.current;
       if (existing?.readyState === WebSocket.OPEN || existing?.readyState === WebSocket.CONNECTING) return;
 
       setStatus(attempts ? "reconnecting" : "connecting");
-      const socket = createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId));
+      connecting = true;
+      let socket: WebSocket;
+      try {
+        socket = await createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId));
+      } catch (error) {
+        connecting = false;
+        if (!disposed) {
+          setLastError(error instanceof Error ? error.message : "Live authentication failed.");
+          scheduleReconnect();
+        }
+        return;
+      }
+      connecting = false;
+      if (disposed || AppState.currentState !== "active") {
+        socket.close();
+        return;
+      }
       socketRef.current = socket;
       hydratedRef.current = false;
 
@@ -280,14 +297,14 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (disposed) return;
       if (nextState === "active") {
-        connect();
+        void connect();
       } else {
         setStatus("offline");
         socketRef.current?.close();
       }
     });
 
-    connect();
+    void connect();
     return () => {
       disposed = true;
       appStateSubscription.remove();

@@ -5,7 +5,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
-import { getDevelopmentTrustedOrigins } from "@/lib/auth-origins";
+import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig } from "@/lib/auth-origins";
 import {
   sendEmail,
   passwordResetEmail,
@@ -102,10 +102,7 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   const cfEnv = env as unknown as Record<string, unknown>;
-  // Fail closed: never run with a guessable session-signing secret.
-  const secret = cfEnv.BETTER_AUTH_SECRET as string | undefined;
-  if (!secret) throw new Error("BETTER_AUTH_SECRET is not configured");
-  const baseURL = (cfEnv.BETTER_AUTH_URL as string) || "https://showpilot.tech";
+  const { baseURL, secret } = requireBetterAuthRuntimeConfig(cfEnv);
 
   return betterAuth({
     baseURL,
@@ -119,20 +116,13 @@ export function getAuth() {
       max: 10,
     },
     trustedOrigins: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:5173",
-      "http://127.0.0.1:3000",
-      "http://127.0.0.1:3001",
-      "http://127.0.0.1:5173",
-      "http://localhost:8081",
-      "http://127.0.0.1:8081",
       "https://showpilot.tech",
       "https://www.showpilot.tech",
       "https://admin.showpilot.tech",
       "https://*.showpilot.tech",
       "https://showpilot.reydisse.workers.dev",
       "showpilot://",
+      "showpilot://*",
       ...getDevelopmentTrustedOrigins(baseURL),
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
