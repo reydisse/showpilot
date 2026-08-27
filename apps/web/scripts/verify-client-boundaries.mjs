@@ -77,6 +77,21 @@ const launchIntegrityContracts = [
     pattern: /\bPLANNED\b/,
     message: "The production permission registry must contain only implemented capabilities.",
   },
+  {
+    path: "src/lib/data.ts",
+    pattern: /\b(?:getNotifications|writeNotification|dismissNotification)\s*=/,
+    message: "Legacy organization-wide notification endpoints must not bypass the personal inbox boundary.",
+  },
+  {
+    path: "src/lib/lowerthirds.ts",
+    pattern: /\b(?:getLowerThirdState|getLowerThirdStateByOrgId|triggerLowerThird|clearLowerThird|getLowerThirdLibrary)\s*=/,
+    message: "Unused lower-third server endpoints must not bypass the graphics and signed Companion control boundaries.",
+  },
+  {
+    path: "src/lib/ontime.ts",
+    pattern: /\bgetOntimeConfig\s*=/,
+    message: "The configured OnTime URL must stay internal to permission-gated runtime and connection checks.",
+  },
 ];
 
 for (const contract of launchIntegrityContracts) {
@@ -105,6 +120,42 @@ const requiredLaunchContracts = [
 for (const contract of requiredLaunchContracts) {
   const source = readFileSync(resolve(webRoot, contract.path), "utf8");
   if (!contract.pattern.test(source)) throw new Error(contract.message);
+}
+
+function exportedConstBlock(relativePath, exportName) {
+  const source = readFileSync(resolve(webRoot, relativePath), "utf8");
+  const marker = `export const ${exportName}`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`Missing required export ${exportName} in ${relativePath}.`);
+  const next = source.indexOf("\nexport const ", start + marker.length);
+  return source.slice(start, next < 0 ? source.length : next);
+}
+
+const serverPermissionContracts = [
+  ["src/lib/data.ts", "getEquipment", /assertOrgPermission\(data\.orgId, "assets:view"\)/],
+  ["src/lib/data.ts", "addEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)/],
+  ["src/lib/data.ts", "updateEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
+  ["src/lib/data.ts", "deleteEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
+  ["src/lib/data.ts", "getMicAssignments", /assertOrgPermission\(data\.orgId, "dashboard:tm"\)/],
+  ["src/lib/data.ts", "addMicAssignment", /assertOrgPermission\(data\.orgId, "dashboard:tm"\)/],
+  ["src/lib/data.ts", "updateMicAssignment", /assertOrgPermission\(data\.orgId, "dashboard:tm"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
+  ["src/lib/data.ts", "deleteMicAssignment", /assertOrgPermission\(data\.orgId, "dashboard:tm"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
+  ["src/lib/settings.ts", "getOrgSettings", /readMemberVisibleOrgSettings\(getD1\(\), data\.orgId\)/],
+  ["src/lib/lowerthirds.ts", "resetLowerThirdLibrary", /assertOrgPermission\(data\.orgId, "lowerthird:configure"\)/],
+  ["src/lib/ontime.ts", "getOntimeState", /assertOrgPermission\(data\.orgId, "show:view"\)/],
+  ["src/lib/ontime.ts", "testOntimeConnection", /assertOrgPermission\(data\.orgId, "settings:integrations"\)/],
+  ["src/lib/chat-proxy.ts", "testChatConnection", /assertOrgPermission\(data\.orgId, "settings:integrations"\)/],
+  ["src/lib/chat-proxy.ts", "sendExternalChatMessage", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
+  ["src/lib/chat-proxy.ts", "getExternalChatHistory", /assertOrgPermission\(data\.orgId, "chat:access"\)/],
+  ["src/lib/rundown.ts", "pollProPresenterSlide", /assertEffectiveOrgPermission\(data\.orgId, \["lowerthird:trigger", "rundown:control"\]\)/],
+  ["src/lib/rundown.ts", "sendProPresenterCommand", /assertRundownControlAccess\(data\.orgId\)/],
+  ["src/lib/rundown.ts", "testProPresenterConnection", /assertEffectiveOrgPermission\(data\.orgId, "settings:integrations"\)/],
+];
+
+for (const [relativePath, exportName, pattern] of serverPermissionContracts) {
+  if (!pattern.test(exportedConstBlock(relativePath, exportName))) {
+    throw new Error(`${exportName} in ${relativePath} is missing its required permission or tenant scope.`);
+  }
 }
 
 console.log("Client boundary check passed.");

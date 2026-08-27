@@ -698,7 +698,7 @@ export const getMicAssignments = createServerFn({ method: "GET" })
     parseOrThrow(z.object({ orgId: idSchema, serviceDate: serviceDateSchema, showId: idSchema.optional() }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "dashboard:tm");
     const prisma = getPrisma();
     return await prisma.micAssignment.findMany({
       where: { orgId: data.orgId, ...(data.showId ? { showId: data.showId } : { serviceDate: data.serviceDate }) },
@@ -736,7 +736,7 @@ export const addMicAssignment = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "dashboard:tm");
     const prisma = getPrisma();
     const show = await prisma.rundown.findFirst({
       where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
@@ -767,35 +767,32 @@ export const addMicAssignment = createServerFn({ method: "POST" })
 export const updateMicAssignment = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ id: idSchema, updates: micAssignmentFieldsSchema.partial() }),
+      z.object({ orgId: idSchema, id: idSchema, updates: micAssignmentFieldsSchema.partial() }),
       data,
     ),
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "dashboard:tm");
     const prisma = getPrisma();
-    const existing = await prisma.micAssignment.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Mic assignment not found");
-    await assertOrgAccess(existing.orgId);
-    return await prisma.micAssignment.update({
-      where: { id: data.id },
+    const result = await prisma.micAssignment.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: data.updates,
     });
+    if (result.count === 0) throw new Error("Mic assignment not found");
+    return result;
   });
 
 export const deleteMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+  )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "dashboard:tm");
     const prisma = getPrisma();
-    const existing = await prisma.micAssignment.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
+    const result = await prisma.micAssignment.deleteMany({
+      where: { id: data.id, orgId: data.orgId },
     });
-    if (!existing) throw new Error("Mic assignment not found");
-    await assertOrgAccess(existing.orgId);
-    await prisma.micAssignment.delete({ where: { id: data.id } });
+    if (result.count === 0) throw new Error("Mic assignment not found");
   });
 
 // ─── Equipment ──────────────────────────────────────────────
@@ -803,7 +800,7 @@ export const deleteMicAssignment = createServerFn({ method: "POST" })
 export const getEquipment = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "assets:view");
     const prisma = getPrisma();
     return await prisma.equipment.findMany({
       where: { orgId: data.orgId },
@@ -833,7 +830,7 @@ export const addEquipment = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "assets:manage");
     const prisma = getPrisma();
     const quantity = data.quantity ?? 1;
     const unit = {
@@ -855,107 +852,33 @@ export const addEquipment = createServerFn({ method: "POST" })
 
 export const updateEquipment = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ id: idSchema, updates: equipmentFieldsSchema.partial() }), data),
+    parseOrThrow(
+      z.object({ orgId: idSchema, id: idSchema, updates: equipmentFieldsSchema.partial() }),
+      data,
+    ),
   )
   .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "assets:manage");
     const prisma = getPrisma();
-    const existing = await prisma.equipment.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Equipment not found");
-    await assertOrgAccess(existing.orgId);
-    return await prisma.equipment.update({
-      where: { id: data.id },
+    const result = await prisma.equipment.updateMany({
+      where: { id: data.id, orgId: data.orgId },
       data: data.updates,
     });
+    if (result.count === 0) throw new Error("Equipment not found");
+    return result;
   });
 
 export const deleteEquipment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const existing = await prisma.equipment.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Equipment not found");
-    await assertOrgAccess(existing.orgId);
-    await prisma.equipment.delete({ where: { id: data.id } });
-  });
-
-// ─── Notifications ──────────────────────────────────────────
-
-export const getNotifications = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        target: z.string().max(100).optional(),
-        limit: z.number().int().min(1).max(200).optional(),
-      }),
-      data,
-    ),
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "assets:manage");
     const prisma = getPrisma();
-    return await prisma.notification.findMany({
-      where: {
-        orgId: data.orgId,
-        dismissed: false,
-        ...(data.target && data.target !== "all" ? { target: data.target } : {}),
-      },
-      orderBy: { createdAt: "desc" },
-      take: data.limit ?? 50,
+    const result = await prisma.equipment.deleteMany({
+      where: { id: data.id, orgId: data.orgId },
     });
-  });
-
-export const writeNotification = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        type: z.string().max(100),
-        severity: z.string().max(50),
-        title: z.string().max(200),
-        message: z.string().max(2000),
-        target: z.string().max(100),
-        source: z.string().max(100),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-    return await prisma.notification.create({
-      data: {
-        orgId: data.orgId,
-        type: data.type,
-        severity: data.severity,
-        title: data.title,
-        message: data.message,
-        target: data.target,
-        source: data.source,
-      },
-    });
-  });
-
-export const dismissNotification = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ id: idSchema }), data))
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const existing = await prisma.notification.findUnique({
-      where: { id: data.id },
-      select: { orgId: true },
-    });
-    if (!existing) throw new Error("Notification not found");
-    await assertOrgAccess(existing.orgId);
-    await prisma.notification.update({
-      where: { id: data.id },
-      data: { dismissed: true },
-    });
+    if (result.count === 0) throw new Error("Equipment not found");
   });
 
 // ─── Devices ───────────────────────────────────────────────

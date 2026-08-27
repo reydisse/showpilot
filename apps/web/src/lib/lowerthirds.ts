@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
@@ -18,21 +18,6 @@ export const lowerThirdPayloadSchema = z.object({
   style: z.string().max(100),
   triggeredBy: z.string().max(200).optional(),
 });
-
-async function assertOrgAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!member) throw new Error("Forbidden");
-}
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -55,58 +40,10 @@ export interface LowerThirdPayload {
   triggeredAt?: string;
 }
 
-// ─── Get Active Lower Third State ─────────────────────────────
-
-export const getLowerThirdState = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgSlug: string }) => data)
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-
-    // Look up the org by slug
-    const org = await prisma.organization.findUnique({
-      where: { slug: data.orgSlug },
-    });
-    if (!org) return null;
-
-    // Get the active lower third from AppSetting
-    const setting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: org.id, key: "active-lower-third" } },
-    });
-    if (!setting) return null;
-
-    try {
-      return JSON.parse(setting.value) as LowerThirdPayload;
-    } catch {
-      return null;
-    }
-  });
-
-// ─── Get Active Lower Third by OrgId ──────────────────────────
-
-export const getLowerThirdStateByOrgId = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-
-    const setting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: "active-lower-third" } },
-    });
-    if (!setting) return null;
-
-    try {
-      return JSON.parse(setting.value) as LowerThirdPayload;
-    } catch {
-      return null;
-    }
-  });
-
-// ─── Trigger a Lower Third ───────────────────────────────────
-
 /**
  * Persist the active lower third for an org and return the stored payload.
- * Caller is responsible for access control and (where relevant) the
- * cloud_enabled gate — see the server fn below and the Companion endpoint.
+ * Caller is responsible for access control and the cloud-enabled gate.
+ * Browser control uses graphics.ts; Companion uses its signed-token API.
  */
 export async function triggerLowerThirdForOrg(
   orgId: string,
@@ -150,48 +87,10 @@ export async function readLowerThirdForOrg(orgId: string): Promise<LowerThirdPay
   }
 }
 
-export const triggerLowerThird = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        payload: lowerThirdPayloadSchema,
-        triggeredBy: z.string().max(200).optional(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    return triggerLowerThirdForOrg(data.orgId, data.payload, data.triggeredBy);
-  });
-
-// ─── Clear Active Lower Third ─────────────────────────────────
-
-export const clearLowerThird = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    await clearLowerThirdForOrg(data.orgId);
-  });
-
-// ─── Get Lower Third Library (from GraphicTemplate) ───────────
-
-export const getLowerThirdLibrary = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-    return await prisma.graphicTemplate.findMany({
-      where: { orgId: data.orgId },
-      orderBy: { createdAt: "asc" },
-    });
-  });
-
 export const resetLowerThirdLibrary = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgAccess(data.orgId);
+    await assertOrgPermission(data.orgId, "lowerthird:configure");
     const prisma = getPrisma();
     await prisma.graphicTemplate.deleteMany({ where: { orgId: data.orgId } });
   });

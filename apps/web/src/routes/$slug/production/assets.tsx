@@ -35,13 +35,17 @@ export const Route = createFileRoute("/$slug/production/assets")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "assets:view", context.slug, context.orgId);
     const equipment = await getEquipment({ data: { orgId: context.orgId } });
-    return { equipment: equipment as EquipmentItem[], orgId: context.orgId };
+    return {
+      equipment: equipment as EquipmentItem[],
+      orgId: context.orgId,
+      canManage: context.effectivePermissions.includes("assets:manage"),
+    };
   },
   component: AssetsPage,
 });
 
 function AssetsPage() {
-  const { equipment, orgId } = Route.useLoaderData();
+  const { equipment, orgId, canManage } = Route.useLoaderData();
   const router = useRouter();
 
   // Filter state
@@ -119,7 +123,7 @@ function AssetsPage() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
-    await updateEquipment({ data: { id: editingItem.id, updates: editForm } });
+    await updateEquipment({ data: { orgId, id: editingItem.id, updates: editForm } });
     setEditingItem(null);
     router.invalidate();
   };
@@ -131,7 +135,7 @@ function AssetsPage() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    await deleteEquipment({ data: { id } });
+    await deleteEquipment({ data: { orgId, id } });
     router.invalidate();
   };
 
@@ -148,14 +152,14 @@ function AssetsPage() {
           <h1 className="text-2xl font-bold font-[family-name:var(--font-display)] text-board-text">Asset Inventory</h1>
           <p className="text-board-muted text-sm mt-0.5">Track and manage production equipment, gear, and assets</p>
         </div>
-        <button
+        {canManage ? <button
           onClick={() => { setAddForm(BLANK_ADD_FORM); setShowAddModal(true); }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
           style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
         >
           <Plus className="w-4 h-4" />
           Add Item
-        </button>
+        </button> : null}
       </div>
 
       {/* Filter bar */}
@@ -266,10 +270,10 @@ function AssetsPage() {
                       {item.notes && <span className="truncate">{item.notes}</span>}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
+                  {canManage ? <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
                     <button type="button" aria-label={`Edit unit ${unitIndex + 1}`} onClick={() => startEdit(item)} className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"><Pencil className="w-3.5 h-3.5" /></button>
                     <button type="button" aria-label={`Delete unit ${unitIndex + 1}`} onClick={() => handleDelete(item.id)} className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
+                  </div> : null}
                 </div>
               )}
               </div>)}
@@ -293,16 +297,16 @@ function AssetsPage() {
           icon={Package}
           title="No equipment yet"
           description="Track cameras, mixers, cables and the rest of your gear — status, location and serial numbers in one place."
-          action={
+          action={canManage ?
             <EmptyStateButton onClick={() => { setAddForm(BLANK_ADD_FORM); setShowAddModal(true); }}>
               Add first item
             </EmptyStateButton>
-          }
+          : undefined}
         />
       )}
 
       {/* Add Asset Modal */}
-      {showAddModal && (
+      {canManage && showAddModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) { setShowAddModal(false); setAddForm(BLANK_ADD_FORM); } }}

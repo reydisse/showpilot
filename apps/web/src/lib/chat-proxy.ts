@@ -7,8 +7,8 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
+import { assertOrgPermission } from "@/lib/org-access";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
 import {
   appendWebhookEvent,
@@ -21,23 +21,6 @@ import { idSchema, parseOrThrow } from "@/lib/validation";
 type Platform = "mattermost" | "slack" | "teams" | "discord";
 
 const platformSchema = z.enum(["mattermost", "slack", "teams", "discord"]);
-
-// These functions act on an org's connected chat platform (send as the org,
-// read its history) — they must never be reachable without org membership.
-async function assertOrgAccess(orgId: string) {
-  const { getAuth } = await import("@/lib/auth");
-  const auth = getAuth();
-  const headers = getRequestHeaders();
-  const session = await auth.api.getSession({ headers });
-  if (!session) throw new Error("Unauthorized");
-
-  const prisma = getPrisma();
-  const member = await prisma.member.findFirst({
-    where: { organizationId: orgId, userId: session.user.id },
-    select: { id: true },
-  });
-  if (!member) throw new Error("Forbidden");
-}
 
 function parseShowPilotFormattedMessage(message: string): {
   senderName?: string;
@@ -106,7 +89,7 @@ export const testChatConnection = createServerFn({ method: "POST" })
   )
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-      await assertOrgAccess(data.orgId);
+      await assertOrgPermission(data.orgId, "settings:integrations");
       const creds = await getChatCredentials(data.orgId, data.platform);
       const prisma = getPrisma();
       const logEvent = (event: WebhookEventInput): void => {
@@ -332,7 +315,7 @@ export const sendExternalChatMessage = createServerFn({ method: "POST" })
   )
   .handler(
     async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-      await assertOrgAccess(data.orgId);
+      await assertOrgPermission(data.orgId, "chat:access");
       const creds = await getChatCredentials(data.orgId, data.platform);
       const prisma = getPrisma();
       const logEvent = (event: WebhookEventInput): void => {
@@ -596,7 +579,7 @@ export const getExternalChatHistory = createServerFn({ method: "GET" })
     async ({
       data,
     }): Promise<{ ok: boolean; messages: ChatMessage[]; error?: string }> => {
-      await assertOrgAccess(data.orgId);
+      await assertOrgPermission(data.orgId, "chat:access");
       const creds = await getChatCredentials(data.orgId, data.platform);
       const limit = data.limit ?? 50;
 

@@ -11,6 +11,9 @@ import {
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
+import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
+import { readMemberVisibleOrgSettings } from "@/lib/settings-read.server";
+import { getD1 } from "@/lib/d1";
 
 // AppSetting values can be JSON blobs (templates, rundown snapshots) —
 // bound generously but finitely.
@@ -209,28 +212,64 @@ function permissionForSettingKey(key: string): Permission {
 
 // ─── Org Settings (AppSetting table) ────────────────────────
 
+/** Operational defaults that are safe for every organization member. */
 export const getOrgSettings = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     await assertOrgAccess(data.orgId);
-    const prisma = getPrisma();
-    const settings = await prisma.appSetting.findMany({
-      where: { orgId: data.orgId },
-    });
-    const map: Record<string, string> = {};
-    for (const s of settings) {
-      map[s.key] = s.value;
-    }
-    return map;
+    return readMemberVisibleOrgSettings(getD1(), data.orgId);
   });
 
-const DESKTOP_BRIDGE_SETTING_KEYS = [
-  "api-key",
+/** Settings visible to the current member's settings permissions. */
+export const getManageableOrgSettings = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
+  .handler(async ({ data }) => {
+    const role = await getOrgMemberRole(data.orgId);
+    const settings = await getPrisma().appSetting.findMany({
+      where: { orgId: data.orgId },
+      select: { key: true, value: true },
+    });
+    return Object.fromEntries(
+      settings
+        .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
+        .map((setting) => [setting.key, setting.value]),
+    );
+  });
+
+const PROPRESENTER_RUNTIME_SETTING_KEYS = [
   "propresenter-host",
   "propresenter-port",
   "propresenter-api-port",
   "propresenter-password",
+  "propresenter-send-cues",
+  "propresenter-stage-display",
 ] as const;
+
+const DESKTOP_BRIDGE_SETTING_KEYS = [
+  "api-key",
+  ...PROPRESENTER_RUNTIME_SETTING_KEYS,
+] as const;
+
+/** Native ProPresenter credentials for authorized live-show operators. */
+export const getProPresenterRuntimeSettings = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
+  .handler(async ({ data }) => {
+    await assertEffectiveOrgPermission(data.orgId, ["lowerthird:trigger", "rundown:control"]);
+    const settings = await getPrisma().appSetting.findMany({
+      where: {
+        orgId: data.orgId,
+        key: { in: [...PROPRESENTER_RUNTIME_SETTING_KEYS] },
+      },
+      select: { key: true, value: true },
+    });
+    return Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
+  });
 
 /** Returns native device credentials only to members allowed to manage API keys. */
 export const getDesktopBridgeSettings = createServerFn({ method: "GET" })
@@ -397,8 +436,11 @@ export interface ActiveAdapters {
  * Defaults to "native" for everything.
  */
 export const getActiveAdapters = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
   .handler(async ({ data }): Promise<ActiveAdapters> => {
+    await assertEffectiveOrgPermission(data.orgId, ["show:view", "chat:access"]);
     const prisma = getPrisma();
     const settings = await prisma.appSetting.findMany({
       where: {

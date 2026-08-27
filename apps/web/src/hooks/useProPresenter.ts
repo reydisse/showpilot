@@ -8,6 +8,8 @@ import {
 import { pollProPresenterSlide } from "@/lib/rundown";
 
 interface UseProPresenterOptions {
+  /** Organization used for server-side authorization and tenant scoping. */
+  orgId: string;
   /** PP host IP/hostname from org settings */
   host: string;
   /** PP stage display port (default 50001) */
@@ -40,9 +42,9 @@ interface UseProPresenterReturn {
 }
 
 /** Server-side polling function that bypasses CORS */
-async function serverPollPP(host: string, port: number): Promise<PPSlideData | null> {
+async function serverPollPP(orgId: string): Promise<PPSlideData | null> {
   try {
-    const result = await pollProPresenterSlide({ data: { host, port } });
+    const result = await pollProPresenterSlide({ data: { orgId } });
     if (!result) return null;
     return {
       text: result.text,
@@ -63,6 +65,7 @@ async function serverPollPP(host: string, port: number): Promise<PPSlideData | n
  * Falls back to server-side REST polling if WebSocket doesn't deliver slides.
  */
 export function useProPresenter({
+  orgId,
   host,
   port,
   apiPort,
@@ -111,13 +114,13 @@ export function useProPresenter({
     clientRef.current = client;
     // Pass API port separately so the client polls on the correct port
     const resolvedApiPort = apiPort ?? 1025;
-    client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
+    client.connect(() => serverPollPP(orgId), resolvedApiPort);
 
     return () => {
       client.disconnect();
       clientRef.current = null;
     };
-  }, [enabled, host, port, apiPort, password]);
+  }, [enabled, host, port, apiPort, password, orgId]);
 
   const connect = useCallback(() => {
     if (clientRef.current) {
@@ -143,8 +146,8 @@ export function useProPresenter({
     });
     clientRef.current = client;
     const resolvedApiPort = apiPort ?? 1025;
-    client.connect((h, p) => serverPollPP(h, p), resolvedApiPort);
-  }, [host, port, apiPort, password]);
+    client.connect(() => serverPollPP(orgId), resolvedApiPort);
+  }, [host, port, apiPort, password, orgId]);
 
   const disconnect = useCallback(() => {
     if (clientRef.current) {

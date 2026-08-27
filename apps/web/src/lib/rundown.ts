@@ -32,10 +32,7 @@ const timerStateSchema = z.object({
   serverTime: z.number(),
 });
 
-const hostPortSchema = z.object({
-  host: z.string().min(1).max(253),
-  port: z.number().int().min(1).max(65535),
-});
+const proPresenterTargetSchema = z.object({ orgId: idSchema });
 
 const ppSlideSchema = z.object({
   text: textSchema,
@@ -456,6 +453,38 @@ async function assertRundownEditAccess(orgId: string) {
 
 async function assertRundownControlAccess(orgId: string) {
   await assertEffectiveOrgPermission(orgId, "rundown:control");
+}
+
+async function readProPresenterTarget(orgId: string) {
+  const settings = await getPrisma().appSetting.findMany({
+    where: {
+      orgId,
+      key: {
+        in: [
+          "propresenter-host",
+          "propresenter-port",
+          "propresenter-api-port",
+        ],
+      },
+    },
+    select: { key: true, value: true },
+  });
+  const values = Object.fromEntries(
+    settings.map((setting) => [setting.key, setting.value]),
+  );
+  const host = values["propresenter-host"]?.trim();
+  if (!host) return null;
+  const stagePort = Number.parseInt(values["propresenter-port"] ?? "50001", 10);
+  const apiPort = Number.parseInt(values["propresenter-api-port"] ?? "1025", 10);
+  return {
+    host,
+    stagePort: Number.isInteger(stagePort) && stagePort > 0 && stagePort <= 65535
+      ? stagePort
+      : 50001,
+    apiPort: Number.isInteger(apiPort) && apiPort > 0 && apiPort <= 65535
+      ? apiPort
+      : 1025,
+  };
 }
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
@@ -881,9 +910,12 @@ function ppStageDisplayKey() {
  * Tries multiple PP7 API endpoints since versions differ.
  */
 export const pollProPresenterSlide = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(hostPortSchema, data))
+  .inputValidator((data: unknown) => parseOrThrow(proPresenterTargetSchema, data))
   .handler(async ({ data }): Promise<PPSlidePayload | null> => {
-    const { host, port } = data;
+    await assertEffectiveOrgPermission(data.orgId, ["lowerthird:trigger", "rundown:control"]);
+    const target = await readProPresenterTarget(data.orgId);
+    if (!target) return null;
+    const { host, apiPort: port } = target;
     const base = `http://${host}:${port}`;
     const timeout = 2000;
 
@@ -975,11 +1007,18 @@ function extractTextFromPPResponse(data: Record<string, unknown>): string {
  */
 export const sendProPresenterCommand = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(hostPortSchema.extend({ command: z.enum(["next", "previous", "clear"]) }), data),
+    parseOrThrow(
+      proPresenterTargetSchema.extend({ command: z.enum(["next", "previous", "clear"]) }),
+      data,
+    ),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-    const { host, port, command } = data;
-    const base = `http://${host}:${port || 1025}`;
+    await assertRundownControlAccess(data.orgId);
+    const target = await readProPresenterTarget(data.orgId);
+    if (!target) return { ok: false, error: "Set the ProPresenter host first" };
+    const { host, apiPort: port } = target;
+    const { command } = data;
+    const base = `http://${host}:${port}`;
     const timeout = 3000;
 
     // PP7 API endpoints vary by version — try multiple known paths and methods.
@@ -1038,14 +1077,17 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
  */
 export const testProPresenterConnection = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(hostPortSchema.extend({ apiPort: z.number().int().min(1).max(65535).optional() }), data),
+    parseOrThrow(proPresenterTargetSchema, data),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-    const { host, apiPort, port } = data;
+    await assertEffectiveOrgPermission(data.orgId, "settings:integrations");
+    const target = await readProPresenterTarget(data.orgId);
+    if (!target) return { ok: false, error: "Set the ProPresenter host first" };
+    const { host, apiPort, stagePort } = target;
     const timeout = 3000;
 
     // Try API port first (REST), then stage display port
-    const ports = Array.from(new Set([apiPort || 1025, port].filter((p) => Number.isFinite(p) && p > 0)));
+    const ports = Array.from(new Set([apiPort, stagePort]));
     const testEndpoints = [
       "/v1/stage/current_slide",
       "/v1/version",

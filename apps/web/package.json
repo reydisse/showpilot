@@ -9,7 +9,9 @@
 		"dev": "vite dev --port 3000",
 		"build": "node scripts/verify-client-boundaries.mjs && vite build && node scripts/sanitize-build-output.mjs",
 		"preview": "pnpm build && vite preview",
-		"test": "vitest run",
+		"test": "pnpm run test:unit && pnpm run test:worker",
+		"test:unit": "vitest run",
+		"test:worker": "vitest run --config vitest.worker.config.ts",
 		"deploy": "pnpm build && wrangler deploy",
 		"cf-typegen": "wrangler types",
 		"db:generate": "prisma generate",
@@ -50,6 +52,7 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
+		"@cloudflare/vitest-plugin": "^1.1.0",
 		"@testing-library/dom": "^10.4.0",
 		"@testing-library/react": "^16.2.0",
 		"@types/node": "^22.19.13",
@@ -65,7 +68,7 @@
 		"typescript": "^5.7.2",
 		"vite": "^7.1.7",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^3.0.5",
+		"vitest": "^4.1.11",
 		"wrangler": "^4.69.0"
 	}
 }

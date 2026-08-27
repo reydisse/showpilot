@@ -120,12 +120,12 @@ function AudioPage() {
   };
 
   const handleToggleMute = async (id: string, currentMuted: boolean) => {
-    await updateMicAssignment({ data: { id, updates: { muted: !currentMuted } } });
+    await updateMicAssignment({ data: { orgId, id, updates: { muted: !currentMuted } } });
     loadAssignments(serviceDate, showId);
   };
 
   const handleDelete = async (id: string) => {
-    await deleteMicAssignment({ data: { id } });
+    await deleteMicAssignment({ data: { orgId, id } });
     loadAssignments(serviceDate, showId);
   };
 
@@ -312,6 +312,7 @@ function MicAssignmentForm({
     if (existing) {
       await updateMicAssignment({
         data: {
+          orgId,
           id: existing.id,
           updates: {
             channel,

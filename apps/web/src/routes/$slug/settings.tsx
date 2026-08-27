@@ -44,7 +44,7 @@ import { CompanionSection } from "@/components/settings/CompanionSection";
 import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
 import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
-  getOrgSettings,
+  getManageableOrgSettings,
   updateOrgSetting,
   getOrgMembers,
   regenerateApiKey,
@@ -107,7 +107,7 @@ export const Route = createFileRoute("/$slug/settings")({
     const canReadMembers = hasPermission(context.role, "settings:members");
     const canReadBilling = hasPermission(context.role, "settings:billing");
     const [settings, members, billing] = await Promise.all([
-      getOrgSettings({ data: { orgId: context.orgId } }),
+      getManageableOrgSettings({ data: { orgId: context.orgId } }),
       canReadMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       canReadBilling
         ? getOrgBilling({ data: { orgId: context.orgId } })
@@ -1323,11 +1323,14 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
             onTest={async () => {
-              const host = getSetting("propresenter-host");
-              const port = parseInt(getSetting("propresenter-port") || "50001", 10);
-              const apiPort = parseInt(getSetting("propresenter-api-port") || "0", 10);
+              const host = getSetting("propresenter-host").trim();
               if (!host) throw new Error("Set ProPresenter host first");
-              const result = await testProPresenterConnection({ data: { host, port, apiPort: apiPort || undefined } });
+              await Promise.all([
+                saveSetting("propresenter-host", host),
+                saveSetting("propresenter-port", getSetting("propresenter-port") || "50001"),
+                saveSetting("propresenter-api-port", getSetting("propresenter-api-port") || "1025"),
+              ]);
+              const result = await testProPresenterConnection({ data: { orgId } });
               if (!result.ok) throw new Error(result.error || "Connection failed");
             }}
           >

@@ -362,7 +362,19 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   browser sessions adding the same item concurrently produced one template and
   one August entry. Reusing it in September kept one template and produced one
   entry per show. All temporary QA rows were deleted afterward.
-- Current verification passes 69 web test files and 608 tests, web and mobile
+- The launch audit now enforces least-privilege access at the server boundary
+  for Assets, Audio, external chat, OnTime, lower-third library resets, and
+  ProPresenter control. Member-visible organization settings are explicitly
+  allowlisted so integration credentials and API keys cannot leak through the
+  shared settings reader. ProPresenter proxy requests use the saved
+  organization target instead of a client-supplied host, and unused legacy
+  notification, lower-third, and OnTime endpoints were removed. A real
+  Workers-runtime D1 integration test now proves that memberships, temporary
+  grants, and member-visible settings stay tenant-scoped. Rendered QA confirmed
+  a Production Manager receives read-only Assets UI while a Tech Manager can
+  open the management dialog; the local QA account was restored to Owner.
+- Current verification passes 69 web unit-test files and 608 unit tests, plus
+  one Workers-runtime D1 integration test, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 493,651 bytes raw

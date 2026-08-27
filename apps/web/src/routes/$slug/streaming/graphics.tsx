@@ -34,7 +34,7 @@ import {
   ACCENT_PRESETS,
   TEMPLATES,
 } from "@/lib/lt-templates";
-import { getOrgSettings } from "@/lib/settings";
+import { getProPresenterRuntimeSettings } from "@/lib/settings";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
 import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
@@ -84,10 +84,17 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
+    const canTrigger = hasEffectivePermission(
+      context.role,
+      context.grantedPermissions,
+      "lowerthird:trigger",
+    );
     const [templates, active, settings] = await Promise.all([
       getGraphicTemplates({ data: { orgId: context.orgId } }),
       getActiveGraphics({ data: { orgId: context.orgId } }),
-      getOrgSettings({ data: { orgId: context.orgId } }),
+      canTrigger
+        ? getProPresenterRuntimeSettings({ data: { orgId: context.orgId } })
+        : Promise.resolve<Record<string, string>>({}),
     ]);
     return {
       templates,
@@ -123,6 +130,7 @@ function GraphicsPage() {
   const [bridgeOnline, setBridgeOnline] = useState(false);
 
   const proPresenter = useProPresenter({
+    orgId,
     host: proPresenterConfig.host,
     port: proPresenterConfig.stagePort,
     apiPort: proPresenterConfig.apiPort,

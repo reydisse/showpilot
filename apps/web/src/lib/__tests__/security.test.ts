@@ -135,7 +135,5 @@ describe("parseOrThrow", () => {
   });
 });
 
-// FOLLOW-UP: true cross-org DB isolation tests (e.g. org A reading org B's
-// stream destinations) need a D1 test harness via @cloudflare/vitest-pool-workers,
-// which is not configured in this repo yet. The org-scoping assertions
-// themselves live in each server function (see settings.ts / data.ts patterns).
+// Real D1 membership and temporary-grant isolation runs separately in
+// tenant-isolation.worker.test.ts inside Cloudflare's Workers runtime.

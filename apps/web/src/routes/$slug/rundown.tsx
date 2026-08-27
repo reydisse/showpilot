@@ -77,7 +77,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProPresenter } from "@/hooks/useProPresenter";
-import { getOrgSettings } from "@/lib/settings";
+import { getOrgSettings, getProPresenterRuntimeSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
@@ -473,7 +473,8 @@ function RundownPage() {
 
   // Load PP settings from org config
   useEffect(() => {
-    getOrgSettings({ data: { orgId } }).then((settings) => {
+    if (!canControlRundown) return;
+    getProPresenterRuntimeSettings({ data: { orgId } }).then((settings) => {
       const host = settings["propresenter-host"] || "";
       const port = parseInt(settings["propresenter-port"] || "50001", 10);
       const pwd = settings["propresenter-password"] || "";
@@ -487,7 +488,7 @@ function RundownPage() {
       setPpCuesEnabled(cues);
       setPpOnKiosk(stageDisplay);
     }).catch(() => {});
-  }, [orgId]);
+  }, [canControlRundown, orgId]);
 
   // PP slide preview — direct ProPresenter connection updates local preview only.
   const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
@@ -511,6 +512,7 @@ function RundownPage() {
 
   // ProPresenter direct connection (works on local network / dev only)
   const pp = useProPresenter({
+    orgId,
     host: ppHost,
     port: ppPort,
     apiPort: ppApiPort || undefined,
@@ -1677,7 +1679,7 @@ function RundownPage() {
                             <button
                               onClick={() => {
                                 setPpCmdError("");
-                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "previous" } })
+                                sendProPresenterCommand({ data: { orgId, command: "previous" } })
                                   .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
                                   .catch(e => setPpCmdError(String(e)));
                               }}
@@ -1690,7 +1692,7 @@ function RundownPage() {
                             <button
                               onClick={() => {
                                 setPpCmdError("");
-                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "next" } })
+                                sendProPresenterCommand({ data: { orgId, command: "next" } })
                                   .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
                                   .catch(e => setPpCmdError(String(e)));
                               }}
@@ -1703,7 +1705,7 @@ function RundownPage() {
                             <button
                               onClick={() => {
                                 setPpCmdError("");
-                                sendProPresenterCommand({ data: { host: ppHost, port: ppApiPort, command: "clear" } })
+                                sendProPresenterCommand({ data: { orgId, command: "clear" } })
                                   .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
                                   .catch(e => setPpCmdError(String(e)));
                               }}
