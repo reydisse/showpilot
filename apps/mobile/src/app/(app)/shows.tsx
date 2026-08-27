@@ -5,6 +5,7 @@ import X from "lucide-react-native/icons/x";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -36,7 +37,7 @@ export default function ShowsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
-  const { organization, data, isPending, error, refetch } = useMobileBootstrap();
+  const { organization, data, isPending, isRefetching, error, refetch } = useMobileBootstrap();
   const [creating, setCreating] = useState(false);
   const canCreate = Boolean(data?.identity.permissions.includes("schedule:manage"));
   const createMutation = useMutation({
@@ -63,6 +64,7 @@ export default function ShowsScreen() {
     <Page
       eyebrow="RUNDOWNS"
       title="Shows"
+      scroll={false}
       action={canCreate ? (
         <Pressable
           accessibilityRole="button"
@@ -74,19 +76,31 @@ export default function ShowsScreen() {
         </Pressable>
       ) : null}
     >
-      <Text style={styles.intro}>Upcoming and active shows for {organization.name}.</Text>
-      {isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-      {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
-      <View style={styles.list}>
-        {data?.shows.map((show) => (
-          <ShowCard key={show.id} show={show} timeZone={data.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } })} />
-        ))}
-      </View>
-      {data && data.shows.length === 0 ? (
-        <Text style={styles.empty}>
-          {canCreate ? "No upcoming shows. Tap + to schedule the first one." : "There are no upcoming shows in this workspace."}
-        </Text>
-      ) : null}
+      <FlatList
+        contentContainerStyle={styles.list}
+        data={data?.shows ?? []}
+        initialNumToRender={10}
+        keyExtractor={(show) => show.id}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <Text style={styles.intro}>Upcoming and active shows for {organization.name}.</Text>
+            {isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
+            {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
+          </View>
+        )}
+        ListEmptyComponent={data && !isPending ? (
+          <Text style={styles.empty}>
+            {canCreate ? "No upcoming shows. Tap + to schedule the first one." : "There are no upcoming shows in this workspace."}
+          </Text>
+        ) : null}
+        maxToRenderPerBatch={10}
+        onRefresh={() => void refetch()}
+        refreshing={isRefetching}
+        renderItem={({ item: show }) => (
+          <ShowCard show={show} timeZone={data!.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } })} />
+        )}
+        windowSize={7}
+      />
       {creating && data ? (
         <CreateShowModal
           timeZone={data.timeZone}
@@ -216,7 +230,8 @@ function CreateShowModal({
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   addButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
   intro: { color: colors.textMuted, fontFamily, fontSize: 15, lineHeight: 22, marginTop: -12 },
-  list: { gap: 12 },
+  list: { gap: 12, paddingBottom: spacing.large },
+  listHeader: { gap: spacing.medium, marginBottom: 2 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21, borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: spacing.large },
   error: { color: colors.red, fontFamily, fontSize: 13, lineHeight: 21 },
   retry: { color: colors.amberText, fontWeight: "700" },

@@ -37,6 +37,13 @@ const sourceContract = [
   ["src/app/settings.tsx", "setAppThemePreference"],
   ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
   ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
+  ["src/app/(app)/inbox.tsx", "<FlatList"],
+  ["src/app/(app)/shows.tsx", "<FlatList"],
+  ["src/app/show/[showId].tsx", "function TimerPanel"],
+  ["src/app/show/[showId].tsx", "<FlatList"],
+  ["src/app/schedule.tsx", "<FlatList"],
+  ["src/app/incidents.tsx", "<FlatList"],
+  ["src/app/devices.tsx", "<FlatList"],
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
   ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
   ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
@@ -48,6 +55,7 @@ const sourceContract = [
 ];
 const forbiddenSourceContract = [
   ["src/app/(app)/profile.tsx", "requestMediaLibraryPermissionsAsync"],
+  ["src/app/show/[showId].tsx", "items.map((item"],
 ];
 const apiContract = [
   "/api/mobile/v1/bootstrap",

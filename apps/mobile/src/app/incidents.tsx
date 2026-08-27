@@ -7,7 +7,7 @@ import Plus from "lucide-react-native/icons/plus";
 import UserRound from "lucide-react-native/icons/user-round";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
@@ -58,31 +58,48 @@ export default function IncidentsScreen() {
   const openCount = query.data?.incidents.filter((incident) => incident.status === "open").length ?? 0;
 
   return (
-    <Page eyebrow="OPERATIONS LOG" title="Incidents" refreshing={query.isRefetching} onRefresh={query.refetch} action={query.data?.canReport ? <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={() => setReporting((value) => !value)} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}>
-      <View style={styles.summary}><AlertTriangle color={openCount ? colors.red : colors.green} size={20} /><Text style={styles.summaryValue}>{openCount}</Text><Text style={styles.summaryText}>open {openCount === 1 ? "incident" : "incidents"}</Text></View>
-      {reporting ? (
-        <View style={styles.form}>
-          <Text style={styles.formTitle}>Report what happened</Text>
-          <Text style={styles.label}>CATEGORY</Text>
-          <View accessibilityRole="radiogroup" style={styles.choices}>{categories.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: category === value }} key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
-          <Text style={styles.label}>SEVERITY</Text>
-          <View accessibilityRole="radiogroup" style={styles.choices}>{severities.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: severity === value }} key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
-          <Text style={styles.label}>DESCRIPTION</Text>
-          <TextInput accessibilityLabel="Incident description" multiline maxLength={2000} value={description} onChangeText={setDescription} placeholder="What failed, what is affected, and what has already been tried?" placeholderTextColor={colors.textFaint} style={styles.input} />
-          <View style={styles.serviceDateRow}>
-            <Text style={styles.serviceDateLabel}>SERVICE DATE</Text>
-            <Text style={styles.serviceDateValue}>{reportServiceDate ?? "Loading venue date…"}</Text>
+    <Page eyebrow="OPERATIONS LOG" title="Incidents" scroll={false} action={query.data?.canReport ? <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={() => setReporting((value) => !value)} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}>
+      <FlatList
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.list}
+        data={query.data?.incidents ?? []}
+        initialNumToRender={10}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(incident) => incident.id}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <View style={styles.summary}><AlertTriangle color={openCount ? colors.red : colors.green} size={20} /><Text style={styles.summaryValue}>{openCount}</Text><Text style={styles.summaryText}>open {openCount === 1 ? "incident" : "incidents"}</Text></View>
+            {reporting ? (
+              <View style={styles.form}>
+                <Text style={styles.formTitle}>Report what happened</Text>
+                <Text style={styles.label}>CATEGORY</Text>
+                <View accessibilityRole="radiogroup" style={styles.choices}>{categories.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: category === value }} key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+                <Text style={styles.label}>SEVERITY</Text>
+                <View accessibilityRole="radiogroup" style={styles.choices}>{severities.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: severity === value }} key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+                <Text style={styles.label}>DESCRIPTION</Text>
+                <TextInput accessibilityLabel="Incident description" multiline maxLength={2000} value={description} onChangeText={setDescription} placeholder="What failed, what is affected, and what has already been tried?" placeholderTextColor={colors.textFaint} style={styles.input} />
+                <View style={styles.serviceDateRow}>
+                  <Text style={styles.serviceDateLabel}>SERVICE DATE</Text>
+                  <Text style={styles.serviceDateValue}>{reportServiceDate ?? "Loading venue date…"}</Text>
+                </View>
+                <AppButton label={mutation.isPending ? "Reporting…" : "Report incident"} disabled={mutation.isPending || !reportServiceDate || description.trim().length < 2} onPress={() => mutation.mutate()} />
+              </View>
+            ) : null}
+            {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
+            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
           </View>
-          <AppButton label={mutation.isPending ? "Reporting…" : "Report incident"} disabled={mutation.isPending || !reportServiceDate || description.trim().length < 2} onPress={() => mutation.mutate()} />
-        </View>
-      ) : null}
-      {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-      {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
-      <View style={styles.list}>{query.data?.incidents.map((incident) => {
-        const open = incident.status === "open";
-        return <View key={incident.id} style={[styles.card, open && incident.severity === "high" && styles.cardHigh]}><View style={styles.cardHeader}>{open ? <CircleDot color={incident.severity === "high" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}<Text style={styles.category}>{incident.category}</Text><Text style={[styles.severity, incident.severity === "high" && styles.severityHigh]}>{incident.severity}</Text><Text style={styles.date}>{incident.serviceDate}</Text></View><Text style={styles.description}>{incident.description}</Text><View style={styles.owner}><UserRound color={colors.textFaint} size={13} /><Text style={styles.ownerText}>{incident.assignedName || `Reported by ${incident.reportedBy}`}</Text><Text style={styles.status}>{incident.status}</Text></View></View>;
-      })}</View>
-      {query.data && query.data.incidents.length === 0 ? <Text style={styles.empty}>No incidents have been reported.</Text> : null}
+        )}
+        ListEmptyComponent={query.data && !query.isPending ? <Text style={styles.empty}>No incidents have been reported.</Text> : null}
+        maxToRenderPerBatch={10}
+        onRefresh={() => void query.refetch()}
+        refreshing={query.isRefetching}
+        renderItem={({ item: incident }) => {
+          const open = incident.status === "open";
+          return <View style={[styles.card, open && incident.severity === "high" && styles.cardHigh]}><View style={styles.cardHeader}>{open ? <CircleDot color={incident.severity === "high" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}<Text style={styles.category}>{incident.category}</Text><Text style={[styles.severity, incident.severity === "high" && styles.severityHigh]}>{incident.severity}</Text><Text style={styles.date}>{incident.serviceDate}</Text></View><Text style={styles.description}>{incident.description}</Text><View style={styles.owner}><UserRound color={colors.textFaint} size={13} /><Text style={styles.ownerText}>{incident.assignedName || `Reported by ${incident.reportedBy}`}</Text><Text style={styles.status}>{incident.status}</Text></View></View>;
+        }}
+        windowSize={7}
+      />
     </Page>
   );
 }
@@ -104,7 +121,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   serviceDateRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderRadius: radii.small, backgroundColor: colors.panelStrong, paddingHorizontal: 12 },
   serviceDateLabel: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
   serviceDateValue: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "700" },
-  list: { gap: 10 },
+  list: { gap: 10, paddingBottom: spacing.large },
+  listHeader: { gap: spacing.large, marginBottom: 2 },
   card: { gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: spacing.medium },
   cardHigh: { borderColor: colors.redBorder },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 7 },

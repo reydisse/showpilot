@@ -1,6 +1,6 @@
 # ShowPilot development handoff
 
-Updated: 2026-08-26 (Africa/Accra)
+Updated: 2026-08-27 (Africa/Accra)
 
 Read this file, `CLAUDE.md`, and the live Git state before making changes. Always
 check whether the intended branch/worktree already exists before creating one.
@@ -378,13 +378,23 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   grants, and member-visible settings stay tenant-scoped. Rendered QA confirmed
   a Production Manager receives read-only Assets UI while a Tech Manager can
   open the management dialog; the local QA account was restored to Owner.
+- Native operational feeds now use bounded `FlatList` rendering for Shows,
+  Inbox, Schedule, Incidents, Devices, and live rundown items. The 100 ms live
+  timer repaint is isolated in its own panel instead of rerendering every
+  rundown row ten times per second. Pull-to-refresh, keyboard insets, empty and
+  error states, and the existing interaction controls remain intact. The mobile
+  verifier locks these performance contracts. A fresh all-platform export and
+  Expo Doctor 18/18 passed after the change. The current private-LAN SDK 54
+  test pair also passed auth preflight, credential sign-in, and session
+  creation; Expo Go is available at `exp://10.128.57.247:8083` while that local
+  QA server remains running.
 - Current verification passes 69 web unit-test files and 608 unit tests, plus
   one Workers-runtime D1 integration test, web and mobile
   TypeScript, the production web build, Wrangler type generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 493,651 bytes raw
-  and 155,354 bytes gzip. The iOS and Android Hermes bundles are 5,901,966 and
-  5,902,629 bytes, respectively, below the enforced 6.5 MB ceiling.
+  and 155,354 bytes gzip. The iOS and Android Hermes bundles are 5,903,770 and
+  5,904,395 bytes, respectively, below the enforced 6.5 MB ceiling.
 - A live Core Web Vitals trace is still outstanding because the current agent
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke

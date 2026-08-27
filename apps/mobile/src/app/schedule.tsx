@@ -5,7 +5,7 @@ import MapPin from "lucide-react-native/icons/map-pin";
 import Users from "lucide-react-native/icons/users";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
@@ -64,14 +64,29 @@ export default function ScheduleScreen() {
   }
 
   return (
-    <Page eyebrow="CREW PLAN" title="Schedule" refreshing={query.isRefetching} onRefresh={query.refetch}>
-      {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-      {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
-      <View style={styles.list}>
-        {services.map((service) => {
+    <Page eyebrow="CREW PLAN" title="Schedule" scroll={false}>
+      <FlatList
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={styles.list}
+        data={services}
+        initialNumToRender={8}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(service) => service.id}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
+            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+          </View>
+        )}
+        ListEmptyComponent={query.data && !query.isPending ? <Text style={styles.empty}>No services are scheduled in this range.</Text> : null}
+        maxToRenderPerBatch={8}
+        onRefresh={() => void query.refetch()}
+        refreshing={query.isRefetching}
+        renderItem={({ item: service }) => {
           const assignments = (schedule?.assignments ?? []).filter((assignment) => assignment.showId === service.id);
           return (
-            <View key={service.id} style={styles.card}>
+            <View style={styles.card}>
               <View style={styles.dateBlock}><Text style={styles.dateDay}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { day: "2-digit" })}</Text><Text style={styles.dateMonth}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { month: "short" }).toUpperCase()}</Text></View>
               <View style={styles.cardCopy}>
                 <Text style={styles.title}>{service.name || "Untitled show"}</Text>
@@ -81,9 +96,9 @@ export default function ScheduleScreen() {
               </View>
             </View>
           );
-        })}
-      </View>
-      {query.data && query.data.services.length === 0 ? <Text style={styles.empty}>No services are scheduled in this range.</Text> : null}
+        }}
+        windowSize={7}
+      />
     </Page>
   );
 }
@@ -135,7 +150,8 @@ function AssignmentRow({ assignment, focused, declining, reason, pending, onReas
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  list: { gap: 12 },
+  list: { gap: 12, paddingBottom: spacing.large },
+  listHeader: { gap: spacing.medium },
   card: { flexDirection: "row", gap: 13, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: spacing.medium },
   dateBlock: { width: 48, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amberSoft },
   dateDay: { color: colors.amberText, fontFamily, fontSize: 20, fontWeight: "900" },

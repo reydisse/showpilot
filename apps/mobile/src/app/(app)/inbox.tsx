@@ -4,7 +4,7 @@ import Bell from "lucide-react-native/icons/bell";
 import CalendarCheck2 from "lucide-react-native/icons/calendar-check-2";
 import CheckCheck from "lucide-react-native/icons/check-check";
 import Info from "lucide-react-native/icons/info";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { Page } from "@/components/page";
@@ -47,12 +47,26 @@ export default function InboxScreen() {
   }
 
   return (
-    <Page eyebrow="ACTIVITY" title="Inbox" refreshing={isRefetching} onRefresh={refetch} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
-      <Text style={styles.intro}>{unreadCount} unread notifications</Text>
-      {isPending ? <Text style={styles.muted}>Syncing notifications…</Text> : null}
-      {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message} · Tap to retry</Text> : null}
-      <View style={styles.list}>
-        {data?.notifications.map((notification) => {
+    <Page eyebrow="ACTIVITY" title="Inbox" scroll={false} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
+      <FlatList
+        contentContainerStyle={styles.list}
+        data={data?.notifications ?? []}
+        initialNumToRender={12}
+        keyExtractor={(notification) => notification.id}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <Text style={styles.intro}>{unreadCount} unread notifications</Text>
+            {isPending ? <Text style={styles.muted}>Syncing notifications…</Text> : null}
+            {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message} · Tap to retry</Text> : null}
+          </View>
+        )}
+        ListEmptyComponent={data && !isPending ? (
+          <View style={styles.empty}><Bell size={25} color={colors.textFaint} /><Text style={styles.emptyTitle}>All quiet</Text><Text style={styles.muted}>New assignments, mentions, alerts, and show activity will appear here.</Text></View>
+        ) : null}
+        maxToRenderPerBatch={12}
+        onRefresh={() => void refetch()}
+        refreshing={isRefetching}
+        renderItem={({ item: notification }) => {
           const read = Boolean(notification.readAt);
           const Icon = notification.severity === "critical" || notification.severity === "warning" ? AlertTriangle : notification.type === "assignment" ? CalendarCheck2 : Info;
           return (
@@ -65,11 +79,9 @@ export default function InboxScreen() {
               </View>
             </Pressable>
           );
-        })}
-      </View>
-      {data && data.notifications.length === 0 ? (
-        <View style={styles.empty}><Bell size={25} color={colors.textFaint} /><Text style={styles.emptyTitle}>All quiet</Text><Text style={styles.muted}>New assignments, mentions, alerts, and show activity will appear here.</Text></View>
-      ) : null}
+        }}
+        windowSize={7}
+      />
     </Page>
   );
 }
@@ -78,7 +90,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   intro: { color: colors.textMuted, fontFamily, fontSize: 14, marginTop: -12 },
   markAll: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: radii.small, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 11 },
   markAllText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
-  list: { gap: 10 },
+  list: { gap: 10, paddingBottom: spacing.large },
+  listHeader: { gap: 10, marginBottom: 2 },
   card: { flexDirection: "row", gap: 12, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: spacing.medium },
   unread: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   pressed: { opacity: 0.72 },

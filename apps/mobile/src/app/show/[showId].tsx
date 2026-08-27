@@ -13,7 +13,7 @@ import SkipBack from "lucide-react-native/icons/skip-back";
 import SkipForward from "lucide-react-native/icons/skip-forward";
 import Wifi from "lucide-react-native/icons/wifi";
 import WifiOff from "lucide-react-native/icons/wifi-off";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
@@ -26,30 +26,23 @@ function titleFor(show: MobileRundown["show"]) {
   return show.name.trim() || "Untitled show";
 }
 
-function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: string }) {
+function TimerPanel({
+  canControl,
+  controlsEnabled,
+  items,
+  onCommand,
+  timer,
+}: {
+  canControl: boolean;
+  controlsEnabled: boolean;
+  items: RundownItem[];
+  onCommand: (action: string, payload?: Record<string, unknown>) => void;
+  timer: MobileRundown["timer"];
+}) {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
-  const seededRef = useRef(false);
-  const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
-  // Once the relay identifies this room, its empty list is authoritative.
-  // Falling back to the HTTP snapshot would resurrect items deleted elsewhere.
-  const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
-  const items = relayIsAuthoritative ? relay.items : detail.items;
-  const timer = relayIsAuthoritative ? relay.timer : detail.timer;
   const currentItem = items.find((item) => item.id === timer.currentItemId) ?? null;
   const [elapsed, setElapsed] = useState(() => timerElapsed(timer));
-  const controlsEnabled = detail.canControl && relay.status === "connected" && relay.hydrated && sameRoom;
-
-  useEffect(() => {
-    if (!relay.hydrated || seededRef.current) return;
-    if (sameRoom && !relay.initialized && detail.canControl) {
-      seededRef.current = true;
-      relay.seedState(detail.items, detail.timer);
-    } else if (sameRoom && (relay.initialized || !detail.canControl)) {
-      seededRef.current = true;
-    }
-  }, [detail, relay, sameRoom]);
 
   useEffect(() => {
     const tick = () => setElapsed(timerElapsed(timer));
@@ -64,6 +57,74 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
       ? formatTimer(currentItem.duration - elapsed)
       : formatTimer(elapsed);
   const overtime = Boolean(currentItem && timer.mode === "count-down" && currentItem.duration - elapsed < 0);
+
+  return (
+    <View style={[styles.timerCard, overtime && styles.timerCardOvertime]}>
+      <View style={styles.nowRow}>
+        <View style={[styles.liveDot, timer.playback !== "play" && styles.liveDotIdle]} />
+        <Text style={styles.nowLabel}>{timer.playback === "play" ? "NOW LIVE" : timer.playback === "pause" ? "PAUSED" : "STANDBY"}</Text>
+      </View>
+      <Text numberOfLines={2} style={styles.currentTitle}>{currentItem?.title ?? "Select an item to begin"}</Text>
+      <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.timer, overtime && styles.timerOvertime]}>{timerValue}</Text>
+      <Text style={styles.timerMode}>{timer.mode.replace("-", " ").toUpperCase()}</Text>
+
+      {canControl ? (
+        <>
+          <View style={styles.transport}>
+            <ControlButton label="Previous" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-prev")}><SkipBack size={22} color={colors.text} /></ControlButton>
+            <ControlButton
+              label={timer.playback === "play" ? "Pause" : timer.playback === "pause" ? "Resume" : "Start"}
+              primary
+              disabled={!controlsEnabled || (!currentItem && items.every((item) => item.type === "header"))}
+              onPress={() => {
+                if (timer.playback === "play") onCommand("timer-pause");
+                else if (timer.playback === "pause") onCommand("timer-resume");
+                else {
+                  const firstItem = items.find((item) => item.type !== "header" && item.status !== "complete");
+                  if (firstItem) onCommand("timer-start", { itemId: firstItem.id });
+                }
+              }}
+            >
+              {timer.playback === "play" ? <Pause size={24} color={colors.black} /> : <Play size={24} color={colors.black} fill={colors.black} />}
+            </ControlButton>
+            <ControlButton label="Next" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-next")}><SkipForward size={22} color={colors.text} /></ControlButton>
+          </View>
+          <View style={styles.adjustRow}>
+            <MiniButton label="−30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-adjust", { deltaMs: -30_000 })}><Minus size={16} color={colors.textMuted} /></MiniButton>
+            <MiniButton label="+30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-adjust", { deltaMs: 30_000 })}><Plus size={16} color={colors.textMuted} /></MiniButton>
+            <MiniButton label="Stop" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-stop")}><CircleStop size={16} color={colors.red} /></MiniButton>
+            <MiniButton label="Reset" disabled={!controlsEnabled} onPress={() => onCommand("reset")}><RotateCcw size={16} color={colors.textMuted} /></MiniButton>
+          </View>
+        </>
+      ) : (
+        <Text style={styles.observerCopy}>You can follow every live change. An admin can grant you rundown control when you are on duty.</Text>
+      )}
+    </View>
+  );
+}
+
+function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: string }) {
+  const { colors } = useAppTheme();
+  const styles = useStyles();
+  const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
+  const seededRef = useRef(false);
+  const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
+  // Once the relay identifies this room, its empty list is authoritative.
+  // Falling back to the HTTP snapshot would resurrect items deleted elsewhere.
+  const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
+  const items = relayIsAuthoritative ? relay.items : detail.items;
+  const timer = relayIsAuthoritative ? relay.timer : detail.timer;
+  const controlsEnabled = detail.canControl && relay.status === "connected" && relay.hydrated && sameRoom;
+
+  useEffect(() => {
+    if (!relay.hydrated || seededRef.current) return;
+    if (sameRoom && !relay.initialized && detail.canControl) {
+      seededRef.current = true;
+      relay.seedState(detail.items, detail.timer);
+    } else if (sameRoom && (relay.initialized || !detail.canControl)) {
+      seededRef.current = true;
+    }
+  }, [detail, relay, sameRoom]);
 
   async function command(action: string, payload?: Record<string, unknown>) {
     if (!controlsEnabled) return;
@@ -83,66 +144,39 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
       : "Reconnecting";
 
   return (
-    <Page eyebrow={detail.show.serviceDate} title={titleFor(detail.show)}>
+    <Page eyebrow={detail.show.serviceDate} title={titleFor(detail.show)} scroll={false}>
       <Stack.Screen options={{ title: titleFor(detail.show) }} />
-      <View style={styles.connectionRow}>
-        {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
-        <Text style={[styles.connectionText, relay.status === "connected" && styles.connected]}>{connectionText}</Text>
-        <View style={styles.permissionBadge}>
-          <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : "VIEW ONLY"}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.timerCard, overtime && styles.timerCardOvertime]}>
-        <View style={styles.nowRow}>
-          <View style={[styles.liveDot, timer.playback !== "play" && styles.liveDotIdle]} />
-          <Text style={styles.nowLabel}>{timer.playback === "play" ? "NOW LIVE" : timer.playback === "pause" ? "PAUSED" : "STANDBY"}</Text>
-        </View>
-        <Text numberOfLines={2} style={styles.currentTitle}>{currentItem?.title ?? "Select an item to begin"}</Text>
-        <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.timer, overtime && styles.timerOvertime]}>{timerValue}</Text>
-        <Text style={styles.timerMode}>{timer.mode.replace("-", " ").toUpperCase()}</Text>
-
-        {detail.canControl ? (
-          <>
-            <View style={styles.transport}>
-              <ControlButton label="Previous" disabled={!controlsEnabled || !currentItem} onPress={() => void command("timer-prev")}><SkipBack size={22} color={colors.text} /></ControlButton>
-              <ControlButton
-                label={timer.playback === "play" ? "Pause" : timer.playback === "pause" ? "Resume" : "Start"}
-                primary
-                disabled={!controlsEnabled || (!currentItem && items.every((item) => item.type === "header"))}
-                onPress={() => {
-                  if (timer.playback === "play") void command("timer-pause");
-                  else if (timer.playback === "pause") void command("timer-resume");
-                  else {
-                    const firstItem = items.find((item) => item.type !== "header" && item.status !== "complete");
-                    if (firstItem) void command("timer-start", { itemId: firstItem.id });
-                  }
-                }}
-              >
-                {timer.playback === "play" ? <Pause size={24} color={colors.black} /> : <Play size={24} color={colors.black} fill={colors.black} />}
-              </ControlButton>
-              <ControlButton label="Next" disabled={!controlsEnabled || !currentItem} onPress={() => void command("timer-next")}><SkipForward size={22} color={colors.text} /></ControlButton>
+      <FlatList
+        contentContainerStyle={styles.list}
+        data={items}
+        initialNumToRender={12}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={<Text style={styles.empty}>This show has no rundown items yet.</Text>}
+        ListHeaderComponent={(
+          <View style={styles.listHeader}>
+            <View style={styles.connectionRow}>
+              {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
+              <Text style={[styles.connectionText, relay.status === "connected" && styles.connected]}>{connectionText}</Text>
+              <View style={styles.permissionBadge}>
+                <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : "VIEW ONLY"}</Text>
+              </View>
             </View>
-            <View style={styles.adjustRow}>
-              <MiniButton label="−30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => void command("timer-adjust", { deltaMs: -30_000 })}><Minus size={16} color={colors.textMuted} /></MiniButton>
-              <MiniButton label="+30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => void command("timer-adjust", { deltaMs: 30_000 })}><Plus size={16} color={colors.textMuted} /></MiniButton>
-              <MiniButton label="Stop" disabled={!controlsEnabled || !currentItem} onPress={() => void command("timer-stop")}><CircleStop size={16} color={colors.red} /></MiniButton>
-              <MiniButton label="Reset" disabled={!controlsEnabled} onPress={() => void command("reset")}><RotateCcw size={16} color={colors.textMuted} /></MiniButton>
+            <TimerPanel
+              canControl={detail.canControl}
+              controlsEnabled={controlsEnabled}
+              items={items}
+              onCommand={(action, payload) => void command(action, payload)}
+              timer={timer}
+            />
+            {relay.lastError ? <Text style={styles.syncError}>{relay.lastError}</Text> : null}
+            <View style={styles.sectionHeading}>
+              <Text style={styles.sectionTitle}>RUNDOWN</Text>
+              <Text style={styles.sectionCount}>{items.length} ITEMS</Text>
             </View>
-          </>
-        ) : (
-          <Text style={styles.observerCopy}>You can follow every live change. An admin can grant you rundown control when you are on duty.</Text>
+          </View>
         )}
-      </View>
-
-      {relay.lastError ? <Text style={styles.syncError}>{relay.lastError}</Text> : null}
-
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>RUNDOWN</Text>
-        <Text style={styles.sectionCount}>{items.length} ITEMS</Text>
-      </View>
-      <View style={styles.list}>
-        {items.map((item, index) => {
+        maxToRenderPerBatch={12}
+        renderItem={({ item, index }) => {
           const active = item.id === timer.currentItemId;
           const header = item.type === "header";
           return (
@@ -172,9 +206,9 @@ function RundownContent({ detail, orgId }: { detail: MobileRundown; orgId: strin
               )}
             </Pressable>
           );
-        })}
-      </View>
-      {items.length === 0 ? <Text style={styles.empty}>This show has no rundown items yet.</Text> : null}
+        }}
+        windowSize={7}
+      />
     </Page>
   );
 }
@@ -256,7 +290,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.6 },
   sectionCount: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "700", letterSpacing: 1 },
-  list: { gap: 8 },
+  list: { gap: 8, paddingBottom: spacing.large },
+  listHeader: { gap: spacing.large, marginBottom: 8 },
   item: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 12 },
   itemActive: { borderColor: colors.amberStrongBorder, backgroundColor: colors.amberSoft },
   itemPressed: { opacity: 0.72 },
