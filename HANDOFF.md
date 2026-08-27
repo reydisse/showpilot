@@ -459,7 +459,7 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   debug-signed and are not distributable; EAS must inject the approved remote
   release keystore before review or upload.
   Mobile verification remains green with Expo Doctor 18/18 and iOS/Android
-  Hermes bundles of 5,907,725 and 5,908,356 bytes on the latest pass.
+  Hermes bundles of 5,907,724 and 5,908,357 bytes on the latest pass.
 - Real Android native runtime QA also passes on an Android 14 arm64 emulator
   using the repository's SDK 54 development client and the local Workers API.
   The QA account signed in; Home, Shows, Operate, Inbox, Profile, and Settings
@@ -501,6 +501,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   reset it unread. The assignment, notification, show, and temporary crew
   record were then removed through the real UI, local D1 confirmed all four
   were gone, and a cold native relaunch returned to zero unread alerts.
+- The complete local release gate was rerun at `ff94d23`: native release
+  contracts and all seven verifier tests pass; Bridge TypeScript and all 29
+  engine tests pass; Desktop and Bridge Rust formatting plus all 18 native
+  tests pass; the landing Worker passes type generation, TypeScript, 22 tests,
+  build, dry-run deploy, and a fresh local release smoke; and the mobile
+  verifier passes all exports, 18/18 Expo Doctor checks, lint, TypeScript, API
+  contracts, route guards, and bundle budgets. The production landing smoke
+  still fails because the reviewed download Worker has not been deployed.
+  `verify:release` still stops at the intentionally missing approved EAS
+  project ID; EAS is logged out and `owner`, `extra.eas.projectId`, and the
+  update URL remain unset.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and
