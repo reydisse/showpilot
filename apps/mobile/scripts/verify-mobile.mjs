@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { findAnonymousJsxControls } from "../../../scripts/jsx-control-names.mjs";
 
 const mobileRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = resolve(mobileRoot, "../..");
@@ -163,6 +164,16 @@ for (const file of sourceFiles(resolve(mobileRoot, "src"))) {
   }
   if (/as unknown as Href/.test(source)) {
     throw new Error(`Native routes must satisfy Expo's generated Href types without double casts: ${file}`);
+  }
+  const anonymousControls = findAnonymousJsxControls(source, {
+    filePath: file,
+    tagNames: ["Pressable", "TouchableHighlight", "TouchableOpacity"],
+    nameAttributes: ["accessibilityLabel", "accessibilityLabelledBy", "aria-label"],
+  });
+  if (anonymousControls.length > 0) {
+    throw new Error(
+      `Native icon-only controls need an accessibilityLabel or visible text: ${anonymousControls.map((line) => `${file}:${line}`).join(", ")}`,
+    );
   }
 }
 for (const endpoint of apiContract) {

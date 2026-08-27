@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findAnonymousNativeButtons } from "./client-button-names.mjs";
+import { findAnonymousJsxControls } from "../../../scripts/jsx-control-names.mjs";
 
 function anonymousLines(children, attributes = "") {
-  return findAnonymousNativeButtons(
+  return findAnonymousJsxControls(
     `<button ${attributes}>${children}</button>`,
   );
 }
@@ -30,4 +30,22 @@ test("accepts total dynamic labels and rejects labels that can disappear", () =>
 
 test("does not guess about attributes supplied by a spread", () => {
   assert.deepEqual(anonymousLines("<X />", "{...buttonProps}"), []);
+});
+
+test("supports React Native control tags and naming attributes", () => {
+  const options = {
+    tagNames: ["Pressable"],
+    nameAttributes: ["accessibilityLabel"],
+  };
+  assert.deepEqual(
+    findAnonymousJsxControls(
+      '<Pressable accessibilityLabel="Add"><Plus /></Pressable>',
+      options,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    findAnonymousJsxControls("<Pressable><Plus /></Pressable>", options),
+    [1],
+  );
 });

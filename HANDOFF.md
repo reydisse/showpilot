@@ -390,10 +390,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   test pair also passed auth preflight, credential sign-in, and session
   creation; Expo Go is available at `exp://10.128.57.247:8083` while that local
   QA server remains running.
-- Current verification passes 72 web unit-test files and 616 unit tests, four
-  client-button boundary tests, plus one Workers-runtime D1 integration test,
-  web and mobile
-  TypeScript, the production web build, Wrangler type generation checks, a
+- Current verification passes 72 web unit-test files and 616 unit tests, five
+  interactive-control boundary tests, plus one Workers-runtime D1 integration
+  test; web and mobile TypeScript, the production web build, Wrangler type
+  generation checks, a
   strict Worker dry-run, Desktop/Bridge readiness, all-platform Expo export,
   Expo Doctor 18/18, and native lint. The web main bundle is 493,898 bytes raw
   and 155,431 bytes gzip. The iOS and Android Hermes bundles are 5,903,771 and
@@ -526,6 +526,14 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   Rendered QA exposed `Copy overlay URL` and `Close guest crew invite` by those
   names in the browser accessibility tree. The full web test suite, TypeScript,
   and production build pass after the audit.
+- The same tested AST tool now scans React Native `Pressable`,
+  `TouchableHighlight`, and `TouchableOpacity` controls during the ordinary
+  mobile release gate. It accepts visible `Text` content or an explicit native
+  accessibility label and rejects icon-only actions with neither. The complete
+  current mobile source passes. A fresh SDK 54 verification exported iOS,
+  Android, and web, passed native TypeScript and lint, reported Expo Doctor
+  18/18, and measured 5,907,725-byte iOS and 5,908,354-byte Android Hermes
+  bundles against the 6.5 MB ceiling.
 - Before deploying this launch candidate, apply migrations 0030 through 0032
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

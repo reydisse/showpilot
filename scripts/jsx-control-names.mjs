@@ -101,7 +101,14 @@ function jsxChildrenCanNameControl(children) {
   });
 }
 
-export function findAnonymousNativeButtons(source, filePath = "fixture.tsx") {
+export function findAnonymousJsxControls(
+  source,
+  {
+    filePath = "fixture.tsx",
+    tagNames = ["button"],
+    nameAttributes = ["aria-label", "aria-labelledby", "title"],
+  } = {},
+) {
   const sourceFile = ts.createSourceFile(
     filePath,
     source,
@@ -109,15 +116,16 @@ export function findAnonymousNativeButtons(source, filePath = "fixture.tsx") {
     true,
     ts.ScriptKind.TSX,
   );
+  const acceptedTags = new Set(tagNames);
   const lines = [];
   const visit = (node) => {
     if (
       ts.isJsxElement(node) &&
-      node.openingElement.tagName.getText(sourceFile) === "button"
+      acceptedTags.has(node.openingElement.tagName.getText(sourceFile))
     ) {
       const opening = node.openingElement;
-      const explicitlyNamed = ["aria-label", "aria-labelledby", "title"].some(
-        (name) => Boolean(jsxAttribute(opening, name)),
+      const explicitlyNamed = nameAttributes.some((name) =>
+        Boolean(jsxAttribute(opening, name)),
       );
       const nameMayComeFromSpread = opening.attributes.properties.some(
         ts.isJsxSpreadAttribute,

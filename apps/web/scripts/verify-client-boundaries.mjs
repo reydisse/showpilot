@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findAnonymousNativeButtons } from "./client-button-names.mjs";
+import { findAnonymousJsxControls } from "../../../scripts/jsx-control-names.mjs";
 
 const webRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoot = resolve(webRoot, "src");
@@ -192,7 +192,7 @@ for (const filePath of walk(sourceRoot).filter(
 )) {
   const source = readFileSync(filePath, "utf8");
   const relativePath = relative(webRoot, filePath);
-  for (const line of findAnonymousNativeButtons(source, filePath)) {
+  for (const line of findAnonymousJsxControls(source, { filePath })) {
     anonymousIconButtons.push(`${relativePath}:${line}`);
   }
 }
