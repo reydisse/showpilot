@@ -252,7 +252,7 @@
       "id": "devices",
       "label": "Devices",
       "webPath": "dashboard/devices",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
         "src/app/devices.tsx",
         "src/app/device/[deviceId].tsx"
@@ -262,7 +262,7 @@
         "const deviceControlMatch",
         "const deviceWriteMatch"
       ],
-      "gaps": "Native setup, secret-preserving configuration, truthful Bridge diagnostics, and ATEM/mixer control exist; remaining adapter controls and live feedback still need parity."
+      "gaps": ""
     }
   ]
 }
