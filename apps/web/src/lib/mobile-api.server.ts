@@ -156,8 +156,12 @@ interface MobileIncidentRow {
   timestamp: string;
   status: string;
   assignedName: string;
+  assignedTo: string | null;
   acknowledgedAt: string | null;
+  assignedAt: string | null;
   resolvedAt: string | null;
+  resolvedBy: string | null;
+  commentCount: number;
 }
 
 interface MobileCheckInMemberRow {
@@ -987,7 +991,10 @@ async function incidents(request: Request, url: URL, db: MobileApiDatabase): Pro
   if (access instanceof Response) return access;
   const result = await db.prepare(
     `SELECT id, showId, category, severity, description, reportedBy, serviceDate,
-            timestamp, status, assignedName, acknowledgedAt, resolvedAt
+            timestamp, status, assignedTo, assignedName, acknowledgedAt, assignedAt,
+            resolvedAt, resolvedBy,
+            (SELECT CAST(COUNT(*) AS INTEGER) FROM incident_comment c
+             WHERE c.orgId = incident.orgId AND c.incidentId = incident.id) AS commentCount
      FROM incident WHERE orgId = ?
      ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, timestamp DESC LIMIT 100`,
   ).bind(access.orgId).all<MobileIncidentRow>();
@@ -996,6 +1003,174 @@ async function incidents(request: Request, url: URL, db: MobileApiDatabase): Pro
     canManage: access.identity.permissions.includes("incidents:access"),
     incidents: result.results ?? [],
   });
+}
+
+type MobileIncidentCommand =
+  | { kind: "claim" }
+  | { kind: "acknowledge" }
+  | { kind: "resolve" };
+
+function parseIncidentCommand(body: Record<string, unknown> | null): MobileIncidentCommand | null {
+  if (body?.action === "claim") return { kind: "claim" };
+  if (body?.action === "acknowledge") return { kind: "acknowledge" };
+  if (body?.action === "resolve") return { kind: "resolve" };
+  return null;
+}
+
+async function notifyMobileIncidentCommand(input: {
+  orgId: string;
+  actorId: string;
+  actorName: string;
+  incidentId: string;
+  command: MobileIncidentCommand;
+}) {
+  const copy = input.command.kind === "claim"
+    ? { type: "incident-assigned", title: "Operational issue claimed", message: `${input.actorName} is now responsible for this issue.` }
+    : input.command.kind === "acknowledge"
+      ? { type: "incident-acknowledged", title: "Operational issue acknowledged", message: `${input.actorName} acknowledged the assigned issue.` }
+      : { type: "incident-resolved", title: "Operational issue resolved", message: `${input.actorName} marked the issue as resolved.` };
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: input.orgId,
+      actorId: input.actorId,
+      includeLeadership: true,
+      type: copy.type,
+      severity: "warning",
+      title: copy.title,
+      message: copy.message,
+      actionUrl: `production/incidents?incident=${encodeURIComponent(input.incidentId)}`,
+      source: input.incidentId,
+      pushTag: `fault-${input.incidentId}`,
+    });
+  } catch {
+    // The state transition remains authoritative when notification delivery fails.
+  }
+}
+
+async function commandIncident(
+  request: Request,
+  url: URL,
+  incidentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:access"]);
+  if (access instanceof Response) return access;
+  const command = parseIncidentCommand(await readJson(request));
+  if (!command) return json({ error: "Choose a valid incident action." }, 400);
+  const incident = await db.prepare(
+    "SELECT id, status, assignedTo, acknowledgedAt FROM incident WHERE id = ? AND orgId = ? LIMIT 1",
+  ).bind(incidentId, access.orgId).first<{
+    id: string;
+    status: string;
+    assignedTo: string | null;
+    acknowledgedAt: string | null;
+  }>();
+  if (!incident) return json({ error: "Incident not found." }, 404);
+
+  if (command.kind === "claim" && incident.status === "resolved") {
+    return json({ error: "Resolved incidents cannot be claimed." }, 409);
+  }
+  if (command.kind === "acknowledge" && incident.status === "resolved") {
+    return json({ error: "Resolved incidents cannot be acknowledged." }, 409);
+  }
+  if (command.kind === "claim" && incident.assignedTo && incident.assignedTo !== access.identity.userId) {
+    return json({ error: "Another operator already owns this incident." }, 409);
+  }
+  if (command.kind === "acknowledge" && incident.assignedTo !== access.identity.userId) {
+    return json({ error: "Only the assigned operator can acknowledge this incident." }, 403);
+  }
+  if (command.kind === "claim" && incident.assignedTo === access.identity.userId) return json({ ok: true });
+  if (command.kind === "acknowledge" && incident.acknowledgedAt) return json({ ok: true });
+  if (command.kind === "resolve" && incident.status === "resolved") return json({ ok: true });
+
+  const now = new Date().toISOString();
+  const result = command.kind === "claim"
+    ? await db.prepare(
+        `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?, assignedBy = ?, assignedAt = ?
+         WHERE id = ? AND orgId = ? AND status <> 'resolved'
+           AND (assignedTo IS NULL OR assignedTo = '' OR assignedTo = ?)`,
+      ).bind(access.identity.userId, access.identity.name, now, access.identity.userId, now, incidentId, access.orgId, access.identity.userId).run()
+    : command.kind === "acknowledge"
+      ? await db.prepare(
+          `UPDATE incident SET acknowledgedAt = ?
+           WHERE id = ? AND orgId = ? AND status <> 'resolved'
+             AND assignedTo = ? AND acknowledgedAt IS NULL`,
+        ).bind(now, incidentId, access.orgId, access.identity.userId).run()
+      : await db.prepare(
+          `UPDATE incident SET status = 'resolved', resolvedAt = ?, resolvedBy = ?
+           WHERE id = ? AND orgId = ? AND status <> 'resolved'`,
+        ).bind(now, access.identity.name, incidentId, access.orgId).run();
+
+  if (changedExactlyOneRow(result)) {
+    await notifyMobileIncidentCommand({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      actorName: access.identity.name,
+      incidentId,
+      command,
+    });
+  } else {
+    return json({ error: "This incident changed on another device. Refresh and try again." }, 409);
+  }
+  return json({ ok: true });
+}
+
+async function updateMobileIncident(
+  request: Request,
+  url: URL,
+  incidentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const category = typeof body?.category === "string" ? body.category.trim() : "";
+  const severity = typeof body?.severity === "string" ? body.severity.trim() : "";
+  const description = typeof body?.description === "string" ? body.description.trim() : "";
+  if (!new Set(["audio", "video", "stream", "lighting", "other"]).has(category)
+    || !new Set(["low", "medium", "high"]).has(severity)
+    || description.length < 2 || description.length > 2_000) {
+    return json({ error: "Choose a category, severity, and description." }, 400);
+  }
+  const result = await db.prepare(
+    `UPDATE incident SET category = ?, severity = ?, description = ?
+     WHERE id = ? AND orgId = ?`,
+  ).bind(category, severity, description, incidentId, access.orgId).run();
+  if (!changedExactlyOneRow(result)) return json({ error: "Incident not found." }, 404);
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      includeLeadership: true,
+      type: "incident-updated",
+      severity: severity === "high" ? "critical" : "warning",
+      title: "Operational issue updated",
+      message: description.slice(0, 240),
+      actionUrl: `production/incidents?incident=${encodeURIComponent(incidentId)}`,
+      source: incidentId,
+      pushTag: `incident-${incidentId}`,
+    });
+  } catch {
+    // The edit remains authoritative when notification delivery fails.
+  }
+  return json({ ok: true });
+}
+
+async function deleteMobileIncident(
+  request: Request,
+  url: URL,
+  incidentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:access"]);
+  if (access instanceof Response) return access;
+  const result = await db.prepare("DELETE FROM incident WHERE id = ? AND orgId = ?")
+    .bind(incidentId, access.orgId).run();
+  return changedExactlyOneRow(result)
+    ? json({ ok: true })
+    : json({ error: "Incident not found." }, 404);
 }
 
 async function createIncident(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
@@ -1565,6 +1740,14 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     return memberId
       ? setCheckInStatus(request, url, memberId, env.DB)
       : json({ error: "Not found." }, 404);
+  }
+  const incidentMatch = url.pathname.match(/^\/api\/mobile\/v1\/incidents\/([^/]+)\/(command|update|remove)$/);
+  if (incidentMatch && request.method === "POST") {
+    const incidentId = decodeURIComponent(incidentMatch[1] ?? "");
+    if (!validId(incidentId)) return json({ error: "A valid incident id is required." }, 400);
+    if (incidentMatch[2] === "command") return commandIncident(request, url, incidentId, env.DB);
+    if (incidentMatch[2] === "update") return updateMobileIncident(request, url, incidentId, env.DB);
+    return deleteMobileIncident(request, url, incidentId, env.DB);
   }
   const teamGrantMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/access\/grants\/([^/]+)\/revoke$/);
   if (teamGrantMatch && request.method === "POST") {

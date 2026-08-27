@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 80 test files and 661 unit tests, five
+- The current full web gate passes 81 test files and 671 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 497,800 bytes raw and 156,429
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  6,109,562 and 6,110,240 bytes. EAS linkage and signed-device push remain
+  6,125,529 and 6,126,194 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -589,8 +589,8 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
 - `apps/mobile/parity.config.json` is the machine-checked definition of primary
   web-to-native product parity. The mobile verifier derives all 20 source
   surfaces from the production web Sidebar and rejects missing, reordered, or
-  unsupported inventory claims. At this checkpoint Checklist and Check-in are
-  complete; Show, Schedule, Rundown, Chat, Incidents, Team, and Devices are
+  unsupported inventory claims. At this checkpoint Checklist, Check-in, and
+  Team are complete; Show, Schedule, Rundown, Chat, Incidents, and Devices are
   partial; the remaining 11 primary surfaces are explicitly recorded as
   missing. Profile, Settings, authentication, organization selection, and Inbox
   are supporting mobile surfaces outside that primary-nav inventory. Do not describe the React Native
@@ -628,6 +628,16 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   and the no-extra-query contract. The parity manifest now records Team as the
   third complete primary surface; six are partial and 11 remain missing. No
   migration is required.
+- Native Incidents now supports reporting, editing, deletion, self-claim,
+  acknowledgement by the assigned operator, resolution attribution, live/open/
+  resolved filtering, and searchable history. Commands use tenant-scoped
+  conditional updates. Repeated commands are idempotent, while a stale
+  concurrent command returns a conflict instead of overwriting the other
+  operator. Ten request-level tests cover tenant isolation, permissions,
+  idempotency, concurrent writes, edits, deletion, and notification suppression.
+  Incidents remains partial because assigning another responder, threaded
+  comments and reactions, and advanced history filters still need native UI.
+  No migration is required.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field

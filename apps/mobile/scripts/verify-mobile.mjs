@@ -42,6 +42,9 @@ const featureContract = [
 const sourceContract = [
   ["src/app/(app)/shows.tsx", "createMobileRundown"],
   ["src/app/incidents.tsx", "getServiceDateForTimeZone"],
+  ["src/app/incidents.tsx", "commandMobileIncident"],
+  ["src/app/incidents.tsx", "updateMobileIncident"],
+  ["src/app/incidents.tsx", "removeMobileIncident"],
   ["src/app/settings.tsx", "setAppThemePreference"],
   ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
   ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
@@ -91,6 +94,7 @@ const apiContract = [
   "/api/mobile/v1/schedule",
   "/api/mobile/v1/schedule/respond",
   "/api/mobile/v1/incidents",
+  "const incidentMatch",
   "/api/mobile/v1/checklist/items",
   "/api/mobile/v1/checklist/suggestions",
   "const checklistEntryMatch",

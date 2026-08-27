@@ -162,9 +162,13 @@ const incidentSchema = z.object({
   serviceDate: z.string(),
   timestamp: z.string(),
   status: z.string(),
+  assignedTo: z.string().nullable(),
   assignedName: z.string(),
   acknowledgedAt: z.string().nullable(),
+  assignedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  commentCount: z.number(),
 });
 
 const incidentsSchema = z.object({
@@ -452,10 +456,45 @@ export async function reportMobileIncident(input: {
   description: string;
   serviceDate: string;
 }) {
-  await authenticatedFetch(`/api/mobile/v1/incidents?orgId=${encodeURIComponent(input.orgId)}`, {
+  const response = await authenticatedFetch(`/api/mobile/v1/incidents?orgId=${encodeURIComponent(input.orgId)}`, {
     method: "POST",
     body: JSON.stringify(input),
   });
+  return okSchema.parse(await response.json());
+}
+
+export async function commandMobileIncident(input: {
+  orgId: string;
+  incidentId: string;
+  action: "claim" | "acknowledge" | "resolve";
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/incidents/${encodeURIComponent(input.incidentId)}/command?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ action: input.action }) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function updateMobileIncident(input: {
+  orgId: string;
+  incidentId: string;
+  category: "audio" | "video" | "stream" | "lighting" | "other";
+  severity: "low" | "medium" | "high";
+  description: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/incidents/${encodeURIComponent(input.incidentId)}/update?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return okSchema.parse(await response.json());
+}
+
+export async function removeMobileIncident(input: { orgId: string; incidentId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/incidents/${encodeURIComponent(input.incidentId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
 }
 
 export async function getMobileCheckIn(orgId: string): Promise<MobileCheckIn> {

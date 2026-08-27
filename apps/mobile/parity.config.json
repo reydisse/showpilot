@@ -144,7 +144,7 @@
       "apiContracts": [
         "/api/mobile/v1/incidents"
       ],
-      "gaps": "Incident reporting and viewing exist; the complete acknowledgement, resolution, editing, and history workflows remain."
+      "gaps": "Reporting, editing, deletion, self-claim, acknowledgement, resolution, and searchable status history exist. Assignment to another responder, threaded comments and reactions, and advanced history filters still remain."
     },
     {
       "id": "assets",
