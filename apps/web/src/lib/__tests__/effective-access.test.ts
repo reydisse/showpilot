@@ -3,6 +3,7 @@ import {
   addAccessDays,
   parseGrantedPermissions,
   resolveAccessGrantAuthority,
+  resolveAccessGrantAuthorityForAccess,
   resolveEffectiveAccess,
   weekStartForAccess,
   type AccessDatabase,
@@ -101,6 +102,24 @@ describe("weekly access authority", () => {
       weekStart: "2026-08-16",
       weekEndExclusive: "2026-08-23",
     });
+  });
+
+  it("reuses known bootstrap access without another database read", async () => {
+    const queries: string[] = [];
+    const db: AccessDatabase = {
+      prepare(sql) {
+        queries.push(sql);
+        return { bind: () => ({ first: async () => null }) };
+      },
+    };
+    const authority = await resolveAccessGrantAuthorityForAccess(
+      db,
+      "owner-1",
+      "org-1",
+      { role: "owner", today: "2026-08-21" },
+    );
+    expect(authority.kind).toBe("permanent");
+    expect(queries).toEqual([]);
   });
 
   it("gives the person assigned to the TM slot authority for that week", async () => {

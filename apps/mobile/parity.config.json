@@ -94,10 +94,15 @@
       "id": "team",
       "label": "Team",
       "webPath": "team",
-      "status": "missing",
-      "nativeRoutes": [],
-      "apiContracts": [],
-      "gaps": "Native team, invitation, role, and temporary-access management have not been built."
+      "status": "partial",
+      "nativeRoutes": [
+        "src/app/team.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/team/access",
+        "const teamGrantMatch"
+      ],
+      "gaps": "Temporary access management exists; member invitations, role changes, removal, and crew-roster editing remain."
     },
     {
       "id": "cue-sheets",

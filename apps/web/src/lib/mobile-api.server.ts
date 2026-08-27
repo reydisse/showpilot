@@ -1,7 +1,10 @@
 import { getAuth } from "./auth";
 import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
-import { resolveEffectiveAccess } from "./effective-access";
-import type { Permission } from "./permissions";
+import {
+  resolveAccessGrantAuthorityForAccess,
+  resolveEffectiveAccess,
+} from "./effective-access";
+import type { Permission, Role } from "./permissions";
 import { readPhaseSettings } from "./service-phase";
 import { getTodayDateString } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
@@ -28,6 +31,13 @@ import {
   normalizeChecklistLabel,
   type ChecklistRundownItem,
 } from "./smart-checklist-rules";
+import { ACCESS_CAPABILITIES, getAccessCapability } from "./access-capabilities";
+import {
+  getAccessManagementSnapshotForActor,
+  grantMemberAccessForActor,
+  revokeMemberAccessForActor,
+  type AccessGrantDuration,
+} from "./access-grants";
 import type {
   BridgeDispatchMessage,
   BridgeDispatchResult,
@@ -55,8 +65,9 @@ interface MobileIdentity {
   userId: string;
   name: string;
   email: string;
-  role: string;
+  role: Role;
   permissions: Permission[];
+  today: string;
 }
 
 interface MobileRundownRow {
@@ -271,6 +282,7 @@ async function getIdentity(request: Request, orgId: string, db: MobileApiDatabas
       email: session.user.email.toLowerCase(),
       role: access.role,
       permissions: access.permissions,
+      today: access.today,
     };
   } catch {
     return null;
@@ -346,7 +358,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   const timezone = await db.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
     .bind(orgId).first<{ value: string }>();
   const today = getTodayDateString(timezone?.value || "Africa/Accra");
-  const [showsResult, notificationsResult, unreadResult] = await Promise.all([
+  const [showsResult, notificationsResult, unreadResult, accessAuthority] = await Promise.all([
     db.prepare(
       `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status,
               CAST(COUNT(i.id) AS INTEGER) AS itemCount
@@ -370,6 +382,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
        FROM notification
        WHERE orgId = ? AND userId = ? AND dismissed = 0 AND readAt IS NULL`,
     ).bind(orgId, identity.userId).first<{ count: number }>(),
+    resolveAccessGrantAuthorityForAccess(db, identity.userId, orgId, identity, today),
   ]);
   const notifications = notificationsResult.results ?? [];
   return json({
@@ -384,6 +397,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
     shows: showsResult.results ?? [],
     notifications,
     unreadNotifications: unreadResult?.count ?? 0,
+    accessAuthority,
   });
 }
 
@@ -1006,6 +1020,79 @@ async function setCheckInStatus(
     : json({ error: "Crew member not found." }, 404);
 }
 
+async function teamAccess(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const snapshot = await getAccessManagementSnapshotForActor({
+    orgId: access.orgId,
+    actorUserId: access.identity.userId,
+    database: db,
+  });
+  return json({
+    ...snapshot,
+    capabilities: ACCESS_CAPABILITIES.map(({ id, label, description }) => ({ id, label, description })),
+  });
+}
+
+function accessMutationStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("Only an Owner") || message.startsWith("The on-duty TM")) return 403;
+  if (message.includes("already has")) return 409;
+  if (message.includes("not a member") || message.includes("no longer active")) return 404;
+  return 400;
+}
+
+async function grantTeamAccess(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const capability = typeof body?.capability === "string"
+    ? getAccessCapability(body.capability)
+    : null;
+  const duration: AccessGrantDuration | null = body?.duration === "this-week" || body?.duration === "until-revoked"
+    ? body.duration
+    : null;
+  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  if (!body || !validId(body.userId) || !capability || !duration || reason.length > 240) {
+    return json({ error: "Choose a member, capability, and valid duration." }, 400);
+  }
+  try {
+    const grant = await grantMemberAccessForActor({
+      orgId: access.orgId,
+      actor: { userId: access.identity.userId, name: access.identity.name },
+      userId: body.userId,
+      capability: capability.id,
+      duration,
+      reason,
+      database: db,
+    });
+    return json({ ok: true, grantId: grant.id }, 201);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to grant access." }, accessMutationStatus(error));
+  }
+}
+
+async function revokeTeamAccess(
+  request: Request,
+  url: URL,
+  grantId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  try {
+    await revokeMemberAccessForActor({
+      orgId: access.orgId,
+      actor: { userId: access.identity.userId, name: access.identity.name },
+      grantId,
+      database: db,
+    });
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to revoke access." }, accessMutationStatus(error));
+  }
+}
+
 async function devices(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["devices:access"]);
   if (access instanceof Response) return access;
@@ -1190,6 +1277,8 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/access" && request.method === "GET") return teamAccess(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/access/grants" && request.method === "POST") return grantTeamAccess(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/devices" && request.method === "GET") return devices(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist" && request.method === "GET") return checklist(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist/items" && request.method === "POST") return addChecklistItemMobile(request, url, env.DB);
@@ -1202,6 +1291,13 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     const memberId = decodePathId(checkInMemberMatch[1]);
     return memberId
       ? setCheckInStatus(request, url, memberId, env.DB)
+      : json({ error: "Not found." }, 404);
+  }
+  const teamGrantMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/access\/grants\/([^/]+)\/revoke$/);
+  if (teamGrantMatch && request.method === "POST") {
+    const grantId = decodePathId(teamGrantMatch[1]);
+    return grantId
+      ? revokeTeamAccess(request, url, grantId, env.DB)
       : json({ error: "Not found." }, 404);
   }
   const checklistEntryMatch = url.pathname.match(/^\/api\/mobile\/v1\/checklist\/entries\/([^/]+)\/(toggle|remove)$/);

@@ -49,6 +49,8 @@ export interface AccessGrantAuthority {
   today: string;
 }
 
+type AccessAuthorityContext = Pick<EffectiveAccess, "role" | "today">;
+
 export function weekStartForAccess(date: string): string {
   const value = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(value.getTime())) return date;
@@ -153,6 +155,17 @@ export async function resolveAccessGrantAuthority(
 ): Promise<AccessGrantAuthority> {
   const access = await resolveEffectiveAccess(db, userId, orgId, todayOverride);
   const today = access?.today ?? (await resolveOrgToday(db, orgId, todayOverride));
+  return resolveAccessGrantAuthorityForAccess(db, userId, orgId, access, today);
+}
+
+export async function resolveAccessGrantAuthorityForAccess(
+  db: AccessDatabase,
+  userId: string,
+  orgId: string,
+  access: AccessAuthorityContext | null,
+  todayOverride?: string,
+): Promise<AccessGrantAuthority> {
+  const today = access?.today ?? todayOverride ?? (await resolveOrgToday(db, orgId));
   const weekStart = weekStartForAccess(today);
   const weekEndExclusive = addAccessDays(weekStart, 7);
 

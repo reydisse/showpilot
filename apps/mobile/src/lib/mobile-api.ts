@@ -56,6 +56,14 @@ const notificationSchema = z.object({
   readAt: z.string().nullable(),
 });
 
+const accessAuthoritySchema = z.object({
+  canManage: z.boolean(),
+  kind: z.enum(["permanent", "on-duty-tm", "none"]),
+  weekStart: z.string(),
+  weekEndExclusive: z.string(),
+  today: z.string(),
+});
+
 export const bootstrapSchema = z.object({
   organization: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
   timeZone: z.string().min(1),
@@ -63,6 +71,7 @@ export const bootstrapSchema = z.object({
   shows: z.array(rundownSchema),
   notifications: z.array(notificationSchema),
   unreadNotifications: z.number(),
+  accessAuthority: accessAuthoritySchema.optional(),
 });
 
 export type MobileBootstrap = z.infer<typeof bootstrapSchema>;
@@ -181,6 +190,40 @@ const checkInSchema = z.object({
 
 const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
+const teamAccessMemberSchema = z.object({
+  userId: z.string(),
+  role: z.string(),
+  user: z.object({ name: z.string(), email: z.string(), image: z.string().nullable() }),
+});
+
+const teamAccessGrantSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  capability: z.string(),
+  permissions: z.string(),
+  startsOn: z.string(),
+  expiresOn: z.string().nullable(),
+  reason: z.string(),
+  grantedByUserId: z.string(),
+  createdAt: z.string(),
+  grantedBy: z.object({ name: z.string() }),
+  canRevoke: z.boolean(),
+});
+
+const teamAccessCapabilitySchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+});
+
+const teamAccessSchema = z.object({
+  authority: accessAuthoritySchema,
+  currentUserId: z.string(),
+  members: z.array(teamAccessMemberSchema),
+  grants: z.array(teamAccessGrantSchema),
+  capabilities: z.array(teamAccessCapabilitySchema),
+});
+
 export const checklistDepartmentSchema = z.enum(["audio", "video", "lighting", "stream", "general"]);
 
 const checklistShowSchema = rundownSchema.omit({ itemCount: true });
@@ -252,6 +295,8 @@ export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
 export type MobileCheckIn = z.infer<typeof checkInSchema>;
 export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
+export type MobileTeamAccess = z.infer<typeof teamAccessSchema>;
+export type MobileTeamAccessGrant = z.infer<typeof teamAccessGrantSchema>;
 export type MobileDevices = z.infer<typeof devicesSchema>;
 export type MobileDevice = MobileDevices["devices"][number];
 export type MobileDeviceAction = z.infer<typeof mobileDeviceActionSchema>;
@@ -389,6 +434,33 @@ export async function setMobileCheckInStatus(input: {
     { method: "POST", body: JSON.stringify({ checkedIn: input.checkedIn }) },
   );
   return checkInStatusSchema.parse(await response.json());
+}
+
+export async function getMobileTeamAccess(orgId: string): Promise<MobileTeamAccess> {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/access?orgId=${encodeURIComponent(orgId)}`);
+  return teamAccessSchema.parse(await response.json());
+}
+
+export async function grantMobileTeamAccess(input: {
+  orgId: string;
+  userId: string;
+  capability: string;
+  duration: "this-week" | "until-revoked";
+  reason: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/access/grants?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return z.object({ ok: z.literal(true), grantId: z.string() }).parse(await response.json());
+}
+
+export async function revokeMobileTeamAccess(input: { orgId: string; grantId: string }) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/team/access/grants/${encodeURIComponent(input.grantId)}/revoke?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return okSchema.parse(await response.json());
 }
 
 export async function getMobileChecklist(orgId: string, showId: string): Promise<MobileChecklist> {

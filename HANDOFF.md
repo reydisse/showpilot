@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 76 test files and 635 unit tests, five
+- The current full web gate passes 78 test files and 647 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
-  production build. The main client bundle is 495,108 bytes raw and 155,812
+  production build. The main client bundle is 497,800 bytes raw and 156,429
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  6,005,577 and 6,006,276 bytes. EAS linkage and signed-device push remain
+  6,040,646 and 6,041,400 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -590,10 +590,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   web-to-native product parity. The mobile verifier derives all 20 source
   surfaces from the production web Sidebar and rejects missing, reordered, or
   unsupported inventory claims. At this checkpoint Checklist and Check-in are
-  complete; Show, Schedule, Rundown, Chat, Incidents, and Devices are partial;
-  the remaining 12 primary surfaces are explicitly recorded as missing. Profile, Settings,
-  authentication, organization selection, and Inbox are supporting mobile
-  surfaces outside that primary-nav inventory. Do not describe the React Native
+  complete; Show, Schedule, Rundown, Chat, Incidents, Team, and Devices are
+  partial; the remaining 11 primary surfaces are explicitly recorded as
+  missing. Profile, Settings, authentication, organization selection, and Inbox
+  are supporting mobile surfaces outside that primary-nav inventory. Do not describe the React Native
   product as full web parity until the manifest is green with all 20 complete.
 - The new Checklist screen has passed static, contract, TypeScript, lint, export,
   bundle-budget, and full server tests. Rendered iOS Checklist QA has not yet
@@ -610,6 +610,26 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   idempotent retry behavior, foreign-member rejection, required target state,
   and permission enforcement. No migration is required. Rendered device QA is
   still outstanding alongside the Checklist screen.
+- Native Team now includes the launch-critical temporary access workflow.
+  Owners and Admins can issue weekly or ongoing capability bundles; the on-duty
+  Tech Manager can issue and revoke only grants in the current venue duty week.
+  The screen lists active grants, recipients, roles, reasons, issuers, and exact
+  end dates, and it polls every 15 seconds. Grant and revoke commands call the
+  same server service as the web app. That service owns authority, self-grant
+  rejection, capability snapshots, tenant membership, notification delivery,
+  and revocation limits. Grant creation is one conditional D1 insert and revoke
+  is one conditional D1 update, so simultaneous operators cannot create a
+  duplicate active grant or duplicate its notification. Bootstrap reuses its
+  already resolved role and venue date when calculating grant authority,
+  avoiding a duplicate member/grant lookup. Twelve focused tests cover the
+  service, mobile transport, concurrency, and this no-extra-query contract.
+  Team remains honestly marked
+  partial because native member invitations, role changes, member removal, and
+  crew-roster editing still need implementation. No migration is required.
+- The native `accessAuthority` bootstrap field is intentionally optional at the
+  client boundary. A new app can still use the current production Worker before
+  the Team endpoint deploys, while old app builds ignore the additive field
+  after deployment. The mobile verifier locks this rolling-release contract.
 - Before deploying this launch candidate, apply migrations 0030 through 0033
   in order through the protected migration workflow. Then perform signed-device
   push, profile upload, organization switching, chat, Bridge control, and

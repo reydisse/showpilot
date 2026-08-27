@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   notifyOperationalEvent: vi.fn(),
   resolveAccess: vi.fn(),
+  resolveAuthorityForAccess: vi.fn(),
 }));
 
 vi.mock("../auth", () => ({
@@ -13,6 +14,7 @@ vi.mock("../auth", () => ({
 
 vi.mock("../effective-access", () => ({
   resolveEffectiveAccess: mocks.resolveAccess,
+  resolveAccessGrantAuthorityForAccess: mocks.resolveAuthorityForAccess,
 }));
 
 vi.mock("../operational-notifications.server", () => ({
@@ -162,6 +164,13 @@ describe("mobile assignment responses", () => {
       user: { id: "user-1", name: "Test Person", email: "test@example.com" },
     });
     mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: [] });
+    mocks.resolveAuthorityForAccess.mockResolvedValue({
+      canManage: false,
+      kind: "none",
+      weekStart: "2026-08-23",
+      weekEndExclusive: "2026-08-30",
+      today: "2026-08-27",
+    });
     mocks.notifyOperationalEvent.mockResolvedValue(undefined);
   });
 
