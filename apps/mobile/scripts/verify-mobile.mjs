@@ -30,6 +30,7 @@ const featureContract = [
   ["src/app/(app)/shows.tsx", "/api/mobile/v1/rundowns"],
   ["src/app/schedule.tsx", "/api/mobile/v1/schedule"],
   ["src/app/incidents.tsx", "/api/mobile/v1/incidents"],
+  ["src/app/incidents-history.tsx", "/api/mobile/v1/incidents/history"],
   ["src/app/checklist.tsx", "/api/mobile/v1/checklist"],
   ["src/app/checkin.tsx", "/api/mobile/v1/checkin"],
   ["src/app/team-members.tsx", "/api/mobile/v1/team/members"],
@@ -46,6 +47,10 @@ const sourceContract = [
   ["src/app/incidents.tsx", "targetUserId"],
   ["src/app/incidents.tsx", "updateMobileIncident"],
   ["src/app/incidents.tsx", "removeMobileIncident"],
+  ["src/app/incidents.tsx", "addMobileIncidentComment"],
+  ["src/app/incidents.tsx", "setMobileIncidentCommentReaction"],
+  ["src/app/incidents-history.tsx", "getMobileIncidentHistory"],
+  ["src/app/incidents-history.tsx", "<FlatList"],
   ["src/app/settings.tsx", "setAppThemePreference"],
   ["src/app/settings.tsx", "getNativeNotificationPermissionState"],
   ["src/app/(app)/profile.tsx", 'router.push("/settings")'],
@@ -96,7 +101,10 @@ const apiContract = [
   "/api/mobile/v1/schedule",
   "/api/mobile/v1/schedule/respond",
   "/api/mobile/v1/incidents",
+  "/api/mobile/v1/incidents/history",
   "const incidentMatch",
+  "const incidentCommentMatch",
+  "const incidentReactionMatch",
   "/api/mobile/v1/checklist/items",
   "/api/mobile/v1/checklist/suggestions",
   "const checklistEntryMatch",
@@ -275,7 +283,7 @@ const signedInRoutes = rootLayout.match(
 if (!signedOutRoutes?.includes('name="(auth)"')) {
   throw new Error("Native authentication screens must remain inside the signed-out route guard.");
 }
-for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "checklist", "checkin", "team", "devices", "device/[deviceId]"]) {
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "schedule", "chat", "incidents", "incidents-history", "checklist", "checkin", "team", "devices", "device/[deviceId]"]) {
   const marker = `name="${route}"`;
   if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
     throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);

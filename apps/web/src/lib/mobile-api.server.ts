@@ -181,6 +181,25 @@ interface MobileIncidentGrantRow {
   permissions: string;
 }
 
+interface MobileIncidentCommentRow {
+  id: string;
+  incidentId: string;
+  userId: string;
+  authorName: string;
+  body: string;
+  parentId: string | null;
+  createdAt: string;
+}
+
+interface MobileIncidentReactionRow {
+  id: string;
+  targetId: string;
+  userId: string;
+  authorName: string;
+  emoji: string;
+  createdAt: string;
+}
+
 interface MobileCheckInMemberRow {
   id: string;
   memberId: string;
@@ -1018,11 +1037,131 @@ async function incidents(request: Request, url: URL, db: MobileApiDatabase): Pro
     ).bind(access.orgId).all<MobileIncidentRow>(),
     resolveMobileIncidentResponders(access.orgId, access.identity.today, db),
   ]);
+  const incidentRows = result.results ?? [];
+  const discussion = await resolveMobileIncidentDiscussion(
+    access.orgId,
+    incidentRows.map((incident) => incident.id),
+    db,
+  );
   return json({
     canReport: hasAny(access.identity, ["incidents:report", "incidents:access"]),
     canManage: access.identity.permissions.includes("incidents:access"),
-    incidents: result.results ?? [],
+    canAssignResponders: isAdminTier(access.identity.role),
+    discussionEnabled: true,
+    historyEnabled: true,
+    incidents: incidentRows,
     responders,
+    comments: discussion.comments,
+    reactions: discussion.reactions,
+  });
+}
+
+async function resolveMobileIncidentDiscussion(
+  orgId: string,
+  incidentIds: readonly string[],
+  db: MobileApiDatabase,
+) {
+  if (incidentIds.length === 0) return { comments: [], reactions: [] };
+  const chunks: string[][] = [];
+  for (let index = 0; index < incidentIds.length; index += 75) {
+    chunks.push(incidentIds.slice(index, index + 75));
+  }
+  const rows = await Promise.all(chunks.map(async (ids) => {
+    const placeholders = ids.map(() => "?").join(",");
+    return Promise.all([
+      db.prepare(
+        `SELECT id, incidentId, userId, authorName, body, parentId, createdAt
+         FROM incident_comment WHERE orgId = ? AND incidentId IN (${placeholders})`,
+      ).bind(orgId, ...ids).all<MobileIncidentCommentRow>(),
+      db.prepare(
+        `SELECT r.id, r.targetId, r.userId, r.authorName, r.emoji, r.createdAt
+         FROM content_reaction r JOIN incident_comment c ON c.id = r.targetId
+         WHERE r.orgId = ? AND c.orgId = ? AND r.targetType = 'incident-comment'
+           AND c.incidentId IN (${placeholders})`,
+      ).bind(orgId, orgId, ...ids).all<MobileIncidentReactionRow>(),
+    ]);
+  }));
+  const comments = rows.flatMap(([commentResult]) => commentResult.results ?? [])
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const reactions = rows.flatMap(([, reactionResult]) => reactionResult.results ?? [])
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return { comments, reactions };
+}
+
+function parseBoundedPositiveInteger(value: string | null, fallback: number, maximum: number): number | null {
+  if (value === null || value === "") return fallback;
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : null;
+}
+
+async function mobileIncidentHistory(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:report", "incidents:access"]);
+  if (access instanceof Response) return access;
+  const status = url.searchParams.get("status") ?? "all";
+  const severity = url.searchParams.get("severity") ?? "all";
+  const sort = url.searchParams.get("sort") ?? "newest";
+  const query = (url.searchParams.get("query") ?? "").trim();
+  const category = (url.searchParams.get("category") ?? "").trim();
+  const assignee = (url.searchParams.get("assignee") ?? "").trim();
+  const from = url.searchParams.get("from") ?? "";
+  const to = url.searchParams.get("to") ?? "";
+  const page = parseBoundedPositiveInteger(url.searchParams.get("page"), 1, 10_000);
+  const pageSize = parseBoundedPositiveInteger(url.searchParams.get("pageSize"), 30, 100);
+  if (!new Set(["all", "open", "resolved"]).has(status)
+    || !new Set(["all", "low", "medium", "high", "critical"]).has(severity)
+    || !new Set(["newest", "oldest", "severity"]).has(sort)
+    || query.length > 200 || category.length > 100 || assignee.length > 200
+    || (from && !validDate(from)) || (to && !validDate(to)) || (from && to && from > to)
+    || page === null || pageSize === null) {
+    return json({ error: "Choose valid incident history filters." }, 400);
+  }
+
+  const conditions = ["i.orgId = ?"];
+  const params: unknown[] = [access.orgId];
+  const add = (condition: string, value: unknown) => {
+    conditions.push(condition);
+    params.push(value);
+  };
+  if (status !== "all") add("i.status = ?", status);
+  if (severity !== "all") add("i.severity = ?", severity);
+  if (category) add("lower(trim(i.category)) = ?", category.toLowerCase());
+  if (assignee) add("lower(i.assignedName) LIKE ?", `%${assignee.toLowerCase()}%`);
+  if (from) add("i.serviceDate >= ?", from);
+  if (to) add("i.serviceDate <= ?", to);
+  if (query) {
+    const needle = `%${query.toLowerCase()}%`;
+    conditions.push("(lower(i.description) LIKE ? OR lower(i.reportedBy) LIKE ? OR lower(i.assignedName) LIKE ? OR lower(i.category) LIKE ?)");
+    params.push(needle, needle, needle, needle);
+  }
+  const whereSql = conditions.join(" AND ");
+  const orderSql = sort === "oldest"
+    ? "i.timestamp ASC"
+    : sort === "severity"
+      ? "CASE lower(i.severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, i.timestamp DESC"
+      : "i.timestamp DESC";
+  const [countRow, incidentResult, categoryResult] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS total FROM incident i WHERE ${whereSql}`)
+      .bind(...params).first<{ total: number }>(),
+    db.prepare(
+      `SELECT id, showId, category, severity, description, reportedBy, serviceDate,
+              timestamp, status, assignedTo, assignedName, acknowledgedAt, assignedAt,
+              resolvedAt, resolvedBy,
+              (SELECT CAST(COUNT(*) AS INTEGER) FROM incident_comment c
+               WHERE c.orgId = i.orgId AND c.incidentId = i.id) AS commentCount
+       FROM incident i WHERE ${whereSql} ORDER BY ${orderSql} LIMIT ? OFFSET ?`,
+    ).bind(...params, pageSize, (page - 1) * pageSize).all<MobileIncidentRow>(),
+    db.prepare(
+      `SELECT DISTINCT lower(trim(category)) AS category FROM incident
+       WHERE orgId = ? AND trim(category) <> '' ORDER BY category ASC`,
+    ).bind(access.orgId).all<{ category: string }>(),
+  ]);
+  return json({
+    total: countRow?.total ?? 0,
+    page,
+    pageSize,
+    categories: (categoryResult.results ?? []).map((row) => row.category),
+    incidents: incidentResult.results ?? [],
   });
 }
 
@@ -1239,6 +1378,171 @@ async function commandIncident(
     return json({ error: "This incident changed on another device. Refresh and try again." }, 409);
   }
   return json({ ok: true });
+}
+
+async function addMobileIncidentComment(
+  request: Request,
+  url: URL,
+  incidentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:report", "incidents:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const requestId = validId(body?.requestId) ? body.requestId : null;
+  const commentBody = typeof body?.body === "string" ? body.body.trim() : "";
+  const parentId = body?.parentId === null || body?.parentId === undefined
+    ? null
+    : validId(body.parentId) ? body.parentId : undefined;
+  if (!requestId || commentBody.length < 1 || commentBody.length > 2_000 || parentId === undefined) {
+    return json({ error: "Write a comment of up to 2,000 characters." }, 400);
+  }
+  const incident = await db.prepare(
+    "SELECT id, serviceDate, showId FROM incident WHERE id = ? AND orgId = ? LIMIT 1",
+  ).bind(incidentId, access.orgId).first<{ id: string; serviceDate: string; showId: string | null }>();
+  if (!incident) return json({ error: "Incident not found." }, 404);
+
+  let parentAuthorId: string | null = null;
+  if (parentId) {
+    const parent = await db.prepare(
+      "SELECT userId FROM incident_comment WHERE id = ? AND incidentId = ? AND orgId = ? LIMIT 1",
+    ).bind(parentId, incidentId, access.orgId).first<{ userId: string }>();
+    if (!parent) return json({ error: "Reply target not found." }, 400);
+    parentAuthorId = parent.userId;
+  }
+
+  const comment: MobileIncidentCommentRow = {
+    id: requestId,
+    incidentId,
+    userId: access.identity.userId,
+    authorName: access.identity.name,
+    body: commentBody,
+    parentId,
+    createdAt: new Date().toISOString(),
+  };
+  const result = await db.prepare(
+    `INSERT OR IGNORE INTO incident_comment
+     (id, orgId, incidentId, userId, authorName, body, parentId, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    comment.id,
+    access.orgId,
+    comment.incidentId,
+    comment.userId,
+    comment.authorName,
+    comment.body,
+    comment.parentId,
+    comment.createdAt,
+  ).run();
+  if (!changedExactlyOneRow(result)) {
+    const existing = await db.prepare(
+      `SELECT id, incidentId, userId, authorName, body, parentId, createdAt
+       FROM incident_comment WHERE id = ? AND orgId = ? AND userId = ? LIMIT 1`,
+    ).bind(requestId, access.orgId, access.identity.userId).first<MobileIncidentCommentRow>();
+    if (existing
+      && existing.incidentId === incidentId
+      && existing.body === commentBody
+      && existing.parentId === parentId) {
+      return json({ comment: existing });
+    }
+    return json({ error: "That comment request conflicts with an existing update." }, 409);
+  }
+
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      recipientIds: parentAuthorId ? [parentAuthorId] : [],
+      includeLeadership: true,
+      type: parentId ? "incident-comment-reply" : "incident-comment",
+      severity: "warning",
+      title: parentId
+        ? `${access.identity.name} replied to an issue comment`
+        : `${access.identity.name} commented on an issue`,
+      message: comment.body.slice(0, 240),
+      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}${incident.showId ? `&show=${encodeURIComponent(incident.showId)}` : ""}&incident=${encodeURIComponent(incidentId)}`,
+      source: incidentId,
+      pushTag: `incident-comment-${incidentId}`,
+    });
+  } catch {
+    // The comment remains authoritative when notification delivery fails.
+  }
+  return json({ comment });
+}
+
+const mobileIncidentReactionEmojis = new Set(["👍", "❤️", "🎉", "👀", "🙏"]);
+
+async function setMobileIncidentReaction(
+  request: Request,
+  url: URL,
+  commentId: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["incidents:report", "incidents:access"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const emoji = typeof body?.emoji === "string" && mobileIncidentReactionEmojis.has(body.emoji)
+    ? body.emoji
+    : null;
+  if (!emoji || typeof body?.active !== "boolean") {
+    return json({ error: "Choose a valid reaction state." }, 400);
+  }
+  const target = await db.prepare(
+    `SELECT c.userId, c.incidentId FROM incident_comment c
+     JOIN incident i ON i.id = c.incidentId
+     WHERE c.id = ? AND c.orgId = ? AND i.orgId = ? LIMIT 1`,
+  ).bind(commentId, access.orgId, access.orgId).first<{ userId: string; incidentId: string }>();
+  if (!target) return json({ error: "Comment not found." }, 404);
+
+  if (!body.active) {
+    await db.prepare(
+      `DELETE FROM content_reaction WHERE orgId = ? AND targetType = 'incident-comment'
+       AND targetId = ? AND userId = ? AND emoji = ?`,
+    ).bind(access.orgId, commentId, access.identity.userId, emoji).run();
+    return json({ active: false });
+  }
+
+  const reaction: MobileIncidentReactionRow = {
+    id: crypto.randomUUID(),
+    targetId: commentId,
+    userId: access.identity.userId,
+    authorName: access.identity.name,
+    emoji,
+    createdAt: new Date().toISOString(),
+  };
+  const result = await db.prepare(
+    `INSERT OR IGNORE INTO content_reaction
+     (id, orgId, targetType, targetId, userId, authorName, emoji, createdAt)
+     VALUES (?, ?, 'incident-comment', ?, ?, ?, ?, ?)`,
+  ).bind(
+    reaction.id,
+    access.orgId,
+    reaction.targetId,
+    reaction.userId,
+    reaction.authorName,
+    reaction.emoji,
+    reaction.createdAt,
+  ).run();
+  if (changedExactlyOneRow(result) && target.userId !== access.identity.userId) {
+    try {
+      const { notifyOperationalEvent } = await import("./operational-notifications.server");
+      await notifyOperationalEvent({
+        orgId: access.orgId,
+        actorId: access.identity.userId,
+        recipientIds: [target.userId],
+        type: "comment-reaction",
+        title: `${access.identity.name} reacted ${emoji} to your comment`,
+        message: "Open the incident discussion to view the reaction.",
+        actionUrl: `production/incidents?incident=${encodeURIComponent(target.incidentId)}`,
+        source: commentId,
+        pushTag: `comment-reaction-${commentId}`,
+      });
+    } catch {
+      // The reaction remains authoritative when notification delivery fails.
+    }
+  }
+  return json({ active: true, reaction });
 }
 
 async function updateMobileIncident(
@@ -1843,6 +2147,7 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST") return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET") return schedule(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/respond" && request.method === "POST") return respondToAssignment(request, env.DB);
+  if (url.pathname === "/api/mobile/v1/incidents/history" && request.method === "GET") return mobileIncidentHistory(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "GET") return incidents(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/incidents" && request.method === "POST") return createIncident(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);
@@ -1873,6 +2178,20 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
     if (incidentMatch[2] === "command") return commandIncident(request, url, incidentId, env.DB);
     if (incidentMatch[2] === "update") return updateMobileIncident(request, url, incidentId, env.DB);
     return deleteMobileIncident(request, url, incidentId, env.DB);
+  }
+  const incidentCommentMatch = url.pathname.match(/^\/api\/mobile\/v1\/incidents\/([^/]+)\/comments$/);
+  if (incidentCommentMatch && request.method === "POST") {
+    const incidentId = decodePathId(incidentCommentMatch[1]);
+    return incidentId
+      ? addMobileIncidentComment(request, url, incidentId, env.DB)
+      : json({ error: "Not found." }, 404);
+  }
+  const incidentReactionMatch = url.pathname.match(/^\/api\/mobile\/v1\/incident-comments\/([^/]+)\/reaction$/);
+  if (incidentReactionMatch && request.method === "POST") {
+    const commentId = decodePathId(incidentReactionMatch[1]);
+    return commentId
+      ? setMobileIncidentReaction(request, url, commentId, env.DB)
+      : json({ error: "Not found." }, 404);
   }
   const teamGrantMatch = url.pathname.match(/^\/api\/mobile\/v1\/team\/access\/grants\/([^/]+)\/revoke$/);
   if (teamGrantMatch && request.method === "POST") {

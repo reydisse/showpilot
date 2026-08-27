@@ -137,14 +137,18 @@
       "id": "incidents",
       "label": "Incidents",
       "webPath": "production/incidents",
-      "status": "partial",
+      "status": "complete",
       "nativeRoutes": [
-        "src/app/incidents.tsx"
+        "src/app/incidents.tsx",
+        "src/app/incidents-history.tsx"
       ],
       "apiContracts": [
-        "/api/mobile/v1/incidents"
+        "/api/mobile/v1/incidents",
+        "/api/mobile/v1/incidents/history",
+        "const incidentCommentMatch",
+        "const incidentReactionMatch"
       ],
-      "gaps": "Reporting, editing, deletion, self-claim, responder assignment, acknowledgement, resolution, and searchable status history exist. Threaded comments and reactions, and advanced history filters still remain."
+      "gaps": ""
     },
     {
       "id": "assets",

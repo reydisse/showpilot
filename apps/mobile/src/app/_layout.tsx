@@ -75,6 +75,7 @@ function RootNavigator() {
           <Stack.Screen name="schedule" options={{ title: "Schedule", headerBackTitle: "Operate" }} />
           <Stack.Screen name="chat" options={{ title: "Production chat", headerBackTitle: "Operate" }} />
           <Stack.Screen name="incidents" options={{ title: "Incidents", headerBackTitle: "Operate" }} />
+          <Stack.Screen name="incidents-history" options={{ title: "Incident history", headerBackTitle: "Incidents" }} />
           <Stack.Screen name="checklist" options={{ title: "Pre-show checklist", headerBackTitle: "Operate" }} />
           <Stack.Screen name="checkin" options={{ title: "Crew check-in", headerBackTitle: "Operate" }} />
           <Stack.Screen name="team-members" options={{ title: "Organization members", headerBackTitle: "Operate" }} />

@@ -171,11 +171,45 @@ const incidentSchema = z.object({
   commentCount: z.number(),
 });
 
+const incidentCommentSchema = z.object({
+  id: z.string(),
+  incidentId: z.string(),
+  userId: z.string(),
+  authorName: z.string(),
+  body: z.string(),
+  parentId: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+const incidentReactionEmojiSchema = z.enum(["👍", "❤️", "🎉", "👀", "🙏"]);
+
+const incidentReactionSchema = z.object({
+  id: z.string(),
+  targetId: z.string(),
+  userId: z.string(),
+  authorName: z.string(),
+  emoji: incidentReactionEmojiSchema,
+  createdAt: z.string(),
+});
+
 const incidentsSchema = z.object({
   canReport: z.boolean(),
   canManage: z.boolean(),
+  canAssignResponders: z.boolean().default(false),
+  discussionEnabled: z.boolean().default(false),
+  historyEnabled: z.boolean().default(false),
   incidents: z.array(incidentSchema),
   responders: z.array(z.object({ userId: z.string(), name: z.string(), role: z.string() })).default([]),
+  comments: z.array(incidentCommentSchema).default([]),
+  reactions: z.array(incidentReactionSchema).default([]),
+});
+
+const incidentHistorySchema = z.object({
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  categories: z.array(z.string()),
+  incidents: z.array(incidentSchema),
 });
 
 const checkInMemberSchema = z.object({
@@ -333,6 +367,10 @@ const devicesSchema = z.object({
 export type MobileSchedule = z.infer<typeof scheduleSchema>;
 export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
+export type MobileIncidentComment = z.infer<typeof incidentCommentSchema>;
+export type MobileIncidentReaction = z.infer<typeof incidentReactionSchema>;
+export type MobileIncidentReactionEmoji = z.infer<typeof incidentReactionEmojiSchema>;
+export type MobileIncidentHistory = z.infer<typeof incidentHistorySchema>;
 export type MobileCheckIn = z.infer<typeof checkInSchema>;
 export type MobileCheckInMember = z.infer<typeof checkInMemberSchema>;
 export type MobileTeamCrewMember = z.infer<typeof teamCrewMemberSchema>;
@@ -449,6 +487,35 @@ export async function getMobileIncidents(orgId: string): Promise<MobileIncidents
   return incidentsSchema.parse(await response.json());
 }
 
+export interface MobileIncidentHistoryFilters {
+  query?: string;
+  status: "all" | "open" | "resolved";
+  severity: "all" | "low" | "medium" | "high" | "critical";
+  category?: string;
+  assignee?: string;
+  from?: string;
+  to?: string;
+  sort: "newest" | "oldest" | "severity";
+  page: number;
+}
+
+export async function getMobileIncidentHistory(orgId: string, filters: MobileIncidentHistoryFilters): Promise<MobileIncidentHistory> {
+  const query = new URLSearchParams({
+    orgId,
+    status: filters.status,
+    severity: filters.severity,
+    sort: filters.sort,
+    page: String(filters.page),
+  });
+  if (filters.query) query.set("query", filters.query);
+  if (filters.category) query.set("category", filters.category);
+  if (filters.assignee) query.set("assignee", filters.assignee);
+  if (filters.from) query.set("from", filters.from);
+  if (filters.to) query.set("to", filters.to);
+  const response = await authenticatedFetch(`/api/mobile/v1/incidents/history?${query}`);
+  return incidentHistorySchema.parse(await response.json());
+}
+
 export async function reportMobileIncident(input: {
   orgId: string;
   showId?: string | null;
@@ -497,6 +564,33 @@ export async function removeMobileIncident(input: { orgId: string; incidentId: s
     { method: "POST", body: JSON.stringify({}) },
   );
   return okSchema.parse(await response.json());
+}
+
+export async function addMobileIncidentComment(input: {
+  orgId: string;
+  incidentId: string;
+  requestId: string;
+  body: string;
+  parentId?: string | null;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/incidents/${encodeURIComponent(input.incidentId)}/comments?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return z.object({ comment: incidentCommentSchema }).parse(await response.json());
+}
+
+export async function setMobileIncidentCommentReaction(input: {
+  orgId: string;
+  commentId: string;
+  emoji: MobileIncidentReactionEmoji;
+  active: boolean;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/incident-comments/${encodeURIComponent(input.commentId)}/reaction?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ emoji: input.emoji, active: input.active }) },
+  );
+  return z.object({ active: z.boolean(), reaction: incidentReactionSchema.optional() }).parse(await response.json());
 }
 
 export async function getMobileCheckIn(orgId: string): Promise<MobileCheckIn> {

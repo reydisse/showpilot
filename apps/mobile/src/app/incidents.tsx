@@ -5,14 +5,18 @@ import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
 import CircleDot from "lucide-react-native/icons/circle-dot";
 import Eye from "lucide-react-native/icons/eye";
 import Hand from "lucide-react-native/icons/hand";
+import Archive from "lucide-react-native/icons/archive";
+import MessageCircle from "lucide-react-native/icons/message-circle";
+import MessageCirclePlus from "lucide-react-native/icons/message-circle-plus";
 import Pencil from "lucide-react-native/icons/pencil";
 import Plus from "lucide-react-native/icons/plus";
 import Search from "lucide-react-native/icons/search";
+import Send from "lucide-react-native/icons/send";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import UserRound from "lucide-react-native/icons/user-round";
 import UsersRound from "lucide-react-native/icons/users-round";
 import X from "lucide-react-native/icons/x";
-import { Redirect } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -21,11 +25,16 @@ import { LoadingView } from "@/components/loading-view";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { authClient } from "@/lib/auth-client";
 import {
+  addMobileIncidentComment,
   commandMobileIncident,
   getMobileIncidents,
   removeMobileIncident,
   reportMobileIncident,
+  setMobileIncidentCommentReaction,
   updateMobileIncident,
+  type MobileIncidentComment,
+  type MobileIncidentReaction,
+  type MobileIncidentReactionEmoji,
   type MobileIncidents,
 } from "@/lib/mobile-api";
 import { getServiceDateForTimeZone } from "@/lib/service-time";
@@ -35,6 +44,11 @@ const categories = ["audio", "video", "stream", "lighting", "other"] as const;
 const severities = ["low", "medium", "high"] as const;
 type IncidentFilter = "open" | "resolved" | "all";
 type MobileIncident = MobileIncidents["incidents"][number];
+const reactionEmojis: readonly MobileIncidentReactionEmoji[] = ["👍", "❤️", "🎉", "👀", "🙏"];
+
+function createLocalRequestId() {
+  return `mobile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function isIncidentCategory(value: string): value is (typeof categories)[number] {
   return categories.some((category) => category === value);
@@ -47,6 +61,7 @@ function isIncidentSeverity(value: string): value is (typeof severities)[number]
 export default function IncidentsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const router = useRouter();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: bootstrap } = useMobileBootstrap();
   const queryClient = useQueryClient();
@@ -109,9 +124,26 @@ export default function IncidentsScreen() {
     },
     onError: (error) => Alert.alert("Incident not removed", error.message),
   });
+  const commentMutation = useMutation({
+    mutationFn: (input: { incidentId: string; requestId: string; body: string; parentId?: string | null }) =>
+      addMobileIncidentComment({ orgId: organization!.id, ...input }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mobile-incidents", organization?.id] });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    onError: (error) => Alert.alert("Comment not posted", error.message),
+  });
+  const reactionMutation = useMutation({
+    mutationFn: (input: { commentId: string; emoji: MobileIncidentReactionEmoji; active: boolean }) =>
+      setMobileIncidentCommentReaction({ orgId: organization!.id, ...input }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mobile-incidents", organization?.id] });
+    },
+    onError: (error) => Alert.alert("Reaction not saved", error.message),
+  });
   const openCount = query.data?.incidents.filter((incident) => incident.status === "open").length ?? 0;
   const currentUserId = bootstrap?.identity.userId;
-  const canAssignOthers = ["owner", "admin", "td", "cd", "pd"].includes(bootstrap?.identity.role ?? "");
+  const canAssignOthers = query.data?.canAssignResponders ?? false;
   const visibleIncidents = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (query.data?.incidents ?? []).filter((incident) => {
@@ -169,7 +201,10 @@ export default function IncidentsScreen() {
         keyExtractor={(incident) => incident.id}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
-            <View style={styles.summary}><AlertTriangle color={openCount ? colors.red : colors.green} size={20} /><Text style={styles.summaryValue}>{openCount}</Text><Text style={styles.summaryText}>open {openCount === 1 ? "incident" : "incidents"}</Text></View>
+            <View style={styles.summaryRow}>
+              <View style={styles.summary}><AlertTriangle color={openCount ? colors.red : colors.green} size={20} /><Text style={styles.summaryValue}>{openCount}</Text><Text style={styles.summaryText}>open {openCount === 1 ? "incident" : "incidents"}</Text></View>
+              {query.data?.historyEnabled ? <Pressable accessibilityRole="button" onPress={() => router.push("/incidents-history")} style={styles.historyButton}><Archive color={colors.textMuted} size={15} /><Text style={styles.historyButtonText}>Full history</Text></Pressable> : null}
+            </View>
             {reporting ? (
               <View style={styles.form}>
                 <View style={styles.formHeader}><Text style={styles.formTitle}>{editingId ? "Edit incident" : "Report what happened"}</Text><Pressable accessibilityLabel="Close incident form" hitSlop={8} onPress={() => { setReporting(false); setEditingId(null); }}><Text style={styles.cancelText}>Cancel</Text></Pressable></View>
@@ -199,7 +234,46 @@ export default function IncidentsScreen() {
         renderItem={({ item: incident }) => {
           const open = incident.status === "open";
           const assignedToMe = incident.assignedTo === currentUserId;
-          return <View style={[styles.card, open && incident.severity === "high" && styles.cardHigh]}><View style={styles.cardHeader}>{open ? <CircleDot color={incident.severity === "high" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}<Text style={styles.category}>{incident.category}</Text><Text style={[styles.severity, incident.severity === "high" && styles.severityHigh]}>{incident.severity}</Text><Text style={styles.date}>{incident.serviceDate}</Text></View><Text style={styles.description}>{incident.description}</Text><View style={styles.owner}><UserRound color={colors.textFaint} size={13} /><Text style={styles.ownerText}>{incident.assignedName || `Reported by ${incident.reportedBy}`}</Text><Text style={styles.status}>{incident.status}</Text></View>{incident.resolvedBy ? <Text style={styles.timeline}>Resolved by {incident.resolvedBy}{incident.resolvedAt ? ` · ${new Date(incident.resolvedAt).toLocaleString()}` : ""}</Text> : incident.acknowledgedAt ? <Text style={styles.timeline}>Acknowledged · {new Date(incident.acknowledgedAt).toLocaleString()}</Text> : incident.assignedName ? <Text style={styles.timeline}>Awaiting acknowledgement</Text> : null}<View style={styles.cardActions}>{query.data?.canManage && open && !incident.assignedTo ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "claim" })} style={styles.actionButton}><Hand color={colors.amberText} size={14} /><Text style={styles.actionText}>Claim</Text></Pressable> : null}{canAssignOthers && open ? <Pressable accessibilityRole="button" onPress={() => setAssigningIncident(incident)} style={styles.actionButton}><UsersRound color={colors.amberText} size={14} /><Text style={styles.actionText}>{incident.assignedTo ? "Reassign" : "Assign"}</Text></Pressable> : null}{query.data?.canManage && open && assignedToMe && !incident.acknowledgedAt ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "acknowledge" })} style={styles.actionButton}><Eye color={colors.amberText} size={14} /><Text style={styles.actionText}>Acknowledge</Text></Pressable> : null}{query.data?.canManage && open ? <Pressable accessibilityRole="button" onPress={() => confirmResolve(incident)} style={styles.actionButton}><CheckCircle2 color={colors.green} size={14} /><Text style={styles.actionText}>Resolve</Text></Pressable> : null}{query.data?.canManage ? <Pressable accessibilityLabel={`Edit ${incident.category} incident`} onPress={() => startEdit(incident)} style={styles.iconButton}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}{query.data?.canManage ? <Pressable accessibilityLabel={`Delete ${incident.category} incident`} onPress={() => confirmRemove(incident)} style={styles.iconButton}><Trash2 color={colors.red} size={15} /></Pressable> : null}</View></View>;
+          const incidentComments = query.data?.comments.filter((comment) => comment.incidentId === incident.id) ?? [];
+          return (
+            <View style={[styles.card, open && incident.severity === "high" && styles.cardHigh]}>
+              <View style={styles.cardHeader}>
+                {open ? <CircleDot color={incident.severity === "high" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}
+                <Text style={styles.category}>{incident.category}</Text>
+                <Text style={[styles.severity, incident.severity === "high" && styles.severityHigh]}>{incident.severity}</Text>
+                <Text style={styles.date}>{incident.serviceDate}</Text>
+              </View>
+              <Text style={styles.description}>{incident.description}</Text>
+              <View style={styles.owner}>
+                <UserRound color={colors.textFaint} size={13} />
+                <Text style={styles.ownerText}>{incident.assignedName || `Reported by ${incident.reportedBy}`}</Text>
+                <Text style={styles.status}>{incident.status}</Text>
+              </View>
+              {incident.resolvedBy ? (
+                <Text style={styles.timeline}>Resolved by {incident.resolvedBy}{incident.resolvedAt ? ` · ${new Date(incident.resolvedAt).toLocaleString()}` : ""}</Text>
+              ) : incident.acknowledgedAt ? (
+                <Text style={styles.timeline}>Acknowledged · {new Date(incident.acknowledgedAt).toLocaleString()}</Text>
+              ) : incident.assignedName ? <Text style={styles.timeline}>Awaiting acknowledgement</Text> : null}
+              <IncidentDiscussion
+                comments={incidentComments}
+                currentUserId={currentUserId}
+                enabled={query.data?.discussionEnabled ?? false}
+                incident={incident}
+                pending={commentMutation.isPending || reactionMutation.isPending}
+                reactions={query.data?.reactions ?? []}
+                onComment={async (input) => { await commentMutation.mutateAsync(input); }}
+                onReaction={async (input) => { await reactionMutation.mutateAsync(input); }}
+              />
+              <View style={styles.cardActions}>
+                {query.data?.canManage && open && !incident.assignedTo ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "claim" })} style={styles.actionButton}><Hand color={colors.amberText} size={14} /><Text style={styles.actionText}>Claim</Text></Pressable> : null}
+                {canAssignOthers && open ? <Pressable accessibilityRole="button" onPress={() => setAssigningIncident(incident)} style={styles.actionButton}><UsersRound color={colors.amberText} size={14} /><Text style={styles.actionText}>{incident.assignedTo ? "Reassign" : "Assign"}</Text></Pressable> : null}
+                {query.data?.canManage && open && assignedToMe && !incident.acknowledgedAt ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "acknowledge" })} style={styles.actionButton}><Eye color={colors.amberText} size={14} /><Text style={styles.actionText}>Acknowledge</Text></Pressable> : null}
+                {query.data?.canManage && open ? <Pressable accessibilityRole="button" onPress={() => confirmResolve(incident)} style={styles.actionButton}><CheckCircle2 color={colors.green} size={14} /><Text style={styles.actionText}>Resolve</Text></Pressable> : null}
+                {query.data?.canManage ? <Pressable accessibilityLabel={`Edit ${incident.category} incident`} onPress={() => startEdit(incident)} style={styles.iconButton}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
+                {query.data?.canManage ? <Pressable accessibilityLabel={`Delete ${incident.category} incident`} onPress={() => confirmRemove(incident)} style={styles.iconButton}><Trash2 color={colors.red} size={15} /></Pressable> : null}
+              </View>
+            </View>
+          );
         }}
         windowSize={7}
       />
@@ -251,11 +325,175 @@ export default function IncidentsScreen() {
   );
 }
 
+function IncidentDiscussion({
+  comments,
+  currentUserId,
+  enabled,
+  incident,
+  pending,
+  reactions,
+  onComment,
+  onReaction,
+}: {
+  comments: MobileIncidentComment[];
+  currentUserId?: string;
+  enabled: boolean;
+  incident: MobileIncident;
+  pending: boolean;
+  reactions: MobileIncidentReaction[];
+  onComment: (input: { incidentId: string; requestId: string; body: string; parentId?: string | null }) => Promise<void>;
+  onReaction: (input: { commentId: string; emoji: MobileIncidentReactionEmoji; active: boolean }) => Promise<void>;
+}) {
+  const { colors } = useAppTheme();
+  const styles = useStyles();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  if (!enabled) return null;
+  const roots = comments.filter((comment) => !comment.parentId);
+
+  async function submitComment() {
+    const body = draft.trim();
+    if (!body || pending) return;
+    try {
+      await onComment({
+        incidentId: incident.id,
+        requestId: createLocalRequestId(),
+        body,
+        parentId: replyTo,
+      });
+      setDraft("");
+      setReplyTo(null);
+    } catch {
+      // The parent mutation presents the actionable error.
+    }
+  }
+
+  function renderComment(comment: MobileIncidentComment, reply = false) {
+    const commentReactions = reactions.filter((reaction) => reaction.targetId === comment.id);
+    return (
+      <View key={comment.id} style={[styles.comment, reply && styles.commentReply]}>
+        <View style={styles.commentHeader}>
+          <Text style={styles.commentAuthor}>{comment.authorName}</Text>
+          <Text style={styles.commentTime}>{new Date(comment.createdAt).toLocaleString()}</Text>
+        </View>
+        <Text style={styles.commentBody}>{comment.body}</Text>
+        <View style={styles.reactionRow}>
+          {reactionEmojis.map((emoji) => {
+            const emojiReactions = commentReactions.filter((reaction) => reaction.emoji === emoji);
+            if (emojiReactions.length === 0) return null;
+            const active = emojiReactions.some((reaction) => reaction.userId === currentUserId);
+            return (
+              <Pressable
+                accessibilityLabel={`${active ? "Remove" : "Add"} ${emoji} reaction`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active, disabled: pending }}
+                disabled={pending}
+                key={emoji}
+                onPress={() => void onReaction({ commentId: comment.id, emoji, active: !active }).catch(() => undefined)}
+                style={[styles.reaction, active && styles.reactionActive]}
+              >
+                <Text style={styles.reactionText}>{emoji} {emojiReactions.length}</Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            accessibilityLabel="Add reaction"
+            accessibilityRole="button"
+            onPress={() => setReactionPickerFor((current) => current === comment.id ? null : comment.id)}
+            style={styles.reactionPickerButton}
+          >
+            <MessageCirclePlus color={colors.textMuted} size={15} />
+          </Pressable>
+          {!reply ? (
+            <Pressable accessibilityRole="button" onPress={() => { setReplyTo(comment.id); setOpen(true); }} style={styles.replyButton}>
+              <Text style={styles.replyText}>Reply</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {reactionPickerFor === comment.id ? (
+          <View style={styles.reactionPicker}>
+            {reactionEmojis.map((emoji) => {
+              const active = commentReactions.some((reaction) => reaction.emoji === emoji && reaction.userId === currentUserId);
+              return (
+                <Pressable
+                  accessibilityLabel={`${active ? "Remove" : "Add"} ${emoji} reaction`}
+                  accessibilityRole="button"
+                  disabled={pending}
+                  key={emoji}
+                  onPress={() => {
+                    setReactionPickerFor(null);
+                    void onReaction({ commentId: comment.id, emoji, active: !active }).catch(() => undefined);
+                  }}
+                  style={[styles.reactionPickerChoice, active && styles.reactionActive]}
+                >
+                  <Text style={styles.reactionPickerEmoji}>{emoji}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.discussion}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((current) => !current)} style={styles.discussionToggle}>
+        <MessageCircle color={colors.textMuted} size={15} />
+        <Text style={styles.discussionToggleText}>{comments.length} {comments.length === 1 ? "comment" : "comments"}{incident.status === "resolved" ? " · resolution notes" : ""}</Text>
+      </Pressable>
+      {open ? (
+        <View style={styles.discussionBody}>
+          {roots.map((comment) => (
+            <View key={comment.id} style={styles.thread}>
+              {renderComment(comment)}
+              {comments.filter((reply) => reply.parentId === comment.id).map((reply) => renderComment(reply, true))}
+            </View>
+          ))}
+          {replyTo ? (
+            <View style={styles.replyingBanner}>
+              <Text style={styles.replyingText}>Replying in thread</Text>
+              <Pressable accessibilityRole="button" onPress={() => setReplyTo(null)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+            </View>
+          ) : null}
+          <View style={styles.commentComposer}>
+            <TextInput
+              accessibilityLabel={replyTo ? "Write a reply" : "Write an incident update"}
+              maxLength={2000}
+              multiline
+              onChangeText={setDraft}
+              placeholder={incident.status === "resolved" ? "Add a resolution note or follow-up…" : replyTo ? "Write a reply…" : "Add an update…"}
+              placeholderTextColor={colors.textFaint}
+              style={styles.commentInput}
+              value={draft}
+            />
+            <Pressable
+              accessibilityLabel="Post comment"
+              accessibilityRole="button"
+              accessibilityState={{ busy: pending, disabled: pending || !draft.trim() }}
+              disabled={pending || !draft.trim()}
+              onPress={() => void submitComment()}
+              style={styles.sendButton}
+            >
+              {pending ? <ActivityIndicator color={colors.black} size="small" /> : <Send color={colors.black} size={17} />}
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   addButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amber },
+  summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   summary: { flexDirection: "row", alignItems: "center", gap: 8 },
   summaryValue: { color: colors.text, fontFamily, fontSize: 22, fontWeight: "900" },
   summaryText: { color: colors.textMuted, fontFamily, fontSize: 13 },
+  historyButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 10 },
+  historyButtonText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800" },
   form: { gap: 11, borderRadius: radii.large, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.panel, padding: spacing.medium },
   formHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   formTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800" },
@@ -291,6 +529,32 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   ownerText: { flex: 1, color: colors.textMuted, fontFamily, fontSize: 10 },
   status: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   timeline: { color: colors.textFaint, fontFamily, fontSize: 9, lineHeight: 14 },
+  discussion: { gap: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 9 },
+  discussionToggle: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 7 },
+  discussionToggleText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "700" },
+  discussionBody: { gap: 10 },
+  thread: { gap: 7 },
+  comment: { gap: 6, borderRadius: radii.small, backgroundColor: colors.panel, padding: 10 },
+  commentReply: { marginLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border },
+  commentHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  commentAuthor: { color: colors.text, fontFamily, fontSize: 10, fontWeight: "800" },
+  commentTime: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 8 },
+  commentBody: { color: colors.text, fontFamily, fontSize: 12, lineHeight: 18 },
+  reactionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5 },
+  reaction: { minHeight: 32, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8 },
+  reactionActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
+  reactionText: { color: colors.textMuted, fontFamily, fontSize: 10 },
+  reactionPickerButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 9 },
+  replyButton: { minHeight: 36, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  replyText: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "800" },
+  reactionPicker: { flexDirection: "row", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 6 },
+  reactionPickerChoice: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 9 },
+  reactionPickerEmoji: { fontSize: 18 },
+  replyingBanner: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: radii.small, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 10 },
+  replyingText: { color: colors.textMuted, fontFamily, fontSize: 10 },
+  commentComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  commentInput: { minHeight: 64, maxHeight: 130, flex: 1, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 12, lineHeight: 18, padding: 10, textAlignVertical: "top" },
+  sendButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: colors.amber },
   cardActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 9 },
   actionButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 10 },
   actionText: { color: colors.text, fontFamily, fontSize: 9, fontWeight: "900" },

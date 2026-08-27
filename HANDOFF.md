@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 81 test files and 677 unit tests, five
+- The current full web gate passes 81 test files and 687 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 497,800 bytes raw and 156,429
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  6,132,622 and 6,133,275 bytes. EAS linkage and signed-device push remain
+  6,184,980 and 6,185,735 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -590,8 +590,8 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   web-to-native product parity. The mobile verifier derives all 20 source
   surfaces from the production web Sidebar and rejects missing, reordered, or
   unsupported inventory claims. At this checkpoint Checklist, Check-in, and
-  Team are complete; Show, Schedule, Rundown, Chat, Incidents, and Devices are
-  partial; the remaining 11 primary surfaces are explicitly recorded as
+  Team, and Incidents are complete; Show, Schedule, Rundown, Chat, and Devices
+  are partial; the remaining 11 primary surfaces are explicitly recorded as
   missing. Profile, Settings, authentication, organization selection, and Inbox
   are supporting mobile surfaces outside that primary-nav inventory. Do not describe the React Native
   product as full web parity until the manifest is green with all 20 complete.
@@ -635,12 +635,20 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   active temporary incident grants; the server remains the authority. Assignment
   notifies the selected responder directly. Commands use tenant-scoped optimistic
   updates, repeated commands are idempotent, and stale concurrent changes return
-  a conflict instead of overwriting another operator. Sixteen request-level tests
-  cover tenant isolation, effective responder access, permissions, idempotency,
-  concurrent writes, edits, deletion, and notification suppression. Incidents
-  remains partial because threaded comments and reactions, and advanced history
-  filters still need native UI.
-  No migration is required.
+  a conflict instead of overwriting another operator. Threaded updates and
+  replies, five reaction types, direct participant notifications, and resolution
+  notes now share the web data. Comment request IDs and explicit desired reaction
+  state make network retries converge without duplicate content or alerts. A
+  separate full-history screen searches every record with status, severity,
+  category, assignee, date-range, sort, and paginated filters. Twenty-six
+  request-level tests cover tenant isolation, effective responder access,
+  permissions, idempotency, concurrent writes, discussion scoping, filters,
+  edits, deletion, and notification suppression. Incidents is now the fourth
+  complete primary native surface; five are partial and 11 remain missing.
+  No migration is required. The exported route and authentication boundary were
+  rendered locally at a 390x844 viewport without console errors; the protected
+  Incident screens correctly redirected to sign-in because no reusable local QA
+  credentials were available. Authenticated rendered-device QA remains open.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before
   the Team endpoint deploys, while old app builds ignore the additive field
