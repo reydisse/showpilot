@@ -253,8 +253,10 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   security headers and direct-download redirect; the native release verifier
   locks all Worker-first routes. Local proof passed 22 landing tests, the full
   landing verify/dry-run, seven release-contract tests, empty/outage/published
-  browser states, real artifact and byte-range responses, and 1440x900 plus
-  390x844 layouts without overflow or console errors.
+  browser states, real artifact and byte-range responses, and 1440x900,
+  390x844, and 320x700 layouts without overflow or console errors. The narrow
+  navigation now keeps both actions on one 44px row instead of wrapping the
+  primary CTA, and the feature icon styles use one consolidated outline system.
 - The launch-audit branch now separates a new RundownRelay room from an
   authoritative empty rundown with a persisted `initialized` flag. An ordinary
   loader seed can initialize a room once. Later stale clients cannot restore
@@ -399,13 +401,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   environment does not expose the Chrome DevTools MCP required by the
   performance-audit workflow. Production web bundle budgets and browser smoke
   tests pass, but they are not substitutes for that trace.
-- A read-only production audit on 2026-08-26 found that `www.showpilot.tech`
-  still serves the June landing deployment without the download center and
-  that the `showpilot-downloads` R2 bucket does not exist. Do not create the
-  bucket or deploy this branch without fresh authorization. After approval,
-  create the private bucket first; the pipeline will then deploy and prove the
-  new `www` surface. Signed/notarized installers and reviewed store listings
-  remain separate publication gates before their buttons can activate.
+- A repeated read-only production audit on 2026-08-27 found that
+  `www.showpilot.tech` still serves the Worker version created on 2026-06-12
+  without the download center. `/downloads`, `/downloads/manifest.json`, and
+  both updater endpoints currently return the old landing HTML instead of
+  their release responses, and the production release smoke fails on all five
+  required download markers. The `showpilot-downloads` R2 bucket still does
+  not exist. Do not create the bucket or deploy this branch without fresh
+  authorization. After approval, create the private bucket first; the pipeline
+  will then deploy and prove the new `www` surface. Signed/notarized installers
+  and reviewed store listings remain separate publication gates before their
+  buttons can activate.
 - GitHub currently has the updater private-key secret but not the required
   Apple signing/notarization or Windows code-signing secrets. Do not create a
   native release tag until those credentials are configured; the hardened
