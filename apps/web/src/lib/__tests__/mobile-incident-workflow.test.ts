@@ -32,10 +32,23 @@ interface QueryCall {
   params: unknown[];
 }
 
+interface ResponderFixture {
+  userId: string;
+  role: string;
+  name: string;
+}
+
+interface GrantFixture {
+  userId: string;
+  permissions: string;
+}
+
 function fakeDatabase(input: {
   calls?: QueryCall[];
   incident?: IncidentFixture | null;
   changes?: number;
+  responders?: ResponderFixture[];
+  grants?: GrantFixture[];
 } = {}): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
     input.calls?.push({ sql, params });
@@ -51,6 +64,12 @@ function fakeDatabase(input: {
         return null;
       },
       async all<T>() {
+        if (sql.includes("FROM member m JOIN user u")) {
+          return { results: (input.responders ?? []) as T[] };
+        }
+        if (sql.includes("FROM access_grant")) {
+          return { results: (input.grants ?? []) as T[] };
+        }
         return { results: [] as T[] };
       },
       async run() {
@@ -202,5 +221,106 @@ describe("mobile incident workflow", () => {
       { action: "claim" },
     );
     expect(response.status).toBe(403);
+  });
+
+  it("allows only the admin tier to assign another responder", async () => {
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "assign", targetUserId: "operator-2" },
+    );
+    expect(response.status).toBe(403);
+    expect(calls.some((call) => call.sql.startsWith("UPDATE incident"))).toBe(false);
+  });
+
+  it("rejects a responder who lacks effective access in the organization", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["incidents:access"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({
+        calls,
+        responders: [{ userId: "operator-2", role: "member", name: "Sam Crew" }],
+      }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "assign", targetUserId: "operator-2" },
+    );
+    expect(response.status).toBe(400);
+    expect(calls.some((call) => call.sql.startsWith("UPDATE incident"))).toBe(false);
+    expect(mocks.notify).not.toHaveBeenCalled();
+  });
+
+  it("assigns a responder with an active temporary incident grant", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["incidents:access"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({
+        calls,
+        responders: [{ userId: "operator-2", role: "member", name: "Sam Crew" }],
+        grants: [{ userId: "operator-2", permissions: JSON.stringify(["incidents:access"]) }],
+      }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "assign", targetUserId: "operator-2" },
+    );
+    expect(response.status).toBe(200);
+    const update = calls.find((call) => call.sql.includes("acknowledgedAt = NULL"));
+    expect(update?.sql).toContain("COALESCE(assignedTo, '') = ?");
+    expect(update?.params).toEqual([
+      "operator-2",
+      "Sam Crew",
+      "operator-1",
+      expect.any(String),
+      "incident-1",
+      "org-1",
+      "",
+    ]);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientIds: ["operator-2"],
+      message: "Sam Crew is now responsible for this issue.",
+    }));
+  });
+
+  it("makes a repeated assignment idempotent", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["incidents:access"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({
+        calls,
+        incident: { id: "incident-1", status: "open", assignedTo: "operator-2", acknowledgedAt: null },
+      }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "assign", targetUserId: "operator-2" },
+    );
+    expect(response.status).toBe(200);
+    expect(calls.some((call) => call.sql.startsWith("UPDATE incident"))).toBe(false);
+    expect(mocks.notify).not.toHaveBeenCalled();
+  });
+
+  it("makes unassigning an empty queue idempotent", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["incidents:access"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "unassign" },
+    );
+    expect(response.status).toBe(200);
+    expect(calls.some((call) => call.sql.startsWith("UPDATE incident"))).toBe(false);
+    expect(mocks.notify).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale concurrent reassignment without notifying", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["incidents:access"], today: "2026-08-27" });
+    const response = await post(
+      fakeDatabase({
+        changes: 0,
+        incident: { id: "incident-1", status: "open", assignedTo: "operator-2", acknowledgedAt: null },
+        responders: [{ userId: "operator-3", role: "admin", name: "Jo Director" }],
+      }),
+      "/api/mobile/v1/incidents/incident-1/command?orgId=org-1",
+      { action: "assign", targetUserId: "operator-3" },
+    );
+    expect(response.status).toBe(409);
+    expect(mocks.notify).not.toHaveBeenCalled();
   });
 });

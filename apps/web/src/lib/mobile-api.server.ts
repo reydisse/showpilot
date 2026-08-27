@@ -4,7 +4,13 @@ import {
   resolveAccessGrantAuthorityForAccess,
   resolveEffectiveAccess,
 } from "./effective-access";
-import { ASSIGNABLE_ROLES, type Permission, type Role } from "./permissions";
+import {
+  ASSIGNABLE_ROLES,
+  hasPermission,
+  isAdminTier,
+  type Permission,
+  type Role,
+} from "./permissions";
 import { readPhaseSettings } from "./service-phase";
 import { getTodayDateString } from "./utils";
 import { actionsForMobileAdapter, buildMobileAtemCommand } from "./mobile-device-controls";
@@ -162,6 +168,17 @@ interface MobileIncidentRow {
   resolvedAt: string | null;
   resolvedBy: string | null;
   commentCount: number;
+}
+
+interface MobileIncidentResponderRow {
+  userId: string;
+  role: string;
+  name: string;
+}
+
+interface MobileIncidentGrantRow {
+  userId: string;
+  permissions: string;
 }
 
 interface MobileCheckInMemberRow {
@@ -989,29 +1006,74 @@ async function respondToAssignment(request: Request, db: MobileApiDatabase): Pro
 async function incidents(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["incidents:report", "incidents:access"]);
   if (access instanceof Response) return access;
-  const result = await db.prepare(
-    `SELECT id, showId, category, severity, description, reportedBy, serviceDate,
+  const [result, responders] = await Promise.all([
+    db.prepare(
+      `SELECT id, showId, category, severity, description, reportedBy, serviceDate,
             timestamp, status, assignedTo, assignedName, acknowledgedAt, assignedAt,
             resolvedAt, resolvedBy,
             (SELECT CAST(COUNT(*) AS INTEGER) FROM incident_comment c
              WHERE c.orgId = incident.orgId AND c.incidentId = incident.id) AS commentCount
-     FROM incident WHERE orgId = ?
-     ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, timestamp DESC LIMIT 100`,
-  ).bind(access.orgId).all<MobileIncidentRow>();
+       FROM incident WHERE orgId = ?
+       ORDER BY CASE WHEN status = 'open' THEN 0 ELSE 1 END, timestamp DESC LIMIT 100`,
+    ).bind(access.orgId).all<MobileIncidentRow>(),
+    resolveMobileIncidentResponders(access.orgId, access.identity.today, db),
+  ]);
   return json({
     canReport: hasAny(access.identity, ["incidents:report", "incidents:access"]),
     canManage: access.identity.permissions.includes("incidents:access"),
     incidents: result.results ?? [],
+    responders,
   });
+}
+
+function parsePermissionSnapshot(value: string): Permission[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is Permission =>
+      typeof item === "string" && item === "incidents:access",
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function resolveMobileIncidentResponders(orgId: string, today: string, db: MobileApiDatabase) {
+  const [membersResult, grantsResult] = await Promise.all([
+    db.prepare(
+      `SELECT m.userId, m.role, u.name
+       FROM member m JOIN user u ON u.id = m.userId
+       WHERE m.organizationId = ? ORDER BY u.name ASC, m.userId ASC`,
+    ).bind(orgId).all<MobileIncidentResponderRow>(),
+    db.prepare(
+      `SELECT userId, permissions FROM access_grant
+       WHERE orgId = ? AND revokedAt IS NULL AND startsOn <= ?
+         AND (expiresOn IS NULL OR expiresOn > ?)`,
+    ).bind(orgId, today, today).all<MobileIncidentGrantRow>(),
+  ]);
+  const grantedUsers = new Set(
+    (grantsResult.results ?? [])
+      .filter((grant) => parsePermissionSnapshot(grant.permissions).includes("incidents:access"))
+      .map((grant) => grant.userId),
+  );
+  return (membersResult.results ?? [])
+    .filter((member) => hasPermission(member.role, "incidents:access") || grantedUsers.has(member.userId))
+    .map((member) => ({ userId: member.userId, name: member.name, role: member.role }));
 }
 
 type MobileIncidentCommand =
   | { kind: "claim" }
+  | { kind: "assign"; targetUserId: string }
+  | { kind: "unassign" }
   | { kind: "acknowledge" }
   | { kind: "resolve" };
 
 function parseIncidentCommand(body: Record<string, unknown> | null): MobileIncidentCommand | null {
   if (body?.action === "claim") return { kind: "claim" };
+  if (body?.action === "assign" && validId(body.targetUserId)) {
+    return { kind: "assign", targetUserId: body.targetUserId };
+  }
+  if (body?.action === "unassign") return { kind: "unassign" };
   if (body?.action === "acknowledge") return { kind: "acknowledge" };
   if (body?.action === "resolve") return { kind: "resolve" };
   return null;
@@ -1021,19 +1083,42 @@ async function notifyMobileIncidentCommand(input: {
   orgId: string;
   actorId: string;
   actorName: string;
+  subjectName?: string;
   incidentId: string;
   command: MobileIncidentCommand;
 }) {
-  const copy = input.command.kind === "claim"
-    ? { type: "incident-assigned", title: "Operational issue claimed", message: `${input.actorName} is now responsible for this issue.` }
-    : input.command.kind === "acknowledge"
-      ? { type: "incident-acknowledged", title: "Operational issue acknowledged", message: `${input.actorName} acknowledged the assigned issue.` }
-      : { type: "incident-resolved", title: "Operational issue resolved", message: `${input.actorName} marked the issue as resolved.` };
+  let copy: { type: string; title: string; message: string };
+  if (input.command.kind === "claim" || input.command.kind === "assign") {
+    copy = {
+      type: "incident-assigned",
+      title: "Operational issue assigned",
+      message: `${input.subjectName ?? input.actorName} is now responsible for this issue.`,
+    };
+  } else if (input.command.kind === "unassign") {
+    copy = {
+      type: "incident-unassigned",
+      title: "Operational issue returned to the queue",
+      message: `${input.actorName} returned the issue to the queue.`,
+    };
+  } else if (input.command.kind === "acknowledge") {
+    copy = {
+      type: "incident-acknowledged",
+      title: "Operational issue acknowledged",
+      message: `${input.actorName} acknowledged the assigned issue.`,
+    };
+  } else {
+    copy = {
+      type: "incident-resolved",
+      title: "Operational issue resolved",
+      message: `${input.actorName} marked the issue as resolved.`,
+    };
+  }
   try {
     const { notifyOperationalEvent } = await import("./operational-notifications.server");
     await notifyOperationalEvent({
       orgId: input.orgId,
       actorId: input.actorId,
+      recipientIds: input.command.kind === "assign" ? [input.command.targetUserId] : [],
       includeLeadership: true,
       type: copy.type,
       severity: "warning",
@@ -1071,6 +1156,9 @@ async function commandIncident(
   if (command.kind === "claim" && incident.status === "resolved") {
     return json({ error: "Resolved incidents cannot be claimed." }, 409);
   }
+  if ((command.kind === "assign" || command.kind === "unassign") && incident.status === "resolved") {
+    return json({ error: "Resolved incidents cannot be reassigned." }, 409);
+  }
   if (command.kind === "acknowledge" && incident.status === "resolved") {
     return json({ error: "Resolved incidents cannot be acknowledged." }, 409);
   }
@@ -1080,33 +1168,70 @@ async function commandIncident(
   if (command.kind === "acknowledge" && incident.assignedTo !== access.identity.userId) {
     return json({ error: "Only the assigned operator can acknowledge this incident." }, 403);
   }
+  if ((command.kind === "assign" || command.kind === "unassign") && !isAdminTier(access.identity.role)) {
+    return json({ error: "Only an Owner, Admin, or Director can reassign incidents." }, 403);
+  }
+  if (command.kind === "assign" && incident.assignedTo === command.targetUserId) return json({ ok: true });
+  if (command.kind === "unassign" && incident.assignedTo === null) return json({ ok: true });
+  let assignmentTarget: { userId: string; name: string } | null = null;
+  if (command.kind === "assign") {
+    const responders = await resolveMobileIncidentResponders(access.orgId, access.identity.today, db);
+    assignmentTarget = responders.find((responder) => responder.userId === command.targetUserId) ?? null;
+    if (!assignmentTarget) return json({ error: "That person cannot manage incidents in this organization." }, 400);
+  }
   if (command.kind === "claim" && incident.assignedTo === access.identity.userId) return json({ ok: true });
   if (command.kind === "acknowledge" && incident.acknowledgedAt) return json({ ok: true });
   if (command.kind === "resolve" && incident.status === "resolved") return json({ ok: true });
 
   const now = new Date().toISOString();
-  const result = command.kind === "claim"
-    ? await db.prepare(
+  let result: ChecklistWriteResult;
+  if (command.kind === "claim") {
+    result = await db.prepare(
         `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?, assignedBy = ?, assignedAt = ?
          WHERE id = ? AND orgId = ? AND status <> 'resolved'
            AND (assignedTo IS NULL OR assignedTo = '' OR assignedTo = ?)`,
-      ).bind(access.identity.userId, access.identity.name, now, access.identity.userId, now, incidentId, access.orgId, access.identity.userId).run()
-    : command.kind === "acknowledge"
-      ? await db.prepare(
-          `UPDATE incident SET acknowledgedAt = ?
-           WHERE id = ? AND orgId = ? AND status <> 'resolved'
-             AND assignedTo = ? AND acknowledgedAt IS NULL`,
-        ).bind(now, incidentId, access.orgId, access.identity.userId).run()
-      : await db.prepare(
-          `UPDATE incident SET status = 'resolved', resolvedAt = ?, resolvedBy = ?
-           WHERE id = ? AND orgId = ? AND status <> 'resolved'`,
-        ).bind(now, access.identity.name, incidentId, access.orgId).run();
+      ).bind(access.identity.userId, access.identity.name, now, access.identity.userId, now, incidentId, access.orgId, access.identity.userId).run();
+  } else if (command.kind === "assign") {
+    if (!assignmentTarget) return json({ error: "That person cannot manage incidents in this organization." }, 400);
+    result = await db.prepare(
+      `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = NULL, assignedBy = ?, assignedAt = ?
+       WHERE id = ? AND orgId = ? AND status <> 'resolved'
+         AND COALESCE(assignedTo, '') = ?`,
+    ).bind(
+      assignmentTarget.userId,
+      assignmentTarget.name,
+      access.identity.userId,
+      now,
+      incidentId,
+      access.orgId,
+      incident.assignedTo ?? "",
+    ).run();
+  } else if (command.kind === "unassign") {
+    result = await db.prepare(
+      `UPDATE incident SET assignedTo = NULL, assignedName = '', acknowledgedAt = NULL,
+               assignedBy = NULL, assignedAt = NULL
+       WHERE id = ? AND orgId = ? AND status <> 'resolved'
+         AND COALESCE(assignedTo, '') = ?`,
+    ).bind(incidentId, access.orgId, incident.assignedTo ?? "").run();
+  } else if (command.kind === "acknowledge") {
+    result = await db.prepare(
+      `UPDATE incident SET acknowledgedAt = ?
+       WHERE id = ? AND orgId = ? AND status <> 'resolved'
+         AND assignedTo = ? AND acknowledgedAt IS NULL`,
+    ).bind(now, incidentId, access.orgId, access.identity.userId).run();
+  } else {
+    result = await db.prepare(
+      `UPDATE incident SET status = 'resolved', resolvedAt = ?, resolvedBy = ?
+       WHERE id = ? AND orgId = ? AND status <> 'resolved'`,
+    ).bind(now, access.identity.name, incidentId, access.orgId).run();
+  }
 
   if (changedExactlyOneRow(result)) {
     await notifyMobileIncidentCommand({
       orgId: access.orgId,
       actorId: access.identity.userId,
       actorName: access.identity.name,
+      subjectName: assignmentTarget?.name,
       incidentId,
       command,
     });

@@ -569,12 +569,12 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   credentials, final privacy declarations, accessibility labels, and signed
   screenshots remain owner/account-controlled gates and are intentionally not
   fabricated or committed.
-- The current full web gate passes 81 test files and 671 unit tests, five
+- The current full web gate passes 81 test files and 677 unit tests, five
   control-boundary tests, one Workers-runtime test, TypeScript, and the
   production build. The main client bundle is 497,800 bytes raw and 156,429
   bytes gzip. The mobile gate passes TypeScript, lint, all-platform export,
   Expo Doctor 18/18, and release contracts; iOS and Android Hermes bundles are
-  6,125,529 and 6,126,194 bytes. EAS linkage and signed-device push remain
+  6,132,622 and 6,133,275 bytes. EAS linkage and signed-device push remain
   external gates.
 - Native Checklist is now a complete mobile vertical slice. The Worker exposes
   tenant- and show-scoped reads, atomic idempotent adds, authenticated
@@ -629,14 +629,17 @@ and committed. Do not apply or drop these unless doing a recovery comparison:
   third complete primary surface; six are partial and 11 remain missing. No
   migration is required.
 - Native Incidents now supports reporting, editing, deletion, self-claim,
-  acknowledgement by the assigned operator, resolution attribution, live/open/
-  resolved filtering, and searchable history. Commands use tenant-scoped
-  conditional updates. Repeated commands are idempotent, while a stale
-  concurrent command returns a conflict instead of overwriting the other
-  operator. Ten request-level tests cover tenant isolation, permissions,
-  idempotency, concurrent writes, edits, deletion, and notification suppression.
-  Incidents remains partial because assigning another responder, threaded
-  comments and reactions, and advanced history filters still need native UI.
+  responder assignment and unassignment, acknowledgement by the assigned
+  operator, resolution attribution, live/open/resolved filtering, and searchable
+  history. The responder picker is derived from same-organization base roles and
+  active temporary incident grants; the server remains the authority. Assignment
+  notifies the selected responder directly. Commands use tenant-scoped optimistic
+  updates, repeated commands are idempotent, and stale concurrent changes return
+  a conflict instead of overwriting another operator. Sixteen request-level tests
+  cover tenant isolation, effective responder access, permissions, idempotency,
+  concurrent writes, edits, deletion, and notification suppression. Incidents
+  remains partial because threaded comments and reactions, and advanced history
+  filters still need native UI.
   No migration is required.
 - The native `accessAuthority` bootstrap field is intentionally optional at the
   client boundary. A new app can still use the current production Worker before

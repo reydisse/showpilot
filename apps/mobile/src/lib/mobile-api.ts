@@ -175,6 +175,7 @@ const incidentsSchema = z.object({
   canReport: z.boolean(),
   canManage: z.boolean(),
   incidents: z.array(incidentSchema),
+  responders: z.array(z.object({ userId: z.string(), name: z.string(), role: z.string() })).default([]),
 });
 
 const checkInMemberSchema = z.object({
@@ -466,11 +467,12 @@ export async function reportMobileIncident(input: {
 export async function commandMobileIncident(input: {
   orgId: string;
   incidentId: string;
-  action: "claim" | "acknowledge" | "resolve";
+  action: "claim" | "assign" | "unassign" | "acknowledge" | "resolve";
+  targetUserId?: string;
 }) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/incidents/${encodeURIComponent(input.incidentId)}/command?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({ action: input.action }) },
+    { method: "POST", body: JSON.stringify({ action: input.action, targetUserId: input.targetUserId }) },
   );
   return okSchema.parse(await response.json());
 }
