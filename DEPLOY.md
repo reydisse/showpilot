@@ -163,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0034_better_auth_account_issuer.sql`). They deliberately do **not** use wrangler's
+`0035_reports_and_moderation.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -239,6 +239,9 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"type\", 
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM pragma_table_info('account') WHERE \"name\" IN ('accountId', 'issuer', 'providerId', 'userId') ORDER BY \"name\""
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" FROM \"sqlite_master\" WHERE \"type\" = 'index' AND \"name\" = 'account_issuer_accountId_uidx'"
 
+# After 0035: returns four tables and seven indexes.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('show_report_note','show_report_note_author_key','show_report_note_show_idx','show_report_reminder','show_report_reminder_recipient_key','content_block','content_block_pair_key','content_block_viewer_idx','content_report','content_report_queue_idx','content_report_target_idx') ORDER BY type, name"
+
 # After all files: returns no rows.
 pnpm exec wrangler d1 execute showpilot-db --remote --command='PRAGMA foreign_key_check'
 ```
@@ -276,20 +279,10 @@ a fresh local state directory.
 ### Current state
 
 The production manifest records every migration through
-`0029_weekly_access_grants.sql`. Migrations
-`0030_multitenant_push_subscriptions.sql` through
-`0034_better_auth_account_issuer.sql` are pending. Apply all five in order
-through the protected procedure above before deploying this launch candidate:
-0030–0031 support signed device push, 0032 protects atomic checklist creation,
-0033 supports complete chat cleanup during account deletion, and 0034 is
-required by Better Auth 1.7. The read-only 0030 and 0032 production preflights
-reported zero duplicate endpoint/organization groups and zero duplicate
-checklist groups on 2026-08-27. Rerun those preflights and the two 0034 account
-preflights immediately before applying because production data can change. `PRAGMA
-foreign_key_check` returned no rows. The earlier read-only audit found only the
-old `push_subscription_endpoint_key` among the six objects created by
-0030–0032. Migration 0030 replaces that index. Run every preflight again during
-the production change window.
+`0035_reports_and_moderation.sql`. Migrations 0030 through 0035 were applied
+in order on 2026-08-28 after every required preflight returned zero and a D1
+Time Travel bookmark was captured. Every migration postcondition passed, and
+`PRAGMA foreign_key_check` returned no rows after the rollout.
 
 ---
 

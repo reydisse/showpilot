@@ -34,3 +34,9 @@
 0027_enable_multiple_show_instances.sql
 0028_assignment_custom_call_time.sql
 0029_weekly_access_grants.sql
+0030_multitenant_push_subscriptions.sql
+0031_expo_push_receipts.sql
+0032_checklist_entry_uniqueness.sql
+0033_chat_user_room_index.sql
+0034_better_auth_account_issuer.sql
+0035_reports_and_moderation.sql
