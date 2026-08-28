@@ -17,6 +17,7 @@ import {
   Megaphone,
   User,
   KeyRound,
+  Flag,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import {
@@ -34,6 +35,7 @@ import { MemberTable } from "@/components/admin/MemberTable";
 import { AccessManagementTab } from "@/components/admin/AccessManagementTab";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { Member } from "@/types";
+import { closeContentReport, getContentReports, type ContentReportItem } from "@/lib/content-moderation";
 
 export const Route = createFileRoute("/$slug/team")({
   pendingComponent: () => <PageSkeleton />,
@@ -51,10 +53,11 @@ export const Route = createFileRoute("/$slug/team")({
       context.grantedPermissions,
       "checkin:access",
     );
-    const [orgMembers, invitations, crewMembers] = await Promise.all([
+    const [orgMembers, invitations, crewMembers, contentReports] = await Promise.all([
       canManageMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       canManageMembers ? getOrgInvitations({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       canViewCrew ? getCrewMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
+      canManageMembers ? getContentReports({ data: { orgId: context.orgId } }) : Promise.resolve([]),
     ]);
     return {
       orgMembers,
@@ -64,12 +67,13 @@ export const Route = createFileRoute("/$slug/team")({
       canManageMembers,
       canViewCrew,
       accessManagement,
+      contentReports,
     };
   },
   component: TeamPage,
 });
 
-type Tab = "members" | "access" | "crew";
+type Tab = "members" | "access" | "crew" | "moderation";
 
 function TeamPage() {
   const {
@@ -80,6 +84,7 @@ function TeamPage() {
     canManageMembers,
     canViewCrew,
     accessManagement,
+    contentReports,
   } =
     Route.useLoaderData();
 
@@ -158,6 +163,9 @@ function TeamPage() {
             count={crewMembers.length}
           />
         ) : null}
+        {canManageMembers ? (
+          <TabButton active={visibleTab === "moderation"} onClick={() => setActiveTab("moderation")} icon={<Flag className="w-4 h-4" />} label="Reports" count={contentReports.length} />
+        ) : null}
       </div>
 
       {visibleTab === "members" ? (
@@ -175,15 +183,33 @@ function TeamPage() {
           members={accessManagement.members}
           grants={accessManagement.grants}
         />
-      ) : (
+      ) : visibleTab === "crew" ? (
         <MemberTable
           members={crewMembers}
           orgId={orgId}
           canManage={canManageMembers}
         />
+      ) : (
+        <ModerationTab orgId={orgId} reports={contentReports} />
       )}
     </div>
   );
+}
+
+function ModerationTab({ orgId, reports }: { orgId: string; reports: ContentReportItem[] }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const close = async (reportId: string, status: "resolved" | "dismissed") => {
+    setBusyId(reportId);
+    try {
+      await closeContentReport({ data: { orgId, reportId, status } });
+      await router.invalidate();
+    } finally {
+      setBusyId(null);
+    }
+  };
+  if (!reports.length) return <div className="rounded-xl border border-dashed border-board-border px-4 py-12 text-center"><Flag className="mx-auto size-6 text-board-muted/50" /><p className="mt-3 text-sm font-medium text-board-text">No open content reports</p><p className="mt-1 text-xs text-board-muted">New reports from chat and incident discussions appear here.</p></div>;
+  return <div className="space-y-3">{reports.map((report) => <article key={report.id} className="rounded-xl border border-board-border bg-board-card p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-semibold capitalize text-board-text">{report.reason} · {report.targetType.replace("-", " ")}</p><p className="mt-1 text-xs text-board-muted">Reported by {report.reporterName}{report.targetAuthorName ? ` · content by ${report.targetAuthorName}` : ""} · {new Date(report.createdAt).toLocaleString()}</p></div><span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase text-amber-300">Open</span></div>{report.details ? <p className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-board-bg px-3 py-2 text-xs leading-5 text-board-muted">{report.details}</p> : null}<div className="mt-3 flex justify-end gap-2"><button disabled={busyId === report.id} onClick={() => void close(report.id, "dismissed")} className="min-h-10 rounded-lg border border-board-border px-3 text-xs font-medium text-board-muted disabled:opacity-50">Dismiss</button><button disabled={busyId === report.id} onClick={() => void close(report.id, "resolved")} className="min-h-10 rounded-lg bg-fire-500 px-3 text-xs font-semibold text-black disabled:opacity-50">Mark resolved</button></div></article>)}</div>;
 }
 
 function TabButton({

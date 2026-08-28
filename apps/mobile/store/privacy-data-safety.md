@@ -9,6 +9,7 @@ This is a submission worksheet, not legal advice. Confirm it against the product
 | Contact info | Name and email | Yes | Yes | Account, authentication, invitations, support |
 | User identifiers | ShowPilot user ID and organization membership | Yes | Yes | Authentication, authorization, synchronization |
 | User content | Rundowns, schedules, assignments, incidents, comments, chat, reactions, and files | Depends on role/use | Yes | App functionality and team collaboration |
+| Safety data | Content reports, report reasons, blocked-user relationships, and moderation status | No | Yes | Abuse prevention, user safety, and support |
 | Photos | Optional profile photo and optional chat attachments | No | Yes | Profile and collaboration |
 | App activity | Feature-use events if production analytics is enabled | No | Yes when enabled | Product analytics and improvement |
 | Device identifiers | Web Push endpoint or Expo push token | No | Yes | Assignment, mention, and operational notifications |
@@ -22,11 +23,14 @@ This is a submission worksheet, not legal advice. Confirm it against the product
 - Users can start permanent account deletion at https://showpilot.tech/delete-account.
 - Organization owners can permanently delete an organization and its organization-owned data.
 - Optional system permissions are limited to notifications and photo-library selection. The Android manifest blocks camera, microphone, broad storage, and overlay permissions.
+- Users can report chat messages and block organization members in the app. Organization administrators can review open reports in **Team > Reports**.
+- ShowPilot checks chat messages and incident comments for prohibited threats, sexual content involving minors, and link spam before publication.
 
 ## Answers that need final confirmation
 
 - Whether PostHog analytics is enabled in the submitted production environment.
 - The final retention periods and legal-entity details in the privacy policy.
+- The retention period for resolved content reports and blocked-user relationships.
 - Whether store dashboards treat workspace subscription status as purchase history for this build.
 - Apple accessibility nutrition labels after task-level testing on a signed iPhone and iPad build.
 - Google Play’s exact account-deletion URL field and Data Safety answers after the production deletion route is deployed.

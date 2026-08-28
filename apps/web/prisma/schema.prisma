@@ -26,6 +26,13 @@ model User {
   accessGrantsReceived MemberPermissionGrant[] @relation("AccessGrantRecipient")
   accessGrantsIssued   MemberPermissionGrant[] @relation("AccessGrantIssuer")
   accessGrantsRevoked  MemberPermissionGrant[] @relation("AccessGrantRevoker")
+  showReportNotes      ShowReportNote[]
+  showReportReminders  ShowReportReminder[]
+  contentBlocksCreated ContentBlock[] @relation("ContentBlockBlocker")
+  contentBlocksReceived ContentBlock[] @relation("ContentBlockBlocked")
+  contentReportsCreated ContentReport[] @relation("ContentReportReporter")
+  contentReportsReceived ContentReport[] @relation("ContentReportAuthor")
+  contentReportsReviewed ContentReport[] @relation("ContentReportReviewer")
 
   @@unique([email])
   @@map("user")
@@ -129,6 +136,10 @@ model Organization {
   companionTokens    CompanionToken[]
   showInventory      ShowInventoryItem[]
   memberPermissionGrants MemberPermissionGrant[]
+  showReportNotes       ShowReportNote[]
+  showReportReminders   ShowReportReminder[]
+  contentBlocks         ContentBlock[]
+  contentReports        ContentReport[]
 
   organizationroles OrganizationRole[]
 
@@ -618,12 +629,88 @@ model Rundown {
   cueNotes           CueNote[]
   incidents          Incident[]
   serviceAssignments ServiceAssignment[]
+  showReportNotes     ShowReportNote[]
+  showReportReminders ShowReportReminder[]
   micAssignments     MicAssignment[]
   items              RundownItem[]
 
   @@index([orgId, serviceDate])
   @@index([orgId, serviceDate, scheduledStartTime])
   @@map("rundown")
+}
+
+model ShowReportNote {
+  id         String       @id @default(cuid())
+  orgId      String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId     String
+  show       Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authorName String
+  role       String
+  summary    String       @default("")
+  wins       String       @default("")
+  issues     String       @default("")
+  followUps  String       @default("")
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([orgId, showId, userId])
+  @@index([orgId, showId, updatedAt])
+  @@map("show_report_note")
+}
+
+model ShowReportReminder {
+  id         String       @id @default(cuid())
+  orgId      String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId     String
+  show       Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+
+  @@unique([orgId, showId, userId])
+  @@map("show_report_reminder")
+}
+
+model ContentBlock {
+  id            String       @id @default(cuid())
+  orgId         String
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  blockerUserId String
+  blocker       User         @relation("ContentBlockBlocker", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blockedUserId String
+  blocked       User         @relation("ContentBlockBlocked", fields: [blockedUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+
+  @@unique([orgId, blockerUserId, blockedUserId])
+  @@index([orgId, blockerUserId])
+  @@map("content_block")
+}
+
+model ContentReport {
+  id             String       @id @default(cuid())
+  orgId          String
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  reporterUserId String
+  reporter       User         @relation("ContentReportReporter", fields: [reporterUserId], references: [id], onDelete: Cascade)
+  targetType     String
+  targetId       String
+  targetAuthorId String?
+  targetAuthor   User?        @relation("ContentReportAuthor", fields: [targetAuthorId], references: [id], onDelete: SetNull)
+  reason         String
+  details        String       @default("")
+  status         String       @default("open")
+  createdAt      DateTime     @default(now())
+  reviewedAt     DateTime?
+  reviewedBy     String?
+  reviewer       User?        @relation("ContentReportReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status, createdAt])
+  @@index([orgId, targetType, targetId])
+  @@map("content_report")
 }
 
 model GraphicTemplate {

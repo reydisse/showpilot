@@ -8,6 +8,8 @@ import {
   Clock3,
   Download,
   ListChecks,
+  MessageSquareText,
+  Save,
   Search,
   Users,
   X,
@@ -17,6 +19,8 @@ import { exportShowReport, type ShowReport } from "@/lib/report";
 import { getSchedule } from "@/lib/schedule";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
+import { saveShowReportNote, type ShowReportLane } from "@/lib/show-report-notes";
+import { ContextHelp } from "@/components/ui/context-help";
 
 const PAGE_SIZE = 10;
 
@@ -36,10 +40,11 @@ function displayDate(date: string) {
 
 function duration(start: string | null, end: string | null) {
   if (!start || !end) return "—";
-  const minutes = Math.max(
-    0,
-    Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000),
-  );
+  const elapsed = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 12 * 60 * 60 * 1000) {
+    return "Needs review";
+  }
+  const minutes = Math.round(elapsed / 60000);
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
@@ -192,10 +197,10 @@ function ReportsPage() {
   return (
     <div className="h-full overflow-auto">
       <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
-        <h1 className="text-lg font-semibold text-board-text">Show reports</h1>
-        <p className="mt-0.5 text-xs text-board-muted">
-          Review operational history and open any show for full details
-        </p>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-board-text">Show reports</h1>
+          <ContextHelp title="Show reports" description="Review what happened during each show, add optional production or technical manager notes, and export the report with those notes included." className="size-7" />
+        </div>
       </header>
 
       <div className="mx-auto max-w-[1500px] p-4 md:p-6">
@@ -326,6 +331,7 @@ function ReportsPage() {
           exportError={exportError}
           onClose={closeReport}
           onExport={exportReport}
+          onReportChange={setDetail}
         />
       ) : null}
     </div>
@@ -364,6 +370,7 @@ function ReportDetailModal({
   exportError,
   onClose,
   onExport,
+  onReportChange,
 }: {
   service:
     | ReturnType<typeof Route.useLoaderData>["services"][number]
@@ -375,6 +382,7 @@ function ReportDetailModal({
   exportError: string | null;
   onClose: () => void;
   onExport: (format: "pdf" | "csv") => void;
+  onReportChange: (report: ShowReport) => void;
 }) {
   return (
     <div
@@ -437,6 +445,12 @@ function ReportDetailModal({
                 value={report.incidents.length}
               />
             </div>
+
+            <ManagerNotes
+              orgId={report.organization.id}
+              report={report}
+              onReportChange={onReportChange}
+            />
 
             <DetailSection
               title="Crew"
@@ -506,6 +520,115 @@ function ReportDetailModal({
       </div>
     </div>
   );
+}
+
+function ManagerNotes({
+  orgId,
+  report,
+  onReportChange,
+}: {
+  orgId: string;
+  report: ShowReport;
+  onReportChange: (report: ShowReport) => void;
+}) {
+  const writable = report.viewer.writableNoteLanes;
+  const ownNote = report.managerNotes.find((note) => note.userId === report.viewer.userId);
+  const [lane, setLane] = useState<ShowReportLane>(ownNote?.role ?? writable[0] ?? "pm");
+  const [draft, setDraft] = useState(() => ({
+    summary: ownNote?.summary ?? "",
+    wins: ownNote?.wins ?? "",
+    issues: ownNote?.issues ?? "",
+    followUps: ownNote?.followUps ?? "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const save = async () => {
+    setSaving(true);
+    setMessage("");
+    try {
+      const note = await saveShowReportNote({
+        data: { orgId, showId: report.showId, role: lane, ...draft },
+      });
+      const notes = [...report.managerNotes.filter((item) => item.userId !== note.userId), note]
+        .sort((left, right) => left.role.localeCompare(right.role) || left.updatedAt.localeCompare(right.updatedAt));
+      onReportChange({ ...report, managerNotes: notes });
+      setMessage("Notes saved and included in exports.");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "The notes could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-board-border">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-board-border bg-board-bg/40 px-4 py-3">
+        <div>
+          <h3 className="flex items-center gap-2 text-xs font-semibold text-board-text">
+            <MessageSquareText className="h-3.5 w-3.5 text-fire-400" />
+            Manager notes
+          </h3>
+          <p className="mt-1 text-[11px] leading-5 text-board-muted">Optional context from PMs and TMs travels with the PDF and CSV.</p>
+        </div>
+        {writable.length > 1 ? (
+          <div className="flex rounded-lg border border-board-border bg-board-card p-1">
+            {writable.map((value) => (
+              <button key={value} type="button" onClick={() => setLane(value)} className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
+                {value === "pm" ? "PM note" : "TM note"}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {report.managerNotes.length ? (
+        <div className="grid gap-3 border-b border-board-border p-4 md:grid-cols-2">
+          {report.managerNotes.map((note) => (
+            <article key={note.id} className="rounded-lg border border-board-border/70 bg-board-bg/45 p-3">
+              <p className="text-xs font-semibold text-board-text">{note.role === "pm" ? "Production Manager" : "Technical Manager"} · {note.authorName}</p>
+              {note.summary ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-board-text/85">{note.summary}</p> : null}
+              {note.wins ? <NoteLine label="What worked" value={note.wins} /> : null}
+              {note.issues ? <NoteLine label="Issues / changes" value={note.issues} /> : null}
+              {note.followUps ? <NoteLine label="Follow-up" value={note.followUps} /> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {writable.length ? (
+        <div className="space-y-3 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <NoteField label="Overall summary" value={draft.summary} onChange={(summary) => setDraft((current) => ({ ...current, summary }))} placeholder="How did the show go overall?" />
+            <NoteField label="What worked" value={draft.wins} onChange={(wins) => setDraft((current) => ({ ...current, wins }))} placeholder="People, process, cues, or systems to repeat" />
+            <NoteField label="Issues or changes" value={draft.issues} onChange={(issues) => setDraft((current) => ({ ...current, issues }))} placeholder="What changed, failed, or ran differently?" />
+            <NoteField label="Follow-up" value={draft.followUps} onChange={(followUps) => setDraft((current) => ({ ...current, followUps }))} placeholder="Owner, action, and next deadline" />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className={`text-[11px] ${message.includes("could not") || message.includes("do not have") ? "text-red-300" : "text-board-muted"}`}>{message || "Nothing here is compulsory; save only useful operational context."}</p>
+            <button type="button" disabled={saving} onClick={() => void save()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-fire-500 px-3 text-xs font-semibold text-black disabled:opacity-50">
+              <Save className="h-3.5 w-3.5" />{saving ? "Saving…" : "Save my notes"}
+            </button>
+          </div>
+        </div>
+      ) : report.managerNotes.length === 0 ? (
+        <p className="px-4 py-5 text-xs text-board-muted">No PM or TM notes were submitted for this show.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function NoteField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
+  return (
+    <label className="space-y-1.5 text-[11px] font-medium text-board-muted">
+      {label}
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} maxLength={4_000} rows={3} placeholder={placeholder} className="w-full resize-y rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs leading-5 text-board-text outline-none placeholder:text-board-muted/45 focus:border-fire-500/50" />
+    </label>
+  );
+}
+
+function NoteLine({ label, value }: { label: string; value: string }) {
+  return <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-board-muted"><span className="font-semibold text-board-text/80">{label}:</span> {value}</p>;
 }
 
 function DetailSection({

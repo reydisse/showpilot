@@ -12,7 +12,9 @@ import {
   Plus,
   X,
   Layers,
+  MonitorPlay,
 } from "lucide-react";
+import { ContextHelp } from "@/components/ui/context-help";
 import {
   addGraphicTemplate,
   updateGraphicTemplate,
@@ -467,11 +469,11 @@ function TemplatePreviewPage() {
   const composedCount = scene.length + (draftHasText ? 1 : 0);
 
   return (
-    <div className="h-full overflow-auto bg-board-bg">
+    <div className="h-full overflow-auto bg-[#07090d]">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-board-bg/90 backdrop-blur-xl border-b border-board-border px-6 py-4">
+      <div className="sticky top-0 z-20 border-b border-board-border bg-[#090c12]/95 px-4 py-3 backdrop-blur-xl lg:px-6">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="min-w-0">
             <Link
               to="/$slug/streaming/graphics"
               params={{ slug }}
@@ -480,12 +482,10 @@ function TemplatePreviewPage() {
               <ChevronLeft className="w-3.5 h-3.5" />
               Back to Lower Thirds
             </Link>
-            <h1 className="text-lg font-semibold text-board-text font-display">
-              Lower Third Templates
-            </h1>
-            <p className="text-xs text-board-muted mt-0.5">
-              Design, add multiple LTs to a scene, then push them together — what you see is what airs.
-            </p>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display text-lg font-semibold text-board-text">Template Studio</h1>
+              <ContextHelp title="Template Studio" description="Build a broadcast scene from one or more lower thirds. The Program canvas matches the live output; Save stores a reusable template, Push Live airs the current composition, and Clear removes it from every connected output." className="size-7" />
+            </div>
           </div>
           <button
             onClick={() => setShowControls((v) => !v)}
@@ -501,12 +501,26 @@ function TemplatePreviewPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-6xl mx-auto">
-        <div className="flex gap-6">
+      <div className="mx-auto max-w-[1700px] p-3 lg:p-4">
+        <div className="flex items-start gap-3 lg:gap-4">
+          <aside className="sticky top-[76px] hidden w-60 shrink-0 overflow-hidden rounded-xl border border-board-border bg-board-card/80 xl:block">
+            <div className="flex items-center justify-between border-b border-board-border px-3 py-3">
+              <div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-board-muted">Template library</p><p className="mt-0.5 text-[10px] text-board-muted/70">{TEMPLATES.length} broadcast layouts</p></div>
+              <Layers className="size-4 text-fire-400" />
+            </div>
+            <div className="modern-scrollbar max-h-[calc(100vh-145px)] space-y-2 overflow-y-auto p-2">
+              {TEMPLATES.map((item, index) => (
+                <button key={item.id} type="button" onClick={() => { setCurrentIndex(index); setVisible(true); }} className={`w-full rounded-lg border p-2 text-left transition ${index === currentIndex ? "border-fire-500/45 bg-fire-500/10" : "border-transparent hover:border-board-border hover:bg-board-bg/60"}`}>
+                  <div className="relative overflow-hidden rounded-md bg-[#111]" style={{ aspectRatio: "16 / 9" }}><LtStage>{item.render(SAMPLES.person.primary, SAMPLES.person.secondary, true, controls)}</LtStage></div>
+                  <div className="mt-2 flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-semibold text-board-text">{item.name}</span><span className="text-[8px] uppercase tracking-wider text-board-muted">{item.category}</span></div>
+                </button>
+              ))}
+            </div>
+          </aside>
           {/* Main content */}
-          <div className="flex-1 min-w-0 space-y-5">
+          <div className="min-w-0 flex-1 space-y-3">
             {/* Top controls */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-board-border bg-board-card/70 p-2.5">
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
                   onClick={() => setSampleKey("custom")}
@@ -589,7 +603,7 @@ function TemplatePreviewPage() {
             )}
 
             {/* Action buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-board-border bg-board-card/55 p-2.5">
               <button
                 onClick={addToScene}
                 disabled={!draftHasText}
@@ -610,7 +624,7 @@ function TemplatePreviewPage() {
                     ? "Pushing..."
                     : composedCount > 1
                       ? `Push Scene (${composedCount})`
-                      : "Push Live"}
+                    : "Take Live"}
                 </button>
               )}
               {canTriggerGraphics && activeIds.length > 0 && (
@@ -619,7 +633,7 @@ function TemplatePreviewPage() {
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3.5 h-3.5" />
-                  Clear All
+                  Clear Program
                 </button>
               )}
               {canConfigureGraphics && (
@@ -699,8 +713,10 @@ function TemplatePreviewPage() {
             )}
 
             {/* Preview viewport — 16:9 OBS canvas, scaled 1:1 with the stream */}
+            <section className="overflow-hidden rounded-xl border border-board-border bg-board-card/60 shadow-2xl shadow-black/40">
+              <div className="flex items-center justify-between border-b border-board-border px-3 py-2"><div className="flex items-center gap-2"><MonitorPlay className="size-4 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-board-muted">Program · 16:9</span></div><span className="text-[10px] text-board-muted">Title-safe guides enabled</span></div>
             <div
-              className="relative w-full rounded-xl overflow-hidden border border-board-border select-none"
+              className="relative w-full select-none overflow-hidden"
               style={{ aspectRatio: "16 / 9", background: "#111" }}
             >
               {/* Grid overlay */}
@@ -764,6 +780,7 @@ function TemplatePreviewPage() {
                 )}
               </div>
             </div>
+            </section>
 
             {/* Template info */}
             <div>
@@ -801,7 +818,7 @@ function TemplatePreviewPage() {
             </div>
 
             {/* Gallery grid */}
-            <div className="pt-4 border-t border-board-border">
+            <div className="hidden pt-4 border-t border-board-border">
               <h3 className="text-sm font-semibold text-board-muted uppercase tracking-widest mb-4">
                 All Templates
               </h3>
@@ -841,11 +858,9 @@ function TemplatePreviewPage() {
 
           {/* Controls sidebar */}
           {showControls && (
-            <div className="w-64 shrink-0">
-              <div className="sticky top-[73px] rounded-xl border border-board-border bg-board-card p-4">
-                <h3 className="text-xs font-semibold text-board-text uppercase tracking-widest mb-4">
-                  Customize
-                </h3>
+            <div className="hidden w-72 shrink-0 lg:block">
+              <div className="sticky top-[76px] max-h-[calc(100vh-92px)] overflow-y-auto rounded-xl border border-board-border bg-board-card/90 p-4 modern-scrollbar">
+                <div className="mb-4 border-b border-board-border pb-3"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fire-400">Inspector</p><h3 className="mt-1 text-sm font-semibold text-board-text">Style & position</h3></div>
                 <ControlPanel
                   controls={controls}
                   onChange={setControls}

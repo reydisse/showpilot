@@ -4,8 +4,15 @@ import { getD1 } from "@/lib/d1";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
-export const REACTION_EMOJIS = ["👍", "❤️", "🎉", "👀", "🙏"] as const;
-const reactionEmoji = z.enum(REACTION_EMOJIS);
+export const REACTION_EMOJIS = [
+  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
+  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
+  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
+] as const;
+const reactionEmoji = z.string().min(1).max(32).refine(
+  (value) => /\p{Extended_Pictographic}/u.test(value),
+  "Choose an emoji",
+);
 const targetType = z.enum(["incident-comment", "chat-message"]);
 
 export interface ContentReaction {
@@ -14,7 +21,7 @@ export interface ContentReaction {
   targetId: string;
   userId: string;
   authorName: string;
-  emoji: (typeof REACTION_EMOJIS)[number];
+  emoji: string;
   createdAt: string;
 }
 

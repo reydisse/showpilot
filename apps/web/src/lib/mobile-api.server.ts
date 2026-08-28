@@ -57,6 +57,8 @@ import { parseRelayRundownItems, type RelayRundownItem } from "./rundown-relay-p
 import { fetchOntimeRuntimeState } from "./ontime-runtime";
 import { deleteStreamDestinationForOrg, setStreamDestinationEnabledForOrg } from "./stream-destinations";
 import { getLiveInputStatusForOrg } from "./stream";
+import { objectionableContentReason } from "./user-content-safety";
+import { mobileRundownStatus } from "./rundown-status";
 
 export interface MobileApiStatement {
   first<T>(): Promise<T | null>;
@@ -496,13 +498,28 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   const today = getTodayDateString(timezone?.value || "Africa/Accra");
   const [showsResult, notificationsResult, unreadResult, accessAuthority] = await Promise.all([
     db.prepare(
-      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status,
+      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location,
+              CASE
+                WHEN json_extract(timer.value, '$.playback') = 'play' THEN 'running'
+                WHEN json_extract(timer.value, '$.playback') = 'pause' THEN 'paused'
+                WHEN r.status IN ('running', 'paused') THEN 'stopped'
+                ELSE r.status
+              END AS status,
               CAST(COUNT(i.id) AS INTEGER) AS itemCount
        FROM rundown r
        LEFT JOIN rundown_item i ON i.showId = r.id AND i.orgId = r.orgId
-       WHERE r.orgId = ? AND (r.serviceDate >= ? OR r.status IN ('running', 'paused'))
+       LEFT JOIN app_setting timer ON timer.orgId = r.orgId AND timer.key = 'rundown-timer:' || r.id
+       LEFT JOIN app_setting active ON active.orgId = r.orgId AND active.key = 'active-show-id'
+       WHERE r.orgId = ? AND (
+         r.serviceDate >= ? OR r.status IN ('running', 'paused') OR active.value = r.id
+         OR json_extract(timer.value, '$.playback') IN ('play', 'pause')
+       )
        GROUP BY r.id
-       ORDER BY CASE WHEN r.status IN ('running', 'paused') THEN 0 ELSE 1 END,
+       ORDER BY CASE
+                  WHEN json_extract(timer.value, '$.playback') IN ('play', 'pause')
+                    OR r.status IN ('running', 'paused') OR active.value = r.id THEN 0
+                  ELSE 1
+                END,
                 r.serviceDate ASC, r.scheduledStartTime ASC
        LIMIT 30`,
     ).bind(orgId, today).all<MobileRundownRow>(),
@@ -2726,6 +2743,8 @@ async function addMobileIncidentComment(
   if (!requestId || commentBody.length < 1 || commentBody.length > 2_000 || parentId === undefined) {
     return json({ error: "Write a comment of up to 2,000 characters." }, 400);
   }
+  const contentError = objectionableContentReason(commentBody);
+  if (contentError) return json({ error: contentError }, 400);
   const incident = await db.prepare(
     "SELECT id, serviceDate, showId FROM incident WHERE id = ? AND orgId = ? LIMIT 1",
   ).bind(incidentId, access.orgId).first<{ id: string; serviceDate: string; showId: string | null }>();
@@ -2800,7 +2819,8 @@ async function addMobileIncidentComment(
   return json({ comment });
 }
 
-const mobileIncidentReactionEmojis = new Set(["👍", "❤️", "🎉", "👀", "🙏"]);
+const isMobileIncidentReactionEmoji = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= 32 && /\p{Extended_Pictographic}/u.test(value);
 
 async function setMobileIncidentReaction(
   request: Request,
@@ -2811,12 +2831,10 @@ async function setMobileIncidentReaction(
   const access = await authorize(request, url, db, ["incidents:report", "incidents:access"]);
   if (access instanceof Response) return access;
   const body = await readJson(request);
-  const emoji = typeof body?.emoji === "string" && mobileIncidentReactionEmojis.has(body.emoji)
-    ? body.emoji
-    : null;
-  if (!emoji || typeof body?.active !== "boolean") {
+  if (!body || !isMobileIncidentReactionEmoji(body.emoji) || typeof body.active !== "boolean") {
     return json({ error: "Choose a valid reaction state." }, 400);
   }
+  const { active, emoji } = body;
   const target = await db.prepare(
     `SELECT c.userId, c.incidentId FROM incident_comment c
      JOIN incident i ON i.id = c.incidentId
@@ -2824,7 +2842,7 @@ async function setMobileIncidentReaction(
   ).bind(commentId, access.orgId, access.orgId).first<{ userId: string; incidentId: string }>();
   if (!target) return json({ error: "Comment not found." }, 404);
 
-  if (!body.active) {
+  if (!active) {
     await db.prepare(
       `DELETE FROM content_reaction WHERE orgId = ? AND targetType = 'incident-comment'
        AND targetId = ? AND userId = ? AND emoji = ?`,
@@ -3065,14 +3083,14 @@ async function showWorkspace(request: Request, url: URL, db: MobileApiDatabase):
   const show = await db.prepare(
     `SELECT id, serviceDate, name, scheduledStartTime, location, status, updatedAt
      FROM rundown
-     WHERE orgId = ? AND (status IN ('running', 'paused') OR serviceDate >= ?)
+     WHERE orgId = ? AND (id = ? OR status IN ('running', 'paused') OR serviceDate >= ?)
      ORDER BY CASE
        WHEN id = ? THEN 0
        WHEN status IN ('running', 'paused') THEN 1
        ELSE 2
      END, serviceDate ASC, scheduledStartTime ASC, createdAt ASC
      LIMIT 1`,
-  ).bind(orgId, today, activeShowId).first<Omit<MobileRundownRow, "itemCount"> & { updatedAt: string }>();
+  ).bind(orgId, activeShowId, today, activeShowId).first<Omit<MobileRundownRow, "itemCount"> & { updatedAt: string }>();
 
   if (!show) {
     return json({
@@ -3098,14 +3116,15 @@ async function showWorkspace(request: Request, url: URL, db: MobileApiDatabase):
        ORDER BY scheduledStartTime ASC, createdAt ASC LIMIT 1`,
     ).bind(orgId, show.serviceDate).first<{ id: string }>(),
   ]);
+  const timer = parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === show.id ? dateTimerSetting?.value : null));
   return json({
     ...common,
     adapterStatus: configuredAdapter === "ontime" ? "fallback" : "ready",
     runtime: {
       kind: "native",
-      show,
+      show: { ...show, status: mobileRundownStatus(timer.playback, show.status) },
       items: (itemsResult.results ?? []).map(serializeMobileRundownItem),
-      timer: parseTimer(showTimerSetting?.value ?? (legacyOwner?.id === show.id ? dateTimerSetting?.value : null)),
+      timer,
     },
   });
 }
@@ -4572,6 +4591,65 @@ async function writeMobileAudio(request: Request, url: URL, db: MobileApiDatabas
   return json({ ok: true, id });
 }
 
+const reportReasons = new Set(["harassment", "hate", "sexual", "violence", "spam", "other"]);
+
+async function mobileContentSafety(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const rows = await db.prepare(
+    "SELECT blockedUserId FROM content_block WHERE orgId = ? AND blockerUserId = ? ORDER BY createdAt ASC",
+  ).bind(access.orgId, access.identity.userId).all<{ blockedUserId: string }>();
+  return json({ blockedUserIds: (rows.results ?? []).map((row) => row.blockedUserId) });
+}
+
+async function reportMobileContent(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const targetType = body?.targetType === "chat-message" || body?.targetType === "incident-comment" ? body.targetType : null;
+  const reason = typeof body?.reason === "string" && reportReasons.has(body.reason) ? body.reason : null;
+  const details = boundedText(body?.details, 1_000);
+  const targetAuthorId = validId(body?.targetAuthorId) ? body.targetAuthorId : null;
+  if (!targetType || !validId(body?.targetId) || !reason || details === null) {
+    return json({ error: "Choose a reason for this report." }, 400);
+  }
+  const reportId = crypto.randomUUID();
+  await db.prepare(
+    `INSERT INTO content_report (id, orgId, reporterUserId, targetType, targetId, targetAuthorId, reason, details, status, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', CURRENT_TIMESTAMP)`,
+  ).bind(reportId, access.orgId, access.identity.userId, targetType, body.targetId, targetAuthorId, reason, details).run();
+
+  const reviewers = await db.prepare(
+    "SELECT userId FROM member WHERE organizationId = ? AND role IN ('owner', 'admin', 'td', 'cd', 'pd')",
+  ).bind(access.orgId).all<{ userId: string }>();
+  for (const reviewer of reviewers.results ?? []) {
+    if (reviewer.userId === access.identity.userId) continue;
+    await db.prepare(
+      `INSERT INTO notification (id, orgId, userId, type, severity, title, message, target, source, actionUrl, createdAt, dismissed)
+       VALUES (?, ?, ?, 'content-report', 'warning', 'Content report needs review', ?, 'personal', ?, 'team', CURRENT_TIMESTAMP, 0)`,
+    ).bind(crypto.randomUUID(), access.orgId, reviewer.userId, `${access.identity.name} reported ${targetType.replace("-", " ")} for ${reason}.`, reportId).run();
+  }
+  return json({ ok: true, reportId }, 201);
+}
+
+async function blockMobileUser(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  if (!validId(body?.blockedUserId) || body.blockedUserId === access.identity.userId) {
+    return json({ error: "Choose another organization member to block." }, 400);
+  }
+  const member = await db.prepare(
+    "SELECT userId FROM member WHERE organizationId = ? AND userId = ? LIMIT 1",
+  ).bind(access.orgId, body.blockedUserId).first<{ userId: string }>();
+  if (!member) return json({ error: "That person is not in this organization." }, 404);
+  await db.prepare(
+    `INSERT OR IGNORE INTO content_block (id, orgId, blockerUserId, blockedUserId, createdAt)
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+  ).bind(crypto.randomUUID(), access.orgId, access.identity.userId, body.blockedUserId).run();
+  return json({ ok: true });
+}
+
 export async function handleMobileApi(request: Request, env: MobileApiEnvironment): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
@@ -4588,6 +4666,9 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/chat/members" && request.method === "GET") return chatMembers(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/chat/notify" && request.method === "POST") return notifyMobileChatMessage(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/chat/reaction-notify" && request.method === "POST") return notifyMobileChatReaction(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/content-safety" && request.method === "GET") return mobileContentSafety(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/content-safety/report" && request.method === "POST") return reportMobileContent(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/content-safety/block" && request.method === "POST") return blockMobileUser(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/chat/passes/crew" && request.method === "POST") return createMobileCrewChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/chat/passes/planning" && request.method === "POST") return createMobilePlanningChatPass(request, url, env);
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET") return checkIn(request, url, env.DB);

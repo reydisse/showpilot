@@ -12,37 +12,17 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggleTheme: () => {},
 });
 
-function getSystemTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark");
 
-  // Initialize from localStorage or system preference
+  // ShowPilot is a production-control surface, so dark is the safe default.
+  // An explicit user choice still persists across sessions.
   useEffect(() => {
     const saved = localStorage.getItem("showpilot-theme") as Theme | null;
-    const initial = saved ?? getSystemTheme();
+    const initial = saved === "light" || saved === "dark" ? saved : "dark";
     setTheme(initial);
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(initial);
-  }, []);
-
-  // Listen for system preference changes (only when no explicit user choice)
-  useEffect(() => {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => {
-      const saved = localStorage.getItem("showpilot-theme");
-      if (!saved) {
-        const next: Theme = e.matches ? "dark" : "light";
-        setTheme(next);
-        document.documentElement.classList.remove("light", "dark");
-        document.documentElement.classList.add(next);
-      }
-    };
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
   }, []);
 
   const toggleTheme = useCallback(() => {

@@ -13,7 +13,7 @@ export function useMobileBootstrap({ enabled = true, poll = false }: MobileBoots
     queryKey: ["mobile-bootstrap", organization?.id],
     queryFn: () => getMobileBootstrap(organization!.id),
     enabled: enabled && Boolean(organization?.id),
-    refetchInterval: poll ? 30_000 : false,
+    refetchInterval: poll ? 5_000 : false,
   });
   return { organization, ...query };
 }

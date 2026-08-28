@@ -238,22 +238,30 @@ function OntimeWorkspace({ workspace, runtime, onRefresh, refreshing }: { worksp
 export default function LiveShowScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const { organization, data: bootstrap, isPending: bootstrapPending } = useMobileBootstrap();
   const canView = bootstrap?.identity.permissions.includes("show:view") === true;
   const query = useQuery({
     queryKey: ["mobile-show-workspace", organization?.id],
     queryFn: () => getMobileShowWorkspace(organization!.id),
     enabled: Boolean(organization?.id && canView),
-    refetchInterval: (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 15_000,
+    refetchInterval: (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 5_000,
   });
   if (!organization) return <Redirect href="/organizations" />;
   if (bootstrapPending || (canView && query.isPending)) return <Page><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>;
   if (!canView) return <Redirect href="/(app)/shows" />;
   if (query.error || !query.data) return <Page eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text style={styles.error}>{query.error?.message ?? "The live workspace is unavailable."}</Text><AppButton label="Try again" onPress={() => void query.refetch()} /></Page>;
-  const refresh = () => void query.refetch();
+  const refresh = async () => {
+    setManualRefreshing(true);
+    try {
+      await query.refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  };
   return query.data.runtime.kind === "native"
-    ? <NativeWorkspace workspace={query.data} runtime={query.data.runtime} orgId={organization.id} onRefresh={refresh} refreshing={query.isRefetching} />
-    : <OntimeWorkspace workspace={query.data} runtime={query.data.runtime} onRefresh={refresh} refreshing={query.isRefetching} />;
+    ? <NativeWorkspace workspace={query.data} runtime={query.data.runtime} orgId={organization.id} onRefresh={() => void refresh()} refreshing={manualRefreshing} />
+    : <OntimeWorkspace workspace={query.data} runtime={query.data.runtime} onRefresh={() => void refresh()} refreshing={manualRefreshing} />;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
@@ -261,7 +269,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   error: { color: colors.red, fontFamily, fontSize: 14, lineHeight: 21 },
   list: { gap: 8, paddingBottom: spacing.large },
   headerContent: { gap: spacing.medium, marginBottom: 8 },
-  workspaceStatus: { minHeight: 28, flexDirection: "row", alignItems: "center", gap: 7, marginTop: -12 },
+  workspaceStatus: { minHeight: 28, flexDirection: "row", alignItems: "center", gap: 7 },
   workspaceStatusText: { flex: 1, color: colors.green, fontFamily, fontSize: 11, fontWeight: "800" },
   workspaceStatusFallback: { color: colors.red },
   workspaceClock: { color: colors.textMuted, fontFamily, fontSize: 11 },
@@ -271,9 +279,9 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textFaint },
   liveDotPlaying: { backgroundColor: colors.green },
   liveDotPaused: { backgroundColor: colors.amber },
-  liveStatus: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
+  liveStatus: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   liveStatusPlaying: { color: colors.green },
-  overtime: { color: colors.red, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
+  overtime: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   timer: { width: "100%", color: colors.text, fontFamily: "monospace", fontSize: 64, lineHeight: 72, fontWeight: "800", letterSpacing: -3, textAlign: "center" },
   timerOvertime: { color: colors.red },
   progressTrack: { height: 5, overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.border },
@@ -285,14 +293,14 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   nextTitle: { color: colors.textFaint, fontFamily, fontSize: 12, marginTop: 3 },
   nextName: { color: colors.textMuted, fontWeight: "700" },
   liveSource: { flexDirection: "row", alignItems: "center", gap: 7 },
-  liveSourceText: { color: colors.textFaint, fontFamily, fontSize: 10 },
+  liveSourceText: { color: colors.textFaint, fontFamily, fontSize: 11 },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   action: { minHeight: 44, flexGrow: 1, flexBasis: 130, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, paddingHorizontal: 12 },
   actionLabel: { flex: 1, color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   sectionRow: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  sectionTitle: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.3 },
-  sectionCount: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  sectionTitle: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.3 },
+  sectionCount: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   crewSection: { gap: 10 },
   crewList: { gap: 8 },
   crewCard: { width: 180, minHeight: 58, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 9 },
@@ -301,11 +309,11 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   avatarText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900" },
   crewCopy: { flex: 1, minWidth: 0, gap: 3 },
   crewName: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
-  crewRole: { color: colors.textFaint, fontFamily, fontSize: 10 },
+  crewRole: { color: colors.textFaint, fontFamily, fontSize: 11 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green },
   emptyInline: { color: colors.textFaint, fontFamily, fontSize: 12, lineHeight: 18 },
   sequenceHeader: { minHeight: 48, justifyContent: "flex-end", borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 4, paddingBottom: 9, marginTop: 8 },
-  sequenceHeaderText: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.3, textTransform: "uppercase" },
+  sequenceHeaderText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.3, textTransform: "uppercase" },
   sequenceItem: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 11, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 12 },
   sequenceItemActive: { borderColor: colors.amberStrongBorder, backgroundColor: colors.amberSoft },
   sequenceItemComplete: { opacity: 0.6 },
@@ -316,7 +324,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   sequenceTitle: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 18, fontWeight: "700" },
   sequenceTitleActive: { color: colors.amberText },
   sequenceTitleComplete: { textDecorationLine: "line-through" },
-  sequenceMeta: { color: colors.textFaint, fontFamily, fontSize: 10 },
+  sequenceMeta: { color: colors.textFaint, fontFamily, fontSize: 11 },
   sequenceDuration: { color: colors.textMuted, fontFamily: "monospace", fontSize: 11 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: spacing.large },
   pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },

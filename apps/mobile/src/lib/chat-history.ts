@@ -14,7 +14,11 @@ export interface MobileChatMessage {
   deletedAt?: number;
 }
 
-export const mobileChatReactionEmojis = ["👍", "❤️", "🎉", "👀", "🙏"] as const;
+export const mobileChatReactionEmojis = [
+  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
+  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
+  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
+] as const;
 export type MobileChatReactionEmoji = (typeof mobileChatReactionEmojis)[number];
 
 function isMobileChatReactionEmoji(value: unknown): value is MobileChatReactionEmoji {

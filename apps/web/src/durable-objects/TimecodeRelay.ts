@@ -27,6 +27,15 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "lower-third-clear",
   "rundown-advance",
   "rundown-start-item",
+  "rundown-previous",
+  "rundown-pause",
+  "rundown-resume",
+  "rundown-stop",
+  "rundown-adjust",
+  "stage-message",
+  "stage-clear",
+  "device-action",
+  "lighting-scene",
   "custom-webhook",
 ]);
 
@@ -373,6 +382,23 @@ export class TimecodeRelay extends DurableObject {
       });
     };
 
+    const executeRundownCommand = async (
+      action: "timer-start" | "timer-next" | "timer-prev" | "timer-pause" | "timer-resume" | "timer-stop" | "timer-adjust" | "stage-message" | "stage-clear",
+      type: string,
+      payload?: Record<string, unknown>,
+    ) => {
+      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+      const rdStub = env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(target.key));
+      const response = await rdStub.fetch(
+        new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
+          method: "POST",
+          body: JSON.stringify({ action, ...(payload ? { payload } : {}) }),
+        }),
+      );
+      if (!response.ok) throw new Error(`${type} failed with ${response.status}`);
+      logResult(type, "success", `${type} action executed.`);
+    };
+
     try {
       switch (event.action) {
         case "lower-third-show": {
@@ -509,7 +535,32 @@ export class TimecodeRelay extends DurableObject {
           break;
         }
 
+        case "rundown-previous":
+        case "rundown-pause":
+        case "rundown-resume":
+        case "rundown-stop":
+        case "rundown-adjust":
+        case "stage-message":
+        case "stage-clear": {
+          const action = {
+            "rundown-previous": "timer-prev",
+            "rundown-pause": "timer-pause",
+            "rundown-resume": "timer-resume",
+            "rundown-stop": "timer-stop",
+            "rundown-adjust": "timer-adjust",
+            "stage-message": "stage-message",
+            "stage-clear": "stage-clear",
+          }[event.action] as "timer-prev" | "timer-pause" | "timer-resume" | "timer-stop" | "timer-adjust" | "stage-message" | "stage-clear";
+          try {
+            await executeRundownCommand(action, event.action, event.payload);
+          } catch (error) {
+            logResult(event.action, "error", error instanceof Error ? error.message : `${event.action} failed.`);
+          }
+          break;
+        }
+
         case "device-action":
+        case "lighting-scene":
           // Device actions are forwarded to clients who execute them
           // via their local device module connections
           // The event-fired broadcast carries the action info

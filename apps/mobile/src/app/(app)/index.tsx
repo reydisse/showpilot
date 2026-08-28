@@ -11,15 +11,14 @@ import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/t
 export default function HomeScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const { organization, data, isPending, error, refetch, isRefetching } = useMobileBootstrap();
+  const { organization, data, isPending, error, refetch } = useMobileBootstrap();
   if (!organization) return <Redirect href="/organizations" />;
 
   const liveShow = data?.shows.find((show) => show.status === "running" || show.status === "paused");
   const nextShow = liveShow ?? data?.shows[0];
 
   return (
-    <Page eyebrow="COMMAND CENTER" title={organization.name} refreshing={isRefetching} onRefresh={refetch}>
-      {isRefetching ? <ActivityIndicator color={colors.amberText} /> : null}
+    <Page eyebrow="COMMAND CENTER" title={organization.name} onRefresh={refetch}>
       {error ? (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>Could not sync ShowPilot</Text>
@@ -53,9 +52,9 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   stats: { flexDirection: "row", gap: 10 },
   stat: { flex: 1, minWidth: 0, gap: 6, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 13 },
   statValue: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800", textTransform: "capitalize" },
-  statLabel: { color: colors.textFaint, fontFamily, fontSize: 10, fontWeight: "600" },
+  statLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "600" },
   section: { gap: 12 },
-  sectionLabel: { color: colors.textFaint, fontFamily, fontSize: 10, fontWeight: "800", letterSpacing: 1.6 },
+  sectionLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 1.6 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21, borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: spacing.large },
   syncNote: { gap: 7, borderLeftWidth: 2, borderLeftColor: colors.amberText, paddingLeft: 14 },
   syncTitle: { color: colors.text, fontFamily, fontSize: 14, fontWeight: "700" },

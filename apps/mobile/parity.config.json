@@ -103,20 +103,6 @@
       "gaps": ""
     },
     {
-      "id": "check-in",
-      "label": "Check-in",
-      "webPath": "checkin",
-      "status": "complete",
-      "nativeRoutes": [
-        "src/app/checkin.tsx"
-      ],
-      "apiContracts": [
-        "/api/mobile/v1/checkin",
-        "const checkInMemberMatch"
-      ],
-      "gaps": ""
-    },
-    {
       "id": "team",
       "label": "Team",
       "webPath": "team",
@@ -156,6 +142,20 @@
         "/api/mobile/v1/checklist",
         "/api/mobile/v1/checklist/items",
         "/api/mobile/v1/checklist/suggestions"
+      ],
+      "gaps": ""
+    },
+    {
+      "id": "check-in",
+      "label": "Crew Check-in",
+      "webPath": "checkin",
+      "status": "complete",
+      "nativeRoutes": [
+        "src/app/checkin.tsx"
+      ],
+      "apiContracts": [
+        "/api/mobile/v1/checkin",
+        "const checkInMemberMatch"
       ],
       "gaps": ""
     },

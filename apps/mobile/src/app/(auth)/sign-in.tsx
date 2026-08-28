@@ -96,7 +96,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   brandTile: { width: 54, height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border },
   brand: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "900", letterSpacing: 2.1 },
-  brandCaption: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "700", letterSpacing: 1.25, marginTop: 3 },
+  brandCaption: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "700", letterSpacing: 1.25, marginTop: 3 },
   copy: { gap: 9 },
   eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 1.8 },
   title: { color: colors.text, fontFamily, fontSize: 37, lineHeight: 42, fontWeight: "800", letterSpacing: -1.2 },

@@ -150,7 +150,7 @@ export default function ShowBoardScreen() {
         <View style={styles.checkInCopy}><View style={styles.checkInHeading}><ScanLine color={colors.amberText} size={18} /><Text style={styles.checkInTitle}>Scan to serve</Text></View><Text style={styles.checkInHint}>Crew can scan this code with their camera and check in from any phone.</Text><View style={styles.checkInActions}><AppButton label="Open" onPress={() => void Linking.openURL(checkInUrl)} style={styles.checkInAction} variant="secondary" /><AppButton label="Share" onPress={shareCheckIn} style={styles.checkInAction} /></View></View>
       </View>
 
-      <View style={styles.sectionRow}><View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Your board is ready"}</Text></View><Pressable accessibilityLabel="Refresh Show Board" accessibilityRole="button" disabled={query.isFetching} onPress={() => void refreshBoard()} style={[styles.refreshButton, query.isFetching && styles.disabled]}>{query.isFetching ? <ActivityIndicator color={colors.amberText} /> : <RefreshCw color={colors.textMuted} size={18} />}</Pressable></View>
+      <View style={styles.sectionRow}><View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Your board is ready"}</Text></View><Pressable accessibilityLabel="Refresh Show Board" accessibilityRole="button" disabled={manualRefreshing} onPress={() => void refreshBoard()} style={[styles.refreshButton, manualRefreshing && styles.disabled]}>{manualRefreshing ? <ActivityIndicator color={colors.amberText} /> : <RefreshCw color={colors.textMuted} size={18} />}</Pressable></View>
       {query.error ? <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text style={styles.errorText}>{query.error.message}</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable> : null}
     </View>
   );
@@ -188,12 +188,12 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   brandIcon: { width: 50, height: 50, alignItems: "center", justifyContent: "center", borderRadius: 15, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   brandCopy: { flex: 1, minWidth: 0, gap: 2 },
   brandName: { color: colors.amberText, fontFamily, fontSize: 20, fontWeight: "900", letterSpacing: -0.4 },
-  brandLabel: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "900", letterSpacing: 1.5 },
+  brandLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   clockCopy: { flex: 1.35, minWidth: 0, alignItems: "flex-end", gap: 3 },
   clockCopyNarrow: { flexBasis: "100%", alignItems: "flex-start", paddingLeft: 61 },
   clock: { width: "100%", color: colors.text, fontFamily: "monospace", fontSize: 20, fontWeight: "800", textAlign: "right" },
   clockNarrow: { textAlign: "left" },
-  date: { maxWidth: "100%", color: colors.textMuted, fontFamily, fontSize: 9, textAlign: "right" },
+  date: { maxWidth: "100%", color: colors.textMuted, fontFamily, fontSize: 11, textAlign: "right" },
   dateNarrow: { textAlign: "left" },
   summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.borderSoft, paddingVertical: 12 },
   summaryItem: { flexDirection: "row", alignItems: "center", gap: 7 },
@@ -211,7 +211,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   checkInActions: { flexDirection: "row", gap: 7 },
   checkInAction: { flex: 1, minHeight: 40 },
   sectionRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12 },
-  sectionEyebrow: { color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
+  sectionEyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   sectionTitle: { color: colors.text, fontFamily, fontSize: 18, fontWeight: "800", marginTop: 3 },
   refreshButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   cardColumn: { flex: 1, minWidth: 0 },
@@ -226,10 +226,10 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   avatarStatusOnline: { backgroundColor: colors.green },
   avatarStatusOffline: { backgroundColor: colors.textFaint },
   crewName: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 18, fontWeight: "800", textAlign: "center" },
-  crewRole: { color: colors.textMuted, fontFamily, fontSize: 10, lineHeight: 14, textAlign: "center" },
+  crewRole: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 14, textAlign: "center" },
   statusPill: { borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 9, paddingVertical: 5 },
   statusPillOnline: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
-  statusText: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
+  statusText: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
   statusTextOnline: { color: colors.green },
   errorCard: { gap: 4, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.redBorder, backgroundColor: colors.redSoft, padding: 12 },
   errorText: { color: colors.red, fontFamily, fontSize: 12, lineHeight: 18 },
@@ -238,6 +238,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   emptyTitle: { color: colors.text, fontFamily, fontSize: 19, fontWeight: "900" },
   emptyCopy: { maxWidth: 420, color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center" },
   emptySpacer: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 4 },
-  emptyHint: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 10, lineHeight: 15 },
+  emptyHint: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15 },
   disabled: { opacity: 0.45 },
 }));

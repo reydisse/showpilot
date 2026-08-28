@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Search, X } from "lucide-react";
+import { LogIn, LogOut, Search, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
-import { toggleCheckIn } from "@/lib/data";
+import { setAllCrewCheckIn, toggleCheckIn } from "@/lib/data";
 import type { Member } from "@/types";
 
 interface CheckInListProps {
@@ -13,6 +13,7 @@ export function CheckInList({ members, orgId }: CheckInListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [toggling, setToggling] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const filtered = search.trim()
     ? members.filter(
@@ -36,10 +37,21 @@ export function CheckInList({ members, orgId }: CheckInListProps) {
     }
   };
 
+  const setEveryone = async (isOnline: boolean) => {
+    if (!window.confirm(`${isOnline ? "Check in" : "Check out"} every crew member?`)) return;
+    setBulkBusy(true);
+    try {
+      await setAllCrewCheckIn({ data: { orgId, isOnline } });
+      await router.invalidate();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div>
       {/* Summary */}
-      <div className="flex items-center gap-3 mb-4 text-xs text-board-muted">
+      <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-board-muted">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-green-500" />
           {onlineCount} online
@@ -48,6 +60,10 @@ export function CheckInList({ members, orgId }: CheckInListProps) {
           <span className="w-2 h-2 rounded-full bg-gray-500" />
           {members.length - onlineCount} offline
         </span>
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" disabled={bulkBusy || onlineCount === members.length} onClick={() => void setEveryone(true)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-green-500/25 bg-green-500/10 px-3 font-semibold text-green-400 disabled:opacity-40"><LogIn className="size-3.5" />Check everyone in</button>
+          <button type="button" disabled={bulkBusy || onlineCount === 0} onClick={() => void setEveryone(false)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 font-semibold text-board-muted disabled:opacity-40"><LogOut className="size-3.5" />Check everyone out</button>
+        </div>
       </div>
 
       {/* Search */}

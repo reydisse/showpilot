@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 import { lazy, Suspense, useState, useCallback, useEffect } from "react";
@@ -78,6 +78,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ContextHelp } from "@/components/ui/context-help";
 
 const loadEmbeddedCheckoutModal = () => import("@/components/settings/EmbeddedCheckoutModal");
 const EmbeddedCheckoutModal = lazy(loadEmbeddedCheckoutModal);
@@ -251,14 +252,14 @@ function OrganizationSettingsPage({
     <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
       <aside className="hidden w-72 shrink-0 border-r border-board-border bg-board-bg/75 lg:flex lg:min-h-0 lg:flex-col">
         <div className="shrink-0 border-b border-board-border px-5 py-5">
-          <button
-            type="button"
-            onClick={() => router.history.back()}
+          <Link
+            to="/$slug/show"
+            params={{ slug }}
             className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
           >
             <ArrowLeft className="size-4" />
-            <span>Back</span>
-          </button>
+            <span>Back to ShowPilot</span>
+          </Link>
           <div className="mt-4 px-2">
             <h1 className="text-lg font-semibold text-board-text">Settings</h1>
             <p className="mt-1 text-xs leading-5 text-board-muted">Organization, production, and integrations</p>
@@ -293,10 +294,10 @@ function OrganizationSettingsPage({
       </aside>
 
       <div className="shrink-0 border-b border-board-border bg-board-bg/90 px-4 py-3 lg:hidden">
-        <button type="button" onClick={() => router.history.back()} className="flex min-h-10 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
+        <Link to="/$slug/show" params={{ slug }} className="flex min-h-10 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
           <ArrowLeft className="size-4" />
-          Back
-        </button>
+          Back to ShowPilot
+        </Link>
         <Select
           value={resolvedSection}
           onValueChange={(value) => {
@@ -391,11 +392,11 @@ function SectionHeader({
   description: string;
 }) {
   return (
-    <div className="mb-7">
+    <div className="mb-7 flex items-center gap-3">
       <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-board-text">
         {title}
       </h1>
-      <p className="mt-1 text-sm leading-6 text-board-muted">{description}</p>
+      <ContextHelp title={title} description={description} />
     </div>
   );
 }

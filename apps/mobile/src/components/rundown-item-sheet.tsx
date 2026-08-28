@@ -142,7 +142,7 @@ export function RundownItemSheet({
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: spacing.medium, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerCopy: { flex: 1, minWidth: 0, gap: 5 },
-  eyebrow: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
+  eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   heading: { color: colors.text, fontFamily, fontSize: 22, lineHeight: 28, fontWeight: "800" },
   close: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   content: { gap: spacing.large, paddingVertical: spacing.large, paddingBottom: 60 },
@@ -160,7 +160,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   switchHint: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 17 },
   itemActions: { flexDirection: "row", gap: 8 },
   itemAction: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
-  itemActionText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "700" },
+  itemActionText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
   deleteAction: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   deleteText: { color: colors.red },
   disabled: { opacity: 0.35 },

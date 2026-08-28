@@ -25,6 +25,7 @@ import {
   parseRelayTimer,
 } from "@/lib/rundown-relay-payload";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
+import { persistedRundownStatus } from "@/lib/rundown-status";
 
 interface D1BoundStatement {
   first<T>(): Promise<T | null>;
@@ -211,6 +212,15 @@ export class RundownRelay extends DurableObject {
         `rundown-timer:${identity}`,
         JSON.stringify({ ...this.state.timer, serverTime: Date.now() }),
       ));
+      if (this.state.showId) {
+        statements.push(env.DB.prepare(
+          "UPDATE rundown SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?",
+        ).bind(
+          persistedRundownStatus(this.state.timer.playback),
+          this.state.showId,
+          this.orgId,
+        ));
+      }
     }
 
     if (persistsFullItems) {

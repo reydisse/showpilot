@@ -4,6 +4,7 @@ import { getPrisma } from "@/lib/db";
 import {
   ACCESS_CAPABILITY_IDS,
   getAccessCapability,
+  isGrantablePermission,
   type AccessCapabilityId,
 } from "@/lib/access-capabilities";
 import {
@@ -15,7 +16,8 @@ import { getRequestOrgAccess } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { z } from "zod";
 
-const capabilitySchema = z.enum(ACCESS_CAPABILITY_IDS);
+const capabilitySchema = z.union([z.enum(ACCESS_CAPABILITY_IDS), z.literal("custom")]);
+const customPermissionsSchema = z.array(z.string().refine(isGrantablePermission)).max(32).optional();
 const durationSchema = z.enum(["this-week", "until-revoked"]);
 const reasonSchema = z.string().trim().max(240).default("");
 
@@ -172,7 +174,8 @@ export async function grantMemberAccessForActor(input: {
   orgId: string;
   actor: AccessGrantActor;
   userId: string;
-  capability: AccessCapabilityId;
+  capability: AccessCapabilityId | "custom";
+  permissions?: string[];
   duration: AccessGrantDuration;
   reason: string;
   database?: AccessGrantWriteDatabase;
@@ -190,7 +193,14 @@ export async function grantMemberAccessForActor(input: {
   }
 
   const capability = getAccessCapability(input.capability);
-  if (!capability) throw new Error("Unknown capability.");
+  const customPermissions = (input.permissions ?? []).filter(isGrantablePermission);
+  if (!capability && input.capability !== "custom") throw new Error("Unknown capability.");
+  if (input.capability === "custom" && customPermissions.length === 0) {
+    throw new Error("Choose at least one permission for custom access.");
+  }
+  const permissions = capability ? [...capability.permissions] : [...new Set(customPermissions)].sort();
+  const capabilityLabel = capability?.label ?? "Custom operational";
+  const notificationPath = capability?.notificationPath ?? "show";
 
   const prisma = getPrisma();
   const target = await prisma.member.findFirst({
@@ -217,7 +227,7 @@ export async function grantMemberAccessForActor(input: {
     input.orgId,
     input.userId,
     input.capability,
-    JSON.stringify(capability.permissions),
+    JSON.stringify(permissions),
     startsOn,
     expiresOn,
     input.reason,
@@ -229,7 +239,7 @@ export async function grantMemberAccessForActor(input: {
     authority.today,
   ).run();
   if (!changedOneRow(insert)) {
-    throw new Error(`${target.user.name} already has ${capability.label} access.`);
+    throw new Error(`${target.user.name} already has ${capabilityLabel} access.`);
   }
 
   const durationLabel = expiresOn ? "for the current duty week" : "until it is revoked";
@@ -237,8 +247,8 @@ export async function grantMemberAccessForActor(input: {
     input.orgId,
     input.userId,
     "Access granted",
-    `${input.actor.name} granted you ${capability.label} access ${durationLabel}.`,
-    capability.notificationPath,
+    `${input.actor.name} granted you ${capabilityLabel} access ${durationLabel}.`,
+    notificationPath,
   );
   return { id: grantId };
 }
@@ -250,6 +260,7 @@ export const grantMemberAccess = createServerFn({ method: "POST" })
         orgId: idSchema,
         userId: idSchema,
         capability: capabilitySchema,
+        permissions: customPermissionsSchema,
         duration: durationSchema,
         reason: reasonSchema,
       }),
@@ -263,6 +274,7 @@ export const grantMemberAccess = createServerFn({ method: "POST" })
       actor: { userId: user.id, name: user.name },
       userId: data.userId,
       capability: data.capability,
+      permissions: data.permissions,
       duration: data.duration,
       reason: data.reason,
     });

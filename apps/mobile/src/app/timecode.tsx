@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { AppField } from "@/components/app-field";
 import { LoadingView } from "@/components/loading-view";
@@ -18,6 +18,16 @@ const parseTimecode = (value: string) => {
   return hours <= 23 && minutes <= 59 && seconds <= 59 ? { hours, minutes, seconds, frames } : null;
 };
 
+const automationActions = [
+  ["rundown-advance", "Next item"], ["rundown-previous", "Previous item"],
+  ["rundown-start-item", "Start item"], ["rundown-pause", "Pause timer"],
+  ["rundown-resume", "Resume timer"], ["rundown-stop", "Stop rundown"],
+  ["rundown-adjust", "Adjust timer"], ["stage-message", "Stage message"],
+  ["stage-clear", "Clear stage"], ["lower-third-show", "Show lower third"],
+  ["lower-third-clear", "Clear lower third"], ["device-action", "Device action"],
+  ["lighting-scene", "Lighting scene"], ["custom-webhook", "Webhook"],
+] as const;
+
 export default function TimecodeScreen() {
   const styles = useStyles();
   const queryClient = useQueryClient();
@@ -27,11 +37,13 @@ export default function TimecodeScreen() {
     queryKey: ["mobile-timecode", orgId],
     queryFn: () => getMobileTimecode(orgId!),
     enabled: Boolean(orgId),
-    refetchInterval: 1_000,
+    refetchInterval: 30_000,
   });
   const [timecode, setTimecode] = useState("00:00:00:00");
   const [eventLabel, setEventLabel] = useState("");
   const [eventTimecode, setEventTimecode] = useState("00:00:10:00");
+  const [eventAction, setEventAction] = useState<(typeof automationActions)[number][0]>("rundown-advance");
+  const [eventPayload, setEventPayload] = useState("{}");
   const [error, setError] = useState("");
   const relay = useTimecodeRelay(orgId, query.data);
   const command = useMutation({
@@ -63,13 +75,20 @@ export default function TimecodeScreen() {
       setError("An event label and valid SMPTE timecode are required.");
       return;
     }
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(eventPayload) as Record<string, unknown>;
+    } catch {
+      setError("Action details must be valid JSON.");
+      return;
+    }
     run("add-event", {
       id: `native-${Date.now()}`,
       label: eventLabel.trim(),
       triggerTimecode: parsed,
       triggerFrame: 0,
-      action: "rundown-advance",
-      payload: {},
+      action: eventAction,
+      payload,
       fired: false,
       toleranceFrames: 2,
     });
@@ -100,9 +119,12 @@ export default function TimecodeScreen() {
           ))}
         </View>
       </OperationsPanel>
-      <OperationsPanel title="Automation" detail="Events fire on frame crossing; this native editor creates rundown-advance events.">
+      <OperationsPanel title="Automation" detail="Create the same shared actions used by web and desktop. Events fire when the relay crosses the selected frame.">
         <AppField label="Event label" value={eventLabel} onChangeText={setEventLabel} placeholder="Advance to sermon" />
         <AppField label="Trigger timecode" value={eventTimecode} onChangeText={setEventTimecode} placeholder="00:00:10:00" />
+        <Text style={styles.fieldLabel}>ACTION</Text>
+        <View style={styles.actionGrid}>{automationActions.map(([value, label]) => <Pressable accessibilityRole="button" accessibilityState={{ selected: eventAction === value }} key={value} onPress={() => setEventAction(value)} style={[styles.actionChoice, eventAction === value && styles.actionChoiceActive]}><Text style={[styles.actionChoiceText, eventAction === value && styles.actionChoiceTextActive]}>{label}</Text></Pressable>)}</View>
+        <AppField label="Action details (JSON)" value={eventPayload} onChangeText={setEventPayload} multiline placeholder={eventAction === "stage-message" ? '{"message":"Stand by"}' : eventAction === "rundown-adjust" ? '{"deltaMs":30000}' : "{}"} />
         <AppButton label="Add automation event" disabled={command.isPending} onPress={addEvent} />
         {data?.events.length ? data.events.map((event) => (
           <OperationsRow key={event.id} title={event.label} detail={`${event.triggerTimecode.hours.toString().padStart(2, "0")}:${event.triggerTimecode.minutes.toString().padStart(2, "0")}:${event.triggerTimecode.seconds.toString().padStart(2, "0")}:${event.triggerTimecode.frames.toString().padStart(2, "0")} · ${event.action}`} status={event.fired ? "Fired" : "Armed"} onPress={() => Alert.alert("Remove automation event?", `Remove “${event.label}” from the shared timecode relay?`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => run("remove-event", { id: event.id }) }])} />
@@ -117,6 +139,12 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   clockCard: { alignItems: "center", gap: 8, borderRadius: 22, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.black, paddingHorizontal: 12, paddingVertical: 28 },
   clock: { color: colors.amberText, fontFamily, fontSize: 39, fontWeight: "900", fontVariant: ["tabular-nums"], letterSpacing: 1 },
   clockMeta: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  fieldLabel: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 16, fontWeight: "800", letterSpacing: 1.1 },
+  actionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  actionChoice: { minHeight: 40, justifyContent: "center", borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 11 },
+  actionChoiceActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
+  actionChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  actionChoiceTextActive: { color: colors.amberText },
   buttonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   button: { flex: 1, minWidth: 80 },
 }));

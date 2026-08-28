@@ -105,16 +105,16 @@ function CheckInPage() {
       {/* Header */}
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-5 py-4">
         <div className="flex max-w-2xl items-center gap-3 mx-auto">
-          <button
-            type="button"
-            onClick={() => router.history.back()}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border p-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text sm:px-3 sm:py-1.5"
-            title="Go back"
-            aria-label="Back"
+          <Link
+            to="/$slug/show"
+            params={{ slug }}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-board-border bg-board-card p-2.5 text-xs font-semibold text-board-muted shadow-sm transition-colors hover:border-fire-500/30 hover:text-board-text sm:px-3"
+            title="Back to ShowPilot"
+            aria-label="Back to ShowPilot"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Back</span>
-          </button>
+            <span className="hidden sm:inline">Back to ShowPilot</span>
+          </Link>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-bold">
               <span className="text-fire-500">Check-In</span>
@@ -136,12 +136,12 @@ function CheckInPage() {
               {mode === "code-entry" ? (
                 <>
                   <List className="h-3.5 w-3.5" />
-                  Browse All
+                  Browse crew
                 </>
               ) : (
                 <>
                   <KeyRound className="h-3.5 w-3.5" />
-                  Use ID
+                  Enter member ID
                 </>
               )}
             </button>

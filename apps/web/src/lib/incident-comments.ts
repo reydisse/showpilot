@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getD1 } from "@/lib/d1";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import { objectionableContentReason } from "@/lib/user-content-safety";
 
 export interface IncidentComment {
   id: string;
@@ -30,6 +31,8 @@ export const getIncidentComments = createServerFn({ method: "GET" })
 export const addIncidentComment = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, incidentId: idSchema, parentId: idSchema.nullable().optional(), body: z.string().trim().min(1).max(2000) }), value))
   .handler(async ({ data }): Promise<IncidentComment> => {
+    const contentError = objectionableContentReason(data.body);
+    if (contentError) throw new Error(contentError);
     const user = await assertAccess(data.orgId);
     const incident = await getD1().prepare("SELECT id, description, reportedBy, serviceDate, showId FROM incident WHERE id = ? AND orgId = ?").bind(data.incidentId, data.orgId).first<{ id: string; description: string; reportedBy: string; serviceDate: string; showId: string | null }>();
     if (!incident) throw new Error("Issue not found");

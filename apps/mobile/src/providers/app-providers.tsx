@@ -40,6 +40,7 @@ export function AppProviders({ children }: PropsWithChildren) {
           retry: 1,
           refetchOnReconnect: "always",
           refetchOnWindowFocus: "always",
+          refetchIntervalInBackground: false,
         },
       },
     }),
@@ -51,15 +52,25 @@ export function AppProviders({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    focusManager.setFocused(AppState.currentState === "active");
+    let previousState = AppState.currentState;
+    focusManager.setFocused(previousState === "active");
     const subscription = AppState.addEventListener("change", (state) => {
+      const returningToForeground = previousState !== "active" && state === "active";
+      previousState = state;
       focusManager.setFocused(state === "active");
+      if (state !== "active") {
+        void queryClient.cancelQueries();
+      } else if (returningToForeground) {
+        // Refetch only mounted screens. This avoids a thundering herd after a
+        // long background period while still restoring live control state.
+        void queryClient.invalidateQueries({ refetchType: "active" });
+      }
     });
     return () => {
       subscription.remove();
       focusManager.setFocused(undefined);
     };
-  }, []);
+  }, [queryClient]);
 
   return (
     <SafeAreaProvider>

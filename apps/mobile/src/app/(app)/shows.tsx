@@ -41,8 +41,10 @@ export default function ShowsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
-  const { organization, data, isPending, isRefetching, error, refetch } = useMobileBootstrap();
+  const { organization, data, isPending, error, refetch } = useMobileBootstrap();
   const [creating, setCreating] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const timeZone = data?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const canCreate = Boolean(data?.identity.permissions.includes("schedule:manage"));
   const canViewLiveShow = Boolean(data?.identity.permissions.includes("show:view"));
   const createMutation = useMutation({
@@ -66,10 +68,20 @@ export default function ShowsScreen() {
   });
   if (!organization) return <Redirect href="/organizations" />;
 
+  async function refreshShows() {
+    setManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  }
+
   return (
     <Page
       eyebrow="RUNDOWNS"
       title="Shows"
+      subtitle={`Upcoming and active shows for ${organization.name}.`}
       scroll={false}
       action={canCreate ? (
         <Pressable
@@ -89,7 +101,6 @@ export default function ShowsScreen() {
         keyExtractor={(show) => show.id}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
-            <Text style={styles.intro}>Upcoming and active shows for {organization.name}.</Text>
             {canViewLiveShow ? <FeatureLink icon={RadioTower} title="Open Live Show" description="One synchronized workspace for the live timer, cues, crew, chat, and full rundown." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
             {isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
             {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
@@ -101,10 +112,10 @@ export default function ShowsScreen() {
           </Text>
         ) : null}
         maxToRenderPerBatch={10}
-        onRefresh={() => void refetch()}
-        refreshing={isRefetching}
+        onRefresh={() => void refreshShows()}
+        refreshing={manualRefreshing}
         renderItem={({ item: show }) => (
-          <ShowCard show={show} timeZone={data!.timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } })} />
+          <ShowCard show={show} timeZone={timeZone} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: show.id } })} />
         )}
         windowSize={7}
       />
@@ -237,7 +248,6 @@ function CreateShowModal({
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   addButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
-  intro: { color: colors.textMuted, fontFamily, fontSize: 15, lineHeight: 22, marginTop: -12 },
   list: { gap: 12, paddingBottom: spacing.large },
   listHeader: { gap: spacing.medium, marginBottom: 2 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21, borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: spacing.large },
@@ -247,7 +257,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   modalSheet: { width: "100%", maxWidth: 620, maxHeight: "92%", alignSelf: "center", overflow: "hidden", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: colors.stageRaised, paddingTop: spacing.large },
   modalHeader: { flexDirection: "row", alignItems: "center", gap: spacing.medium, paddingHorizontal: spacing.large, paddingBottom: spacing.medium },
   modalHeading: { flex: 1, gap: 4 },
-  modalEyebrow: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
+  modalEyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   modalTitle: { color: colors.text, fontFamily, fontSize: 22, fontWeight: "800" },
   closeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   modalForm: { gap: spacing.medium, paddingHorizontal: spacing.large, paddingBottom: spacing.xlarge },

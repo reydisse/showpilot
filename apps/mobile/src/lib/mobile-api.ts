@@ -70,6 +70,7 @@ const chatMembersSchema = z.object({
 });
 
 const chatNotificationResultSchema = z.object({ notified: z.number().int().nonnegative() });
+const contentSafetySchema = z.object({ blockedUserIds: z.array(z.string()) });
 const chatAttachmentSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -309,7 +310,10 @@ const incidentCommentSchema = z.object({
   createdAt: z.string(),
 });
 
-const incidentReactionEmojiSchema = z.enum(["👍", "❤️", "🎉", "👀", "🙏"]);
+const incidentReactionEmojiSchema = z.string().min(1).max(32).refine(
+  (value) => /\p{Extended_Pictographic}/u.test(value),
+  "Choose an emoji",
+);
 
 const incidentReactionSchema = z.object({
   id: z.string(),
@@ -695,7 +699,7 @@ const timecodeStateSchema = z.object({
 });
 const timecodeEventSchema = z.object({
   id: z.string(), label: z.string(), triggerTimecode: timecodeValueSchema, triggerFrame: z.number(),
-  action: z.enum(["lower-third-show", "lower-third-clear", "rundown-advance", "rundown-start-item", "custom-webhook"]),
+  action: z.enum(["lower-third-show", "lower-third-clear", "rundown-advance", "rundown-start-item", "rundown-previous", "rundown-pause", "rundown-resume", "rundown-stop", "rundown-adjust", "stage-message", "stage-clear", "device-action", "lighting-scene", "custom-webhook"]),
   payload: z.record(z.string(), z.unknown()), fired: z.boolean(), toleranceFrames: z.number().optional(),
 });
 
@@ -830,13 +834,39 @@ export async function notifyMobileChatReaction(input: {
   roomId: string;
   messageId: string;
   targetUserId: string;
-  emoji: "👍" | "❤️" | "🎉" | "👀" | "🙏";
+  emoji: string;
 }) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/chat/reaction-notify?orgId=${encodeURIComponent(input.orgId)}`,
     { method: "POST", body: JSON.stringify(input) },
   );
   return chatNotificationResultSchema.parse(await response.json());
+}
+
+export async function getMobileContentSafety(orgId: string) {
+  const response = await authenticatedFetch(`/api/mobile/v1/content-safety?orgId=${encodeURIComponent(orgId)}`);
+  return contentSafetySchema.parse(await response.json());
+}
+
+export async function reportMobileContent(input: {
+  orgId: string;
+  targetType: "chat-message" | "incident-comment";
+  targetId: string;
+  targetAuthorId?: string;
+  reason: "harassment" | "hate" | "sexual" | "violence" | "spam" | "other";
+  details?: string;
+}) {
+  const response = await authenticatedFetch(`/api/mobile/v1/content-safety/report?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return z.object({ ok: z.literal(true), reportId: z.string() }).parse(await response.json());
+}
+
+export async function blockMobileUser(input: { orgId: string; blockedUserId: string }) {
+  const response = await authenticatedFetch(`/api/mobile/v1/content-safety/block?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input),
+  });
+  return z.object({ ok: z.literal(true) }).parse(await response.json());
 }
 
 export async function uploadMobileChatAttachment(input: {

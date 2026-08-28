@@ -55,6 +55,13 @@ export type AutomationActionType =
   | "lower-third-clear"
   | "rundown-advance"
   | "rundown-start-item"
+  | "rundown-previous"
+  | "rundown-pause"
+  | "rundown-resume"
+  | "rundown-stop"
+  | "rundown-adjust"
+  | "stage-message"
+  | "stage-clear"
   | "lighting-scene"
   | "custom-webhook";
 

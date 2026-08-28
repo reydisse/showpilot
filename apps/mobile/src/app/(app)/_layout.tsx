@@ -44,7 +44,7 @@ export default function AppLayout() {
             backgroundColor: colors.amber,
             color: colors.black,
             fontFamily,
-            fontSize: 10,
+            fontSize: 11,
             fontWeight: "900",
           },
           tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,

@@ -297,7 +297,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   statusPill: { borderRadius: radii.pill, backgroundColor: colors.panelStrong, paddingHorizontal: 9, paddingVertical: 5 },
   statusPillReady: { backgroundColor: colors.greenSoft },
   statusPillBlocked: { backgroundColor: colors.redSoft },
-  statusText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.55 },
+  statusText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.55 },
   statusTextReady: { color: colors.green },
   statusTextBlocked: { color: colors.red },
   linkRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: 13, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.medium },

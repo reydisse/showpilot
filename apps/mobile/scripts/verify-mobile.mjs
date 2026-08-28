@@ -111,7 +111,7 @@ const sourceContract = [
   ["src/app/audio.tsx", "updateMobileAudioAssignment"],
   ["src/app/audio.tsx", "removeMobileAudioAssignment"],
   ["src/theme/tokens.ts", "themePreferenceStorageKey"],
-  ["src/hooks/use-mobile-bootstrap.ts", "poll ? 30_000 : false"],
+  ["src/hooks/use-mobile-bootstrap.ts", "poll ? 5_000 : false"],
   ["src/lib/mobile-api.ts", "accessAuthoritySchema.optional()"],
   ["src/lib/mobile-api.ts", ")).default([])"],
   ["src/app/(app)/_layout.tsx", "useMobileBootstrap({ enabled: Boolean(session), poll: true })"],
@@ -209,7 +209,7 @@ const storeDocumentContracts = [
   ["store/screenshots.md", "1320 × 2868"],
   ["store/screenshots.md", "2064 × 2752"],
   ["store/screenshots.md", "1024 × 500"],
-  ["store/submission-gates.md", "Migration `0033_chat_user_room_index.sql`"],
+  ["store/submission-gates.md", "`0035_reports_and_moderation.sql`"],
 ];
 
 function extractWebNavigation(source) {
@@ -340,6 +340,11 @@ for (const route of ["organizations", "(app)", "settings", "show/[showId]", "liv
 }
 for (const file of sourceFiles(resolve(mobileRoot, "src"))) {
   const source = readFileSync(file, "utf8");
+  const undersizedText = [...source.matchAll(/fontSize:\s*(\d+(?:\.\d+)?)/g)]
+    .filter((match) => Number(match[1]) < 11);
+  if (undersizedText.length > 0) {
+    throw new Error(`Native text must be at least 11pt to remain legible and avoid clipping: ${file}`);
+  }
   if (/from ["']lucide-react-native["']/.test(source)) {
     throw new Error(
       `Native icons must use direct lucide-react-native/icons/* imports to preserve tree shaking: ${file}`,
@@ -549,7 +554,12 @@ if (adaptiveForeground.width !== 1024 || adaptiveForeground.height !== 1024) {
 const commands = [
   ["exec", "tsc", "--noEmit"],
   ["exec", "expo", "lint"],
-  ["exec", "expo", "export", "--platform", "all", "--clear"],
+  // Export each target sequentially. Metro's `all` mode can exhaust a worker
+  // while native Hermes compilation and web static rendering run together,
+  // leaving CI waiting forever after the native bundles have completed.
+  ["exec", "expo", "export", "--platform", "ios", "--output-dir", "dist/ios", "--clear"],
+  ["exec", "expo", "export", "--platform", "android", "--output-dir", "dist/android", "--clear"],
+  ["exec", "expo", "export", "--platform", "web", "--output-dir", "dist/web", "--clear"],
   ["dlx", "expo-doctor", "."],
 ];
 
@@ -558,7 +568,7 @@ for (const args of commands) {
 }
 
 for (const platform of ["ios", "android"]) {
-  const bundleDirectory = resolve(mobileRoot, "dist", "_expo", "static", "js", platform);
+  const bundleDirectory = resolve(mobileRoot, "dist", platform, "_expo", "static", "js", platform);
   const bundles = readdirSync(bundleDirectory).filter((name) => name.endsWith(".hbc"));
   if (bundles.length !== 1) {
     throw new Error(`Expected one ${platform} Hermes bundle, found ${bundles.length}.`);

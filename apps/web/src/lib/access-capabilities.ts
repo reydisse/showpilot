@@ -107,12 +107,13 @@ export const ACCESS_CAPABILITIES = [
 
 export type AccessCapabilityId = (typeof ACCESS_CAPABILITIES)[number]["id"];
 
-const GRANTABLE_PERMISSIONS = new Set<Permission>(
-  ACCESS_CAPABILITIES.flatMap((capability) => [...capability.permissions]),
+export const GRANTABLE_PERMISSIONS = Array.from(
+  new Set<Permission>(ACCESS_CAPABILITIES.flatMap((capability) => [...capability.permissions])),
 );
+const GRANTABLE_PERMISSION_SET = new Set<Permission>(GRANTABLE_PERMISSIONS);
 
 export function isGrantablePermission(value: unknown): value is Permission {
-  return typeof value === "string" && GRANTABLE_PERMISSIONS.has(value as Permission);
+  return typeof value === "string" && GRANTABLE_PERMISSION_SET.has(value as Permission);
 }
 
 export const ACCESS_CAPABILITY_IDS = ACCESS_CAPABILITIES.map(

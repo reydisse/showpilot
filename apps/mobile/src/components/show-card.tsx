@@ -47,7 +47,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   title: { flex: 1, color: colors.text, fontFamily, fontSize: 17, lineHeight: 22, fontWeight: "700" },
   status: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, backgroundColor: colors.panelStrong },
   liveStatus: { backgroundColor: colors.greenSoft },
-  statusText: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  statusText: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15, fontWeight: "900", letterSpacing: 1 },
   liveStatusText: { color: colors.green },
   meta: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 5 },

@@ -16,6 +16,12 @@
 - Run `pnpm --filter @showpilot/mobile verify:release` after EAS linkage.
 - Produce signed internal iOS and Android builds from the reviewed commit.
 - Prove sign-in, profile photo, workspace switching, shows, live rundown synchronization, timer controls, schedule, inbox, chat persistence, notification deep links, incidents, device access, and account deletion on physical devices.
+- Leave the app in the background for at least 30 minutes. Reopen it and prove that the session, live sockets, and mounted screens recover without an indefinite loading state.
+- Prove Dynamic Type at the largest accessibility size on an iPhone and an iPad. No label, button, status badge, or navigation title can clip or hide an action.
+- Report a chat message from the review account. Confirm that an administrator sees the report in **Team > Reports**, can resolve it, and receives a notification.
+- Block another member from the review account. Confirm that the blocked member's messages disappear from the review account.
+- Submit test content that matches the built-in threat and prohibited-sexual-content filters. Confirm that ShowPilot rejects the content before publication.
+- Prove mobile-to-web and mobile-to-desktop control with the same workspace. Confirm timecode, rundown, graphics, and configured device actions on two physical clients.
 - Prove push delivery through APNs and FCM with the signed builds.
 - Capture iPhone, iPad, and Android screenshots from the approved demo workspace.
 - Complete Apple privacy and accessibility declarations and Google Play Data Safety/account-deletion forms from `privacy-data-safety.md`.
@@ -23,4 +29,4 @@
 
 ## Deployment dependency
 
-The support, privacy, and account-deletion URLs must be deployed and publicly reachable before either store submission. Migration `0033_chat_user_room_index.sql` must be applied through the protected migration workflow before enabling account deletion in production.
+The support, privacy, and account-deletion URLs must be deployed and publicly reachable before either store submission. Apply migrations `0033_chat_user_room_index.sql` through `0035_reports_and_moderation.sql` through the protected migration workflow before submission. Migration `0035_reports_and_moderation.sql` enables post-show notes, content reports, and user blocking.

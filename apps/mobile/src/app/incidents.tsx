@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -45,7 +45,10 @@ const categories = ["audio", "video", "stream", "lighting", "other"] as const;
 const severities = ["low", "medium", "high"] as const;
 type IncidentFilter = "open" | "resolved" | "all";
 type MobileIncident = MobileIncidents["incidents"][number];
-const reactionEmojis: readonly MobileIncidentReactionEmoji[] = ["👍", "❤️", "🎉", "👀", "🙏"];
+const reactionEmojis: readonly MobileIncidentReactionEmoji[] = [
+  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
+  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
+];
 
 function isIncidentCategory(value: string): value is (typeof categories)[number] {
   return categories.some((category) => category === value);
@@ -367,10 +370,11 @@ function IncidentDiscussion({
     }
   }
 
-  function renderComment(comment: MobileIncidentComment, reply = false) {
+  function renderComment(comment: MobileIncidentComment, depth = 0): ReactNode {
     const commentReactions = reactions.filter((reaction) => reaction.targetId === comment.id);
+    const children = comments.filter((candidate) => candidate.parentId === comment.id);
     return (
-      <View key={comment.id} style={[styles.comment, reply && styles.commentReply]}>
+      <View key={comment.id} style={[styles.comment, depth > 0 && styles.commentReply]}>
         <View style={styles.commentHeader}>
           <Text style={styles.commentAuthor}>{comment.authorName}</Text>
           <Text style={styles.commentTime}>{new Date(comment.createdAt).toLocaleString()}</Text>
@@ -403,14 +407,12 @@ function IncidentDiscussion({
           >
             <MessageCirclePlus color={colors.textMuted} size={15} />
           </Pressable>
-          {!reply ? (
-            <Pressable accessibilityRole="button" onPress={() => { setReplyTo(comment.id); setOpen(true); }} style={styles.replyButton}>
-              <Text style={styles.replyText}>Reply</Text>
-            </Pressable>
-          ) : null}
+          <Pressable accessibilityRole="button" onPress={() => { setReplyTo(comment.id); setOpen(true); }} style={styles.replyButton}>
+            <Text style={styles.replyText}>Reply</Text>
+          </Pressable>
         </View>
         {reactionPickerFor === comment.id ? (
-          <View style={styles.reactionPicker}>
+          <ScrollView contentContainerStyle={styles.reactionPicker} horizontal={false}>
             {reactionEmojis.map((emoji) => {
               const active = commentReactions.some((reaction) => reaction.emoji === emoji && reaction.userId === currentUserId);
               return (
@@ -429,8 +431,9 @@ function IncidentDiscussion({
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
         ) : null}
+        {children.length ? <View style={styles.nestedThread}>{children.map((child) => renderComment(child, depth + 1))}</View> : null}
       </View>
     );
   }
@@ -446,7 +449,6 @@ function IncidentDiscussion({
           {roots.map((comment) => (
             <View key={comment.id} style={styles.thread}>
               {renderComment(comment)}
-              {comments.filter((reply) => reply.parentId === comment.id).map((reply) => renderComment(reply, true))}
             </View>
           ))}
           {replyTo ? (
@@ -490,25 +492,25 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   summaryValue: { color: colors.text, fontFamily, fontSize: 22, fontWeight: "900" },
   summaryText: { color: colors.textMuted, fontFamily, fontSize: 13 },
   historyButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 10 },
-  historyButtonText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800" },
+  historyButtonText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   form: { gap: 11, borderRadius: radii.large, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.panel, padding: spacing.medium },
   formHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   formTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800" },
-  cancelText: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "900" },
-  label: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
+  cancelText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900" },
+  label: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   choice: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, paddingHorizontal: 12, paddingVertical: 8 },
   choiceActive: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
-  choiceText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  choiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   choiceTextActive: { color: colors.amberText },
   input: { minHeight: 112, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 20, padding: 13, textAlignVertical: "top" },
   serviceDateRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderRadius: radii.small, backgroundColor: colors.panelStrong, paddingHorizontal: 12 },
-  serviceDateLabel: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
+  serviceDateLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.1 },
   serviceDateValue: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "700" },
   filters: { flexDirection: "row", gap: 7 },
   filter: { minHeight: 42, flex: 1, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   filterActive: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
-  filterText: { color: colors.textMuted, fontFamily, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
+  filterText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   filterTextActive: { color: colors.amberText },
   searchBox: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 12 },
   searchInput: { flex: 1, color: colors.text, fontFamily, fontSize: 12 },
@@ -518,43 +520,44 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   cardHigh: { borderColor: colors.redBorder },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
   category: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
-  severity: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 8, fontWeight: "900", textTransform: "uppercase", paddingHorizontal: 7, paddingVertical: 3 },
+  severity: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase", paddingHorizontal: 7, paddingVertical: 3 },
   severityHigh: { backgroundColor: colors.redSoft, color: colors.red },
-  date: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 9 },
+  date: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 11 },
   description: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 21 },
   owner: { flexDirection: "row", alignItems: "center", gap: 6 },
-  ownerText: { flex: 1, color: colors.textMuted, fontFamily, fontSize: 10 },
-  status: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  timeline: { color: colors.textFaint, fontFamily, fontSize: 9, lineHeight: 14 },
+  ownerText: { flex: 1, color: colors.textMuted, fontFamily, fontSize: 11 },
+  status: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  timeline: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 14 },
   discussion: { gap: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 9 },
   discussionToggle: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 7 },
-  discussionToggleText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "700" },
+  discussionToggleText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
   discussionBody: { gap: 10 },
   thread: { gap: 7 },
   comment: { gap: 6, borderRadius: radii.small, backgroundColor: colors.panel, padding: 10 },
   commentReply: { marginLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border },
   commentHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  commentAuthor: { color: colors.text, fontFamily, fontSize: 10, fontWeight: "800" },
-  commentTime: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 8 },
+  commentAuthor: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
+  commentTime: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 11 },
   commentBody: { color: colors.text, fontFamily, fontSize: 12, lineHeight: 18 },
   reactionRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5 },
   reaction: { minHeight: 32, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 8 },
   reactionActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
-  reactionText: { color: colors.textMuted, fontFamily, fontSize: 10 },
+  reactionText: { color: colors.textMuted, fontFamily, fontSize: 11 },
   reactionPickerButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 9 },
   replyButton: { minHeight: 36, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  replyText: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "800" },
-  reactionPicker: { flexDirection: "row", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 6 },
+  replyText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
+  reactionPicker: { flexDirection: "row", flexWrap: "wrap", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 6 },
+  nestedThread: { gap: 8, marginTop: 8 },
   reactionPickerChoice: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 9 },
   reactionPickerEmoji: { fontSize: 18 },
   replyingBanner: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: radii.small, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 10 },
-  replyingText: { color: colors.textMuted, fontFamily, fontSize: 10 },
+  replyingText: { color: colors.textMuted, fontFamily, fontSize: 11 },
   commentComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   commentInput: { minHeight: 64, maxHeight: 130, flex: 1, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 12, lineHeight: 18, padding: 10, textAlignVertical: "top" },
   sendButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: colors.amber },
   cardActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 9 },
   actionButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 10 },
-  actionText: { color: colors.text, fontFamily, fontSize: 9, fontWeight: "900" },
+  actionText: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "900" },
   iconButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.panel },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay, paddingTop: spacing.xlarge },
   modalCard: { maxHeight: "82%", gap: spacing.medium, borderTopLeftRadius: radii.large, borderTopRightRadius: radii.large, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.medium, paddingBottom: spacing.xlarge },
@@ -567,7 +570,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   responderChoiceActive: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
   unassignChoice: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   responderName: { color: colors.text, fontFamily, fontSize: 13, fontWeight: "800" },
-  responderRole: { color: colors.textMuted, fontFamily, fontSize: 10, textTransform: "capitalize" },
+  responderRole: { color: colors.textMuted, fontFamily, fontSize: 11, textTransform: "capitalize" },
   error: { color: colors.red, fontFamily, fontSize: 13 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 14, textAlign: "center" },
 }));

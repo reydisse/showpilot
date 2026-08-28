@@ -10,7 +10,7 @@ import { DesktopNotificationController } from "@/components/layout/DesktopNotifi
 import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 
-const THEME_BOOTSTRAP = `(function(){try{var saved=localStorage.getItem("showpilot-theme");var theme=saved==="light"||saved==="dark"?saved:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.classList.remove("light","dark");document.documentElement.classList.add(theme)}catch(_){}})();`;
+const THEME_BOOTSTRAP = `(function(){try{var saved=localStorage.getItem("showpilot-theme");var theme=saved==="light"||saved==="dark"?saved:"dark";document.documentElement.classList.remove("light","dark");document.documentElement.classList.add(theme)}catch(_){}})();`;
 
 export const Route = createRootRoute({
   pendingMs: 100, // show pending state after 100ms (avoids flash on fast navigations)

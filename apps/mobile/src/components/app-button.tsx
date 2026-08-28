@@ -28,7 +28,7 @@ export function AppButton({ label, loading, variant = "primary", disabled, style
       {loading ? (
         <ActivityIndicator color={variant === "primary" ? colors.black : colors.text} />
       ) : (
-        <Text style={[styles.label, variant === "primary" && styles.primaryLabel]}>{label}</Text>
+        <Text style={[styles.label, variant === "primary" && styles.primaryLabel]} maxFontSizeMultiplier={1.5}>{label}</Text>
       )}
     </Pressable>
   );
@@ -48,6 +48,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   danger: { backgroundColor: colors.redSoft, borderColor: colors.redBorder },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
   disabled: { opacity: 0.45 },
-  label: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "700" },
+  label: { flexShrink: 1, color: colors.text, fontFamily, fontSize: 15, lineHeight: 20, fontWeight: "700", textAlign: "center" },
   primaryLabel: { color: colors.black },
 }));

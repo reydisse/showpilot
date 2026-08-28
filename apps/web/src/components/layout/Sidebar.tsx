@@ -58,13 +58,13 @@ const mainNav: NavItem[] = [
   { icon: Timer, label: "Rundown", path: "rundown" },
   { icon: Clock4, label: "Timecode", path: "timecode" },
   { icon: MessageSquare, label: "Chat", path: "chat" },
-  { icon: UserCheck, label: "Check-in", path: "checkin" },
   { icon: Users, label: "Team", path: "team" },
 ];
 
 const productionNav: NavItem[] = [
   { icon: Clapperboard, label: "Cue Sheets", path: "production/cue-sheets" },
   { icon: ClipboardCheck, label: "Checklist", path: "production/checklist" },
+  { icon: UserCheck, label: "Crew Check-in", path: "checkin" },
   { icon: AlertTriangle, label: "Incidents", path: "production/incidents" },
   { icon: Package, label: "Assets", path: "production/assets" },
 ];
@@ -346,6 +346,7 @@ function renderSidebarContent({
   });
 
   const visibleProductionNav = productionNav.filter((item) => {
+    if (item.path === "checkin") return can("checkin:access");
     if (item.path === "production/checklist")
       return canAny(["checklist:view", "checklist:access"]);
     if (item.path === "production/incidents") {

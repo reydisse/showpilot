@@ -20,6 +20,7 @@ vi.mock("../effective-access", () => ({
 
 interface WorkspaceFixtures {
   includeUpcomingShow?: boolean;
+  pastActiveShow?: boolean;
 }
 
 function fakeDatabase(fixtures: WorkspaceFixtures = {}): MobileApiDatabase {
@@ -31,10 +32,10 @@ function fakeDatabase(fixtures: WorkspaceFixtures = {}): MobileApiDatabase {
           return (params[0] === "org-1" ? { id: "org-1" } : null) as T | null;
         }
         if (sql.startsWith("SELECT id FROM organization WHERE slug = ?")) return null;
-        if (sql.includes("FROM rundown\n     WHERE orgId = ? AND (status IN")) {
+        if (sql.includes("FROM rundown\n     WHERE orgId = ? AND (id = ?")) {
           return (includeUpcomingShow && params[0] === "org-1" ? {
             id: "show-1",
-            serviceDate: "2026-08-30",
+            serviceDate: fixtures.pastActiveShow ? "2026-08-01" : "2026-08-30",
             name: "Sunday Service",
             scheduledStartTime: "2026-08-30T09:00:00.000Z",
             location: "Main Auditorium",
@@ -148,9 +149,21 @@ describe("mobile Show workspace", () => {
       crew: [{ id: "crew-1", name: "Ada Director", isOnline: true }],
       runtime: {
         kind: "native",
-        show: { id: "show-1", name: "Sunday Service" },
+        show: { id: "show-1", name: "Sunday Service", status: "running" },
         items: [{ id: "item-1", title: "Welcome", hardStop: false }],
         timer: { playback: "play", currentItemId: "item-1" },
+      },
+    });
+  });
+
+  it("opens an explicitly active past show and derives live state from its timer", async () => {
+    const response = await requestWorkspace(fakeDatabase({ pastActiveShow: true }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      runtime: {
+        show: { id: "show-1", serviceDate: "2026-08-01", status: "running" },
+        timer: { playback: "play" },
       },
     });
   });

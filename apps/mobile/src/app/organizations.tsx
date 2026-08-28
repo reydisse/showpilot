@@ -157,8 +157,7 @@ export default function OrganizationsScreen() {
   const pageTitle = hasOrganizations ? "Choose your team" : emailVerified ? "Create your workspace" : "Verify your account";
 
   return (
-    <Page eyebrow="WORKSPACE" title={pageTitle} refreshing={isRefetching || refreshingVerification} onRefresh={refreshVerification}>
-      <Text style={styles.intro}>Your shows, crew, and permissions stay isolated inside each organization.</Text>
+    <Page eyebrow="WORKSPACE" title={pageTitle} subtitle="Your shows, crew, and permissions stay isolated inside each organization." refreshing={isRefetching || refreshingVerification} onRefresh={refreshVerification}>
       {selectionError ? <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text> : null}
       {organizationsError ? <Text accessibilityRole="alert" onPress={refreshVerification} style={styles.error}>{organizationsError.message || "Your workspaces could not be loaded."} · Tap to retry</Text> : null}
       <View style={styles.list}>
@@ -229,7 +228,6 @@ export default function OrganizationsScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  intro: { color: colors.textMuted, fontFamily, fontSize: 15, lineHeight: 22, marginTop: -12 },
   error: { color: colors.red, fontFamily, fontSize: 13, lineHeight: 19, borderRadius: radii.small, borderWidth: 1, borderColor: colors.redBorder, backgroundColor: colors.redSoft, padding: 12 },
   list: { gap: 12 },
   card: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 14, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.medium },

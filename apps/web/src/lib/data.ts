@@ -144,6 +144,22 @@ export const toggleCheckIn = createServerFn({ method: "POST" })
     });
   });
 
+export const setAllCrewCheckIn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, isOnline: z.boolean() }), data),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "checkin:access");
+    const now = new Date();
+    return getPrisma().crewMember.updateMany({
+      where: { orgId: data.orgId, isOnline: !data.isOnline },
+      data: {
+        isOnline: data.isOnline,
+        ...(data.isOnline ? { lastCheckIn: now } : { lastCheckOut: now }),
+      },
+    });
+  });
+
 export const checkInByMemberId = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema, memberId: idSchema }), data),

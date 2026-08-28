@@ -16,6 +16,15 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string; category: st
   { value: "lower-third-clear", label: "Clear Lower Third", category: "Lower Thirds" },
   { value: "rundown-advance", label: "Advance Rundown", category: "Rundown" },
   { value: "rundown-start-item", label: "Start Rundown Item", category: "Rundown" },
+  { value: "rundown-previous", label: "Previous Rundown Item", category: "Rundown" },
+  { value: "rundown-pause", label: "Pause Rundown Timer", category: "Rundown" },
+  { value: "rundown-resume", label: "Resume Rundown Timer", category: "Rundown" },
+  { value: "rundown-stop", label: "Stop Rundown", category: "Rundown" },
+  { value: "rundown-adjust", label: "Adjust Rundown Timer", category: "Rundown" },
+  { value: "stage-message", label: "Send Stage Message", category: "Stage Display" },
+  { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
+  { value: "device-action", label: "Trigger Device Action", category: "Devices" },
+  { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
@@ -118,7 +127,7 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
 
       <div>
         <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
-          Payload (JSON)
+          Action details (JSON)
         </label>
         <textarea
           value={payloadJson}
@@ -126,6 +135,9 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
           rows={2}
           className={`${INPUT_CLASS} font-mono text-xs resize-none`}
         />
+        <p className="mt-1 text-[10px] leading-4 text-board-muted">
+          {action === "stage-message" ? 'Use {"message":"Stand by"}.' : action === "rundown-adjust" ? 'Use {"deltaMs":30000} to add 30 seconds.' : action === "device-action" || action === "lighting-scene" ? "Include the device/action identifiers configured in Devices." : action === "custom-webhook" ? 'Use {"url":"https://…"}.' : "No details are required for this action."}
+        </p>
       </div>
 
       {error && (

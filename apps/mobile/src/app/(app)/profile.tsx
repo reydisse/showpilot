@@ -149,7 +149,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   verifiedText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "700" },
   verifiedTextReady: { color: colors.green },
   editor: { gap: 8, borderRadius: radii.large, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: spacing.medium },
-  editorLabel: { color: colors.textFaint, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.1 },
+  editorLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.1 },
   editorRow: { flexDirection: "row", gap: 9 },
   nameInput: { flex: 1, minHeight: 48, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 15, paddingHorizontal: 14 },
   saveButton: { width: 48, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },

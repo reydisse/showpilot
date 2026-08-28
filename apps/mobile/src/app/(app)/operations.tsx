@@ -19,11 +19,11 @@ import FileChart from "lucide-react-native/icons/file-chart-column-increasing";
 import Wrench from "lucide-react-native/icons/wrench";
 import AudioLines from "lucide-react-native/icons/audio-lines";
 import { router } from "expo-router";
-import { Text, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { FeatureLink } from "@/components/feature-link";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
-import { createThemedStyles, fontFamily } from "@/theme/tokens";
+import { createThemedStyles } from "@/theme/tokens";
 
 export default function OperationsScreen() {
   const styles = useStyles();
@@ -49,8 +49,7 @@ export default function OperationsScreen() {
   const canReports = permissions.has("schedule:view");
 
   return (
-    <Page eyebrow="CONTROL SURFACES" title="Operations">
-      <Text style={styles.intro}>Native tools available to your current role and on-duty access grants.</Text>
+    <Page eyebrow="CONTROL SURFACES" title="Operations" subtitle="Native tools available to your current role and on-duty access grants.">
       <View style={styles.list}>
         <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule")} />
         {canViewShow ? <FeatureLink icon={RadioTower} title="Live Show" description="Follow the authoritative timer, current and next cues, active crew, chat, and rundown from one workspace." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
@@ -79,6 +78,5 @@ export default function OperationsScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  intro: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21, marginTop: -12 },
   list: { gap: 11 },
 }));

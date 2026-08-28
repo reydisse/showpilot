@@ -8,6 +8,7 @@ import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import { idSchema, labelSchema, parseOrThrow, serviceDateSchema, textSchema } from "@/lib/validation";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 import { getTodayDateString } from "@/lib/utils";
+import { rundownPhaseStatus } from "@/lib/rundown-status";
 
 // ─── Input schemas ───────────────────────────────────────────
 // Item arrays are validated as bounded unknowns here; per-item shape is
@@ -407,9 +408,7 @@ async function getRundownStateFromStorage(
     serviceDate,
     name: rundownRecord?.name ?? "",
     scheduledStartTime: rundownRecord?.scheduledStartTime?.toISOString() ?? null,
-    status: (rundownRecord?.status === "live" || rundownRecord?.status === "complete")
-      ? rundownRecord.status
-      : "stopped",
+    status: rundownPhaseStatus(rundownRecord?.status ?? "stopped"),
   };
 
   if (rows.length > 0) {

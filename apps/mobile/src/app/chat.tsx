@@ -48,11 +48,14 @@ import { SHOWPILOT_URL } from "@/lib/env";
 import {
   createMobileCrewChatPass,
   createMobilePlanningChatPass,
+  blockMobileUser,
   downloadMobileChatAttachment,
   getMobileChatMembers,
+  getMobileContentSafety,
   getMobileRundown,
   notifyMobileChatMessage,
   notifyMobileChatReaction,
+  reportMobileContent,
   uploadMobileChatAttachment,
   type MobileChatAttachment,
   type MobileChatMember,
@@ -234,6 +237,12 @@ export default function ChatScreen() {
     enabled: Boolean(organization?.id),
     staleTime: 60_000,
   });
+  const safetyQuery = useQuery({
+    queryKey: ["mobile-content-safety", organization?.id],
+    queryFn: () => getMobileContentSafety(organization!.id),
+    enabled: Boolean(organization?.id),
+    staleTime: 60_000,
+  });
   const [text, setText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [replyingTo, setReplyingTo] = useState<MobileChatMessage | null>(null);
@@ -286,6 +295,10 @@ export default function ChatScreen() {
     .filter(([userId]) => userId !== currentUserId)
     .map(([, readAt]) => readAt)), [currentUserId, readReceipts]);
   const latestOwnMessageId = useMemo(() => messages.findLast((message) => message.senderId === currentUserId)?.id ?? null, [currentUserId, messages]);
+  const visibleMessages = useMemo(() => {
+    const blocked = new Set(safetyQuery.data?.blockedUserIds ?? []);
+    return relay.messages.filter((message) => !message.senderId || !blocked.has(message.senderId));
+  }, [relay.messages, safetyQuery.data?.blockedUserIds]);
 
   useEffect(() => {
     initialScrollDoneRef.current = false;
@@ -475,6 +488,34 @@ export default function ChatScreen() {
     ]);
   }, [deleteMessage]);
 
+  const reportMessage = useCallback((message: MobileChatMessage) => {
+    if (!organization) return;
+    setActionTarget(null);
+    const submit = (reason: "harassment" | "hate" | "sexual" | "violence" | "spam" | "other") => void reportMobileContent({
+      orgId: organization.id,
+      targetType: "chat-message",
+      targetId: message.id,
+      targetAuthorId: message.senderId,
+      reason,
+      details: message.text.slice(0, 500),
+    }).then(() => Alert.alert("Report sent", "An organization administrator has been notified.")).catch((error: Error) => Alert.alert("Report not sent", error.message));
+    Alert.alert("Report message", "Why are you reporting this message?", [
+      { text: "Harassment", onPress: () => submit("harassment") },
+      { text: "Hate or violence", onPress: () => submit("hate") },
+      { text: "Spam or other", onPress: () => submit("spam") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [organization]);
+
+  const confirmBlock = useCallback((message: MobileChatMessage) => {
+    if (!organization || !message.senderId) return;
+    setActionTarget(null);
+    Alert.alert(`Block ${message.senderName}?`, "Their messages will be hidden for you in this organization.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Block", style: "destructive", onPress: () => void blockMobileUser({ orgId: organization.id, blockedUserId: message.senderId! }).then(() => safetyQuery.refetch()).catch((error: Error) => Alert.alert("Person not blocked", error.message)) },
+    ]);
+  }, [organization, safetyQuery]);
+
   const toggleReaction = useCallback(async (message: MobileChatMessage, emoji: MobileChatReactionEmoji) => {
     const removing = Boolean(currentUserId && message.reactions?.some((reaction) => reaction.emoji === emoji && reaction.userIds.includes(currentUserId)));
     try {
@@ -544,7 +585,7 @@ export default function ChatScreen() {
           ref={listRef}
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          data={relay.messages}
+          data={visibleMessages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           initialNumToRender={18}
@@ -628,6 +669,10 @@ export default function ChatScreen() {
             <Text style={styles.reactionPickerTitle}>Message actions</Text>
             <Pressable onPress={() => { if (actionTarget) { setEditing(null); setReplyingTo(actionTarget); } setActionTarget(null); }} style={styles.actionButton}><CornerUpLeft color={colors.textMuted} size={17} /><Text style={styles.actionText}>Reply</Text></Pressable>
             <Pressable onPress={() => { setReactionTarget(actionTarget); setActionTarget(null); }} style={styles.actionButton}><Text style={styles.actionEmoji}>👍</Text><Text style={styles.actionText}>Add reaction</Text></Pressable>
+            {actionTarget?.senderId && actionTarget.senderId !== currentUserId ? <>
+              <Pressable onPress={() => actionTarget && reportMessage(actionTarget)} style={styles.actionButton}><Text style={styles.actionEmoji}>⚑</Text><Text style={styles.actionText}>Report message</Text></Pressable>
+              <Pressable onPress={() => actionTarget && confirmBlock(actionTarget)} style={styles.actionButton}><Text style={styles.actionEmoji}>🚫</Text><Text style={[styles.actionText, styles.actionDanger]}>Block {actionTarget.senderName}</Text></Pressable>
+            </> : null}
             {actionTarget?.senderId === currentUserId ? <>
               <Pressable onPress={() => { if (actionTarget) { setReplyingTo(null); setEditing(actionTarget); setText(actionTarget.text); } setActionTarget(null); }} style={styles.actionButton}><Pencil color={colors.textMuted} size={17} /><Text style={styles.actionText}>Edit message</Text></Pressable>
               <Pressable onPress={() => { if (actionTarget) confirmDelete(actionTarget); }} style={styles.actionButton}><Trash2 color={colors.red} size={17} /><Text style={[styles.actionText, styles.actionDanger]}>Delete message</Text></Pressable>
@@ -640,7 +685,7 @@ export default function ChatScreen() {
         <Pressable onPress={() => setReactionTarget(null)} style={styles.modalBackdropCenter}>
           <Pressable onPress={() => undefined} style={styles.reactionPicker}>
             <Text style={styles.reactionPickerTitle}>React to message</Text>
-            <View style={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityLabel={`React ${emoji}`} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</View>
+            <ScrollView contentContainerStyle={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityLabel={`React ${emoji}`} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -670,15 +715,15 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   roomCopy: { flex: 1, gap: 3 },
   roomTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800" },
   roomSubtitle: { color: colors.textMuted, fontFamily, fontSize: 11 },
-  connection: { color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
+  connection: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   connected: { color: colors.green },
   shareButton: { minHeight: 30, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 9 },
-  shareButtonText: { color: colors.amberText, fontFamily, fontSize: 8, fontWeight: "900", letterSpacing: 0.7 },
+  shareButtonText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.7 },
   error: { color: colors.red, fontFamily, fontSize: 11 },
   liveStatus: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: radii.small, borderWidth: 1, borderColor: colors.redBorder, backgroundColor: colors.redSoft, paddingHorizontal: 10 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.red },
-  liveLabel: { color: colors.red, fontFamily, fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
-  liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 10, fontWeight: "800" },
+  liveLabel: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.large },
   listContent: { flexGrow: 1, justifyContent: "flex-end", gap: 8, paddingHorizontal: spacing.large, paddingVertical: spacing.small },
   message: { alignSelf: "flex-start", maxWidth: "90%", gap: 6, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 12 },
@@ -687,23 +732,23 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageCue: { borderColor: colors.blue, backgroundColor: colors.stageRaised },
   messageFocused: { borderWidth: 2, borderColor: colors.amber },
   messageHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
-  sender: { color: colors.text, fontFamily, fontSize: 10, fontWeight: "900" },
-  role: { color: colors.textFaint, fontFamily, fontSize: 8, fontWeight: "800", textTransform: "uppercase" },
-  alertBadge: { color: colors.red, fontFamily, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  cueBadge: { color: colors.blue, fontFamily, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  time: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 8 },
+  sender: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "900" },
+  role: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  alertBadge: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  cueBadge: { color: colors.blue, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  time: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 11 },
   messageText: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 20 },
   deleted: { color: colors.textFaint, fontStyle: "italic" },
-  edited: { alignSelf: "flex-end", color: colors.textFaint, fontFamily, fontSize: 8, fontStyle: "italic" },
-  seen: { alignSelf: "flex-end", color: colors.amberText, fontFamily, fontSize: 8, fontWeight: "700" },
+  edited: { alignSelf: "flex-end", color: colors.textFaint, fontFamily, fontSize: 11, fontStyle: "italic" },
+  seen: { alignSelf: "flex-end", color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "700" },
   replyReference: { gap: 2, borderLeftWidth: 2, borderLeftColor: colors.amber, backgroundColor: colors.panel, paddingHorizontal: 8, paddingVertical: 6 },
-  replySender: { color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "800" },
-  replyText: { color: colors.textMuted, fontFamily, fontSize: 10, lineHeight: 14 },
+  replySender: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
+  replyText: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 14 },
   attachment: { minWidth: 220, overflow: "hidden", flexDirection: "row", alignItems: "center", gap: 9, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 8 },
   attachmentImage: { width: 210, height: 140, borderRadius: radii.small, backgroundColor: colors.panelStrong },
   attachmentCopy: { minWidth: 0, flex: 1, gap: 2 },
   attachmentName: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "700" },
-  attachmentMeta: { color: colors.textFaint, fontFamily, fontSize: 8 },
+  attachmentMeta: { color: colors.textFaint, fontFamily, fontSize: 11 },
   poll: { gap: 7, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingTop: 8 },
   pollQuestion: { color: colors.text, fontFamily, fontSize: 13, fontWeight: "800" },
   pollOption: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
@@ -712,7 +757,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pollCheckSelected: { borderColor: colors.amber, backgroundColor: colors.amber },
   pollCheckMark: { color: colors.black },
   pollOptionText: { flex: 1, color: colors.text, fontFamily, fontSize: 11 },
-  pollCount: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800" },
+  pollCount: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   reactions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5 },
   reaction: { minHeight: 27, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 8 },
   reactionSelected: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
@@ -722,24 +767,24 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center", marginVertical: 50 },
   olderButton: { alignSelf: "center", minHeight: 36, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 14, marginBottom: 8 },
   olderText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
-  typing: { color: colors.textMuted, fontFamily, fontSize: 10, fontStyle: "italic", marginBottom: 4 },
+  typing: { color: colors.textMuted, fontFamily, fontSize: 11, fontStyle: "italic", marginBottom: 4 },
   composerContext: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, backgroundColor: colors.panel, padding: 8 },
   composerContextCopy: { flex: 1, gap: 2 },
-  composerContextTitle: { color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "800" },
-  composerContextText: { color: colors.textMuted, fontFamily, fontSize: 10 },
+  composerContextTitle: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
+  composerContextText: { color: colors.textMuted, fontFamily, fontSize: 11 },
   pendingAttachment: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, backgroundColor: colors.amberSoft, padding: 8 },
-  pendingAttachmentName: { flex: 1, color: colors.text, fontFamily, fontSize: 10, fontWeight: "700" },
+  pendingAttachmentName: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "700" },
   mentions: { maxHeight: 180, gap: 2, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 5 },
   mention: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, paddingHorizontal: 9 },
   mentionName: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
-  mentionRole: { color: colors.textMuted, fontFamily, fontSize: 9, textTransform: "uppercase" },
+  mentionRole: { color: colors.textMuted, fontFamily, fontSize: 11, textTransform: "uppercase" },
   composerTools: { flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5 },
   typeChoice: { minHeight: 28, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 9 },
   typeChoiceActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
-  typeChoiceText: { color: colors.textMuted, fontFamily, fontSize: 8, fontWeight: "800", textTransform: "uppercase" },
+  typeChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   typeChoiceTextActive: { color: colors.amberText },
   toolButton: { minWidth: 32, height: 28, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border },
-  pollTool: { color: colors.textMuted, fontFamily, fontSize: 7, fontWeight: "900" },
+  pollTool: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 9, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.small },
   input: { flex: 1, maxHeight: 110, minHeight: 44, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 13, paddingVertical: 11 },
   send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
@@ -749,20 +794,20 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   modalBackdropCenter: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.overlay, padding: spacing.large },
   sheet: { maxHeight: "88%", gap: 12, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.large, paddingBottom: spacing.large + 12 },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sheetEyebrow: { color: colors.amberText, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.3 },
+  sheetEyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.3 },
   sheetTitle: { color: colors.text, fontFamily, fontSize: 19, fontWeight: "900" },
-  sheetLabel: { color: colors.textMuted, fontFamily, fontSize: 9, fontWeight: "900", letterSpacing: 1.1, marginTop: 4 },
+  sheetLabel: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.1, marginTop: 4 },
   sheetInput: { minHeight: 44, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 13, paddingHorizontal: 12 },
   roomChoice: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, paddingHorizontal: 12 },
   roomChoiceActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   roomChoiceCopy: { flex: 1, gap: 2 },
   roomChoiceName: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
-  roomChoiceDetail: { color: colors.textMuted, fontFamily, fontSize: 9, textTransform: "capitalize" },
+  roomChoiceDetail: { color: colors.textMuted, fontFamily, fontSize: 11, textTransform: "capitalize" },
   memberList: { gap: 6, paddingBottom: 12 },
   shareDescription: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 17 },
   hourChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   hourChoice: { minWidth: 46, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border },
-  hourChoiceText: { color: colors.textMuted, fontFamily, fontSize: 10, fontWeight: "800" },
+  hourChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   shareMembers: { maxHeight: 260, gap: 6 },
   shareCheck: { width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 6, borderWidth: 1, borderColor: colors.border },
   shareCheckSelected: { borderColor: colors.amber, backgroundColor: colors.amber },
@@ -775,8 +820,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   actionDanger: { color: colors.red },
   actionEmoji: { width: 17, textAlign: "center", fontSize: 15 },
   reactionPickerTitle: { color: colors.text, fontFamily, fontSize: 14, fontWeight: "900", textAlign: "center" },
-  reactionPickerRow: { flexDirection: "row", justifyContent: "space-between" },
-  reactionPickerChoice: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: colors.panel },
+  reactionPickerRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxHeight: 264 },
+  reactionPickerChoice: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.panel },
   reactionPickerEmoji: { fontSize: 23 },
   addOption: { alignSelf: "flex-start", minHeight: 34, justifyContent: "center", paddingHorizontal: 4 },
   addOptionText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },

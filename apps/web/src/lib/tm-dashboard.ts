@@ -26,6 +26,7 @@ import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { loadRosterDuty } from "@/lib/pm-dashboard";
 import { readPhaseSettings, getServicePhase } from "@/lib/service-phase";
+import { rundownPhaseStatus } from "@/lib/rundown-status";
 import {
   deriveTmDashboard,
   type TmDashboardModel,
@@ -159,10 +160,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         serviceWindowMinutes,
         // The column is a plain string in D1; narrow it rather than
         // trusting whatever happens to be in the row.
-        status:
-          rundownRow?.status === "live" || rundownRow?.status === "complete"
-            ? rundownRow.status
-            : "stopped",
+        status: rundownPhaseStatus(rundownRow?.status ?? "stopped"),
       },
       now,
     );

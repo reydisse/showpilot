@@ -1,4 +1,5 @@
 import { formatTime, formatDuration, itemOverrunMs } from "@/lib/rundown-timing";
+import type { ShowReportNote } from "@/lib/show-report-notes";
 import { rundownItemNumbers, type RundownItem } from "@/types/rundown";
 
 export interface ExportReport {
@@ -28,6 +29,7 @@ export interface ExportReport {
   checklist?: Array<{ label: string; category: string; checked: boolean; checkedBy: string | null; checkedAt?: string | null }>;
   crew?: Array<{ role: string; name: string; status: string; notes: string }>;
   cueSheets?: Array<{ cueNumber: number; rundownItem: string; cameraAssignments: string; notes: string }>;
+  managerNotes?: ShowReportNote[];
 }
 
 /** Download a string as a file in the browser. */
@@ -144,6 +146,18 @@ export function buildRundownCsv(report: ExportReport): string {
       cue.rundownItem, "", "", "", "", "", "", "", "", "", "", "", "",
       "", cue.notes, cue.cameraAssignments, "",
     ]),
+    ...(report.managerNotes ?? []).map((note) => [
+      "Manager note", base.serviceDate, base.show, base.generatedAt, "", "", "",
+      "", note.role === "pm" ? "Production Manager" : "Technical Manager",
+      note.authorName, "", "", "", "", "", "", "", "",
+      note.summary,
+      [
+        note.wins ? `What worked: ${note.wins}` : "",
+        note.issues ? `Issues / changes: ${note.issues}` : "",
+        note.followUps ? `Follow-up: ${note.followUps}` : "",
+      ].filter(Boolean).join("\n"),
+      "", "",
+    ]),
   );
 
   return [headers, ...rows]
@@ -251,6 +265,18 @@ export async function exportRundownPdf(report: ExportReport) {
       : [];
   const checklistSection = report.checklist?.length ? [{ text: "Checklist", style: "sectionHeader" }, { table: { headerRows: 1, widths: ["auto", "*", "auto", "auto"], body: [[{ text: "Category", style: "tableHeader" }, { text: "Item", style: "tableHeader" }, { text: "Status", style: "tableHeader" }, { text: "Checked By", style: "tableHeader" }], ...report.checklist.map((item) => [item.category, item.label, item.checked ? "Complete" : "Incomplete", item.checkedBy ?? "—"])] }, layout: "lightHorizontalLines" }] : [];
   const crewSection = report.crew?.length ? [{ text: "Crew", style: "sectionHeader" }, { table: { headerRows: 1, widths: ["*", "*", "auto"], body: [[{ text: "Position", style: "tableHeader" }, { text: "Crew Member", style: "tableHeader" }, { text: "Status", style: "tableHeader" }], ...report.crew.map((item) => [item.role, item.name, item.status])] }, layout: "lightHorizontalLines" }] : [];
+  const managerNotesSection = report.managerNotes?.length ? [
+    { text: "Manager notes", style: "sectionHeader" },
+    ...report.managerNotes.flatMap((note) => [
+      { text: `${note.role === "pm" ? "Production Manager" : "Technical Manager"} · ${note.authorName}`, style: "itemTitle" },
+      { ul: [
+        note.summary ? `Summary: ${note.summary}` : "Summary: —",
+        note.wins ? `What worked: ${note.wins}` : "What worked: —",
+        note.issues ? `Issues / changes: ${note.issues}` : "Issues / changes: —",
+        note.followUps ? `Follow-up: ${note.followUps}` : "Follow-up: —",
+      ], margin: [0, 0, 0, 8] },
+    ]),
+  ] : [];
 
   const docDefinition = {
     pageMargins: [36, 48, 36, 36] as [number, number, number, number],
@@ -282,6 +308,7 @@ export async function exportRundownPdf(report: ExportReport) {
       ...incidentsSection,
       ...checklistSection,
       ...crewSection,
+      ...managerNotesSection,
     ],
     styles: {
       orgName: { fontSize: 16, bold: true, color: "#111827" },

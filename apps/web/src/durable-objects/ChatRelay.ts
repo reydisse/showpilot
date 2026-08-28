@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
+import { objectionableContentReason } from "@/lib/user-content-safety";
 
 interface ChatMessage {
   id: string;
@@ -248,6 +249,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       if (parsed.type === "message") {
+        const contentError = objectionableContentReason(parsed.text ?? "");
+        if (contentError) {
+          ws.send(JSON.stringify({ type: "error", error: contentError }));
+          return;
+        }
         const clientMessageId = typeof parsed.clientMessageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.clientMessageId)
           ? parsed.clientMessageId
           : crypto.randomUUID();
@@ -302,17 +308,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
       if (parsed.type === "reaction") {
         const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
-        const allowed = ["👍", "❤️", "🎉", "👀", "🙏"];
-        if (!session.userId || !parsed.messageId || !parsed.requestId || !parsed.emoji || !allowed.includes(parsed.emoji)) { respond(false, "Invalid reaction"); return; }
+        const emoji = typeof parsed.emoji === "string" && parsed.emoji.length <= 32 && /\p{Extended_Pictographic}/u.test(parsed.emoji)
+          ? parsed.emoji
+          : null;
+        const userId = session.userId;
+        if (!userId || !parsed.messageId || !parsed.requestId || !emoji) { respond(false, "Invalid reaction"); return; }
         const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
         const current = this.recentMessages[index];
         if (!current || current.deletedAt) { respond(false, "Message no longer exists"); return; }
         const reactions = [...(current.reactions ?? [])];
-        const reactionIndex = reactions.findIndex((reaction) => reaction.emoji === parsed.emoji);
-        if (reactionIndex < 0) reactions.push({ emoji: parsed.emoji, userIds: [session.userId] });
+        const reactionIndex = reactions.findIndex((reaction) => reaction.emoji === emoji);
+        if (reactionIndex < 0) reactions.push({ emoji, userIds: [userId] });
         else {
-          const active = reactions[reactionIndex].userIds.includes(session.userId);
-          const userIds = active ? reactions[reactionIndex].userIds.filter((id) => id !== session.userId) : [...reactions[reactionIndex].userIds, session.userId];
+          const active = reactions[reactionIndex].userIds.includes(userId);
+          const userIds = active ? reactions[reactionIndex].userIds.filter((id) => id !== userId) : [...reactions[reactionIndex].userIds, userId];
           if (userIds.length) reactions[reactionIndex] = { ...reactions[reactionIndex], userIds };
           else reactions.splice(reactionIndex, 1);
         }

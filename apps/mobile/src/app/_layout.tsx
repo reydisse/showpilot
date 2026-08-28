@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
 import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -17,6 +17,16 @@ function RootNavigator() {
   const { colors, statusBarStyle } = useAppTheme();
   const { data: session, error, isPending, isRefetching, refetch } = authClient.useSession();
   const [retrying, setRetrying] = useState(false);
+  const [restoreTimedOut, setRestoreTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (session || (!isPending && !isRefetching)) {
+      setRestoreTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setRestoreTimedOut(true), 8_000);
+    return () => clearTimeout(timer);
+  }, [isPending, isRefetching, session]);
 
   async function retrySession() {
     if (retrying) return;
@@ -28,8 +38,11 @@ function RootNavigator() {
     }
   }
 
-  if (!session && (isPending || isRefetching)) {
+  if (!session && (isPending || isRefetching) && !restoreTimedOut) {
     return <LoadingView label="Restoring your session…" />;
+  }
+  if (!session && restoreTimedOut) {
+    return <SessionRecoveryView error="Session restore took too long. Check your connection and try again." retrying={retrying} onRetry={() => void retrySession()} />;
   }
   if (!session && error) {
     return <SessionRecoveryView error={error.message} retrying={retrying} onRetry={() => void retrySession()} />;

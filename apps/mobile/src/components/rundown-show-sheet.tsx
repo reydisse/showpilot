@@ -58,7 +58,7 @@ export function RundownShowSheet({
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: spacing.medium, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerCopy: { flex: 1, minWidth: 0, gap: 5 },
-  eyebrow: { color: colors.amberText, fontFamily, fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
+  eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   heading: { color: colors.text, fontFamily, fontSize: 22, lineHeight: 28, fontWeight: "800" },
   close: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   content: { gap: spacing.large, paddingVertical: spacing.large, paddingBottom: 60 },

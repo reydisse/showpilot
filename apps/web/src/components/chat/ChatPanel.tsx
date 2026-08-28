@@ -54,7 +54,11 @@ const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode 
   { value: "cue", label: "Cue", icon: <Radio className="w-3 h-3" /> },
   { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
 ];
-const MESSAGE_REACTIONS = ["👍", "❤️", "🎉", "👀", "🙏"] as const;
+const MESSAGE_REACTIONS = [
+  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
+  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
+  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
+] as const;
 
 function MessageTypeSelector({
   value,
@@ -312,7 +316,7 @@ function ChatMessageRow({
         {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Add reaction" title="Add reaction"><SmilePlus className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
-        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 flex gap-1 rounded-lg border border-board-border bg-board-card p-1.5 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-sm hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
+        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-64 grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
       </div>}
     </div>
   );
@@ -648,6 +652,20 @@ export function ChatPanel({
   // the timeline after their urgent ten-second treatment ends. Automated
   // rundown status belongs in the header dock, not the conversation.
   const timelineMessages = messages.filter((m) => m.type !== "system" && !pinnedIds.has(m.id));
+  const timelineById = new Map(timelineMessages.map((message) => [message.id, message]));
+  const threadDepth = (message: ChatMessage) => {
+    let depth = 0;
+    let parentId = message.replyTo?.messageId;
+    const visited = new Set<string>();
+    while (parentId && depth < 4 && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = timelineById.get(parentId);
+      if (!parent) break;
+      depth += 1;
+      parentId = parent.replyTo?.messageId;
+    }
+    return depth;
+  };
   const latestSeenOwnMessageId = seenThrough === undefined ? undefined : [...timelineMessages]
     .reverse()
     .find((message) => !message.deletedAt && (currentUserId ? message.senderId === currentUserId : currentUserName && message.senderName === currentUserName) && message.timestamp <= seenThrough)?.id;
@@ -756,9 +774,10 @@ export function ChatPanel({
             previous.type === msg.type &&
             msg.timestamp - previous.timestamp < 5 * 60 * 1000,
           );
+          const depth = threadDepth(msg);
 
           return (
-            <div key={msg.id}>
+            <div key={msg.id} className={cn(depth > 0 && "ml-5 border-l-2 border-fire-500/20 pl-1 sm:ml-9", depth > 1 && "ml-9 sm:ml-14")}>
               {showDay && (
                 <div className="my-2 flex items-center gap-3 px-4" role="separator">
                   <span className="h-px flex-1 bg-board-border/70" />

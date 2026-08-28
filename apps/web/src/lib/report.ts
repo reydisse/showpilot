@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
+import { getD1 } from "@/lib/d1";
 import { assertOrgPermission } from "@/lib/org-access";
+import { hasEffectivePermission } from "@/lib/permissions";
+import type { ShowReportNote } from "@/lib/show-report-notes";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import { isHeaderItem } from "@/types/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
@@ -9,6 +12,7 @@ import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
 export type ShowReport = {
   generatedAt: string;
+  showId: string;
   serviceDate: string;
   organization: { id: string; name: string; slug: string };
   summary: {
@@ -50,6 +54,11 @@ export type ShowReport = {
     notes: string;
   }>;
   crew: Array<{ role: string; name: string; status: string; notes: string }>;
+  managerNotes: ShowReportNote[];
+  viewer: {
+    userId: string;
+    writableNoteLanes: Array<"pm" | "tm">;
+  };
 };
 
 export const exportShowReport = createServerFn({ method: "POST" })
@@ -60,7 +69,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }): Promise<ShowReport> => {
-    await assertOrgPermission(data.orgId, "schedule:view");
+    const request = await assertOrgPermission(data.orgId, "schedule:view");
 
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({
@@ -85,6 +94,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
       templates,
       cueSheets,
       crew,
+      managerNotes,
     ] = await Promise.all([
       getRundownStateForOrg({
         orgId: data.orgId,
@@ -120,6 +130,13 @@ export const exportShowReport = createServerFn({ method: "POST" })
         include: { crewMember: { select: { name: true } } },
         orderBy: { role: "asc" },
       }),
+      getD1().prepare(
+        `SELECT id, showId, userId, authorName, role, summary, wins, issues,
+                followUps, createdAt, updatedAt
+           FROM show_report_note
+          WHERE orgId = ? AND showId = ?
+          ORDER BY CASE role WHEN 'pm' THEN 0 ELSE 1 END, updatedAt ASC`,
+      ).bind(data.orgId, show.id).all<ShowReportNote>(),
     ]);
 
     // Section bands are structure, not run items: they would inflate the
@@ -139,6 +156,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
 
     return {
       generatedAt: new Date().toISOString(),
+      showId: show.id,
       serviceDate: data.serviceDate,
       organization: org,
       summary: {
@@ -189,5 +207,16 @@ export const exportShowReport = createServerFn({ method: "POST" })
         status: assignment.status,
         notes: assignment.notes,
       })),
+      managerNotes: managerNotes.results ?? [],
+      viewer: {
+        userId: request.user.id,
+        writableNoteLanes: (["pm", "tm"] as const).filter((lane) =>
+          hasEffectivePermission(
+            request.access.role,
+            request.access.grantedPermissions,
+            lane === "pm" ? "dashboard:pm" : "dashboard:tm",
+          ),
+        ),
+      },
     };
   });

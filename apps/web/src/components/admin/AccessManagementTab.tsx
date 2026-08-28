@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Check, ChevronDown, Clock3, KeyRound, ShieldCheck, X } from "lucide-react";
-import { ACCESS_CAPABILITIES, getAccessCapability } from "@/lib/access-capabilities";
+import { ACCESS_CAPABILITIES, GRANTABLE_PERMISSIONS, getAccessCapability } from "@/lib/access-capabilities";
 import { grantMemberAccess, revokeMemberAccess } from "@/lib/access-grants";
 import { ROLE_META } from "@/lib/permissions";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
@@ -75,7 +75,8 @@ export function AccessManagementTab({
   );
   const [showGrantForm, setShowGrantForm] = useState(false);
   const [userId, setUserId] = useState(eligibleMembers[0]?.userId ?? "");
-  const [capability, setCapability] = useState(ACCESS_CAPABILITIES[0].id);
+  const [capability, setCapability] = useState<string>(ACCESS_CAPABILITIES[0].id);
+  const [customPermissions, setCustomPermissions] = useState<string[]>([]);
   const [duration, setDuration] = useState<"this-week" | "until-revoked">("this-week");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -95,6 +96,7 @@ export function AccessManagementTab({
   const resetForm = () => {
     setShowGrantForm(false);
     setCapability(ACCESS_CAPABILITIES[0].id);
+    setCustomPermissions([]);
     setDuration("this-week");
     setReason("");
     setError("");
@@ -107,7 +109,7 @@ export function AccessManagementTab({
     setError("");
     try {
       await grantMemberAccess({
-        data: { orgId, userId, capability, duration, reason },
+        data: { orgId, userId, capability: capability as typeof ACCESS_CAPABILITIES[number]["id"] | "custom", permissions: capability === "custom" ? customPermissions : undefined, duration, reason },
       });
       resetForm();
       await router.invalidate();
@@ -197,6 +199,7 @@ export function AccessManagementTab({
                   {ACCESS_CAPABILITIES.map((item) => (
                     <option key={item.id} value={item.id}>{item.label}</option>
                   ))}
+                  <option value="custom">Custom permissions…</option>
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-board-muted" />
               </span>
@@ -204,8 +207,26 @@ export function AccessManagementTab({
           </div>
 
           <p className="rounded-lg bg-board-bg px-3 py-2 text-xs leading-relaxed text-board-muted">
-            {getAccessCapability(capability)?.description}
+            {capability === "custom" ? "Choose only the controls this person needs." : getAccessCapability(capability)?.description}
           </p>
+
+          {capability === "custom" ? (
+            <fieldset className="rounded-xl border border-board-border bg-board-bg/40 p-3">
+              <legend className="px-1 text-xs font-medium text-board-muted">Individual permissions</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {GRANTABLE_PERMISSIONS.map((permission) => {
+                  const checked = customPermissions.includes(permission);
+                  const label = permission.split(":").map((part) => part.replaceAll("_", " ")).join(" · ");
+                  return (
+                    <label key={permission} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs capitalize ${checked ? "border-fire-500/45 bg-fire-500/10 text-board-text" : "border-board-border text-board-muted"}`}>
+                      <input type="checkbox" checked={checked} onChange={() => setCustomPermissions((items) => checked ? items.filter((item) => item !== permission) : [...items, permission])} className="accent-amber-500" />
+                      {label}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ) : null}
 
           {authority.kind === "permanent" ? (
             <fieldset className="space-y-2">
@@ -231,7 +252,7 @@ export function AccessManagementTab({
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={resetForm} className="min-h-[42px] rounded-lg px-4 text-xs font-medium text-board-muted hover:bg-board-border/50 hover:text-board-text">Cancel</button>
-            <button type="submit" disabled={saving || !userId} className="min-h-[42px] rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 px-4 text-xs font-semibold text-black disabled:opacity-50">
+            <button type="submit" disabled={saving || !userId || (capability === "custom" && customPermissions.length === 0)} className="min-h-[42px] rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 px-4 text-xs font-semibold text-black disabled:opacity-50">
               {saving ? "Granting…" : "Grant access"}
             </button>
           </div>
@@ -274,7 +295,7 @@ export function AccessManagementTab({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                            <p className="truncate text-xs font-medium text-board-text">{definition?.label ?? grant.capability}</p>
+                            <p className="truncate text-xs font-medium text-board-text">{definition?.label ?? (grant.capability === "custom" ? "Custom operational access" : grant.capability)}</p>
                           </div>
                           <p className="mt-1 text-[11px] text-board-muted">
                             {grant.expiresOn ? `Active through ${grantEndLabel(grant.expiresOn)}` : "Active until revoked"} · granted by {grant.grantedBy.name}
