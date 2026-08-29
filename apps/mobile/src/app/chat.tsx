@@ -1,9 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import BarChart3 from "lucide-react-native/icons/chart-no-axes-column";
 import Check from "lucide-react-native/icons/check";
 import ChevronDown from "lucide-react-native/icons/chevron-down";
 import CornerUpLeft from "lucide-react-native/icons/corner-up-left";
+import FileText from "lucide-react-native/icons/file-text";
 import Hash from "lucide-react-native/icons/hash";
+import Heart from "lucide-react-native/icons/heart";
 import ImageIcon from "lucide-react-native/icons/image";
 import Pencil from "lucide-react-native/icons/pencil";
 import Send from "lucide-react-native/icons/send";
@@ -104,22 +107,31 @@ const MessageCard = memo(function MessageCard({
   onToggleReaction,
   onVote,
 }: MessageCardProps) {
+  const { colors } = useAppTheme();
   const styles = useStyles();
   const deleted = Boolean(message.deletedAt);
+  const initials = message.senderName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
   return (
-    <Pressable
-      accessibilityHint="Hold for reply and message actions"
-      accessibilityLabel={`${own ? "You" : message.senderName}: ${readableChatText(message.text) || "attachment"}`}
-      delayLongPress={350}
-      onLongPress={() => onLongPress(message)}
-      style={[
-        styles.message,
-        own && styles.messageOwn,
-        message.type === "alert" && styles.messageAlert,
-        message.type === "cue" && styles.messageCue,
-        focused && styles.messageFocused,
-      ]}
-    >
+    <View style={[styles.messageRow, own && styles.messageRowOwn]}>
+      {!own ? <View style={styles.messageAvatar}><Text style={styles.messageAvatarText}>{initials || "?"}</Text></View> : null}
+      <Pressable
+        accessibilityHint="Hold for reply and message actions"
+        accessibilityLabel={`${own ? "You" : message.senderName}: ${readableChatText(message.text) || "attachment"}`}
+        delayLongPress={350}
+        onLongPress={() => onLongPress(message)}
+        style={[
+          styles.message,
+          own && styles.messageOwn,
+          message.type === "alert" && styles.messageAlert,
+          message.type === "cue" && styles.messageCue,
+          focused && styles.messageFocused,
+        ]}
+      >
       <View style={styles.messageHeader}>
         <Text style={styles.sender}>{own ? "You" : message.senderName}</Text>
         {message.senderRole ? <Text style={styles.role}>{message.senderRole}</Text> : null}
@@ -178,12 +190,13 @@ const MessageCard = memo(function MessageCard({
               </Pressable>
             );
           })}
-          <Pressable accessibilityLabel="Add reaction" accessibilityRole="button" onPress={() => onReact(message)} style={styles.reactionAdd}><Text style={styles.reactionAddText}>＋</Text></Pressable>
+          <Pressable accessibilityLabel="Choose a reaction" accessibilityRole="button" onPress={() => onReact(message)} style={styles.reactionAdd}><Heart color={colors.textMuted} size={15} /></Pressable>
         </View>
       ) : null}
       {message.editedAt && !deleted ? <Text style={styles.edited}>edited</Text> : null}
       {own && seen ? <Text style={styles.seen}>Seen</Text> : null}
-    </Pressable>
+      </Pressable>
+    </View>
   );
 });
 
@@ -614,13 +627,14 @@ export default function ChatScreen() {
         {attachment ? <View style={styles.pendingAttachment}><ImageIcon color={colors.amberText} size={17} /><Text numberOfLines={1} style={styles.pendingAttachmentName}>{attachment.name}</Text><Pressable accessibilityLabel="Remove attachment" onPress={() => setAttachment(null)}><X color={colors.textMuted} size={17} /></Pressable></View> : null}
         {mentionResults.length ? <View style={styles.mentions}>{mentionResults.map((member) => <Pressable key={member.userId} onPress={() => selectMention(member)} style={styles.mention}><Text style={styles.mentionName}>@{member.name}</Text><Text style={styles.mentionRole}>{member.role}</Text></Pressable>)}</View> : null}
         {!editing ? <View style={styles.composerTools}>
-          {(["text", "cue", "alert"] as const).map((type) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: messageType === type }} key={type} onPress={() => setMessageType(type)} style={[styles.typeChoice, messageType === type && styles.typeChoiceActive]}><Text style={[styles.typeChoiceText, messageType === type && styles.typeChoiceTextActive]}>{type}</Text></Pressable>)}
+          {(["cue", "alert"] as const).map((type) => <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: messageType === type }} key={type} onPress={() => setMessageType((current) => current === type ? "text" : type)} style={[styles.typeChoice, messageType === type && styles.typeChoiceActive]}><Text style={[styles.typeChoiceText, messageType === type && styles.typeChoiceTextActive]}>{type}</Text></Pressable>)}
+          <View style={styles.toolSpacer} />
           <Pressable accessibilityLabel="Attach image" disabled={uploading} onPress={() => void chooseAttachment()} style={styles.toolButton}>{uploading ? <ActivityIndicator color={colors.textMuted} size="small" /> : <ImageIcon color={colors.textMuted} size={17} />}</Pressable>
-          <Pressable accessibilityLabel="Attach document" disabled={uploading} onPress={() => void chooseDocument()} style={styles.toolButton}><Text style={styles.pollTool}>FILE</Text></Pressable>
-          <Pressable accessibilityLabel="Create poll" onPress={() => setPollOpen(true)} style={styles.toolButton}><Text style={styles.pollTool}>POLL</Text></Pressable>
+          <Pressable accessibilityLabel="Attach document" disabled={uploading} onPress={() => void chooseDocument()} style={styles.toolButton}><FileText color={colors.textMuted} size={17} /></Pressable>
+          <Pressable accessibilityLabel="Create poll" onPress={() => setPollOpen(true)} style={styles.toolButton}><BarChart3 color={colors.textMuted} size={17} /></Pressable>
         </View> : null}
         <View style={styles.composer}>
-          <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status === "connected" ? "Message the crew… Use @ to mention" : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} />
+          <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status === "connected" ? messageType === "text" ? "Message the crew…" : `Send a ${messageType}…` : "Message will send when reconnected…"} placeholderTextColor={colors.textFaint} style={styles.input} />
           <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: !text.trim() && !attachment }} disabled={!text.trim() && !attachment} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
         </View>
       </Page>
@@ -681,10 +695,13 @@ export default function ChatScreen() {
         </Pressable>
       </Modal>
 
-      <Modal animationType="fade" onRequestClose={() => setReactionTarget(null)} transparent visible={Boolean(reactionTarget)}>
-        <Pressable onPress={() => setReactionTarget(null)} style={styles.modalBackdropCenter}>
+      <Modal animationType="slide" onRequestClose={() => setReactionTarget(null)} transparent visible={Boolean(reactionTarget)}>
+        <Pressable onPress={() => setReactionTarget(null)} style={styles.modalBackdrop}>
           <Pressable onPress={() => undefined} style={styles.reactionPicker}>
-            <Text style={styles.reactionPickerTitle}>React to message</Text>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.reactionPickerEyebrow}>REACTIONS</Text>
+            <Text style={styles.reactionPickerTitle}>Choose an emoji</Text>
+            {reactionTarget ? <View style={styles.reactionPreview}><Text style={styles.reactionPreviewName}>{reactionTarget.senderName}</Text><Text numberOfLines={2} style={styles.reactionPreviewText}>{readableChatText(reactionTarget.text)}</Text></View> : null}
             <ScrollView contentContainerStyle={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityLabel={`React ${emoji}`} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</ScrollView>
           </Pressable>
         </Pressable>
@@ -725,9 +742,13 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   liveLabel: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
   liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.large },
-  listContent: { flexGrow: 1, justifyContent: "flex-end", gap: 8, paddingHorizontal: spacing.large, paddingVertical: spacing.small },
-  message: { alignSelf: "flex-start", maxWidth: "90%", gap: 6, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 12 },
-  messageOwn: { alignSelf: "flex-end", borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
+  listContent: { flexGrow: 1, justifyContent: "flex-end", gap: 11, paddingHorizontal: spacing.large, paddingVertical: spacing.medium },
+  messageRow: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  messageRowOwn: { justifyContent: "flex-end" },
+  messageAvatar: { width: 31, height: 31, alignItems: "center", justifyContent: "center", borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong },
+  messageAvatarText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900" },
+  message: { maxWidth: "82%", gap: 7, borderRadius: 18, borderBottomLeftRadius: 6, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, paddingHorizontal: 13, paddingVertical: 10 },
+  messageOwn: { borderBottomLeftRadius: 18, borderBottomRightRadius: 6, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   messageAlert: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   messageCue: { borderColor: colors.blue, backgroundColor: colors.stageRaised },
   messageFocused: { borderWidth: 2, borderColor: colors.amber },
@@ -762,8 +783,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   reaction: { minHeight: 27, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 8 },
   reactionSelected: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   reactionText: { color: colors.text, fontFamily, fontSize: 11 },
-  reactionAdd: { width: 27, height: 27, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: colors.border },
-  reactionAddText: { color: colors.textMuted, fontFamily, fontSize: 15 },
+  reactionAdd: { width: 29, height: 29, alignItems: "center", justifyContent: "center", borderRadius: 15, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center", marginVertical: 50 },
   olderButton: { alignSelf: "center", minHeight: 36, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 14, marginBottom: 8 },
   olderText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
@@ -778,16 +798,16 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   mention: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, paddingHorizontal: 9 },
   mentionName: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   mentionRole: { color: colors.textMuted, fontFamily, fontSize: 11, textTransform: "uppercase" },
-  composerTools: { flexDirection: "row", alignItems: "center", gap: 5, paddingTop: 5 },
-  typeChoice: { minHeight: 28, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 9 },
+  composerTools: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 15, backgroundColor: colors.panel, padding: 5 },
+  typeChoice: { minHeight: 32, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 11 },
   typeChoiceActive: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   typeChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   typeChoiceTextActive: { color: colors.amberText },
-  toolButton: { minWidth: 32, height: 28, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border },
-  pollTool: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
-  composer: { flexDirection: "row", alignItems: "flex-end", gap: 9, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.small },
-  input: { flex: 1, maxHeight: 110, minHeight: 44, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 13, paddingVertical: 11 },
-  send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
+  toolSpacer: { flex: 1 },
+  toolButton: { width: 34, height: 32, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: colors.panelStrong },
+  composer: { flexDirection: "row", alignItems: "flex-end", gap: 7, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 5 },
+  input: { flex: 1, maxHeight: 110, minHeight: 40, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 10, paddingVertical: 10 },
+  send: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.amber },
   disabled: { opacity: 0.38 },
   pressed: { opacity: 0.72 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
@@ -813,16 +833,21 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   shareCheckSelected: { borderColor: colors.amber, backgroundColor: colors.amber },
   avatar: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: colors.amberSoft },
   avatarText: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900" },
-  reactionPicker: { width: "100%", maxWidth: 360, gap: 14, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.large },
+  reactionPicker: { width: "100%", maxHeight: "68%", gap: 10, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, paddingHorizontal: spacing.large, paddingTop: 10, paddingBottom: spacing.large + 12 },
   actionSheet: { width: "100%", maxWidth: 360, gap: 7, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.large },
   actionButton: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.small, backgroundColor: colors.panel, paddingHorizontal: 12 },
   actionText: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   actionDanger: { color: colors.red },
   actionEmoji: { width: 17, textAlign: "center", fontSize: 15 },
-  reactionPickerTitle: { color: colors.text, fontFamily, fontSize: 14, fontWeight: "900", textAlign: "center" },
-  reactionPickerRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxHeight: 264 },
-  reactionPickerChoice: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.panel },
-  reactionPickerEmoji: { fontSize: 23 },
+  sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 5 },
+  reactionPickerEyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
+  reactionPickerTitle: { color: colors.text, fontFamily, fontSize: 19, fontWeight: "900" },
+  reactionPreview: { gap: 3, borderRadius: radii.medium, backgroundColor: colors.panel, padding: 11 },
+  reactionPreviewName: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "900" },
+  reactionPreviewText: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 17 },
+  reactionPickerRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-start", gap: 8, paddingTop: 4 },
+  reactionPickerChoice: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 16, backgroundColor: colors.panel },
+  reactionPickerEmoji: { fontSize: 25 },
   addOption: { alignSelf: "flex-start", minHeight: 34, justifyContent: "center", paddingHorizontal: 4 },
   addOptionText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   pollSend: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },

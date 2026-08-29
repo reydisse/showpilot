@@ -3,7 +3,7 @@ import type {
   DeviceConnectionStatus,
   ModuleDefinition,
 } from "@/lib/device-modules/types";
-import { GenericControlPanel } from "./GenericControlPanel";
+import { CockpitControlPanel } from "./CockpitControlPanel";
 import { BridgeRequiredBanner } from "./BridgeRequiredBanner";
 import { AlertTriangle } from "lucide-react";
 
@@ -44,7 +44,7 @@ export function DeviceControlPanel({
         <BridgeRequiredBanner definition={definition} />
         {/* Show controls disabled so operators can preview what's available */}
         <div className="opacity-50 pointer-events-none">
-          <GenericControlPanel
+          <CockpitControlPanel
             module={null}
             status={status}
             feedbacks={feedbacks}
@@ -66,9 +66,10 @@ export function DeviceControlPanel({
     );
   }
 
-  // Generic control panel (renders from actions/feedbacks)
+  // Capability-aware cockpit. Unknown or uncommon adapters still fall back to
+  // the generic action renderer inside the cockpit component.
   return (
-    <GenericControlPanel
+    <CockpitControlPanel
       module={module}
       status={status}
       feedbacks={feedbacks}
