@@ -7,13 +7,17 @@ export type NativeNotificationPermissionState = {
   canAskAgain: boolean;
 };
 
-function projectId() {
+export function nativePushProjectId() {
   return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+}
+
+export function isNativePushConfigured() {
+  return Boolean(nativePushProjectId());
 }
 
 export async function getNativePushToken() {
   if (!Device.isDevice) return null;
-  const id = projectId();
+  const id = nativePushProjectId();
   if (!id) return null;
   const Notifications = await import("expo-notifications");
   const token = await Notifications.getExpoPushTokenAsync({ projectId: id });
@@ -24,7 +28,9 @@ export async function getNativeNotificationPermissionState(): Promise<NativeNoti
   if (Platform.OS !== "ios" && Platform.OS !== "android") {
     return { status: "unsupported", canAskAgain: false };
   }
-  if (!Device.isDevice) return { status: "unsupported", canAskAgain: false };
+  if (!Device.isDevice || !isNativePushConfigured()) {
+    return { status: "unsupported", canAskAgain: false };
+  }
 
   try {
     const Notifications = await import("expo-notifications");
@@ -42,6 +48,7 @@ export async function getNativeNotificationPermissionState(): Promise<NativeNoti
 
 export async function enableNativeNotifications() {
   if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
+  if (!isNativePushConfigured()) throw new Error("Push notifications require a configured signed build.");
   const Notifications = await import("expo-notifications");
 
   if (Platform.OS === "android") {

@@ -23,6 +23,7 @@ import { saveMobilePushToken } from "@/lib/mobile-api";
 import {
   enableNativeNotifications,
   getNativeNotificationPermissionState,
+  isNativePushConfigured,
   type NativeNotificationPermissionState,
 } from "@/lib/native-notifications";
 import {
@@ -71,7 +72,7 @@ export default function SettingsScreen() {
   const [permission, setPermission] = useState<NativeNotificationPermissionState | null>(null);
   const [updatingNotifications, setUpdatingNotifications] = useState(false);
   const appVersion = Constants.expoConfig?.version ?? "development";
-  const pushConfigured = Boolean(Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId);
+  const pushConfigured = isNativePushConfigured();
   const platformLabel = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web preview";
   const apiLabel = SHOWPILOT_URL.replace(/^https?:\/\//, "");
   const notificationCopy = notificationStatusCopy(permission, pushConfigured);

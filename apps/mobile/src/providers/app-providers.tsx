@@ -4,9 +4,10 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect, useState, type PropsWithChildren } from "react";
 import { AppState, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { isNativePushConfigured } from "@/lib/native-notifications";
 import { useAppTheme } from "@/theme/tokens";
 
-if (Platform.OS !== "web") {
+if (Platform.OS !== "web" && isNativePushConfigured()) {
   void import("expo-notifications").then((Notifications) => {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({

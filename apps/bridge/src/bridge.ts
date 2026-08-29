@@ -401,6 +401,9 @@ export class Bridge {
       this.send({ type: "device-status", target: key, connected: true });
       this.sendStatus();
     } catch (err) {
+      console.error(
+        `[bridge] ${msg.protocol} connection to ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
       this.send({
         type: "device-status",
         target: key,
@@ -480,7 +483,12 @@ export class Bridge {
       throw new Error("ATEM host and port are required");
     }
 
-    const atem = new Atem();
+    // The desktop Bridge is compiled into a single Bun executable. Atem's
+    // default threaded transport tries to load a sibling worker module at
+    // runtime, which does not exist beside that executable and makes every
+    // packaged ATEM connection fail immediately. The Bridge is already an
+    // isolated sidecar process, so keep the ATEM socket in-process.
+    const atem = new Atem({ disableMultithreaded: true });
     atem.on("connected", () => {
       this.send({ type: "device-status", target, connected: true });
       if (atem.state) this.sendAtemState(target, atem, atem.state);

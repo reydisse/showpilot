@@ -5,13 +5,15 @@ import { router } from "expo-router";
 import { Platform } from "react-native";
 import { authClient } from "@/lib/auth-client";
 import { markNotificationRead, saveMobilePushToken } from "@/lib/mobile-api";
-import { getNativePushToken } from "@/lib/native-notifications";
+import { getNativePushToken, isNativePushConfigured } from "@/lib/native-notifications";
 import { openNotificationDestination } from "@/lib/notification-destination";
 
 export function useNativePushRegistration(orgId?: string) {
   const queryClient = useQueryClient();
   const activeOrgId = useRef(orgId);
-  const nativePlatform = Platform.OS === "ios" || Platform.OS === "android" ? Platform.OS : null;
+  const nativePlatform = (Platform.OS === "ios" || Platform.OS === "android") && isNativePushConfigured()
+    ? Platform.OS
+    : null;
   useEffect(() => {
     activeOrgId.current = orgId;
   }, [orgId]);

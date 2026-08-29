@@ -1,3 +1,76 @@
+diff --git a/dist/lib/atemSocket.js b/dist/lib/atemSocket.js
+index eba78584df716b796dafb1417f0122f81dd11119..a55ea6d478a21ccdfb131cafa452b54b2a9fde73 100644
+--- a/dist/lib/atemSocket.js
++++ b/dist/lib/atemSocket.js
+@@ -8,6 +8,7 @@ const commands_1 = require("../commands");
+ const atem_1 = require("../atem");
+ const threadedclass_1 = require("threadedclass");
+ const packetBuilder_1 = require("./packetBuilder");
++const atemSocketChild_1 = require("./atemSocketChild");
+ class AtemSocket extends eventemitter3_1.EventEmitter {
+     constructor(options) {
+         super();
+@@ -46,7 +47,9 @@ class AtemSocket extends eventemitter3_1.EventEmitter {
+         if (this._creatingSocket)
+             await this._creatingSocket.catch(() => null);
+         if (this._socketProcess) {
+-            await threadedclass_1.ThreadedClassManager.destroy(this._socketProcess);
++            if (!this._disableMultithreaded) {
++                await threadedclass_1.ThreadedClassManager.destroy(this._socketProcess);
++            }
+             this._socketProcess = undefined;
+         }
+         if (this._exitUnsubscribe) {
+@@ -87,7 +90,7 @@ class AtemSocket extends eventemitter3_1.EventEmitter {
+         return packets.map((packet) => packet.trackingId);
+     }
+     async _createSocketProcess() {
+-        this._socketProcess = await (0, threadedclass_1.threadedClass)('./atemSocketChild', 'AtemSocketChild', [
++        const constructorArgs = [
+             {
+                 address: this._address,
+                 port: this._port,
+@@ -105,21 +108,26 @@ class AtemSocket extends eventemitter3_1.EventEmitter {
+             async (ids) => {
+                 this.emit('ackPackets', ids.map((id) => id.trackingId));
+             }, // onPacketsAcknowledged
+-        ], {
+-            instanceName: 'atem-connection',
+-            freezeLimit: this._childProcessTimeout,
+-            autoRestart: true,
+-            disableMultithreading: this._disableMultithreaded,
+-        });
+-        threadedclass_1.ThreadedClassManager.onEvent(this._socketProcess, 'restarted', () => {
+-            this.connect().catch((error) => {
+-                const errorMsg = `Failed to reconnect after respawning socket process: ${error}`;
+-                this.emit('error', errorMsg);
++        ];
++        if (this._disableMultithreaded) {
++            this._socketProcess = new atemSocketChild_1.AtemSocketChild(...constructorArgs);
++        }
++        else {
++            this._socketProcess = await (0, threadedclass_1.threadedClass)('./atemSocketChild', 'AtemSocketChild', constructorArgs, {
++                instanceName: 'atem-connection',
++                freezeLimit: this._childProcessTimeout,
++                autoRestart: true,
+             });
+-        });
+-        threadedclass_1.ThreadedClassManager.onEvent(this._socketProcess, 'thread_closed', () => {
+-            this.emit('disconnect');
+-        });
++            threadedclass_1.ThreadedClassManager.onEvent(this._socketProcess, 'restarted', () => {
++                this.connect().catch((error) => {
++                    const errorMsg = `Failed to reconnect after respawning socket process: ${error}`;
++                    this.emit('error', errorMsg);
++                });
++            });
++            threadedclass_1.ThreadedClassManager.onEvent(this._socketProcess, 'thread_closed', () => {
++                this.emit('disconnect');
++            });
++        }
+         this._exitUnsubscribe = exitHook(() => {
+             this.destroy().catch(() => null);
+         });
 diff --git a/dist/lib/multiviewLabel.js b/dist/lib/multiviewLabel.js
 index d7e79729121961ab32f3f9cab56846890b07064f..ac8bd0f0850bdcd57738f8dcb30ba1b80e510b33 100644
 --- a/dist/lib/multiviewLabel.js
