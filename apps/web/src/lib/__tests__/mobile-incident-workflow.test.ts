@@ -130,7 +130,7 @@ function fakeDatabase(input: {
         if (sql.includes("FROM member m JOIN user u")) {
           return { results: (input.responders ?? []) as T[] };
         }
-        if (sql.includes("FROM access_grant")) {
+        if (sql.includes("FROM member_permission_grant")) {
           return { results: (input.grants ?? []) as T[] };
         }
         return { results: [] as T[] };
