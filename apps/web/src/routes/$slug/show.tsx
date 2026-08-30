@@ -121,6 +121,7 @@ export const Route = createFileRoute("/$slug/show")({
       slug: context.slug,
       serviceDate,
       showId,
+      today,
       clockFormat,
       userName: context.user.name,
       userId: context.user.id,
@@ -236,7 +237,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members: initialMembers, chatMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, serviceDate, showId, clockFormat, userName, userId, userRole,
+    chatAdapter, orgId, slug, serviceDate, showId, today, clockFormat, userName, userId, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -296,6 +297,7 @@ function ShowPage() {
         orgId={orgId}
         serviceDate={serviceDate}
         showId={showId}
+        today={today}
         slug={slug}
         clockFormat={clockFormat}
         userName={userName}
@@ -610,6 +612,7 @@ function ShowPageWithNative({
   orgId,
   serviceDate,
   showId,
+  today,
   slug,
   clockFormat,
   userName,
@@ -624,6 +627,7 @@ function ShowPageWithNative({
   orgId: string;
   serviceDate: string;
   showId?: string;
+  today: string;
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
@@ -632,6 +636,60 @@ function ShowPageWithNative({
   chatMembers: ChatMemberSummary[];
 }) {
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
+  const [syncTarget, setSyncTarget] = useState({
+    serviceDate,
+    showId,
+    rundown: initialRundown,
+  });
+
+  // The operator can switch shows while this page is already open. Follow
+  // the org's active show so Show Flow reconnects to the same relay room
+  // instead of remaining subscribed to a stale rundown until a refresh.
+  useEffect(() => {
+    let cancelled = false;
+    let refreshing = false;
+
+    const refreshTarget = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const opening = await getRundownOpeningDate({ data: { orgId, today } });
+        if (cancelled) return;
+        if (opening.serviceDate === syncTarget.serviceDate && opening.showId === syncTarget.showId) return;
+
+        const rundown = await getRundownState({
+          data: {
+            orgId,
+            serviceDate: opening.serviceDate,
+            showId: opening.showId,
+          },
+        });
+        if (!cancelled) {
+          setSyncTarget({
+            serviceDate: opening.serviceDate,
+            showId: opening.showId,
+            rundown,
+          });
+        }
+      } catch {
+        // Keep the last confirmed show during transient network failures.
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    void refreshTarget();
+    const interval = window.setInterval(refreshTarget, 2_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshTarget();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [orgId, syncTarget.serviceDate, syncTarget.showId, today]);
 
   // Real-time sync via RundownRelay Durable Object (replaces DB polling)
   const {
@@ -639,14 +697,20 @@ function ShowPageWithNative({
     timer: syncedTimer,
     hydrated: syncHydrated,
     stateInitialized: syncedInitialized,
-  } = useRundownSync(orgId, serviceDate, showId);
+    stateServiceDate: syncedServiceDate,
+    stateShowId: syncedShowId,
+  } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId);
+
+  const relayMatchesTarget = syncHydrated && syncedInitialized &&
+    syncedServiceDate === syncTarget.serviceDate &&
+    (!syncTarget.showId || syncedShowId === syncTarget.showId);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])
-  const items: RundownItem[] = (syncHydrated && syncedInitialized
+  const items: RundownItem[] = (relayMatchesTarget
     ? syncedItems
-    : initialRundown?.items ?? []) as RundownItem[];
-  const timer: NativeTimerState = syncHydrated && syncedInitialized
+    : syncTarget.rundown?.items ?? []) as RundownItem[];
+  const timer: NativeTimerState = relayMatchesTarget
     ? {
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
@@ -656,7 +720,7 @@ function ShowPageWithNative({
         mode: syncedTimer.mode ?? "count-down",
         serverTime: syncedTimer.serverTime ?? Date.now(),
       }
-    : initialRundown?.timer ?? {
+    : syncTarget.rundown?.timer ?? {
         playback: "stop", currentItemId: null, elapsed: 0,
         startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
       };

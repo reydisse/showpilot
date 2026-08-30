@@ -45,6 +45,7 @@ import {
   getRundownState,
   saveRundownItems,
   saveRundownMeta,
+  setActiveServiceDate,
   getRundownOpeningDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
@@ -240,8 +241,9 @@ function RundownPage() {
   }, [orgId, serviceDate, showId]);
   const adoptShowId = useCallback(async (nextShowId: string) => {
     setShowId(nextShowId);
+    await setActiveServiceDate({ data: { orgId, serviceDate, showId: nextShowId } });
     await navigate({ search: { show: nextShowId, date: serviceDate }, replace: true });
-  }, [navigate, serviceDate]);
+  }, [navigate, orgId, serviceDate]);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
@@ -273,6 +275,17 @@ function RundownPage() {
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
   /** Non-null when the last auto-save failed. Shown, not logged. */
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // This editor is the operational source of truth for the active show.
+  // Persist its target on initial load as well as on show switches so every
+  // read-only surface (Show Flow, mobile, bridges) joins the same relay room.
+  useEffect(() => {
+    if (!canEditRundown) return;
+    setActiveServiceDate({ data: { orgId, serviceDate, showId } }).catch(() => {
+      setSaveError("Could not publish the active show. Live surfaces may not follow this rundown.");
+    });
+  }, [canEditRundown, orgId, serviceDate, showId]);
+
   const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
@@ -651,6 +664,7 @@ function RundownPage() {
       );
       showCreationRef.current = null;
       setShowId(nextShowId);
+      await setActiveServiceDate({ data: { orgId, serviceDate: date, showId: nextShowId } });
       await navigate({
         search: { show: nextShowId, date },
         replace: true,
