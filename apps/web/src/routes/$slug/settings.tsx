@@ -1069,22 +1069,22 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
     <div>
       <SectionHeader
         title="Integrations"
-        description="Connect external tools or use ShowPilot's native features"
+        description="Connect external tools to ShowPilot's shared services"
       />
 
       {/* Chat Integrations */}
       <div className="mb-8">
         <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
-          Chat Integration
+          Chat gateway
         </p>
         <p className="text-xs text-board-muted mb-4">
-          Current:{" "}
+          ShowPilot Chat is always available. External gateway:{" "}
           <span className="text-board-text font-medium capitalize">
-            {chatAdapter === "native" ? "ShowPilot Native" : chatAdapter}
+            {chatAdapter === "native" ? "None" : chatAdapter}
           </span>
         </p>
         <div className="space-y-3">
-          {/* Native option */}
+          {/* Canonical ShowPilot chat with no external mirror */}
           <div
             className={`rounded-xl border p-4 transition-all cursor-pointer ${
               chatAdapter === "native"
@@ -1099,11 +1099,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
               </div>
               <div className="flex-1">
                 <h3 className="text-sm font-semibold text-board-text">
-                  ShowPilot Native Chat
+                  No external gateway
                 </h3>
                 <p className="text-xs text-board-muted">
-                  Built-in production chat with message types, roles, and
-                  real-time delivery
+                  Keep the shared ShowPilot conversation on mobile, web, and Desktop
+                  without mirroring it to another platform.
                 </p>
               </div>
               {chatAdapter === "native" && (
@@ -1116,7 +1116,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="Slack"
             icon={<MessageSquare className="w-4 h-4" />}
-            description="Connect a Slack channel for production chat"
+            description="Sync one Slack channel with ShowPilot on every client"
             connected={chatAdapter === "slack"}
             onConnect={() => saveSetting("chat-adapter", "slack")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
@@ -1139,6 +1139,23 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                   saveSetting={saveSetting}
                 />
               </FieldGroup>
+              <FieldGroup
+                label="Signing Secret"
+                description="Required for live inbound messages and complete Slack thread sync. Add the event URL below to your Slack app's Event Subscriptions."
+              >
+                <SettingInput
+                  settingKey="slack-signing-secret"
+                  type="password"
+                  placeholder="Slack app signing secret"
+                  getSetting={getSetting}
+                  saveSetting={saveSetting}
+                />
+              </FieldGroup>
+              <div className="rounded-lg border border-board-border bg-board-bg/60 px-3 py-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-board-muted">Slack event URL</p>
+                <code className="mt-1 block break-all text-[11px] text-board-text">https://showpilot.tech/api/integrations/slack/events/{orgId}</code>
+                <p className="mt-1 text-[10px] leading-4 text-board-muted">Subscribe to the <code>message.channels</code> event. Use <code>message.groups</code> instead for a private channel.</p>
+              </div>
             </div>
           </IntegrationCard>
 
@@ -1146,7 +1163,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="Mattermost"
             icon={<MessageSquare className="w-4 h-4" />}
-            description="Connect via Mattermost bot token for production chat"
+            description="Sync one Mattermost channel with ShowPilot on every client"
             connected={chatAdapter === "mattermost"}
             onConnect={() => saveSetting("chat-adapter", "mattermost")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}
@@ -1210,7 +1227,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           <IntegrationCard
             name="Discord"
             icon={<MessageSquare className="w-4 h-4" />}
-            description="Connect a Discord channel via bot token"
+            description="Sync one Discord channel with ShowPilot on every client"
             connected={chatAdapter === "discord"}
             onConnect={() => saveSetting("chat-adapter", "discord")}
             onDisconnect={() => saveSetting("chat-adapter", "native")}

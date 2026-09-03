@@ -217,7 +217,7 @@ export default function ChecklistScreen() {
 
   if (!selectedShowId) {
     return (
-      <Page eyebrow="PRE-SHOW" title="Checklist">
+      <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="PRE-SHOW" title="Checklist">
         <View style={styles.emptyPanel}>
           <ListChecks color={colors.textFaint} size={30} />
           <Text style={styles.emptyTitle}>No planned show</Text>
@@ -248,6 +248,8 @@ export default function ChecklistScreen() {
 
   return (
     <Page
+      backTo="/(app)/operations"
+      backLabel="Back to operations"
       eyebrow="PRE-SHOW"
       title="Checklist"
       scroll={false}

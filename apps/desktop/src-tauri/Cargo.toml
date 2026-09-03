@@ -1,6 +1,6 @@
 [package]
 name = "showpilot-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "ShowPilot local production engine"
 authors = ["ShowPilot"]
 edition = "2021"

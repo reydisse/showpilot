@@ -8,6 +8,7 @@ import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
 import { isAllowedApiOrigin } from "./lib/auth-origins";
+import { parseSlackEventEnvelope, verifySlackSignature } from "./lib/slack-events";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -245,6 +246,47 @@ export default {
     if (authMatch) {
       const auth = getAuth();
       return withApiCorsHeaders(request, await auth.handler(request));
+    }
+
+    const slackEventsMatch = url.pathname.match(/^\/api\/integrations\/slack\/events\/([^/]+)$/);
+    if (slackEventsMatch && request.method === "POST") {
+      const orgId = await resolveOrgId(slackEventsMatch[1], e.DB);
+      const [adapter, signingSecret, channel] = await Promise.all([
+        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'chat-adapter' LIMIT 1").bind(orgId).first<{ value: string }>(),
+        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'slack-signing-secret' LIMIT 1").bind(orgId).first<{ value: string }>(),
+        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'slack-channel' LIMIT 1").bind(orgId).first<{ value: string }>(),
+      ]);
+      if (adapter?.value !== "slack" || !signingSecret?.value || !channel?.value) {
+        return new Response("Slack events are not configured", { status: 503 });
+      }
+      const rawBody = await request.text();
+      const signatureValid = await verifySlackSignature(
+        rawBody,
+        request.headers.get("x-slack-request-timestamp"),
+        request.headers.get("x-slack-signature"),
+        signingSecret.value,
+      );
+      if (!signatureValid) return new Response("Invalid Slack signature", { status: 401 });
+      let envelope: unknown;
+      try {
+        envelope = JSON.parse(rawBody);
+      } catch {
+        return new Response("Bad Request", { status: 400 });
+      }
+      const event = parseSlackEventEnvelope(envelope);
+      if (event.kind === "challenge") return Response.json({ challenge: event.challenge });
+      if (event.kind === "ignored" || event.channelId !== channel.value) return Response.json({ ok: true });
+
+      const stub = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, "production")));
+      const relayUrl = new URL(request.url);
+      relayUrl.pathname = "/external/import";
+      relayUrl.search = new URLSearchParams({ orgId, room: "production", access: "external" }).toString();
+      const result = await stub.fetch(new Request(relayUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "slack", message: event.message }),
+      }));
+      return result.ok ? Response.json({ ok: true }) : new Response("Slack event was not imported", { status: 502 });
     }
 
     const mobileResponse = await handleMobileApi(request, e);

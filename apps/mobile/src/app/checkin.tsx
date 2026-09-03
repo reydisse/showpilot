@@ -203,7 +203,7 @@ export default function CheckInScreen() {
   );
 
   return (
-    <Page eyebrow="CREW STATUS" title="Check-in" scroll={false}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="CREW STATUS" title="Check-in" scroll={false}>
       <FlatList
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.list}

@@ -6,12 +6,19 @@ export interface MobileChatMessage {
   text: string;
   type: "text" | "alert" | "cue" | "system";
   timestamp: number;
+  threadRootId?: string;
   replyTo?: { messageId: string; senderName: string; text: string };
   attachments?: { id: string; name: string; url: string; mimeType: string; size: number }[];
   poll?: { question: string; options: { id: string; text: string; voterIds: string[] }[] };
   reactions?: { emoji: MobileChatReactionEmoji; userIds: string[] }[];
   editedAt?: number;
   deletedAt?: number;
+  external?: { platform: "mattermost" | "slack" | "discord" | "teams"; id: string };
+  externalDelivery?: {
+    platform: "mattermost" | "slack" | "discord" | "teams";
+    status: "pending" | "sent" | "failed";
+    error?: string;
+  };
 }
 
 export const mobileChatReactionEmojis = [
@@ -89,6 +96,10 @@ function parseReactions(value: unknown): MobileChatMessage["reactions"] {
   return reactions.length ? reactions : undefined;
 }
 
+function parseExternalPlatform(value: unknown): "mattermost" | "slack" | "discord" | "teams" | null {
+  return value === "mattermost" || value === "slack" || value === "discord" || value === "teams" ? value : null;
+}
+
 export function parseChatMessage(value: unknown): MobileChatMessage | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string"
@@ -103,12 +114,19 @@ export function parseChatMessage(value: unknown): MobileChatMessage | null {
   const attachments = parseAttachments(value.attachments);
   const poll = parsePoll(value.poll);
   const reactions = parseReactions(value.reactions);
+  const externalPlatform = isRecord(value.external) ? parseExternalPlatform(value.external.platform) : null;
+  const deliveryPlatform = isRecord(value.externalDelivery) ? parseExternalPlatform(value.externalDelivery.platform) : null;
+  const deliveryStatus = isRecord(value.externalDelivery)
+    && (value.externalDelivery.status === "pending" || value.externalDelivery.status === "sent" || value.externalDelivery.status === "failed")
+    ? value.externalDelivery.status
+    : null;
   return {
     id: value.id,
     senderName: value.senderName,
     text: value.text,
     type: value.type,
     timestamp: value.timestamp,
+    ...(typeof value.threadRootId === "string" ? { threadRootId: value.threadRootId } : {}),
     ...(typeof value.senderId === "string" ? { senderId: value.senderId } : {}),
     ...(typeof value.senderRole === "string" ? { senderRole: value.senderRole } : {}),
     ...(replyTo ? { replyTo } : {}),
@@ -117,6 +135,18 @@ export function parseChatMessage(value: unknown): MobileChatMessage | null {
     ...(reactions ? { reactions } : {}),
     ...(typeof value.editedAt === "number" && Number.isFinite(value.editedAt) ? { editedAt: value.editedAt } : {}),
     ...(typeof value.deletedAt === "number" && Number.isFinite(value.deletedAt) ? { deletedAt: value.deletedAt } : {}),
+    ...(externalPlatform && isRecord(value.external) && typeof value.external.id === "string"
+      ? { external: { platform: externalPlatform, id: value.external.id } }
+      : {}),
+    ...(deliveryPlatform && deliveryStatus && isRecord(value.externalDelivery)
+      ? {
+          externalDelivery: {
+            platform: deliveryPlatform,
+            status: deliveryStatus,
+            ...(typeof value.externalDelivery.error === "string" ? { error: value.externalDelivery.error } : {}),
+          },
+        }
+      : {}),
   };
 }
 

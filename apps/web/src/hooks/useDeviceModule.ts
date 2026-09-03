@@ -34,21 +34,19 @@ export function useDeviceModule(
   const [bridgeOnline, setBridgeOnline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const moduleRef = useRef<DeviceModule | null>(null);
-  const definitionRef = useRef<ReturnType<typeof moduleRegistry.get>>(undefined);
+  const moduleDeviceIdRef = useRef<string | null>(null);
+  const definition = device ? moduleRegistry.get(device.adapterType) : undefined;
 
-  // Resolve module definition
   useEffect(() => {
-    if (!device) {
-      definitionRef.current = undefined;
-      return;
-    }
-    definitionRef.current = moduleRegistry.get(device.adapterType);
-  }, [device?.adapterType]);
+    setError(null);
+    setFeedbacks(new Map());
+    setStatus("disconnected");
+  }, [device?.id]);
 
   // Track bridge status for bridge-required devices
   useEffect(() => {
-    if (!orgId || !definitionRef.current) return;
-    if (definitionRef.current.connectivity !== "bridge-required") return;
+    if (!orgId || !definition) return;
+    if (definition.connectivity !== "bridge-required") return;
 
     const proxy = getSharedBridgeProxy(orgId);
     setBridgeOnline(proxy.isBridgeOnline());
@@ -63,23 +61,25 @@ export function useDeviceModule(
     });
 
     return unsub;
-  }, [orgId, device?.adapterType]);
+  }, [definition, orgId]);
 
   // Create module instance and manage lifecycle
   useEffect(() => {
-    if (!device || !definitionRef.current) {
+    if (!device || !definition) {
       moduleRef.current = null;
+      moduleDeviceIdRef.current = null;
       setStatus("disconnected");
       return;
     }
 
     // Bridge-required and no bridge → show banner
     if (
-      definitionRef.current.connectivity === "bridge-required" &&
+      definition.connectivity === "bridge-required" &&
       !bridgeOnline
     ) {
       setStatus("bridge-required");
       moduleRef.current = null;
+      moduleDeviceIdRef.current = null;
       return;
     }
 
@@ -90,8 +90,9 @@ export function useDeviceModule(
       settings = {};
     }
 
-    const mod = definitionRef.current.createInstance({ ...settings, orgId });
+    const mod = definition.createInstance({ ...settings, orgId });
     moduleRef.current = mod;
+    moduleDeviceIdRef.current = device.id;
 
     // Wire listeners
     const unsubStatus = mod.onStatusChange((s, message) => {
@@ -117,9 +118,10 @@ export function useDeviceModule(
       unsubFeedback();
       mod.disconnect();
       moduleRef.current = null;
+      moduleDeviceIdRef.current = null;
       setStatus("disconnected");
     };
-  }, [device?.id, device?.settings, device?.enabled, bridgeOnline]);
+  }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId]);
 
   const connect = useCallback(async () => {
     await moduleRef.current?.connect();
@@ -130,10 +132,10 @@ export function useDeviceModule(
   }, []);
 
   return {
-    module: moduleRef.current,
+    module: moduleDeviceIdRef.current === device?.id ? moduleRef.current : null,
     status,
     feedbacks,
-    definition: definitionRef.current,
+    definition,
     bridgeOnline,
     error,
     connect,

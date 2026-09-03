@@ -47,7 +47,7 @@ export default function ReportsScreen() {
     try { await exportReport(selected); } catch (cause) { setError(cause instanceof Error ? cause.message : "Report export failed."); } finally { setExporting(false); }
   };
   return (
-    <Page eyebrow="SHOW HISTORY" title="Reports" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="SHOW HISTORY" title="Reports" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       {query.error ? <OperationsError message={query.error.message} /> : null}{error ? <OperationsError message={error} /> : null}
       <AppField label="Search reports" value={search} onChangeText={setSearch} placeholder="Show, date, or location" />
       {selected ? <OperationsPanel title={selected.name || selected.serviceDate} detail={`${selected.serviceDate} · ${selected.location || "No location"}`}>

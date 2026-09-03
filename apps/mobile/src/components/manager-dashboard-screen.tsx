@@ -21,7 +21,7 @@ export function ManagerDashboardScreen({ kind }: { kind: "pm" | "tm" }) {
   const equipmentAttention = data?.equipment.filter((asset) => asset.status !== "operational").length ?? 0;
   const streamAttention = (data?.inputs.filter((input) => !["connected", "streaming"].includes(input.status)).length ?? 0) + (data?.destinations.filter((destination) => destination.enabled && !destination.connected).length ?? 0);
   return (
-    <Page eyebrow={kind === "pm" ? "SHOW READINESS" : "SYSTEM READINESS"} title={kind === "pm" ? "Prod Manager" : "Tech Manager"} refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow={kind === "pm" ? "SHOW READINESS" : "SYSTEM READINESS"} title={kind === "pm" ? "Prod Manager" : "Tech Manager"} refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       {query.error ? <OperationsError message={query.error.message} /> : null}
       <OperationsPanel title={data?.show?.name || data?.show?.serviceDate || "No scheduled show"} detail={data?.show ? `${data.show.serviceDate} · ${data.show.status ?? "stopped"}` : "Schedule a show to populate readiness data."} />
       <View style={styles.stats}>

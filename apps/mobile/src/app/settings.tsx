@@ -140,7 +140,7 @@ export default function SettingsScreen() {
   if (!session) return <Redirect href="/sign-in" />;
 
   return (
-    <Page eyebrow="YOUR APP" title="Settings" maxWidth={720}>
+    <Page backTo="/(app)/profile" backLabel="Back to profile" eyebrow="YOUR APP" title="Settings" maxWidth={720}>
       <SettingsSection title="Appearance" description="Choose the canvas that feels best in daylight, backstage, or the control room.">
         <View accessibilityRole="radiogroup" style={styles.appearanceGrid}>
           {appearanceOptions.map((option) => {

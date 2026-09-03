@@ -2531,7 +2531,7 @@ async function resolveMobileIncidentResponders(orgId: string, today: string, db:
        WHERE m.organizationId = ? ORDER BY u.name ASC, m.userId ASC`,
     ).bind(orgId).all<MobileIncidentResponderRow>(),
     db.prepare(
-      `SELECT userId, permissions FROM access_grant
+      `SELECT userId, permissions FROM member_permission_grant
        WHERE orgId = ? AND revokedAt IS NULL AND startsOn <= ?
          AND (expiresOn IS NULL OR expiresOn > ?)`,
     ).bind(orgId, today, today).all<MobileIncidentGrantRow>(),

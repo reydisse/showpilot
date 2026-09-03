@@ -31,7 +31,7 @@ export default function MultiPlatformScreen() {
   const beginEdit = (destination: Destination) => { setEditing(destination); setDraft({ name: destination.name, platform: destination.platform, rtmpUrl: destination.rtmpUrl, streamKey: "" }); };
   const save = () => mutation.mutate({ kind: "save", id: editing === "new" || editing === null ? undefined : editing.id, value: { orgId, ...draft } });
   return (
-    <Page eyebrow="STREAM CONNECT" title="Multi-Platform" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canManage ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyDestination); }} /></View> : undefined}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="STREAM CONNECT" title="Multi-Platform" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canManage ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyDestination); }} /></View> : undefined}>
       {query.error ? <OperationsError message={query.error.message} /> : null}{error ? <OperationsError message={error} /> : null}
       {editing ? <OperationsPanel title={editing === "new" ? "Add destination" : `Edit ${editing.name}`} detail="Stream keys are write-only and never returned to the app.">
         <AppField label="Name" value={draft.name} onChangeText={(name) => setDraft({ ...draft, name })} />

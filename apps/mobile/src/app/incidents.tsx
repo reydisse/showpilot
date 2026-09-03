@@ -190,7 +190,7 @@ export default function IncidentsScreen() {
   }
 
   return (
-    <Page eyebrow="OPERATIONS LOG" title="Incidents" scroll={false} action={query.data?.canReport ? <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={startReport} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="OPERATIONS LOG" title="Incidents" scroll={false} action={query.data?.canReport ? <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={startReport} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}>
       <FlatList
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.list}

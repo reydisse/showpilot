@@ -14,7 +14,7 @@ function GuestChatJoinPage() {
   const { pass, token } = Route.useLoaderData();
   const [name, setName] = useState("");
   const [joinedName, setJoinedName] = useState("");
-  const chat = useChat({ orgId: pass?.orgId ?? "", isVisible: true, chatAdapter: "native", senderName: joinedName, senderRole: "Guest", guestToken: joinedName ? token : undefined });
+  const chat = useChat({ orgId: pass?.orgId ?? "", isVisible: true, senderName: joinedName, senderRole: "Guest", guestToken: joinedName ? token : undefined });
 
   if (!pass) return <div className="flex min-h-[100dvh] items-center justify-center bg-board-bg p-6"><div className="max-w-sm text-center"><ShieldCheck className="mx-auto h-10 w-10 text-board-muted" /><h1 className="mt-4 text-xl font-semibold text-board-text">This crew pass has expired</h1><p className="mt-2 text-sm text-board-muted">Ask a production leader for a new QR code or join link.</p><Link to="/login" className="mt-5 inline-block text-sm text-fire-400">Member sign in</Link></div></div>;
 
@@ -32,5 +32,5 @@ function GuestChatJoinPage() {
     </div>
   );
 
-  return <div className="h-[100dvh] bg-board-bg p-2 sm:p-4"><div className="mx-auto h-full max-w-4xl overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} typingUsers={chat.typingUsers} onTypingChange={chat.setTyping} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" /></div></div>;
+  return <div className="h-[100dvh] bg-board-bg p-2 sm:p-4"><div className="mx-auto h-full max-w-4xl overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} typingUsers={chat.typingUsers} onTypingChange={chat.setTyping} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" gatewayStatus={chat.gatewayStatus} /></div></div>;
 }

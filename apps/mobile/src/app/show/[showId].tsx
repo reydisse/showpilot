@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Redirect, Stack, useLocalSearchParams } from "expo-router";
+import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import CircleStop from "lucide-react-native/icons/circle-stop";
 import Clock3 from "lucide-react-native/icons/clock-3";
@@ -304,8 +304,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
       : "Reconnecting";
 
   return (
-    <Page eyebrow={detail.show.serviceDate} title={showTitle} scroll={false}>
-      <Stack.Screen options={{ title: showTitle }} />
+    <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow={detail.show.serviceDate} title={showTitle} scroll={false}>
       <FlatList
         contentContainerStyle={styles.list}
         data={items}
@@ -485,13 +484,13 @@ export default function ShowDetailScreen() {
   });
 
   if (sessionPending || organizationPending || query.isPending) {
-    return <Page><ActivityIndicator style={styles.loading} color={colors.amber} size="large" /></Page>;
+    return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator style={styles.loading} color={colors.amber} size="large" /></Page>;
   }
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization) return <Redirect href="/organizations" />;
   if (query.error || !query.data) {
     return (
-      <Page eyebrow="RUNDOWN" title="Could not open show">
+      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Could not open show">
         <Text style={styles.syncError}>{query.error?.message ?? "The show is unavailable."}</Text>
         <AppButton label="Try again" onPress={() => query.refetch()} />
       </Page>
@@ -501,7 +500,7 @@ export default function ShowDetailScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  loading: { marginTop: 80 },
+  loading: { flex: 1 },
   connectionRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8 },
   connectionText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "700" },
   connected: { color: colors.green },

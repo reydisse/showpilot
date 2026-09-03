@@ -31,7 +31,7 @@ export default function LowerThirdsScreen() {
   const beginEdit = (graphic: Graphic) => { setEditing(graphic); setDraft({ name: graphic.name, title: graphic.title, subtitle: graphic.subtitle }); };
   const save = () => mutation.mutate({ kind: "save", id: editing === "new" || editing === null ? undefined : editing.id, value: { orgId, ...draft } });
   return (
-    <Page eyebrow="ON-AIR GRAPHICS" title="Lower Thirds" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canConfigure ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyGraphic); }} /></View> : undefined}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="ON-AIR GRAPHICS" title="Lower Thirds" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canConfigure ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyGraphic); }} /></View> : undefined}>
       {query.error ? <OperationsError message={query.error.message} /> : null}{error ? <OperationsError message={error} /> : null}
       {!query.data?.cloudEnabled ? <OperationsError message="Cloud graphics are disabled for this organization. Enable them in organization settings before going live." /> : null}
       {editing ? <OperationsPanel title={editing === "new" ? "Create lower third" : `Edit ${editing.name}`}>

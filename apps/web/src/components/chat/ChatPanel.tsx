@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   MessageSquare,
   Send,
@@ -18,11 +18,11 @@ import {
   AtSign,
   BarChart3,
   Plus,
-  SmilePlus,
+  Smile,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
 import { insertMention as insertMentionText, mentionedUserIds, mentionSearch } from "@/lib/chat-mentions";
@@ -165,6 +165,7 @@ function ChatMessageRow({
   onVotePoll,
   onToggleReaction,
   isFocused = false,
+  onOpenImage,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -179,6 +180,7 @@ function ChatMessageRow({
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
   isFocused?: boolean;
+  onOpenImage?: (image: { name: string; url: string }) => void;
 }) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const isEvent = message.type === "cue" || message.type === "alert";
@@ -218,38 +220,44 @@ function ChatMessageRow({
       id={`chat-message-${message.id}`}
       data-chat-message-id={message.id}
       className={cn(
-        "group flex px-4 transition-colors hover:bg-white/[0.018]",
-        grouped ? "py-0.5" : "pb-1.5 pt-3",
+        "group flex items-end gap-2 px-4",
+        isOwn && "justify-end",
+        grouped ? "py-0.5" : "pb-1 pt-2.5",
         isFocused && "rounded-lg bg-sky-400/[0.08] ring-2 ring-sky-400/50 ring-inset",
       )}
     >
-      {!grouped && (
-        <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[10px] font-bold shadow-sm", avatarStyle(message.senderName))}>
+      {!isOwn && !grouped && (
+        <div className={cn("mb-4 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold shadow-sm", avatarStyle(message.senderName))}>
           {initials(message.senderName)}
         </div>
       )}
-      {grouped && <span className="w-9 shrink-0 pt-1 text-right text-[8px] tabular-nums text-transparent transition-colors group-hover:text-board-muted/45">{formatTimestamp(message.timestamp)}</span>}
-      <div className="ml-2.5 min-w-0 flex-1">
-        {!grouped && (
-          <div className="mb-0.5 flex min-w-0 items-center gap-2">
-            <span className="truncate text-[12px] font-semibold text-board-text">{isOwn ? `${message.senderName} (you)` : message.senderName}</span>
+      {!isOwn && grouped && <span className="w-7 shrink-0" />}
+      <div className={cn("flex min-w-0 max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
+        {!grouped && !isOwn && (
+          <div className="mb-1 flex min-w-0 items-center gap-2 px-2">
+            <span className="truncate text-[11px] font-semibold text-board-muted">{message.senderName}</span>
             <RoleBadge role={message.senderRole} />
-            <span className="shrink-0 text-[9px] tabular-nums text-board-muted/45">{formatTimestamp(message.timestamp)}</span>
           </div>
         )}
+        <div className={cn(
+          "min-w-12 overflow-hidden rounded-[18px] px-3 py-2.5 shadow-sm",
+          isOwn
+            ? "rounded-br-md bg-fire-500 text-black"
+            : "rounded-bl-md border border-board-border/80 bg-board-bg/90 text-board-text",
+        )}>
         {message.replyTo && (
-          <div className="mb-1.5 flex max-w-2xl items-stretch gap-2 text-[11px]">
-            <span className="w-0.5 shrink-0 rounded-full bg-fire-400/55" />
+          <div className={cn("mb-2 flex max-w-2xl items-stretch gap-2 rounded-lg px-2 py-1.5 text-[11px]", isOwn ? "bg-black/10" : "bg-white/[0.035]")}>
+            <span className={cn("w-0.5 shrink-0 rounded-full", isOwn ? "bg-black/55" : "bg-fire-400/65")} />
             <div className="min-w-0 py-0.5">
-              <span className="font-semibold text-fire-300/90">{message.replyTo.senderName}</span>
-              <p className="truncate text-board-muted/75">{message.replyTo.text || "Attachment"}</p>
+              <span className={cn("font-semibold", isOwn ? "text-black/80" : "text-fire-300/90")}>{message.replyTo.senderName}</span>
+              <p className={cn("truncate", isOwn ? "text-black/65" : "text-board-muted/75")}>{message.replyTo.text || "Attachment"}</p>
             </div>
           </div>
         )}
         {message.deletedAt ? (
-          <p className="text-[12px] italic text-board-muted/60">Message deleted</p>
+          <p className={cn("text-[12px] italic", isOwn ? "text-black/60" : "text-board-muted/60")}>Message deleted</p>
         ) : displayText ? (
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.35rem] text-board-text/85">{renderMessageText(displayText)}</p>
+          <p className={cn("whitespace-pre-wrap break-words text-[13px] leading-[1.3rem]", isOwn ? "text-black" : "text-board-text/90")}>{renderMessageText(displayText)}</p>
         ) : null}
         {!message.deletedAt && message.poll ? (
           <div className="mt-2 max-w-xl rounded-xl border border-board-border bg-board-bg/45 p-3">
@@ -263,14 +271,13 @@ function ChatMessageRow({
             <p className="mt-2 text-[9px] text-board-muted">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
           </div>
         ) : null}
-        {message.editedAt && !message.deletedAt ? <span className="mt-0.5 block text-[9px] text-board-muted/45">edited</span> : null}
         {!message.deletedAt && message.attachments?.length ? (
           <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
             {message.attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
-              <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="group/media relative block overflow-hidden rounded-xl border border-board-border bg-board-bg/60">
+              <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-xl border border-board-border bg-board-bg/60 text-left" aria-label={`Open ${attachment.name}`}>
                 <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
                 <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{attachment.name}</span></span>
-              </a>
+              </button>
             ) : (
               <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
@@ -286,10 +293,10 @@ function ChatMessageRow({
               const name = chatFileName(url);
               const resolvedUrl = attachmentUrl(url);
               return isImageFileName(name) ? (
-                <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="group/media relative block overflow-hidden rounded-xl border border-board-border bg-board-bg/60">
+                <button type="button" key={url} onClick={() => onOpenImage?.({ name, url: resolvedUrl })} className="group/media relative block w-full overflow-hidden rounded-xl border border-board-border bg-board-bg/60 text-left" aria-label={`Open ${name}`}>
                   <img src={resolvedUrl} alt={name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
                   <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{name}</span></span>
-                </a>
+                </button>
               ) : (
                 <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
@@ -300,9 +307,9 @@ function ChatMessageRow({
             })}
           </div>
         ) : null}
-        {isSeen ? <span className="mt-1 block text-[9px] font-medium text-sky-300/75">Seen</span> : null}
+        </div>
         {!message.deletedAt && onToggleReaction ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <div className={cn("mt-1 flex flex-wrap items-center gap-1", isOwn && "justify-end")}>
             {(message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
               const emoji = reaction.emoji;
               const active = Boolean(currentUserId && reaction?.userIds.includes(currentUserId));
@@ -310,10 +317,18 @@ function ChatMessageRow({
             })}
           </div>
         ) : null}
+        <div className={cn("mt-1 flex items-center gap-1.5 px-2 text-[9px] tabular-nums text-board-muted/55", isOwn && "justify-end")}>
+          {message.external?.platform ? <span className="capitalize">{message.external.platform}</span> : null}
+          <span>{formatTimestamp(message.timestamp)}</span>
+          {message.editedAt && !message.deletedAt ? <span>· edited</span> : null}
+          {isSeen ? <span className="font-medium text-sky-300/75">· Seen</span> : null}
+        </div>
+        {message.externalDelivery?.status === "pending" ? <p className={cn("mt-1 px-2 text-[9px] text-board-muted", isOwn && "text-right")}>Sending to {message.externalDelivery.platform}…</p> : null}
+        {message.externalDelivery?.status === "failed" ? <p className={cn("mt-1 px-2 text-[9px] text-red-300", isOwn && "text-right")}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</p> : null}
       </div>
       {!message.deletedAt && <div className="relative mt-1 flex shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
-        {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Add reaction" title="Add reaction"><SmilePlus className="h-3.5 w-3.5" /></button>}
+        {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
         {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-64 grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
@@ -371,6 +386,7 @@ interface ChatPanelProps {
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
   focusedMessageId?: string;
+  gatewayStatus?: ChatGatewayStatus;
 }
 
 export function ChatPanel({
@@ -398,11 +414,13 @@ export function ChatPanel({
   onVotePoll,
   onToggleReaction,
   focusedMessageId,
+  gatewayStatus,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [openImage, setOpenImage] = useState<{ name: string; url: string } | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -537,8 +555,9 @@ export function ChatPanel({
       }
       return;
     }
+    const replyTarget = replyingTo;
     onSendMessage(inputText.trim(), messageType, {
-      replyTo: replyingTo ? { messageId: replyingTo.id, senderName: replyingTo.senderName, text: replyingTo.text } : undefined,
+      replyTo: replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } : undefined,
       attachments: pendingAttachments.length ? pendingAttachments : undefined,
       mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
     });
@@ -651,24 +670,20 @@ export function ChatPanel({
   // Pinning changes prominence, not history. Alerts remain readable in
   // the timeline after their urgent ten-second treatment ends. Automated
   // rundown status belongs in the header dock, not the conversation.
-  const timelineMessages = messages.filter((m) => m.type !== "system" && !pinnedIds.has(m.id));
-  const timelineById = new Map(timelineMessages.map((message) => [message.id, message]));
-  const threadDepth = (message: ChatMessage) => {
-    let depth = 0;
-    let parentId = message.replyTo?.messageId;
-    const visited = new Set<string>();
-    while (parentId && depth < 4 && !visited.has(parentId)) {
-      visited.add(parentId);
-      const parent = timelineById.get(parentId);
-      if (!parent) break;
-      depth += 1;
-      parentId = parent.replyTo?.messageId;
-    }
-    return depth;
-  };
-  const latestSeenOwnMessageId = seenThrough === undefined ? undefined : [...timelineMessages]
+  const conversationMessages = useMemo(() => messages.filter((message) => message.type !== "system"), [messages]);
+  const displayMessages = conversationMessages.filter((message) => !pinnedIds.has(message.id));
+  const latestSeenOwnMessageId = seenThrough === undefined ? undefined : [...conversationMessages]
     .reverse()
     .find((message) => !message.deletedAt && (currentUserId ? message.senderId === currentUserId : currentUserName && message.senderName === currentUserName) && message.timestamp <= seenThrough)?.id;
+
+  const beginReply = (message: ChatMessage) => {
+    setReplyingTo(message);
+    setEditingMessage(null);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+  const gatewaySummary = gatewayStatus?.platform
+    ? `${gatewayStatus.platform} ${gatewayStatus.status === "connected" ? "synced" : gatewayStatus.status}`
+    : null;
 
   return (
     <div
@@ -680,7 +695,7 @@ export function ChatPanel({
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-board-border bg-board-bg/25 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-bg">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-board-border bg-board-bg">
             <Hash className="h-4 w-4 text-board-muted" />
           </div>
           <div className="min-w-0">
@@ -688,9 +703,9 @@ export function ChatPanel({
               <span className="text-sm font-semibold text-board-text truncate">{title}</span>
               {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}
             </div>
-            {subtitle && (
-              <p className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-board-muted"><ConnectionDot status={connectionStatus} />{connectionStatus === "connected" ? "Live" : connectionStatus} · {subtitle}</p>
-            )}
+            {subtitle || gatewaySummary ? (
+              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{connectionStatus === "connected" ? "Live" : connectionStatus}{subtitle ? ` · ${subtitle}` : ""}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
+            ) : null}
           </div>
         </div>
         {dockedLiveStatus && (
@@ -754,7 +769,7 @@ export function ChatPanel({
         onScroll={handleScroll}
         className="min-h-0 flex-1 overflow-y-auto py-2 modern-scrollbar"
       >
-        {timelineMessages.length === 0 && (
+        {displayMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-board-muted">
             <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
             <p className="text-sm">No messages yet</p>
@@ -764,8 +779,8 @@ export function ChatPanel({
           </div>
         )}
 
-        {timelineMessages.map((msg, index) => {
-          const previous = timelineMessages[index - 1];
+        {displayMessages.map((msg, index) => {
+          const previous = displayMessages[index - 1];
           const showDay = !previous || new Date(previous.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
           const grouped = Boolean(
             previous &&
@@ -774,10 +789,8 @@ export function ChatPanel({
             previous.type === msg.type &&
             msg.timestamp - previous.timestamp < 5 * 60 * 1000,
           );
-          const depth = threadDepth(msg);
-
           return (
-            <div key={msg.id} className={cn(depth > 0 && "ml-5 border-l-2 border-fire-500/20 pl-1 sm:ml-9", depth > 1 && "ml-9 sm:ml-14")}>
+            <div key={msg.id}>
               {showDay && (
                 <div className="my-2 flex items-center gap-3 px-4" role="separator">
                   <span className="h-px flex-1 bg-board-border/70" />
@@ -785,7 +798,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={setReplyingTo} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} />
+              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} />
             </div>
           );
         })}
@@ -893,6 +906,18 @@ export function ChatPanel({
         </div>
         {(uploadError || messageActionError) && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError || messageActionError}</p>}
       </div>
+      {openImage ? (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" role="dialog" aria-modal="true" aria-label={openImage.name}>
+          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/10 px-3">
+            <button type="button" onClick={() => setOpenImage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Close image"><X className="h-5 w-5" /></button>
+            <span className="min-w-0 flex-1 truncate text-center text-xs font-medium text-white/85">{openImage.name}</span>
+            <a href={openImage.url} download={openImage.name} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Download image"><Download className="h-4 w-4" /></a>
+          </div>
+          <button type="button" onClick={() => setOpenImage(null)} className="min-h-0 flex-1 cursor-zoom-out p-3" aria-label="Close image preview">
+            <img src={openImage.url} alt={openImage.name} className="h-full w-full object-contain" />
+          </button>
+        </div>
+      ) : null}
       {ConfirmDialogEl}
     </div>
   );

@@ -36,10 +36,30 @@ export const MIXER_FEEDBACKS: ModuleFeedback[] = [
   { id: "channel_fader", label: "Channel Fader Levels", type: "string", value: "[]" },
   { id: "channel_mute", label: "Channel Mute States", type: "string", value: "[]" },
   { id: "dca_fader", label: "DCA Fader Levels", type: "string", value: "[]" },
+  { id: "dca_mute", label: "DCA Mute States", type: "string", value: "[]" },
   { id: "current_scene", label: "Current Scene", type: "number", value: 0 },
 ];
 
 type ConsoleType = "x32" | "wing";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseOscMixerState(data: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (!isRecord(parsed)) return {};
+    return {
+      ...(Array.isArray(parsed.channelFader) ? { channel_fader: JSON.stringify(parsed.channelFader) } : {}),
+      ...(Array.isArray(parsed.channelMute) ? { channel_mute: JSON.stringify(parsed.channelMute) } : {}),
+      ...(Array.isArray(parsed.dcaFader) ? { dca_fader: JSON.stringify(parsed.dcaFader) } : {}),
+      ...(Array.isArray(parsed.dcaMute) ? { dca_mute: JSON.stringify(parsed.dcaMute) } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
 
 export function mixerActionsFor(consoleType: ConsoleType): ModuleAction[] {
   const supported = consoleType === "wing"
@@ -108,6 +128,8 @@ class OSCMixerModule extends BaseDeviceModule {
   private target = "";
   private settings: Record<string, unknown>;
   private consoleType: ConsoleType;
+  private unsubscribeEvent: (() => void) | null = null;
+  private feedbacks = MIXER_FEEDBACKS.map((feedback) => ({ ...feedback }));
 
   constructor(settings: Record<string, unknown>) {
     super();
@@ -125,24 +147,42 @@ class OSCMixerModule extends BaseDeviceModule {
     this.proxy = getSharedBridgeProxy(orgId);
     if (!this.proxy.isBridgeOnline()) throw new Error("Local device engine is offline");
     this.target = `${host}:${port}`;
-
-    await new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        unsubscribe();
-        reject(new Error("Mixer connection timed out"));
-      }, 5_000);
-      const unsubscribe = this.proxy!.onDeviceStatus((target, connected) => {
-        if (target !== this.target) return;
-        window.clearTimeout(timeout);
-        unsubscribe();
-        if (connected) resolve();
-        else reject(new Error("Local device engine could not prepare the mixer connection"));
-      });
-      this.proxy!.connectDevice("osc", this.target, this.settings);
+    this.unsubscribeEvent = this.proxy.onDeviceEvent((target, eventName, data) => {
+      if (target !== this.target || eventName !== "osc-mixer-state") return;
+      const values = parseOscMixerState(data);
+      for (const feedback of this.feedbacks) {
+        const value = values[feedback.id];
+        if (value === undefined) continue;
+        feedback.value = value;
+        this.emitFeedback(feedback.id, value);
+      }
     });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          unsubscribe();
+          reject(new Error("Mixer connection timed out"));
+        }, 5_000);
+        const unsubscribe = this.proxy!.onDeviceStatus((target, connected) => {
+          if (target !== this.target) return;
+          window.clearTimeout(timeout);
+          unsubscribe();
+          if (connected) resolve();
+          else reject(new Error("Local device engine could not prepare the mixer connection"));
+        });
+        this.proxy!.connectDevice("osc", this.target, this.settings);
+      });
+    } catch (error) {
+      this.unsubscribeEvent?.();
+      this.unsubscribeEvent = null;
+      throw error;
+    }
   }
 
   protected doDisconnect(): void {
+    this.unsubscribeEvent?.();
+    this.unsubscribeEvent = null;
     if (this.proxy && this.target) this.proxy.disconnectDevice(this.target);
     this.target = "";
   }
@@ -156,7 +196,7 @@ class OSCMixerModule extends BaseDeviceModule {
     await this.proxy.sendCommand("osc", this.target, buildMixerOscCommand(this.consoleType, actionId, params));
   }
 
-  getFeedbacks() { return MIXER_FEEDBACKS; }
+  getFeedbacks() { return this.feedbacks; }
 }
 
 export const oscMixerDefinition: ModuleDefinition = {
@@ -187,10 +227,13 @@ export const oscMixerDefinition: ModuleDefinition = {
       const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
       return mixerActionsFor(consoleType);
     },
-    feedbacks: () => [],
+    feedbacks: () => MIXER_FEEDBACKS,
     buildCommand(actionId, params, settings) {
       const consoleType = String(settings.consoleName || "x32").toLowerCase() === "wing" ? "wing" : "x32";
       return buildMixerOscCommand(consoleType, actionId, params);
+    },
+    parseEvent(eventName, data) {
+      return eventName === "osc-mixer-state" ? parseOscMixerState(data) : {};
     },
   },
   createInstance: (settings) => new OSCMixerModule(settings),
