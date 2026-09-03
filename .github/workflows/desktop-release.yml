@@ -143,6 +143,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # linuxdeploy's bundled strip cannot handle newer ELF sections in
+          # runner libraries and aborts AppImage packaging after deb/rpm have
+          # already succeeded. Cargo strips our release binaries separately.
+          NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

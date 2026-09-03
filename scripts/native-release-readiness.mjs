@@ -194,6 +194,7 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       "releaseDraft: true",
       "TAURI_SIGNING_PRIVATE_KEY",
       "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+      "NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}",
       "APPLE_CERTIFICATE",
       "APPLE_CERTIFICATE_PASSWORD",
       "APPLE_ID",
