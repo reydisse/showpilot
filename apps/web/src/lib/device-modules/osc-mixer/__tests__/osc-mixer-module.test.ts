@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMixerOscCommand, mixerActionsFor } from "../osc-mixer-module";
+import { buildMixerOscCommand, mixerActionsFor, parseOscMixerState } from "../osc-mixer-module";
 
 describe("mixer OSC commands", () => {
   it("encodes X32 fader and mute semantics", () => {
@@ -48,5 +48,19 @@ describe("mixer OSC commands", () => {
       ?.params.find((param) => param.id === "channel")?.max;
     expect(channelMaximum("x32")).toBe(32);
     expect(channelMaximum("wing")).toBe(40);
+  });
+
+  it("maps Bridge mixer snapshots into module feedback ids", () => {
+    expect(parseOscMixerState(JSON.stringify({
+      channelFader: [0.5, null],
+      channelMute: [false, true],
+      dcaFader: [0.75],
+      dcaMute: [false],
+    }))).toEqual({
+      channel_fader: "[0.5,null]",
+      channel_mute: "[false,true]",
+      dca_fader: "[0.75]",
+      dca_mute: "[false]",
+    });
   });
 });

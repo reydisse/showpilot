@@ -2,7 +2,16 @@ import WebSocket, { type ClientOptions } from "ws";
 import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
-import { encodeOscMessage, type OscArg } from "./protocols/osc.js";
+import { decodeOscMessage, encodeOscMessage, type OscArg } from "./protocols/osc.js";
+import {
+  applyOscMixerMessage,
+  createOscMixerState,
+  mixerProbeAddress,
+  mixerQueryAddresses,
+  oscMixerEventPayload,
+  type OscMixerConsole,
+  type OscMixerState,
+} from "./protocols/osc-mixer.js";
 import { DmxConnection } from "./protocols/dmx.js";
 import { ObsConnection } from "./protocols/obs.js";
 import { PjlinkConnection } from "./protocols/pjlink.js";
@@ -133,6 +142,10 @@ export class Bridge {
   private obsConnections = new Map<string, ObsConnection>();
   private pjlinkConnections = new Map<string, PjlinkConnection>();
   private httpDeviceSettings = new Map<string, Record<string, unknown>>();
+  private oscMixerStates = new Map<string, OscMixerState>();
+  private oscMixerListeners = new Map<string, () => void>();
+  private oscMixerPollers = new Map<string, NodeJS.Timeout>();
+  private oscMixerFlushTimers = new Map<string, NodeJS.Timeout>();
   private startTime = Date.now();
   private propresenter?: BridgeOptions["propresenter"];
 
@@ -175,6 +188,9 @@ export class Bridge {
     for (const conn of this.dmxConnections.values()) conn.disconnect();
     for (const conn of this.obsConnections.values()) conn.disconnect();
     for (const conn of this.pjlinkConnections.values()) conn.disconnect();
+    for (const unsubscribe of this.oscMixerListeners.values()) unsubscribe();
+    for (const timer of this.oscMixerPollers.values()) clearInterval(timer);
+    for (const timer of this.oscMixerFlushTimers.values()) clearTimeout(timer);
     this.ppConnections.clear();
     this.tcpConnections.clear();
     this.udpConnections.clear();
@@ -182,6 +198,10 @@ export class Bridge {
     this.dmxConnections.clear();
     this.obsConnections.clear();
     this.pjlinkConnections.clear();
+    this.oscMixerStates.clear();
+    this.oscMixerListeners.clear();
+    this.oscMixerPollers.clear();
+    this.oscMixerFlushTimers.clear();
   }
 
   private connect(): void {
@@ -386,11 +406,15 @@ export class Bridge {
           await conn.connect(host, port);
           this.tcpConnections.set(key, conn);
         }
-      } else if (
-        msg.protocol === "osc" ||
-        msg.protocol === "udp" ||
-        msg.protocol === "visca-ip"
-      ) {
+      } else if (msg.protocol === "osc") {
+        let conn = this.udpConnections.get(key);
+        if (!conn) {
+          conn = new UdpConnection();
+          await conn.connect(host, port);
+          this.udpConnections.set(key, conn);
+        }
+        await this.configureOscMixerFeedback(key, conn, msg.settings);
+      } else if (msg.protocol === "udp" || msg.protocol === "visca-ip") {
         if (!this.udpConnections.has(key)) {
           const conn = new UdpConnection();
           await conn.connect(host, port);
@@ -401,6 +425,12 @@ export class Bridge {
       this.send({ type: "device-status", target: key, connected: true });
       this.sendStatus();
     } catch (err) {
+      if (msg.protocol === "osc") {
+        this.teardownOscMixerFeedback(key);
+        const connection = this.udpConnections.get(key);
+        connection?.disconnect();
+        this.udpConnections.delete(key);
+      }
       console.error(
         `[bridge] ${msg.protocol} connection to ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -409,10 +439,12 @@ export class Bridge {
         target: key,
         connected: false,
       });
+      this.sendStatus();
     }
   }
 
   private handleDisconnectDevice(msg: { target: string }): void {
+    this.teardownOscMixerFeedback(msg.target);
     const pp = this.ppConnections.get(msg.target);
     if (pp) {
       pp.disconnect();
@@ -792,6 +824,87 @@ export class Bridge {
 
     const buf = encodeOscMessage(address, args);
     await conn.send(buf);
+  }
+
+  private async configureOscMixerFeedback(
+    target: string,
+    connection: UdpConnection,
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    const consoleName = typeof settings.consoleName === "string" ? settings.consoleName.toLowerCase() : "";
+    if (consoleName !== "x32" && consoleName !== "wing") return;
+    const consoleType: OscMixerConsole = consoleName;
+
+    this.teardownOscMixerFeedback(target);
+    const probe = encodeOscMessage(mixerProbeAddress(consoleType), []);
+    try {
+      const response = decodeOscMessage(await connection.sendAndReceive(probe));
+      if (response.address !== mixerProbeAddress(consoleType)) throw new Error("Unexpected OSC response");
+    } catch {
+      throw new Error(`${consoleType === "wing" ? "WING" : "X32/M32"} did not answer the OSC connection check`);
+    }
+
+    const state = createOscMixerState(consoleType);
+    this.oscMixerStates.set(target, state);
+    const unsubscribe = connection.onMessage((data) => {
+      try {
+        const message = decodeOscMessage(data);
+        if (applyOscMixerMessage(state, consoleType, message)) this.scheduleOscMixerEvent(target, state);
+      } catch {
+        // Other OSC traffic and bundles are unrelated to the channel surface.
+      }
+    });
+    this.oscMixerListeners.set(target, unsubscribe);
+
+    if (consoleType === "x32") await connection.send(encodeOscMessage("/xremote", []));
+    this.queryOscMixerStateSafely(target, connection, consoleType);
+    const poller = setInterval(() => {
+      if (consoleType === "x32") void connection.send(encodeOscMessage("/xremote", [])).catch(() => {});
+      this.queryOscMixerStateSafely(target, connection, consoleType);
+    }, consoleType === "x32" ? 8_000 : 5_000);
+    this.oscMixerPollers.set(target, poller);
+  }
+
+  private async queryOscMixerState(connection: UdpConnection, consoleType: OscMixerConsole): Promise<void> {
+    for (const address of mixerQueryAddresses(consoleType)) {
+      await connection.send(encodeOscMessage(address, []));
+    }
+  }
+
+  private queryOscMixerStateSafely(
+    target: string,
+    connection: UdpConnection,
+    consoleType: OscMixerConsole,
+  ): void {
+    void this.queryOscMixerState(connection, consoleType).catch((error: unknown) => {
+      console.error(`[bridge] OSC mixer feedback query for ${target} failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.teardownOscMixerFeedback(target);
+      connection.disconnect();
+      this.udpConnections.delete(target);
+      this.send({ type: "device-status", target, connected: false });
+      this.sendStatus();
+    });
+  }
+
+  private scheduleOscMixerEvent(target: string, state: OscMixerState): void {
+    if (this.oscMixerFlushTimers.has(target)) return;
+    const timer = setTimeout(() => {
+      this.oscMixerFlushTimers.delete(target);
+      this.send({ type: "device-event", target, eventName: "osc-mixer-state", data: oscMixerEventPayload(state) });
+    }, 60);
+    this.oscMixerFlushTimers.set(target, timer);
+  }
+
+  private teardownOscMixerFeedback(target: string): void {
+    this.oscMixerListeners.get(target)?.();
+    this.oscMixerListeners.delete(target);
+    const poller = this.oscMixerPollers.get(target);
+    if (poller) clearInterval(poller);
+    this.oscMixerPollers.delete(target);
+    const flushTimer = this.oscMixerFlushTimers.get(target);
+    if (flushTimer) clearTimeout(flushTimer);
+    this.oscMixerFlushTimers.delete(target);
+    this.oscMixerStates.delete(target);
   }
 
   private async executeUdpCommand(

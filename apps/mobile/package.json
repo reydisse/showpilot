@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "0.1.0",
   "dependencies": {
+    "@showpilot/shared": "workspace:*",
     "@better-auth/expo": "1.7.2",
     "@expo/metro-runtime": "~6.1.2",
     "@tanstack/react-query": "5.102.7",

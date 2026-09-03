@@ -9,6 +9,7 @@ import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
+import { DeviceCockpit } from "@/components/device-cockpit";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
@@ -151,6 +152,8 @@ export default function DeviceControlScreen() {
 
   const actions = controlState.data?.controls ?? device.controls;
   const bridgeOnline = controlState.data?.bridgeOnline ?? query.data?.bridge.online ?? false;
+  const feedbacks = controlState.data?.feedbacks ?? [];
+  const scalarFeedbacks = feedbacks.filter((feedback) => !(typeof feedback.value === "string" && feedback.value.trimStart().startsWith("[")));
 
   return (
     <Page backTo="/devices" backLabel="Back to devices" eyebrow={device.category} title={device.name}>
@@ -161,9 +164,8 @@ export default function DeviceControlScreen() {
       <View style={[styles.bridgeNote, bridgeOnline ? styles.bridgeOnline : styles.bridgeOffline]}><RadioTower color={bridgeOnline ? colors.green : colors.red} size={18} /><Text style={styles.bridgeText}>{bridgeOnline ? `Venue Bridge online${query.data?.bridge.version ? ` · v${query.data.bridge.version}` : ""}. Remote commands stay on the trusted network.` : "Venue Bridge offline. Start it on the venue network before connecting this device."}</Text></View>
       <AppButton disabled={!connected && !bridgeOnline} label={connection.isPending ? (connected ? "Disconnecting…" : "Connecting…") : connected ? "Disconnect device" : bridgeOnline ? "Connect through venue Bridge" : "Venue Bridge is offline"} loading={connection.isPending} onPress={() => connection.mutate(connected ? "disconnect" : "connect")} variant={connected ? "danger" : "primary"} />
       {controlState.error ? <Text accessibilityRole="alert" onPress={() => controlState.refetch()} style={styles.error}>{controlState.error.message} · Tap to retry</Text> : null}
-      {controlState.data?.feedbacks.length ? <><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE FEEDBACK</Text><Text style={styles.sectionCount}>{controlState.data.feedbacks.filter((feedback) => feedback.available).length}/{controlState.data.feedbacks.length}</Text></View><View style={styles.feedbackGrid}>{controlState.data.feedbacks.map((feedback) => <View key={feedback.id} style={styles.feedbackCard}><Text style={styles.feedbackLabel}>{feedback.label}</Text><Text style={[styles.feedbackValue, !feedback.available && styles.feedbackWaiting]}>{feedback.available ? feedback.type === "boolean" ? feedback.value ? "ON" : "OFF" : String(feedback.value) : connected ? "WAITING" : "OFFLINE"}</Text></View>)}</View></> : null}
-      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE CONTROLS</Text><Text style={styles.sectionCount}>{actions.length}</Text></View>
-      {actions.length ? <View style={styles.actionList}>{actions.map((action) => <ActionCard action={action} busy={command.isPending} connected={connected} key={action.id} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} />)}</View> : <Text style={styles.empty}>{connected ? "This adapter did not return any controllable actions." : "Connect the device to load its controls."}</Text>}
+      {scalarFeedbacks.length ? <><View style={styles.sectionHeader}><Text style={styles.sectionTitle}>LIVE FEEDBACK</Text><Text style={styles.sectionCount}>{scalarFeedbacks.filter((feedback) => feedback.available).length}/{scalarFeedbacks.length}</Text></View><View style={styles.feedbackGrid}>{scalarFeedbacks.map((feedback) => <View key={feedback.id} style={styles.feedbackCard}><Text style={styles.feedbackLabel}>{feedback.label}</Text><Text style={[styles.feedbackValue, !feedback.available && styles.feedbackWaiting]}>{feedback.available ? feedback.type === "boolean" ? feedback.value ? "ON" : "OFF" : String(feedback.value) : connected ? "WAITING" : "OFFLINE"}</Text></View>)}</View></> : null}
+      {actions.length ? <DeviceCockpit actions={actions} busy={command.isPending} category={device.category} connected={connected} feedbacks={feedbacks} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} renderAdvancedAction={(action) => <ActionCard action={action} busy={command.isPending} connected={connected} onExecute={(selectedAction, params) => command.mutate({ action: selectedAction, params })} />} /> : <Text style={styles.empty}>{connected ? "This adapter did not return any controllable actions." : "Connect the device to load its controls."}</Text>}
     </Page>
   );
 }
