@@ -45,6 +45,7 @@ import {
   getRundownState,
   saveRundownItems,
   saveRundownMeta,
+  setActiveServiceDate,
   getRundownOpeningDate,
   saveProPresenterSlide,
   setProPresenterStageDisplay,
@@ -78,6 +79,7 @@ import {
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getOrgSettings, getProPresenterRuntimeSettings } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { waitForRundownWrites } from "@/lib/rundown-selection";
 import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -223,8 +225,27 @@ function RundownPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const canEditRundown = hasEffectivePermission(role, grantedPermissions, "rundown:edit");
   const canControlRundown = hasEffectivePermission(role, grantedPermissions, "rundown:control");
-  const [serviceDate, setServiceDate] = useState(openOn);
-  const [showId, setShowId] = useState<string | undefined>(initialState.meta?.showId);
+  const [target, setTarget] = useState<{ serviceDate: string; showId?: string }>(() => ({
+    serviceDate: openOn,
+    showId: initialState.meta?.showId,
+  }));
+  const { serviceDate, showId } = target;
+  const publishedTargetRef = useRef<string | null>(null);
+  const activePublishInFlightRef = useRef(false);
+  const [activePublishPending, setActivePublishPending] = useState(false);
+  const targetKey = `${serviceDate}:${showId ?? ""}`;
+  const publishTarget = useCallback(async (date: string, targetShowId?: string) => {
+    activePublishInFlightRef.current = true;
+    setActivePublishPending(true);
+    const key = `${date}:${targetShowId ?? ""}`;
+    try {
+      await setActiveServiceDate({ data: { orgId, serviceDate: date, showId: targetShowId } });
+      publishedTargetRef.current = key;
+    } finally {
+      activePublishInFlightRef.current = false;
+      setActivePublishPending(false);
+    }
+  }, [orgId]);
   const showCreationRef = useRef<{ date: string; promise: Promise<string> } | null>(null);
   const ensureShowId = useCallback(async () => {
     if (showId) return showId;
@@ -239,9 +260,10 @@ function RundownPage() {
     return promise;
   }, [orgId, serviceDate, showId]);
   const adoptShowId = useCallback(async (nextShowId: string) => {
-    setShowId(nextShowId);
+    await publishTarget(serviceDate, nextShowId);
+    setTarget({ serviceDate, showId: nextShowId });
     await navigate({ search: { show: nextShowId, date: serviceDate }, replace: true });
-  }, [navigate, serviceDate]);
+  }, [navigate, publishTarget, serviceDate]);
   const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
@@ -265,14 +287,35 @@ function RundownPage() {
     stateInitialized: syncedInitialized,
     ppPreviewSlide: syncedPpSlide,
     lastError: syncError,
+    saving: syncSaving,
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
+  const syncSavingRef = useRef(syncSaving);
+  syncSavingRef.current = syncSaving;
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
   /** Non-null when the last auto-save failed. Shown, not logged. */
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+
+  // The rundown target is an atomic date/show pair. Publishing only complete
+  // pairs prevents a selection transition from activating the previous show
+  // under the newly selected date.
+  useEffect(() => {
+    if (!canEditRundown || publishedTargetRef.current === targetKey) return;
+    let current = true;
+    publishTarget(serviceDate, showId)
+      .catch((error: unknown) => {
+        if (current) {
+          setSelectionError(error instanceof Error ? error.message : "Could not publish the active show");
+        }
+      });
+    return () => {
+      current = false;
+    };
+  }, [canEditRundown, publishTarget, serviceDate, showId, targetKey]);
   const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
@@ -286,6 +329,21 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
     mode: initialState.timer.mode,
   });
+  const [scheduledStartTime, setScheduledStartTime] = useState<string>(
+    formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
+  );
+  const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
+  const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingMetaFieldsRef = useRef(new Set<"name" | "time">());
+  const [metaSavePending, setMetaSavePending] = useState(false);
+
+  const setMetaFieldPending = useCallback((field: "name" | "time", pending: boolean) => {
+    if (pending) pendingMetaFieldsRef.current.add(field);
+    else pendingMetaFieldsRef.current.delete(field);
+    setMetaSavePending(pendingMetaFieldsRef.current.size > 0);
+  }, []);
+
   // Immutable D1 snapshot for reconciling a Durable Object that survived
   // a deploy with rows from a different service under this date label.
   const databaseItemsRef = useRef(initialState.items as RundownItem[]);
@@ -322,24 +380,20 @@ function RundownPage() {
         pausedAt: null,
         mode: timer.mode,
       }, false, {
-        serviceName: initialState.meta?.name ?? "",
-        scheduledStartTime: initialState.meta?.scheduledStartTime ?? null,
+        serviceName,
+        scheduledStartTime: serviceTimeToIso(
+          serviceDate,
+          scheduledStartTime,
+          settings["org-timezone"],
+        ),
       });
     } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
     }
-  }, [syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, serviceDate, showId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [scheduledStartTime, setScheduledStartTime] = useState<string>(
-    formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
-  );
-  const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  }, [scheduledStartTime, seedState, serviceDate, serviceName, settings, showId, syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, timer]);
 
   // Shared with the dashboard header — see components/ui/scroll-edges.
   const headerScroll = useEdgeScroll();
-
-  const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
-  const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (syncedServiceName !== null) setServiceName(syncedServiceName);
@@ -378,9 +432,12 @@ function RundownPage() {
   const handleServiceNameChange = useCallback(
     (value: string) => {
       setServiceName(value);
+      setSaveError(null);
       if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
+      setMetaFieldPending("name", true);
       saveNameTimeoutRef.current = setTimeout(() => {
         if (showId) {
+          setMetaFieldPending("name", false);
           sendCommand("update-meta", { serviceName: value });
           return;
         }
@@ -389,18 +446,22 @@ function RundownPage() {
             await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, name: value } });
             if (!showId) await adoptShowId(targetShowId);
           })
-          .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service title did not save"));
+          .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service title did not save"))
+          .finally(() => setMetaFieldPending("name", false));
       }, 800);
     },
-    [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, showId],
+    [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, showId],
   );
 
   const handleScheduledStartChange = useCallback((timeStr: string) => {
     setScheduledStartTime(timeStr);
+    setSaveError(null);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
+    setMetaFieldPending("time", true);
     saveMetaTimeoutRef.current = setTimeout(() => {
       const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
       if (showId) {
+        setMetaFieldPending("time", false);
         sendCommand("update-meta", { scheduledStartTime: isoTime });
         return;
       }
@@ -409,13 +470,16 @@ function RundownPage() {
           await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
           if (!showId) await adoptShowId(targetShowId);
         })
-        .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"));
+        .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"))
+        .finally(() => setMetaFieldPending("time", false));
     }, 800);
-  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, settings, showId]);
+  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
 
   useEffect(() => () => {
     if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
+    pendingMetaFieldsRef.current.clear();
+    setMetaSavePending(false);
   }, [serviceDate]);
 
   const [exporting, setExporting] = useState(false);
@@ -450,6 +514,13 @@ function RundownPage() {
   const [activeMessage, setActiveMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
+  const selectionInFlightRef = useRef(false);
+
+  const waitForCurrentRundownWrites = useCallback(async () => {
+    await waitForRundownWrites(() => pendingMetaFieldsRef.current.size > 0
+        || syncSavingRef.current
+        || activePublishInFlightRef.current);
+  }, []);
 
   // Sync: accept DO state as source of truth, but ONLY after hydration.
   // Skip during date loads — loadDate() sets items directly and we don't
@@ -630,10 +701,19 @@ function RundownPage() {
 
   // Load rundown for new date
   const loadDate = async (date: string, targetShowId?: string) => {
+    if (selectionInFlightRef.current) return;
+    if (date === serviceDate && targetShowId === showId) return;
+
+    selectionInFlightRef.current = true;
     setLoading(true);
+    setSelectionError(null);
     try {
+      await waitForCurrentRundownWrites();
       const state = await getRundownState({ data: { orgId, serviceDate: date, showId: targetShowId } });
       const nextShowId = state.meta?.showId;
+      if (canEditRundown) {
+        await publishTarget(date, nextShowId);
+      }
       databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
       setServiceName(state.meta?.name ?? "");
@@ -650,7 +730,8 @@ function RundownPage() {
           : ""
       );
       showCreationRef.current = null;
-      setShowId(nextShowId);
+      setTarget({ serviceDate: date, showId: nextShowId });
+      setSaveError(null);
       await navigate({
         search: { show: nextShowId, date },
         replace: true,
@@ -658,23 +739,23 @@ function RundownPage() {
 
       // The date-aware sync effect seeds the relay after the new socket has
       // hydrated. Sending here would target the previous date's socket.
-    } catch {
-      // Keep current
+    } catch (error) {
+      setSelectionError(error instanceof Error ? error.message : "Could not open that rundown");
+    } finally {
+      selectionInFlightRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDateChange = (days: number) => {
     const newDate = shiftDate(serviceDate, days);
-    setServiceDate(newDate);
-    loadDate(newDate);
+    void loadDate(newDate);
   };
 
   useServiceDateRollover({
     serviceDate,
     timeZone: settings["org-timezone"],
     onTodayChanged: (nextToday) => {
-      setServiceDate(nextToday);
       void loadDate(nextToday);
     },
   });
@@ -916,6 +997,7 @@ function RundownPage() {
 
   const handleAddItem = async (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
     if (!canEditRundown) return;
+    setSaveError(null);
     const item: RundownItem = {
       id: createBrowserId(),
       title, type,
@@ -1107,6 +1189,7 @@ function RundownPage() {
     .reduce((sum, i) => sum + i.duration, 0);
 
   const remainingDuration = totalDuration - completedDuration;
+  const selectionBusy = loading || metaSavePending || syncSaving || activePublishPending;
 
   const timerUrl = typeof window !== "undefined"
     ? `${window.location.origin}/timer/${slug}`
@@ -1156,9 +1239,9 @@ function RundownPage() {
             onChange={(event) => {
               const selected = shows.find((show) => show.id === event.target.value);
               if (!selected) return;
-              setServiceDate(selected.serviceDate);
               void loadDate(selected.serviceDate, selected.id);
             }}
+            disabled={selectionBusy}
             className="max-w-56 rounded border border-board-border/70 bg-board-card px-2 py-1 text-xs text-board-text"
           >
             {!showId && <option value="">New show</option>}
@@ -1181,13 +1264,14 @@ function RundownPage() {
                 onChange={(event) => {
                   const next = event.target.value;
                   if (!next) return;
-                  setServiceDate(next);
                   void loadDate(next);
                 }}
+                disabled={selectionBusy}
                 className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
               />
               <button
                 onClick={() => handleDateChange(-1)}
+                disabled={selectionBusy}
                 aria-label="Previous day"
                 className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
@@ -1196,21 +1280,28 @@ function RundownPage() {
               <button
                 onClick={() => {
                   const nextToday = getTodayDateString(settings["org-timezone"]);
-                  setServiceDate(nextToday);
-                  loadDate(nextToday);
+                  void loadDate(nextToday);
                 }}
+                disabled={selectionBusy}
                 className="shrink-0 px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums whitespace-nowrap"
               >
                 {formatDisplayDate(serviceDate)}
               </button>
               <button
                 onClick={() => handleDateChange(1)}
+                disabled={selectionBusy}
                 aria-label="Next day"
                 className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
           </div>
+
+          {selectionBusy ? (
+            <span className="shrink-0 text-[10px] font-medium text-board-muted" role="status">
+              {loading || activePublishPending ? "Switching…" : "Saving…"}
+            </span>
+          ) : null}
 
           {canEditRundown && (
             <>
@@ -1341,13 +1432,15 @@ function RundownPage() {
         <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
 
-      {(saveError || syncError) && (
+      {(selectionError || saveError || syncError) && (
         <div
           role="alert"
           className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
         >
-          <span className="font-medium shrink-0">{saveError ? "Not saving." : "Live conflict."}</span>
-          <span className="min-w-0">{saveError || syncError}</span>
+          <span className="font-medium shrink-0">
+            {selectionError ? "Show unchanged." : saveError ? "Not saved." : "Live conflict."}
+          </span>
+          <span className="min-w-0">{selectionError || saveError || syncError}</span>
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { Copy, QrCode, X, Clock3, Check, Users, Link2, LockKeyhole, Wifi, Messag
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useChat } from "@/hooks/useChat";
-import { getActiveAdapters, getOrgSettings } from "@/lib/settings";
+import { getOrgSettings } from "@/lib/settings";
 import { createCrewChatPass, createPlanningChatPass } from "@/lib/crew-chat-pass";
 import { getChatMembers } from "@/lib/chat-collaboration";
 import { useRundownSync } from "@/hooks/useRundownSync";
@@ -18,19 +18,18 @@ export const Route = createFileRoute("/$slug/chat")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "chat:access", context.slug, context.orgId);
-    const [adapters, members, settings] = await Promise.all([
-      getActiveAdapters({ data: { orgId: context.orgId } }),
+    const [members, settings] = await Promise.all([
       getChatMembers({ data: { orgId: context.orgId } }),
       getOrgSettings({ data: { orgId: context.orgId } }),
     ]);
     const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today: getTodayDateString(settings["org-timezone"]) } });
-    return { orgId: context.orgId, slug: context.slug, userId: context.user.id, userName: context.user.name, userRole: context.role, chatAdapter: adapters.chat, members, showId: opening.showId, serviceDate: opening.serviceDate };
+    return { orgId: context.orgId, slug: context.slug, userId: context.user.id, userName: context.user.name, userRole: context.role, members, showId: opening.showId, serviceDate: opening.serviceDate };
   },
   component: ChatPage,
 });
 
 function ChatPage() {
-  const { orgId, userId, userName, userRole, chatAdapter, members, showId, serviceDate } = Route.useLoaderData();
+  const { orgId, userId, userName, userRole, members, showId, serviceDate } = Route.useLoaderData();
   const { room: requestedRoom, message: focusedMessageId } = Route.useSearch();
   const navigate = Route.useNavigate();
   const roomId = requestedRoom || "production";
@@ -38,7 +37,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts } = useChat({ orgId, roomId, isVisible: true, chatAdapter, senderName: userName, senderRole: userRole });
+  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus } = useChat({ orgId, roomId, isVisible: true, senderName: userName, senderRole: userRole });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
@@ -118,8 +117,9 @@ function ChatPage() {
           unreadCount={unreadCount}
           onSendMessage={sendMessage}
           onUploadAttachment={uploadAttachment}
-          onEditMessage={roomId === "production" && chatAdapter !== "native" ? undefined : editMessage}
-          onDeleteMessage={roomId === "production" && chatAdapter !== "native" ? undefined : deleteMessage}
+          gatewayStatus={gatewayStatus}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
           onVotePoll={votePoll}
           onToggleReaction={toggleReaction}
           mentionMembers={members.filter((member) => member.userId !== userId)}
@@ -129,7 +129,7 @@ function ChatPage() {
           title={roomTitle}
           subtitle={roomSubtitle}
           typingUsers={typingUsers}
-          onTypingChange={roomId !== "production" || chatAdapter === "native" ? setTyping : undefined}
+          onTypingChange={setTyping}
           seenThrough={dmMember ? readReceipts[dmMember.userId] : undefined}
           className="h-full"
           liveStatus={liveItem}
@@ -181,7 +181,7 @@ function ChatPage() {
           {roomId === "planning" && canInvite && <div className="h-px bg-board-border" />}
           <section>
             <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-board-muted">Connection</p>
-            <div className="mt-3 flex items-center gap-2"><Wifi className={`h-4 w-4 ${connectionStatus === "connected" ? "text-green-400" : "text-board-muted"}`} /><div><p className="text-xs font-medium text-board-text">{connectionStatus === "connected" ? "Connected" : connectionStatus}</p><p className="text-[10px] text-board-muted">{roomId !== "production" || chatAdapter === "native" ? "ShowPilot native" : `Via ${chatAdapter}`}</p></div></div>
+            <div className="mt-3 flex items-center gap-2"><Wifi className={`h-4 w-4 ${connectionStatus === "connected" ? "text-green-400" : "text-board-muted"}`} /><div><p className="text-xs font-medium text-board-text">{connectionStatus === "connected" ? "Connected" : connectionStatus}</p><p className="text-[10px] text-board-muted">{roomId !== "production" || gatewayStatus.platform === null ? "ShowPilot Chat" : `ShowPilot Chat · ${gatewayStatus.platform} synced`}</p></div></div>
           </section>
           <div className="rounded-xl border border-board-border bg-board-card/50 p-3"><MessageSquare className="h-4 w-4 text-fire-400" /><p className="mt-2 text-[11px] font-medium text-board-text">One room for the whole production</p><p className="mt-1 text-[10px] leading-4 text-board-muted">Messages, cues and urgent alerts stay together during the show.</p></div>
         </div>

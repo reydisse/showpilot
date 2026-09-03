@@ -190,7 +190,7 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
   const { colors } = useAppTheme();
   const styles = useStyles();
   return (
-    <Page eyebrow="LIVE WORKSPACE" title={title} scroll={false}>
+    <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title={title} scroll={false}>
       <FlatList
         contentContainerStyle={styles.list}
         data={items}
@@ -248,9 +248,9 @@ export default function LiveShowScreen() {
     refetchInterval: (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 5_000,
   });
   if (!organization) return <Redirect href="/organizations" />;
-  if (bootstrapPending || (canView && query.isPending)) return <Page><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>;
+  if (bootstrapPending || (canView && query.isPending)) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>;
   if (!canView) return <Redirect href="/(app)/shows" />;
-  if (query.error || !query.data) return <Page eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text style={styles.error}>{query.error?.message ?? "The live workspace is unavailable."}</Text><AppButton label="Try again" onPress={() => void query.refetch()} /></Page>;
+  if (query.error || !query.data) return <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text style={styles.error}>{query.error?.message ?? "The live workspace is unavailable."}</Text><AppButton label="Try again" onPress={() => void query.refetch()} /></Page>;
   const refresh = async () => {
     setManualRefreshing(true);
     try {
@@ -265,7 +265,7 @@ export default function LiveShowScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  loading: { marginTop: 80 },
+  loading: { flex: 1 },
   error: { color: colors.red, fontFamily, fontSize: 14, lineHeight: 21 },
   list: { gap: 8, paddingBottom: spacing.large },
   headerContent: { gap: spacing.medium, marginBottom: 8 },

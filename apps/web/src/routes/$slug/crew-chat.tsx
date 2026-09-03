@@ -3,7 +3,6 @@ import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, Bell, BellOff } from "lucide-react";
 import { enablePushForOrg } from "@/lib/notifications";
-import { getActiveAdapters } from "@/lib/settings";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 
@@ -15,19 +14,17 @@ export const Route = createFileRoute("/$slug/crew-chat")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "chat:access", context.slug, context.orgId);
-    const adapters = await getActiveAdapters({ data: { orgId: context.orgId } });
     return {
       orgId: context.orgId,
       slug: context.slug,
       userId: context.user.id,
-      chatAdapter: adapters.chat,
     };
   },
   component: CrewChatPage,
 });
 
 function CrewChatPage() {
-  const { orgId, slug, userId, chatAdapter } = Route.useLoaderData();
+  const { orgId, slug, userId } = Route.useLoaderData();
   const { name: searchName } = Route.useSearch();
   const [senderName, setSenderName] = useState(() => {
     if (searchName) return searchName;
@@ -41,10 +38,9 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus } = useChat({
     orgId,
     isVisible: true,
-    chatAdapter,
     senderName,
     senderRole: "Crew",
   });
@@ -161,13 +157,14 @@ function CrewChatPage() {
             connectionStatus={connectionStatus}
             unreadCount={0}
             onSendMessage={sendMessage}
-            onUploadAttachment={uploadAttachment}
+          onUploadAttachment={uploadAttachment}
+          gatewayStatus={gatewayStatus}
             typingUsers={typingUsers}
-            onTypingChange={chatAdapter === "native" ? setTyping : undefined}
+            onTypingChange={setTyping}
             onVotePoll={votePoll}
             onToggleReaction={toggleReaction}
             title="Production Chat"
-            subtitle={chatAdapter === "native" ? "ShowPilot native" : `Connected via ${chatAdapter}`}
+            subtitle={gatewayStatus.platform === null ? "ShowPilot Chat" : `ShowPilot Chat · ${gatewayStatus.platform} synced`}
             currentUserName={senderName}
             currentUserId={userId}
             className="border-l-0 h-full"

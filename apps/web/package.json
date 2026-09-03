@@ -23,6 +23,7 @@
 		"db:check-production-manifest": "node scripts/check-production-migrations.mjs"
 	},
 	"dependencies": {
+		"@showpilot/shared": "workspace:*",
 		"@better-auth/expo": "1.7.2",
 		"@cloudflare/vite-plugin": "1.54.1",
 		"@prisma/adapter-d1": "7.10.0",

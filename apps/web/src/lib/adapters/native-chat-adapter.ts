@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatMessageOptions,
   ChatReadReceipt,
+  ChatGatewayStatus,
   ChatTypingState,
   ConnectionStatus,
   MessageType,
@@ -13,7 +14,8 @@ import { createBrowserId } from "@/lib/browser-id";
  * Native Chat Adapter
  *
  * Connects to the ChatRelay Durable Object via WebSocket.
- * Used when no external chat integration (Slack, Mattermost, etc.) is configured.
+ * This is the canonical client transport even when an external gateway is
+ * configured. The relay mirrors the shared conversation to that gateway.
  *
  * Features:
  * - Exponential backoff reconnection
@@ -41,6 +43,8 @@ export class NativeChatAdapter implements ChatAdapter {
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private typingListeners = new Set<(state: ChatTypingState) => void>();
   private readReceiptListeners = new Set<(receipt: ChatReadReceipt) => void>();
+  private gatewayStatusListeners = new Set<(status: ChatGatewayStatus) => void>();
+  private gatewayStatus: ChatGatewayStatus | null = null;
   private messageQueue: QueuedMessage[] = [];
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,6 +114,14 @@ export class NativeChatAdapter implements ChatAdapter {
               this.notifyTyping({ userId: typeof data.userId === "string" ? data.userId : undefined, name: data.name, typing: data.typing });
             } else if (data.type === "read-receipt" && typeof data.userId === "string" && typeof data.readAt === "number") {
               this.notifyReadReceipt({ userId: data.userId, readAt: data.readAt });
+            } else if (data.type === "gateway-status"
+              && (data.platform === null || data.platform === "mattermost" || data.platform === "slack" || data.platform === "discord" || data.platform === "teams")
+              && (data.status === "disabled" || data.status === "connecting" || data.status === "connected" || data.status === "error")) {
+              this.notifyGatewayStatus({
+                platform: data.platform,
+                status: data.status,
+                ...(typeof data.error === "string" ? { error: data.error } : {}),
+              });
             }
           } catch {
             // Ignore malformed messages
@@ -168,6 +180,12 @@ export class NativeChatAdapter implements ChatAdapter {
   onReadReceipt(callback: (receipt: ChatReadReceipt) => void): () => void {
     this.readReceiptListeners.add(callback);
     return () => this.readReceiptListeners.delete(callback);
+  }
+
+  onGatewayStatus(callback: (status: ChatGatewayStatus) => void): () => void {
+    this.gatewayStatusListeners.add(callback);
+    if (this.gatewayStatus) callback(this.gatewayStatus);
+    return () => this.gatewayStatusListeners.delete(callback);
   }
 
   disconnect(): void {
@@ -291,6 +309,15 @@ export class NativeChatAdapter implements ChatAdapter {
 
   private notifyReadReceipt(receipt: ChatReadReceipt) {
     for (const listener of this.readReceiptListeners) listener(receipt);
+  }
+
+  private notifyGatewayStatus(status: ChatGatewayStatus) {
+    if (this.gatewayStatus
+      && this.gatewayStatus.platform === status.platform
+      && this.gatewayStatus.status === status.status
+      && this.gatewayStatus.error === status.error) return;
+    this.gatewayStatus = status;
+    for (const listener of this.gatewayStatusListeners) listener(status);
   }
 
   private flushQueue() {

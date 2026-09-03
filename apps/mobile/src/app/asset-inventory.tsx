@@ -43,7 +43,7 @@ export default function AssetInventoryScreen() {
   const save = () => mutation.mutate({ kind: "save", id: editing === "new" || editing === null ? undefined : editing.id, value: { orgId, ...draft } });
 
   return (
-    <Page eyebrow="PRODUCTION LIBRARY" title="Assets" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canManage ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyAsset); }} /></View> : undefined}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="PRODUCTION LIBRARY" title="Assets" refreshing={query.isRefetching} onRefresh={() => void query.refetch()} action={query.data?.canManage ? <View style={styles.headerAction}><AppButton label="Add" onPress={() => { setEditing("new"); setDraft(emptyAsset); }} /></View> : undefined}>
       {query.error ? <OperationsError message={query.error.message} /> : null}
       {error ? <OperationsError message={error} /> : null}
       <AppField label="Search inventory" value={search} onChangeText={setSearch} placeholder="Name, category, location, or serial" />

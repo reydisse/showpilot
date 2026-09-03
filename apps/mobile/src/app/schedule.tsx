@@ -261,7 +261,7 @@ export default function ScheduleScreen() {
   const pageAction = <View style={styles.pageActions}>{schedule?.canViewFull ? <Pressable accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable> : null}{canManage ? <Pressable accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable> : null}{canManage ? <Pressable accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}</View>;
 
   return (
-    <Page action={pageAction} eyebrow="CREW PLAN" title="Schedule" scroll={false}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" action={pageAction} eyebrow="CREW PLAN" title="Schedule" scroll={false}>
       <FlatList
         contentContainerStyle={styles.list}
         data={services}

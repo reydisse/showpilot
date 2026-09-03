@@ -20,6 +20,11 @@ import { SHOWPILOT_URL } from "@/lib/env";
 export type { MobileChatMessage } from "@/lib/chat-history";
 
 type Status = "connecting" | "connected" | "reconnecting" | "offline";
+type GatewayStatus = {
+  platform: "mattermost" | "slack" | "discord" | "teams" | null;
+  status: "disabled" | "connecting" | "connected" | "error";
+  error?: string;
+};
 
 export interface MobileChatSendOptions {
   replyTo?: NonNullable<MobileChatMessage["replyTo"]>;
@@ -76,6 +81,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [typingUsers, setTypingUsers] = useState<MobileChatTypingState[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({ platform: null, status: "disabled" });
   const socketRef = useRef<WebSocket | null>(null);
   const queueRef = useRef<string[]>([]);
   const pendingMutationsRef = useRef(new Map<string, PendingMutation>());
@@ -102,6 +108,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     setHasOlder(false);
     setTypingUsers([]);
     setReadReceipts({});
+    setGatewayStatus({ platform: null, status: "connecting" });
     queueRef.current = [];
 
     function rejectPendingMutations(message: string) {
@@ -215,6 +222,18 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
             const userId = payload.userId;
             const readAt = payload.readAt;
             setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] ?? 0, readAt) }));
+          } else if ("type" in payload && payload.type === "gateway-status"
+            && "status" in payload && (payload.status === "disabled" || payload.status === "connecting" || payload.status === "connected" || payload.status === "error")) {
+            const platform = "platform" in payload && (payload.platform === "mattermost" || payload.platform === "slack" || payload.platform === "discord" || payload.platform === "teams")
+              ? payload.platform
+              : null;
+            const error = "error" in payload && typeof payload.error === "string" ? payload.error : undefined;
+            const next: GatewayStatus = { platform, status: payload.status, ...(error ? { error } : {}) };
+            setGatewayStatus((current) => current.platform === next.platform
+              && current.status === next.status
+              && current.error === next.error
+              ? current
+              : next);
           }
         } catch {
           setLastError("A live chat update could not be read.");
@@ -366,5 +385,6 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     hasOlder,
     loadingOlder,
     loadOlder,
+    gatewayStatus,
   };
 }

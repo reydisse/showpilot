@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 export { BridgeRelay } from "../durable-objects/BridgeRelay";
+export { ChatRelay } from "../durable-objects/ChatRelay";
 
 export class TestRundownRelay extends DurableObject<Env> {
   fetch(): Response {

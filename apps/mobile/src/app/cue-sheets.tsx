@@ -41,7 +41,7 @@ export default function CueSheetsScreen() {
   const write = (input: Omit<Parameters<typeof writeMobileCueSheet>[0], "orgId">) => mutation.mutate({ orgId, ...input });
 
   return (
-    <Page eyebrow="RUN OF SHOW" title="Cue Sheets" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="RUN OF SHOW" title="Cue Sheets" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       {query.error ? <OperationsError message={query.error.message} /> : null}
       {error ? <OperationsError message={error} /> : null}
       <OperationsPanel title={data?.show?.name || data?.show?.serviceDate || "No scheduled show"} detail={data?.show ? `${data.show.serviceDate} · ${data.rows.length} cues` : "Create a show and rundown before adding cues."}>

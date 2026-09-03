@@ -157,6 +157,8 @@ export default function TeamMembersScreen() {
 
   return (
     <Page
+      backTo="/(app)/operations"
+      backLabel="Back to operations"
       eyebrow="TEAM CONTROL"
       title="Members"
       scroll={false}

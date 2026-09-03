@@ -183,6 +183,8 @@ export default function TeamCrewScreen() {
 
   return (
     <Page
+      backTo="/(app)/operations"
+      backLabel="Back to operations"
       eyebrow="TEAM CONTROL"
       title="Crew roster"
       scroll={false}

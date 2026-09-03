@@ -18,7 +18,7 @@ export default function StreamScreen() {
   const active = inputs.filter((input) => input.status === "connected" || input.status === "streaming").length;
   const connected = destinations.filter((destination) => destination.connected).length;
   return (
-    <Page eyebrow="LIVE SIGNAL" title="Stream Health" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="LIVE SIGNAL" title="Stream Health" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       {query.error ? <OperationsError message={query.error.message} /> : null}
       <View style={styles.stats}><OperationsStat label="Inputs active" value={`${active}/${inputs.length}`} tone={active ? "good" : "warning"} /><OperationsStat label="Outputs wired" value={`${connected}/${destinations.length}`} tone={connected === destinations.length && destinations.length ? "good" : "warning"} /></View>
       <OperationsPanel title="Live inputs" detail="Cloudflare provider state refreshes every five seconds.">

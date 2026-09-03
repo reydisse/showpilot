@@ -1,6 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 import { objectionableContentReason } from "@/lib/user-content-safety";
+import {
+  externalChatPollInterval,
+  fetchExternalChatHistory,
+  loadExternalChatConfiguration,
+  sendExternalChatMessage,
+  updateExternalChatMessage,
+  type ExternalChatMessage,
+  type ExternalChatPlatform,
+} from "@/lib/external-chat-gateway";
 
 interface ChatMessage {
   id: string;
@@ -12,17 +21,60 @@ interface ChatMessage {
   type: "text" | "alert" | "cue" | "system";
   timestamp: number;
   roomId?: string;
+  threadRootId?: string;
   replyTo?: { messageId: string; senderName: string; text: string };
   attachments?: Array<{ id: string; name: string; url: string; mimeType: string; size: number }>;
   poll?: { question: string; options: Array<{ id: string; text: string; voterIds: string[] }> };
   reactions?: Array<{ emoji: string; userIds: string[] }>;
   editedAt?: number;
   deletedAt?: number;
+  external?: { platform: ExternalChatPlatform; id: string };
+  externalDelivery?: {
+    platform: ExternalChatPlatform;
+    status: "pending" | "sent" | "failed";
+    error?: string;
+  };
 }
 
-interface ChatRelayEnv {
+type ChatRelayEnv = Pick<Env, "DB" | "STORAGE"> & {
   BETTER_AUTH_SECRET?: string;
-  STORAGE?: R2Bucket;
+};
+
+interface GatewayStatusFrame {
+  type: "gateway-status";
+  platform: ExternalChatPlatform | null;
+  status: "disabled" | "connecting" | "connected" | "error";
+  error?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseExternalImport(value: unknown): { platform: ExternalChatPlatform; message: ExternalChatMessage } | null {
+  if (!isRecord(value) || (value.platform !== "mattermost" && value.platform !== "slack" && value.platform !== "discord")) return null;
+  if (!isRecord(value.message)
+    || typeof value.message.externalId !== "string"
+    || typeof value.message.senderName !== "string"
+    || typeof value.message.text !== "string"
+    || typeof value.message.timestamp !== "number"
+    || !Number.isFinite(value.message.timestamp)) return null;
+  const type = value.message.type === "alert" || value.message.type === "cue" ? value.message.type : "text";
+  return {
+    platform: value.platform,
+    message: {
+      externalId: value.message.externalId.slice(0, 128),
+      senderId: typeof value.message.senderId === "string" ? value.message.senderId.slice(0, 200) : undefined,
+      senderName: value.message.senderName.slice(0, 200) || `${value.platform} member`,
+      text: value.message.text.slice(0, 4_000),
+      type,
+      timestamp: value.message.timestamp,
+      replyToExternalId: typeof value.message.replyToExternalId === "string" ? value.message.replyToExternalId.slice(0, 128) : undefined,
+      sourceNativeId: typeof value.message.sourceNativeId === "string" ? value.message.sourceNativeId.slice(0, 128) : undefined,
+      editedAt: typeof value.message.editedAt === "number" && Number.isFinite(value.message.editedAt) ? value.message.editedAt : undefined,
+      deletedAt: typeof value.message.deletedAt === "number" && Number.isFinite(value.message.deletedAt) ? value.message.deletedAt : undefined,
+    },
+  };
 }
 
 export class ChatRelay extends DurableObject<ChatRelayEnv> {
@@ -32,6 +84,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private readonly HYDRATION_MESSAGE_LIMIT = 2000;
   private historyLoad: Promise<void> | null = null;
   private roomId = "production";
+  private orgId = "";
+  private gatewayOperations: Promise<void> = Promise.resolve();
+  private lastGatewayStatus: GatewayStatusFrame | null = null;
 
   constructor(ctx: DurableObjectState, env: ChatRelayEnv) {
     super(ctx, env);
@@ -47,6 +102,30 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         user_id TEXT PRIMARY KEY,
         read_at INTEGER NOT NULL
       )`);
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_context (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        org_id TEXT NOT NULL,
+        room_id TEXT NOT NULL
+      )`);
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS external_chat_links (
+        platform TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        native_id TEXT NOT NULL,
+        PRIMARY KEY (platform, external_id),
+        UNIQUE (platform, native_id)
+      )`);
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS external_chat_sync (
+        platform TEXT PRIMARY KEY,
+        cursor TEXT,
+        synced_at INTEGER NOT NULL
+      )`);
+      const context = ctx.storage.sql.exec<{ org_id: string; room_id: string }>(
+        "SELECT org_id, room_id FROM chat_context WHERE singleton = 1",
+      ).toArray()[0];
+      if (context) {
+        this.orgId = context.org_id;
+        this.roomId = context.room_id;
+      }
     });
   }
 
@@ -86,6 +165,252 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     );
   }
 
+  private setContext(orgId: string, roomId: string): boolean {
+    if (!orgId || !roomId) return false;
+    if (this.orgId && (this.orgId !== orgId || this.roomId !== roomId)) {
+      return false;
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO chat_context (singleton, org_id, room_id) VALUES (1, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET org_id = excluded.org_id, room_id = excluded.room_id`,
+      orgId,
+      roomId,
+    );
+    this.orgId = orgId;
+    this.roomId = roomId;
+    return true;
+  }
+
+  private enqueueGatewayOperation(operation: () => Promise<void>): Promise<void> {
+    const next = this.gatewayOperations.catch(() => undefined).then(operation);
+    this.gatewayOperations = next.catch((error) => {
+      console.error(JSON.stringify({
+        message: "external chat gateway operation failed",
+        orgId: this.orgId,
+        roomId: this.roomId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    });
+    return next;
+  }
+
+  private findMessage(messageId: string): ChatMessage | null {
+    const recent = this.recentMessages.find((message) => message.id === messageId);
+    if (recent) return recent;
+    const row = this.ctx.storage.sql.exec<{ payload: string }>(
+      "SELECT payload FROM chat_messages WHERE id = ? LIMIT 1",
+      messageId,
+    ).toArray()[0];
+    if (!row) return null;
+    try {
+      return JSON.parse(row.payload) as ChatMessage;
+    } catch {
+      return null;
+    }
+  }
+
+  private storeUpdatedMessage(message: ChatMessage) {
+    this.persistMessage(message);
+    const index = this.recentMessages.findIndex((candidate) => candidate.id === message.id);
+    if (index < 0) return;
+    const messages = [...this.recentMessages];
+    messages[index] = message;
+    this.recentMessages = messages;
+  }
+
+  private externalIdForNative(platform: ExternalChatPlatform, nativeId: string): string | null {
+    return this.ctx.storage.sql.exec<{ external_id: string }>(
+      "SELECT external_id FROM external_chat_links WHERE platform = ? AND native_id = ? LIMIT 1",
+      platform,
+      nativeId,
+    ).toArray()[0]?.external_id ?? null;
+  }
+
+  private nativeIdForExternal(platform: ExternalChatPlatform, externalId: string): string | null {
+    return this.ctx.storage.sql.exec<{ native_id: string }>(
+      "SELECT native_id FROM external_chat_links WHERE platform = ? AND external_id = ? LIMIT 1",
+      platform,
+      externalId,
+    ).toArray()[0]?.native_id ?? null;
+  }
+
+  private linkExternalMessage(platform: ExternalChatPlatform, externalId: string, nativeId: string) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO external_chat_links (platform, external_id, native_id) VALUES (?, ?, ?)
+       ON CONFLICT(platform, external_id) DO UPDATE SET native_id = excluded.native_id`,
+      platform,
+      externalId,
+      nativeId,
+    );
+  }
+
+  private updateExternalDelivery(
+    messageId: string,
+    delivery: NonNullable<ChatMessage["externalDelivery"]>,
+  ) {
+    const current = this.findMessage(messageId);
+    if (!current) return;
+    const updated = { ...current, externalDelivery: delivery };
+    this.storeUpdatedMessage(updated);
+    this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
+  }
+
+  private async forwardExternalMessage(message: ChatMessage): Promise<void> {
+    if (this.roomId !== "production" || !this.orgId || message.external) return;
+    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+    if (!config) return;
+    this.updateExternalDelivery(message.id, { platform: config.platform, status: "pending" });
+    const rootNativeId = message.threadRootId ?? message.replyTo?.messageId;
+    const externalRootId = rootNativeId
+      ? this.externalIdForNative(config.platform, rootNativeId)
+      : undefined;
+    try {
+      const result = await sendExternalChatMessage(config, message, externalRootId ?? undefined);
+      if (result.externalId) this.linkExternalMessage(config.platform, result.externalId, message.id);
+      this.updateExternalDelivery(message.id, { platform: config.platform, status: "sent" });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "External delivery failed";
+      this.updateExternalDelivery(message.id, {
+        platform: config.platform,
+        status: "failed",
+        error: detail.slice(0, 240),
+      });
+      throw error;
+    }
+  }
+
+  private async forwardExternalMutation(message: ChatMessage, deleted: boolean): Promise<void> {
+    if (this.roomId !== "production" || !this.orgId || message.external) return;
+    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+    if (!config || config.platform === "teams") return;
+    const externalId = this.externalIdForNative(config.platform, message.id);
+    if (!externalId) return;
+    this.updateExternalDelivery(message.id, { platform: config.platform, status: "pending" });
+    try {
+      await updateExternalChatMessage(config, externalId, deleted ? null : message);
+      this.updateExternalDelivery(message.id, { platform: config.platform, status: "sent" });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "External update failed";
+      this.updateExternalDelivery(message.id, {
+        platform: config.platform,
+        status: "failed",
+        error: detail.slice(0, 240),
+      });
+      throw error;
+    }
+  }
+
+  private importExternalMessage(platform: ExternalChatPlatform, external: ExternalChatMessage) {
+    const linkedNativeId = this.nativeIdForExternal(platform, external.externalId);
+    if (linkedNativeId) {
+      const current = this.findMessage(linkedNativeId);
+      if (!current?.external || current.external.platform !== platform) return;
+      const updated: ChatMessage = external.deletedAt
+        ? { ...current, text: "", attachments: undefined, poll: undefined, editedAt: undefined, deletedAt: external.deletedAt }
+        : {
+            ...current,
+            senderId: external.senderId ? `${platform}:${external.senderId}` : current.senderId,
+            senderName: external.senderName,
+            text: external.text.slice(0, 4_000),
+            type: external.type,
+            editedAt: external.editedAt ?? current.editedAt,
+          };
+      if (JSON.stringify(updated) === JSON.stringify(current)) return;
+      this.storeUpdatedMessage(updated);
+      this.broadcast(JSON.stringify({ type: external.deletedAt ? "message-deleted" : "message-edited", message: updated }));
+      return;
+    }
+    if (external.sourceNativeId) {
+      const nativeMessage = this.findMessage(external.sourceNativeId);
+      if (nativeMessage) {
+        this.linkExternalMessage(platform, external.externalId, nativeMessage.id);
+        this.updateExternalDelivery(nativeMessage.id, { platform, status: "sent" });
+        return;
+      }
+    }
+    if (objectionableContentReason(external.text)) return;
+    const parentNativeId = external.replyToExternalId
+      ? this.nativeIdForExternal(platform, external.replyToExternalId)
+      : null;
+    const parent = parentNativeId ? this.findMessage(parentNativeId) : null;
+    const nativeId = `external:${platform}:${external.externalId}`;
+    const message: ChatMessage = {
+      id: nativeId,
+      orgId: this.orgId,
+      senderId: external.senderId ? `${platform}:${external.senderId}` : undefined,
+      senderName: external.senderName,
+      text: external.text.slice(0, 4_000),
+      type: external.type,
+      timestamp: external.timestamp,
+      roomId: this.roomId,
+      threadRootId: parent ? parent.threadRootId ?? parent.id : undefined,
+      replyTo: parent
+        ? { messageId: parent.id, senderName: parent.senderName.slice(0, 80), text: parent.text.slice(0, 240) }
+        : undefined,
+      external: { platform, id: external.externalId },
+    };
+    this.persistMessage(message);
+    this.linkExternalMessage(platform, external.externalId, nativeId);
+    this.recentMessages = [...this.recentMessages, message]
+      .sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id))
+      .slice(-this.HYDRATION_MESSAGE_LIMIT);
+    this.broadcast(JSON.stringify({ type: "message", message }));
+  }
+
+  private async syncExternalGateway(): Promise<number | null> {
+    if (this.roomId !== "production" || !this.orgId) return null;
+    let platform: ExternalChatPlatform | null = null;
+    try {
+      const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+      if (!config) {
+        this.publishGatewayStatus({ type: "gateway-status", platform: null, status: "disabled" });
+        return null;
+      }
+      platform = config.platform;
+      if (this.lastGatewayStatus?.platform !== platform || this.lastGatewayStatus.status !== "connected") {
+        this.publishGatewayStatus({ type: "gateway-status", platform, status: "connecting" });
+      }
+      const cursor = this.ctx.storage.sql.exec<{ cursor: string | null }>(
+        "SELECT cursor FROM external_chat_sync WHERE platform = ? LIMIT 1",
+        platform,
+      ).toArray()[0]?.cursor ?? null;
+      const history = await fetchExternalChatHistory(config, cursor);
+      for (const message of history.messages) this.importExternalMessage(platform, message);
+      this.ctx.storage.sql.exec(
+        `INSERT INTO external_chat_sync (platform, cursor, synced_at) VALUES (?, ?, ?)
+         ON CONFLICT(platform) DO UPDATE SET cursor = excluded.cursor, synced_at = excluded.synced_at`,
+        platform,
+        history.nextCursor,
+        Date.now(),
+      );
+      this.publishGatewayStatus({ type: "gateway-status", platform, status: "connected" });
+      return externalChatPollInterval(platform);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "External chat synchronization failed";
+      this.publishGatewayStatus({ type: "gateway-status", platform, status: "error", error: detail.slice(0, 240) });
+      console.error(JSON.stringify({
+        message: "external chat synchronization failed",
+        orgId: this.orgId,
+        platform,
+        error: detail,
+      }));
+      return 60_000;
+    }
+  }
+
+  private async syncAndScheduleExternalGateway(): Promise<void> {
+    const interval = await this.syncExternalGateway();
+    if (interval && this.ctx.getWebSockets().length > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + interval);
+    }
+  }
+
+  async alarm(): Promise<void> {
+    await this.ensureHistoryLoaded();
+    if (this.ctx.getWebSockets().length === 0) return;
+    await this.enqueueGatewayOperation(() => this.syncAndScheduleExternalGateway());
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     await this.ensureHistoryLoaded();
@@ -101,8 +426,23 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return Response.json(await this.deleteUserData(userId));
     }
 
+    const requestedOrgId = url.searchParams.get("orgId") ?? "";
+    const requestedRoomId = url.searchParams.get("room") ?? "production";
+    if (!this.setContext(requestedOrgId, requestedRoomId)) {
+      return new Response("Chat room mismatch", { status: 403 });
+    }
+
+    if (url.pathname === "/external/import" && request.method === "POST") {
+      if (url.searchParams.get("access") !== "external" || this.roomId !== "production") {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const parsed = parseExternalImport(await request.json<unknown>().catch(() => null));
+      if (!parsed) return new Response("Bad Request", { status: 400 });
+      this.importExternalMessage(parsed.platform, parsed.message);
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === "/ws") {
-      this.roomId = url.searchParams.get("room") ?? "production";
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
@@ -110,7 +450,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         userId: url.searchParams.get("userId") ?? undefined,
         name: url.searchParams.get("name") ?? "Gateway",
         role: url.searchParams.get("role") ?? undefined,
-        orgId: url.searchParams.get("orgId") ?? "",
+        orgId: this.orgId,
         roomId: this.roomId,
       });
       server.serializeAttachment?.(this.sessions.get(server));
@@ -123,6 +463,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           readReceipts: this.isDirectMessageRoom(this.roomId) ? this.getReadReceipts() : undefined,
         })
       );
+      if (this.lastGatewayStatus) server.send(JSON.stringify(this.lastGatewayStatus));
+      if (this.roomId === "production") {
+        this.ctx.waitUntil(
+          this.enqueueGatewayOperation(() => this.syncAndScheduleExternalGateway()).catch(() => undefined),
+        );
+      }
 
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -139,17 +485,19 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         : "text";
       const message: ChatMessage = {
         id: crypto.randomUUID(),
-        orgId: body.orgId ?? "",
+        orgId: this.orgId,
         senderId: body.senderId,
         senderName: body.senderName ?? "Unknown",
         senderRole: body.senderRole,
         text,
         type: messageType,
         timestamp: Date.now(),
+        roomId: this.roomId,
       };
 
-      await this.addMessage(message);
+      this.addMessage(message);
       this.broadcast(JSON.stringify({ type: "message", message }));
+      this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMessage(message)).catch(() => undefined));
 
       return Response.json({ ok: true, message });
     }
@@ -257,6 +605,13 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         const clientMessageId = typeof parsed.clientMessageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.clientMessageId)
           ? parsed.clientMessageId
           : crypto.randomUUID();
+        const existingMessage = this.findMessage(clientMessageId);
+        if (existingMessage) {
+          ws.send(JSON.stringify({ type: "message", message: existingMessage }));
+          return;
+        }
+        const replyTo = this.cleanReply(parsed.replyTo);
+        const replyParent = replyTo ? this.findMessage(replyTo.messageId) : null;
         const message: ChatMessage = {
           id: clientMessageId,
           orgId: session.orgId,
@@ -269,22 +624,23 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
             : "text",
           timestamp: Date.now(),
           roomId: session.roomId,
-          replyTo: this.cleanReply(parsed.replyTo),
+          threadRootId: replyParent ? replyParent.threadRootId ?? replyParent.id : undefined,
+          replyTo,
           attachments: this.cleanAttachments(parsed.attachments, session.orgId),
           poll: this.cleanPoll(parsed.poll),
         };
 
         if (!message.text && !message.attachments?.length && !message.poll) return;
-        await this.addMessage(message);
+        this.addMessage(message);
         this.broadcast(JSON.stringify({ type: "message", message }));
+        this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMessage(message)).catch(() => undefined));
         return;
       }
 
       if (parsed.type === "vote") {
         const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
         if (!session.userId || !parsed.messageId || !parsed.optionId || !parsed.requestId) { respond(false, "Sign in to vote"); return; }
-        const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
-        const current = this.recentMessages[index];
+        const current = this.findMessage(parsed.messageId);
         if (!current?.poll || current.deletedAt) { respond(false, "Poll no longer exists"); return; }
         if (!current.poll.options.some((option) => option.id === parsed.optionId)) { respond(false, "Poll option not found"); return; }
         const poll = {
@@ -297,10 +653,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           })),
         };
         const updated = { ...current, poll };
-        const nextMessages = [...this.recentMessages];
-        nextMessages[index] = updated;
-        this.persistMessage(updated);
-        this.recentMessages = nextMessages;
+        this.storeUpdatedMessage(updated);
         this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
         respond(true);
         return;
@@ -313,8 +666,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           : null;
         const userId = session.userId;
         if (!userId || !parsed.messageId || !parsed.requestId || !emoji) { respond(false, "Invalid reaction"); return; }
-        const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
-        const current = this.recentMessages[index];
+        const current = this.findMessage(parsed.messageId);
         if (!current || current.deletedAt) { respond(false, "Message no longer exists"); return; }
         const reactions = [...(current.reactions ?? [])];
         const reactionIndex = reactions.findIndex((reaction) => reaction.emoji === emoji);
@@ -326,10 +678,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           else reactions.splice(reactionIndex, 1);
         }
         const updated = { ...current, reactions };
-        const nextMessages = [...this.recentMessages];
-        nextMessages[index] = updated;
-        this.persistMessage(updated);
-        this.recentMessages = nextMessages;
+        this.storeUpdatedMessage(updated);
         this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
         respond(true);
         return;
@@ -338,8 +687,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       if (parsed.type === "edit" || parsed.type === "delete") {
         const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
         if (!session?.userId || !parsed.messageId || !parsed.requestId) { respond(false, "Invalid message update"); return; }
-        const index = this.recentMessages.findIndex((message) => message.id === parsed.messageId);
-        const current = this.recentMessages[index];
+        const current = this.findMessage(parsed.messageId);
         if (!current) { respond(false, "Message no longer exists"); return; }
         if (current.senderId !== session.userId) { respond(false, "You can only change your own messages"); return; }
         if (current.deletedAt) { respond(false, "Message is already deleted"); return; }
@@ -348,12 +696,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           ? { ...current, text: "", attachments: undefined, poll: undefined, deletedAt: now, editedAt: undefined }
           : { ...current, text: (parsed.text ?? "").trim().slice(0, 4000), editedAt: now };
         if (parsed.type === "edit" && !updated.text) { respond(false, "Message cannot be empty"); return; }
-        const nextMessages = [...this.recentMessages];
-        nextMessages[index] = updated;
-        this.persistMessage(updated);
-        this.recentMessages = nextMessages;
+        this.storeUpdatedMessage(updated);
         this.broadcast(JSON.stringify({ type: parsed.type === "delete" ? "message-deleted" : "message-edited", message: updated }));
         respond(true);
+        this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMutation(updated, parsed.type === "delete")).catch(() => undefined));
       }
     } catch {
       // Ignore malformed messages
@@ -363,14 +709,16 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   webSocketClose(ws: WebSocket) {
     this.clearTyping(ws);
     this.sessions.delete(ws);
+    if (this.ctx.getWebSockets().length === 0) this.ctx.waitUntil(this.ctx.storage.deleteAlarm());
   }
 
   webSocketError(ws: WebSocket) {
     this.clearTyping(ws);
     this.sessions.delete(ws);
+    if (this.ctx.getWebSockets().length === 0) this.ctx.waitUntil(this.ctx.storage.deleteAlarm());
   }
 
-  private async addMessage(message: ChatMessage) {
+  private addMessage(message: ChatMessage) {
     this.persistMessage(message);
     const existing = this.recentMessages.findIndex((candidate) => candidate.id === message.id);
     if (existing >= 0) {
@@ -384,7 +732,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   private cleanReply(reply: ChatMessage["replyTo"]): ChatMessage["replyTo"] {
     if (!reply?.messageId) return undefined;
-    const original = this.recentMessages.find((message) => message.id === String(reply.messageId));
+    const original = this.findMessage(String(reply.messageId));
     if (!original) return undefined;
     return {
       messageId: original.id,
@@ -489,5 +837,15 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         this.sessions.delete(ws);
       }
     }
+  }
+
+  private publishGatewayStatus(status: GatewayStatusFrame) {
+    const previous = this.lastGatewayStatus;
+    if (previous
+      && previous.platform === status.platform
+      && previous.status === status.status
+      && previous.error === status.error) return;
+    this.lastGatewayStatus = status;
+    this.broadcast(JSON.stringify(status));
   }
 }

@@ -145,15 +145,15 @@ export default function DeviceControlScreen() {
 
   if (organizationPending) return <LoadingView label="Opening device…" />;
   if (!organization) return <Redirect href="/organizations" />;
-  if (query.isPending) return <Page><ActivityIndicator color={colors.amber} size="large" /></Page>;
-  if (query.error) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text></Page>;
-  if (!device || !device.enabled) return <Page eyebrow="EQUIPMENT" title="Device unavailable"><Text style={styles.empty}>This device is disabled or missing.</Text></Page>;
+  if (query.isPending) return <Page backTo="/devices" backLabel="Back to devices"><ActivityIndicator color={colors.amber} size="large" /></Page>;
+  if (query.error) return <Page backTo="/devices" backLabel="Back to devices" eyebrow="EQUIPMENT" title="Device unavailable"><Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text></Page>;
+  if (!device || !device.enabled) return <Page backTo="/devices" backLabel="Back to devices" eyebrow="EQUIPMENT" title="Device unavailable"><Text style={styles.empty}>This device is disabled or missing.</Text></Page>;
 
   const actions = controlState.data?.controls ?? device.controls;
   const bridgeOnline = controlState.data?.bridgeOnline ?? query.data?.bridge.online ?? false;
 
   return (
-    <Page eyebrow={device.category} title={device.name}>
+    <Page backTo="/devices" backLabel="Back to devices" eyebrow={device.category} title={device.name}>
       <View style={styles.connectionCard}>
         <View style={styles.deviceIcon}><Cable color={colors.amber} size={23} /></View>
         <View style={styles.connectionCopy}><Text style={styles.adapter}>{device.adapterType}</Text><View style={styles.statusRow}>{connected ? <CheckCircle2 color={colors.green} size={14} /> : <CirclePower color={colors.textFaint} size={14} />}<Text style={[styles.status, connected && styles.statusOnline]}>{connected ? "CONNECTED" : "NOT CONNECTED"}</Text></View></View>

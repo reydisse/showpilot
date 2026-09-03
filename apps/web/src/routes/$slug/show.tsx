@@ -116,11 +116,11 @@ export const Route = createFileRoute("/$slug/show")({
       ontimeState,
       nativeRundown,
       rundownAdapter: effectiveRundownAdapter,
-      chatAdapter: adapters.chat,
       orgId: context.orgId,
       slug: context.slug,
       serviceDate,
       showId,
+      today,
       clockFormat,
       userName: context.user.name,
       userId: context.user.id,
@@ -170,7 +170,6 @@ function LiveFlash({ onDone }: { onDone: () => void }) {
 
 function ChatPanel({
   orgId,
-  chatAdapter,
   userName,
   userRole,
   userId,
@@ -178,17 +177,15 @@ function ChatPanel({
   liveStatus,
 }: {
   orgId: string;
-  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   userName: string;
   userRole: string;
   userId: string;
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus } = useChat({
     orgId,
     isVisible: true,
-    chatAdapter,
     senderName: userName,
     senderRole: userRole,
   });
@@ -215,12 +212,13 @@ function ChatPanel({
         unreadCount={0}
         onSendMessage={sendMessage}
         onUploadAttachment={uploadAttachment}
+        gatewayStatus={gatewayStatus}
         onVotePoll={votePoll}
         onToggleReaction={toggleReaction}
         typingUsers={typingUsers}
-        onTypingChange={chatAdapter === "native" ? setTyping : undefined}
+        onTypingChange={setTyping}
         title="Team Chat"
-        subtitle={chatAdapter === "native" ? userName : `${userName} via ${chatAdapter}`}
+        subtitle={gatewayStatus.platform === null ? userName : `${userName} · ${gatewayStatus.platform} synced`}
         currentUserName={userName}
         currentUserId={userId}
         mentionMembers={mentionMembers.filter((member) => member.userId !== userId)}
@@ -236,7 +234,7 @@ function ChatPanel({
 function ShowPage() {
   const {
     members: initialMembers, chatMembers, ontimeState, nativeRundown, rundownAdapter,
-    chatAdapter, orgId, slug, serviceDate, showId, clockFormat, userName, userId, userRole,
+    orgId, slug, serviceDate, showId, today, clockFormat, userName, userId, userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -271,7 +269,6 @@ function ShowPage() {
           ontimeState={ontimeState}
           members={members}
           activeMembers={activeMembers}
-          chatAdapter={chatAdapter}
           orgId={orgId}
           slug={slug}
           clockFormat={clockFormat}
@@ -292,10 +289,10 @@ function ShowPage() {
         initialRundown={nativeRundown}
         members={members}
         activeMembers={activeMembers}
-        chatAdapter={chatAdapter}
         orgId={orgId}
         serviceDate={serviceDate}
         showId={showId}
+        today={today}
         slug={slug}
         clockFormat={clockFormat}
         userName={userName}
@@ -606,10 +603,10 @@ function ShowPageWithNative({
   initialRundown,
   members,
   activeMembers,
-  chatAdapter,
   orgId,
   serviceDate,
   showId,
+  today,
   slug,
   clockFormat,
   userName,
@@ -620,10 +617,10 @@ function ShowPageWithNative({
   initialRundown: RundownState | null;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
-  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
   serviceDate: string;
   showId?: string;
+  today: string;
   slug: string;
   clockFormat: ClockFormat;
   userName: string;
@@ -632,6 +629,59 @@ function ShowPageWithNative({
   chatMembers: ChatMemberSummary[];
 }) {
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
+  const [syncTarget, setSyncTarget] = useState({
+    serviceDate,
+    showId,
+    rundown: initialRundown,
+  });
+
+  // Rundown selection is operational state. Follow it while this page is
+  // open so Show Flow cannot remain subscribed to a previous show room.
+  useEffect(() => {
+    let cancelled = false;
+    let refreshing = false;
+
+    const refreshTarget = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const opening = await getRundownOpeningDate({ data: { orgId, today } });
+        if (cancelled) return;
+        if (opening.serviceDate === syncTarget.serviceDate && opening.showId === syncTarget.showId) return;
+
+        const rundown = await getRundownState({
+          data: {
+            orgId,
+            serviceDate: opening.serviceDate,
+            showId: opening.showId,
+          },
+        });
+        if (!cancelled) {
+          setSyncTarget({
+            serviceDate: opening.serviceDate,
+            showId: opening.showId,
+            rundown,
+          });
+        }
+      } catch {
+        // Keep displaying the last confirmed show during a transient failure.
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    void refreshTarget();
+    const interval = window.setInterval(refreshTarget, 2_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshTarget();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [orgId, syncTarget.serviceDate, syncTarget.showId, today]);
 
   // Real-time sync via RundownRelay Durable Object (replaces DB polling)
   const {
@@ -639,14 +689,20 @@ function ShowPageWithNative({
     timer: syncedTimer,
     hydrated: syncHydrated,
     stateInitialized: syncedInitialized,
-  } = useRundownSync(orgId, serviceDate, showId);
+    stateServiceDate: syncedServiceDate,
+    stateShowId: syncedShowId,
+  } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId);
+
+  const relayMatchesTarget = syncHydrated && syncedInitialized
+    && syncedServiceDate === syncTarget.serviceDate
+    && (!syncTarget.showId || syncedShowId === syncTarget.showId);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])
-  const items: RundownItem[] = (syncHydrated && syncedInitialized
+  const items: RundownItem[] = (relayMatchesTarget
     ? syncedItems
-    : initialRundown?.items ?? []) as RundownItem[];
-  const timer: NativeTimerState = syncHydrated && syncedInitialized
+    : syncTarget.rundown?.items ?? []) as RundownItem[];
+  const timer: NativeTimerState = relayMatchesTarget
     ? {
         playback: syncedTimer.playback,
         currentItemId: syncedTimer.currentItemId,
@@ -656,7 +712,7 @@ function ShowPageWithNative({
         mode: syncedTimer.mode ?? "count-down",
         serverTime: syncedTimer.serverTime ?? Date.now(),
       }
-    : initialRundown?.timer ?? {
+    : syncTarget.rundown?.timer ?? {
         playback: "stop", currentItemId: null, elapsed: 0,
         startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
       };
@@ -770,7 +826,7 @@ function ShowPageWithNative({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
+      <ChatPanel orgId={orgId} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
     </div>
   );
 
@@ -863,7 +919,6 @@ function ShowPageWithOntime({
   ontimeState: initialOntime,
   members,
   activeMembers,
-  chatAdapter,
   orgId,
   slug,
   clockFormat,
@@ -875,7 +930,6 @@ function ShowPageWithOntime({
   ontimeState: OntimeRuntimeState;
   members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
-  chatAdapter: ReturnType<typeof Route.useLoaderData>["chatAdapter"];
   orgId: string;
   slug: string;
   clockFormat: ClockFormat;
@@ -955,7 +1009,7 @@ function ShowPageWithOntime({
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} chatAdapter={chatAdapter} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
+      <ChatPanel orgId={orgId} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
     </div>
   );
 

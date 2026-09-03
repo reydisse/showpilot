@@ -96,7 +96,7 @@ export default function TimecodeScreen() {
   };
 
   return (
-    <Page eyebrow="SMPTE RELAY" title="Timecode" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="SMPTE RELAY" title="Timecode" refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
       {query.error ? <OperationsError message={query.error.message} /> : null}
       {error ? <OperationsError message={error} /> : null}
       {relay.lastError ? <OperationsError message={relay.lastError} /> : null}

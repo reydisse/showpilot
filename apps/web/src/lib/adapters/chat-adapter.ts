@@ -44,12 +44,20 @@ export interface ChatMessage {
   text: string;
   type: MessageType;
   timestamp: number;
+  /** Root message for a flat conversation thread. Replies to replies keep this root. */
+  threadRootId?: string;
   replyTo?: ChatReplyReference;
   attachments?: ChatAttachment[];
   poll?: ChatPoll;
   reactions?: ChatReaction[];
   editedAt?: number;
   deletedAt?: number;
+  external?: { platform: "mattermost" | "slack" | "discord" | "teams"; id: string };
+  externalDelivery?: {
+    platform: "mattermost" | "slack" | "discord" | "teams";
+    status: "pending" | "sent" | "failed";
+    error?: string;
+  };
 }
 
 export interface ChatTypingState {
@@ -61,6 +69,12 @@ export interface ChatTypingState {
 export interface ChatReadReceipt {
   userId: string;
   readAt: number;
+}
+
+export interface ChatGatewayStatus {
+  platform: "mattermost" | "slack" | "discord" | "teams" | null;
+  status: "disabled" | "connecting" | "connected" | "error";
+  error?: string;
 }
 
 export interface ChatAdapter {
@@ -90,6 +104,8 @@ export interface ChatAdapter {
   onTyping?(callback: (state: ChatTypingState) => void): () => void;
 
   onReadReceipt?(callback: (receipt: ChatReadReceipt) => void): () => void;
+
+  onGatewayStatus?(callback: (status: ChatGatewayStatus) => void): () => void;
 
   /** Subscribe to incoming messages. Returns a cleanup function. */
   onMessage(callback: (message: ChatMessage) => void): () => void;

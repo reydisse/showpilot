@@ -62,6 +62,8 @@ export default function IncidentHistoryScreen() {
 
   return (
     <Page
+      backTo="/incidents"
+      backLabel="Back to incidents"
       action={(
         <Pressable accessibilityLabel="Filter incident history" accessibilityRole="button" onPress={() => setFiltersOpen(true)} style={styles.filterButton}>
           <SlidersHorizontal color={colors.black} size={18} />

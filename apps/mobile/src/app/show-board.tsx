@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Redirect, router, Stack } from "expo-router";
+import { Redirect, router } from "expo-router";
 import Flame from "lucide-react-native/icons/flame";
 import RefreshCw from "lucide-react-native/icons/refresh-cw";
 import ScanLine from "lucide-react-native/icons/scan-line";
@@ -156,8 +156,7 @@ export default function ShowBoardScreen() {
   );
 
   return (
-    <Page scroll={false}>
-      <Stack.Screen options={{ title: "Show Board" }} />
+    <Page backTo="/(app)/operations" backLabel="Back to operations" scroll={false}>
       <FlatList
         columnWrapperStyle={styles.columns}
         contentContainerStyle={styles.list}

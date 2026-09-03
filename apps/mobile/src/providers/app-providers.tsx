@@ -20,7 +20,9 @@ if (Platform.OS !== "web" && isNativePushConfigured()) {
   }).catch(() => {
     // Notification setup must never block the application from starting.
   });
+}
 
+if (Platform.OS !== "web") {
   onlineManager.setEventListener((setOnline) => {
     const updateOnlineState = (state: Network.NetworkState) => {
       setOnline(state.isConnected !== false && state.isInternetReachable !== false);

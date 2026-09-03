@@ -131,7 +131,7 @@ export default function DevicesScreen() {
   }
 
   return (
-    <Page eyebrow="EQUIPMENT" title="Devices" scroll={false} action={<Pressable accessibilityLabel="Add device" accessibilityRole="button" onPress={() => openEditor(null)} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="EQUIPMENT" title="Devices" scroll={false} action={<Pressable accessibilityLabel="Add device" accessibilityRole="button" onPress={() => openEditor(null)} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>}>
       <FlatList
         contentContainerStyle={styles.list}
         data={devices}

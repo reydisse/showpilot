@@ -19,8 +19,10 @@ export default defineConfig(async () => {
           compatibilityDate: "2026-02-28",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["DB"],
+          r2Buckets: ["STORAGE"],
           durableObjects: {
             BRIDGE_RELAY: "BridgeRelay",
+            CHAT_RELAY: { className: "ChatRelay", useSQLite: true },
             RUNDOWN_RELAY: "TestRundownRelay",
           },
           bindings: { TEST_MIGRATIONS: migrations },

@@ -180,6 +180,8 @@ interface UseRundownSyncReturn {
   /** Current stage message broadcast to kiosk (empty string = none active) */
   stageMessage: string;
   lastError: string | null;
+  /** True while local commands still need relay confirmation. */
+  saving: boolean;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (
@@ -214,12 +216,19 @@ export function useRundownSync(
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const socketHydratedRef = useRef(false);
   const revisionRef = useRef(0);
   const commandQueue = useRef<QueuedCommand[]>([]);
   const pendingCommandRef = useRef<QueuedCommand | null>(null);
   const pendingTimerRef = useRef<number | null>(null);
+  const unconfirmedCommandIdsRef = useRef(new Set<string>());
+
+  const confirmCommand = useCallback((id: string) => {
+    unconfirmedCommandIdsRef.current.delete(id);
+    setSaving(unconfirmedCommandIdsRef.current.size > 0);
+  }, []);
 
   const clearPendingTimer = useCallback(() => {
     if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
@@ -251,6 +260,7 @@ export function useRundownSync(
         commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
         setLastError("ShowPilot is refreshing live state before retrying that rundown change.");
       } else {
+        confirmCommand(pending.id);
         setLastError("That rundown change could not be confirmed. Review live state before trying again.");
       }
       if (wsRef.current === ws) ws.close();
@@ -262,7 +272,7 @@ export function useRundownSync(
       action: pending.action,
       payload: pending.payload,
     }));
-  }, [clearPendingTimer]);
+  }, [clearPendingTimer, confirmCommand]);
 
   useEffect(() => {
     let disposed = false;
@@ -275,6 +285,8 @@ export function useRundownSync(
     revisionRef.current = 0;
     commandQueue.current = [];
     pendingCommandRef.current = null;
+    unconfirmedCommandIdsRef.current.clear();
+    setSaving(false);
     clearPendingTimer();
     setLastError(null);
     setStateServiceDate(null);
@@ -353,6 +365,7 @@ export function useRundownSync(
                 revisionRef.current = msg.revision;
               }
               pendingCommandRef.current = null;
+              confirmCommand(pending.id);
               if (msg.accepted === false && msg.reason === "revision-conflict") {
                 setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
               } else if (msg.accepted === false) {
@@ -432,17 +445,22 @@ export function useRundownSync(
       clearPendingTimer();
       commandQueue.current = [];
       pendingCommandRef.current = null;
+      unconfirmedCommandIdsRef.current.clear();
+      setSaving(false);
       socketHydratedRef.current = false;
       if (wsRef.current === activeSocket) wsRef.current = null;
       activeSocket?.close();
       activeSocket = null;
     };
-  }, [clearPendingTimer, dispatchNextCommand, orgId, serviceDate, showId]);
+  }, [clearPendingTimer, confirmCommand, dispatchNextCommand, orgId, serviceDate, showId]);
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
+      const id = createBrowserId();
+      unconfirmedCommandIdsRef.current.add(id);
+      setSaving(true);
       commandQueue.current.push({
-        id: createBrowserId(),
+        id,
         action,
         payload,
         attempts: 0,
@@ -482,6 +500,7 @@ export function useRundownSync(
     ppPreviewSlide,
     stageMessage,
     lastError,
+    saving,
     sendCommand,
     seedState,
   };

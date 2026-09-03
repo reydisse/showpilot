@@ -1,19 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createBrowserId } from "@/lib/browser-id";
-import type { ChatAdapter, ChatAttachment, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
-import type { ChatAdapterType } from "@/lib/settings";
+import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
-import { MattermostChatAdapter } from "@/lib/adapters/mattermost-chat-adapter";
-import { SlackChatAdapter } from "@/lib/adapters/slack-chat-adapter";
-import { TeamsChatAdapter } from "@/lib/adapters/teams-chat-adapter";
-import { DiscordChatAdapter } from "@/lib/adapters/discord-chat-adapter";
 
 interface UseChatOptions {
   orgId: string;
   /** When true, the chat panel is visible and unread count resets */
   isVisible?: boolean;
-  /** Which adapter to use — defaults to "native" */
-  chatAdapter?: ChatAdapterType;
   /** Display name for the current user */
   senderName?: string;
   /** Role of the current user (e.g. "admin", "td", "operator") */
@@ -36,37 +29,28 @@ interface UseChatReturn {
   typingUsers: ChatTypingState[];
   setTyping: (typing: boolean) => void;
   readReceipts: Record<string, number>;
+  gatewayStatus: ChatGatewayStatus;
 }
 
-function createAdapter(orgId: string, type: ChatAdapterType, guest?: { token: string; name: string }, roomId = "production"): ChatAdapter {
-  switch (type) {
-    case "mattermost":
-      return new MattermostChatAdapter(orgId);
-    case "slack":
-      return new SlackChatAdapter(orgId);
-    case "teams":
-      return new TeamsChatAdapter(orgId);
-    case "discord":
-      return new DiscordChatAdapter(orgId);
-    default:
-      return new NativeChatAdapter(orgId, guest, roomId);
-  }
+function createAdapter(orgId: string, guest?: { token: string; name: string }, roomId = "production"): ChatAdapter {
+  return new NativeChatAdapter(orgId, guest, roomId);
 }
 
 /**
  * useChat — React hook for the ShowPilot chat system.
  *
- * Creates the appropriate chat adapter based on org settings.
- * Manages connection lifecycle, message state, and unread tracking.
+ * Every client connects to the ShowPilot chat relay. The relay owns any
+ * configured external-platform gateway so web, Desktop, and mobile always
+ * share one ordered conversation.
  */
-export function useChat({ orgId, isVisible = false, chatAdapter = "native", senderName: userName, senderRole: userRole, guestToken, roomId = "production" }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production" }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<ChatTypingState[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
+  const [gatewayStatus, setGatewayStatus] = useState<ChatGatewayStatus>({ platform: null, status: "disabled" });
   const adapterRef = useRef<ChatAdapter | null>(null);
-  const pollAdapterRef = useRef<NativeChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -84,17 +68,15 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   useEffect(() => {
     if (!orgId) return;
 
-    // Clear previous messages when switching adapters
+    // Clear state when the organization, room, or guest identity changes.
     setMessages([]);
     setTypingUsers([]);
     setReadReceipts({});
+    setGatewayStatus({ platform: null, status: "connecting" });
     setConnectionStatus("disconnected");
 
-    const effectiveAdapter = roomId === "production" ? chatAdapter : "native";
-    const adapter = createAdapter(orgId, effectiveAdapter, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId);
+    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId);
     adapterRef.current = adapter;
-    const pollAdapter = effectiveAdapter !== "native" ? new NativeChatAdapter(orgId, undefined, roomId) : null;
-    pollAdapterRef.current = pollAdapter;
 
     // Subscribe to messages
     const unsubMessage = adapter.onMessage((message: ChatMessage) => {
@@ -114,19 +96,6 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
         setUnreadCount((c) => c + 1);
       }
     });
-    const unsubPollMessage = pollAdapter?.onMessage((message) => {
-      // External-chat members also keep a native sidecar open so QR guests
-      // and native-only features can share the same visible conversation.
-      // Member messages mirrored into native are ignored here because the
-      // external adapter already delivers them to this UI.
-      if (!message.poll && message.senderRole !== "Guest") return;
-      setMessages((current) => {
-        const index = current.findIndex((item) => item.id === message.id);
-        if (index < 0) return [...current, message];
-        const next = [...current]; next[index] = message; return next;
-      });
-    });
-
     // Subscribe to status changes
     const unsubStatus = adapter.onStatusChange?.((status: ConnectionStatus) => {
       setConnectionStatus(status);
@@ -149,33 +118,29 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
       }
     };
     const unsubTyping = adapter.onTyping?.(handleTyping);
-    const unsubPollTyping = pollAdapter?.onTyping?.(handleTyping);
 
     const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => {
       setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] || 0, readAt) }));
     });
+    const unsubGatewayStatus = adapter.onGatewayStatus?.(setGatewayStatus);
 
     // Connect
     adapter.connect().catch(() => {
       // Adapter handles reconnection/error internally
     });
-    pollAdapter?.connect().catch(() => undefined);
 
     return () => {
       unsubMessage();
       unsubStatus?.();
-      unsubPollMessage?.();
       unsubTyping?.();
-      unsubPollTyping?.();
       unsubReadReceipt?.();
+      unsubGatewayStatus?.();
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
       adapter.disconnect();
-      pollAdapter?.disconnect();
       adapterRef.current = null;
-      pollAdapterRef.current = null;
     };
-  }, [orgId, chatAdapter, guestToken, roomId, userName]);
+  }, [orgId, guestToken, roomId, userName]);
 
   useEffect(() => {
     if (!isVisible || !roomId.startsWith("dm:") || messages.length === 0) return;
@@ -189,37 +154,16 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
       const name = userName || "Operator";
       const role = userRole || "Operator";
-
-      const nativeSidecar = pollAdapterRef.current;
-      const usesNativeAdapter = roomId !== "production" || chatAdapter === "native";
-      const clientMessageId = usesNativeAdapter ? createBrowserId() : undefined;
-      const messageOptions = clientMessageId ? { ...options, clientMessageId } : options;
-      if (messageOptions?.poll && nativeSidecar) {
-        void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);
-      } else {
-        if (!usesNativeAdapter && messageOptions) {
-          const replyPrefix = messageOptions.replyTo
-            ? `↪ Replying to ${messageOptions.replyTo.senderName}: “${messageOptions.replyTo.text.slice(0, 100)}”\n`
-            : "";
-          const attachmentLinks = messageOptions.attachments?.map((attachment) => attachment.url).join("\n") ?? "";
-          adapterRef.current.sendMessage([replyPrefix + text.trim(), attachmentLinks].filter(Boolean).join("\n"), type, name, role);
-        } else {
-          adapterRef.current.sendMessage(text.trim(), type, name, role, messageOptions);
-        }
-        // Mirror external-adapter member messages into the native room used
-        // by temporary QR crew. The sidecar listener filters this sender's
-        // mirror, avoiding a duplicate beside the external adapter's echo.
-        if (nativeSidecar) {
-          void nativeSidecar.sendMessage(text.trim(), type, name, role, messageOptions);
-        }
-      }
+      const clientMessageId = createBrowserId();
+      const messageOptions = { ...options, clientMessageId };
+      void adapterRef.current.sendMessage(text.trim(), type, name, role, messageOptions);
       if (!guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
           data: { orgId, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
         })).catch(() => undefined);
       }
     },
-    [chatAdapter, guestToken, orgId, roomId, userName, userRole],
+    [guestToken, orgId, roomId, userName, userRole],
   );
 
   const editMessage = useCallback(async (messageId: string, text: string) => {
@@ -231,7 +175,7 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
   }, []);
 
   const votePoll = useCallback(async (messageId: string, optionId: string) => {
-    await (pollAdapterRef.current ?? adapterRef.current)?.votePoll?.(messageId, optionId);
+    await adapterRef.current?.votePoll?.(messageId, optionId);
   }, []);
 
   const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
@@ -267,7 +211,6 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
 
   const setTyping = useCallback((typing: boolean) => {
     adapterRef.current?.setTyping?.(typing);
-    pollAdapterRef.current?.setTyping?.(typing);
   }, []);
 
   return {
@@ -284,5 +227,6 @@ export function useChat({ orgId, isVisible = false, chatAdapter = "native", send
     typingUsers,
     setTyping,
     readReceipts,
+    gatewayStatus,
   };
 }
