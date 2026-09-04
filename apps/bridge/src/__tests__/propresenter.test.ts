@@ -58,3 +58,22 @@ describe("ProPresenter connection readiness", () => {
     bridge.disconnect();
   });
 });
+
+describe("ProPresenter commands", () => {
+  it.each([
+    ["next", "/v1/presentation/active/next/trigger"],
+    ["previous", "/v1/presentation/active/previous/trigger"],
+    ["clear", "/v1/clear/layer/slide"],
+  ])("sends %s to the documented active-presentation endpoint", async (command, path) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bridge = createBridge(() => {});
+
+    await bridge.sendCommand(command);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`http://127.0.0.1:1025${path}`);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    bridge.disconnect();
+  });
+});

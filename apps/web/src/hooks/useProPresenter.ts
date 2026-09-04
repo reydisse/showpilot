@@ -41,7 +41,7 @@ interface UseProPresenterReturn {
   debugInfo: PPDebugInfo | null;
 }
 
-/** Server-side polling function that bypasses CORS */
+/** Read the most recent slide relayed from the venue Bridge. */
 async function serverPollPP(orgId: string): Promise<PPSlideData | null> {
   try {
     const result = await pollProPresenterSlide({ data: { orgId } });
@@ -61,8 +61,8 @@ async function serverPollPP(orgId: string): Promise<PPSlideData | null> {
 
 /**
  * React hook for managing ProPresenter connection.
- * Connects from the operator's browser to PP on the local network.
- * Falls back to server-side REST polling if WebSocket doesn't deliver slides.
+ * Uses a direct Stage Display socket when available and the venue Bridge feed
+ * as the reliable fallback for hosted web and desktop clients.
  */
 export function useProPresenter({
   orgId,

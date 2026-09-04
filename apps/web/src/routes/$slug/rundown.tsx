@@ -552,6 +552,8 @@ function RundownPage() {
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
   const [ppOnKiosk, setPpOnKiosk] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
+  const [ppCmdPending, setPpCmdPending] = useState<"next" | "previous" | "clear" | null>(null);
+  const [ppCmdNotice, setPpCmdNotice] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
@@ -614,6 +616,25 @@ function RundownPage() {
     enabled: ppEnabled,
     onSlideChange: handlePPSlideChange,
   });
+
+  const handleProPresenterCommand = useCallback(async (command: "next" | "previous" | "clear") => {
+    if (ppCmdPending) return;
+    setPpCmdPending(command);
+    setPpCmdError("");
+    setPpCmdNotice("");
+    try {
+      const result = await sendProPresenterCommand({ data: { orgId, command } });
+      if (!result.ok) {
+        setPpCmdError(result.error || "ProPresenter did not accept the command");
+        return;
+      }
+      setPpCmdNotice(command === "previous" ? "Previous slide sent" : command === "next" ? "Next slide sent" : "Slide layer cleared");
+    } catch (error) {
+      setPpCmdError(error instanceof Error ? error.message : "ProPresenter command failed");
+    } finally {
+      setPpCmdPending(null);
+    }
+  }, [orgId, ppCmdPending]);
 
   // Prefer the freshest slide so a stale bridge payload cannot mask a newer
   // direct update during long-running ProPresenter sessions.
@@ -1766,53 +1787,49 @@ function RundownPage() {
                     </div>
 
                     {/* PP Control Buttons */}
-                    {canEditRundown && ppIsConnected && (
+                    {canEditRundown && (
                       ppCuesEnabled && ppApiPort ? (
                         <div className="mb-2">
                           <div className="flex items-center gap-1.5">
                             <button
-                              onClick={() => {
-                                setPpCmdError("");
-                                sendProPresenterCommand({ data: { orgId, command: "previous" } })
-                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
-                                  .catch(e => setPpCmdError(String(e)));
-                              }}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                              type="button"
+                              onClick={() => void handleProPresenterCommand("previous")}
+                              disabled={ppCmdPending !== null}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                               title="Previous slide"
                             >
                               <SkipBack className="w-3 h-3" />
                               Prev
                             </button>
                             <button
-                              onClick={() => {
-                                setPpCmdError("");
-                                sendProPresenterCommand({ data: { orgId, command: "next" } })
-                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
-                                  .catch(e => setPpCmdError(String(e)));
-                              }}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors"
+                              type="button"
+                              onClick={() => void handleProPresenterCommand("next")}
+                              disabled={ppCmdPending !== null}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                               title="Next slide"
                             >
                               Next
                               <SkipForward className="w-3 h-3" />
                             </button>
                             <button
-                              onClick={() => {
-                                setPpCmdError("");
-                                sendProPresenterCommand({ data: { orgId, command: "clear" } })
-                                  .then(r => { if (!r.ok) setPpCmdError(r.error || "Failed"); })
-                                  .catch(e => setPpCmdError(String(e)));
-                              }}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto"
-                              title="Clear all layers"
+                              type="button"
+                              onClick={() => void handleProPresenterCommand("clear")}
+                              disabled={ppCmdPending !== null}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
+                              title="Clear slide layer"
                             >
                               <X className="w-3 h-3" />
                               Clear
                             </button>
                           </div>
                           {ppCmdError && (
-                            <p className="text-[9px] text-red-400/80 mt-1 font-mono truncate" title={ppCmdError}>
+                            <p role="alert" className="text-[9px] text-red-400/80 mt-1 font-mono" title={ppCmdError}>
                               {ppCmdError}
+                            </p>
+                          )}
+                          {ppCmdNotice && !ppCmdError && (
+                            <p role="status" aria-live="polite" className="text-[9px] text-green-400/80 mt-1">
+                              {ppCmdNotice}
                             </p>
                           )}
                         </div>

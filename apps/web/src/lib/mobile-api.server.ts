@@ -661,8 +661,9 @@ async function controlMobileProPresenter(
   const bridge = await mobileBridgeStatus(env, access.orgId);
   if (!bridge.bridgeOnline) return json({ error: "Venue Bridge is offline." }, 503);
 
-  const target = bridge.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"))
-    ?? `propresenter:${settings.host}:${settings.stagePort}`;
+  const configuredTarget = `propresenter:${settings.host}:${settings.stagePort}`;
+  const target = bridge.connectedTargets.find((candidate) => candidate === configuredTarget)
+    ?? configuredTarget;
   if (!bridge.connectedTargets.includes(target)) {
     const connection = await bridgeDispatch(env, access.orgId, {
       type: "connect-device",

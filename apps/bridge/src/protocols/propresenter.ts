@@ -524,23 +524,16 @@ export class ProPresenterBridge {
     switch (command) {
       case "next":
         return [
-          { path: "/v1/trigger/next", method: "GET" },
-          { path: "/v1/trigger/next", method: "POST" },
-          { path: "/v1/presentation/active/focus/next", method: "GET" },
+          { path: "/v1/presentation/active/next/trigger", method: "GET" },
+          { path: "/v1/presentation/focused/next/trigger", method: "GET" },
         ];
       case "previous":
         return [
-          { path: "/v1/trigger/previous", method: "GET" },
-          { path: "/v1/trigger/previous", method: "POST" },
-          { path: "/v1/presentation/active/focus/previous", method: "GET" },
+          { path: "/v1/presentation/active/previous/trigger", method: "GET" },
+          { path: "/v1/presentation/focused/previous/trigger", method: "GET" },
         ];
       case "clear":
-        return [
-          { path: "/v1/clear/layer/slide", method: "GET" },
-          { path: "/v1/clear/layer/slide", method: "DELETE" },
-          { path: "/v1/clear/slide", method: "GET" },
-          { path: "/v1/clear/all", method: "GET" },
-        ];
+        return [{ path: "/v1/clear/layer/slide", method: "GET" }];
       default:
         return [];
     }

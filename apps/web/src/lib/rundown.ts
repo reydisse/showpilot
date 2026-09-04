@@ -44,6 +44,7 @@ const ppSlideSchema = z.object({
 
 interface RundownRelayEnv {
   RUNDOWN_RELAY?: DurableObjectNamespace;
+  BRIDGE_RELAY?: DurableObjectNamespace<import("@/durable-objects/BridgeRelay").BridgeRelay>;
 }
 
 const VALID_ITEM_TYPES = new Set<ItemType>([
@@ -458,6 +459,8 @@ async function readProPresenterTarget(orgId: string) {
           "propresenter-host",
           "propresenter-port",
           "propresenter-api-port",
+          "propresenter-password",
+          "propresenter-send-cues",
         ],
       },
     },
@@ -478,7 +481,46 @@ async function readProPresenterTarget(orgId: string) {
     apiPort: Number.isInteger(apiPort) && apiPort > 0 && apiPort <= 65535
       ? apiPort
       : 1025,
+    password: values["propresenter-password"] ?? "",
+    cuesEnabled: values["propresenter-send-cues"] === "true",
   };
+}
+
+async function connectConfiguredProPresenterBridge(
+  orgId: string,
+  target: NonNullable<Awaited<ReturnType<typeof readProPresenterTarget>>>,
+) {
+  const bindings = env as unknown as RundownRelayEnv;
+  if (!bindings.BRIDGE_RELAY) {
+    return { ok: false as const, error: "Venue Bridge is unavailable" };
+  }
+
+  const relayId = bindings.BRIDGE_RELAY.idFromName(orgId);
+  const relay = bindings.BRIDGE_RELAY.get(relayId);
+  const status = await relay.getBridgeStatus();
+  if (!status.bridgeOnline) {
+    return { ok: false as const, error: "Venue Bridge is offline" };
+  }
+
+  const bridgeTarget = `propresenter:${target.host}:${target.stagePort}`;
+  if (!status.connectedTargets.includes(bridgeTarget)) {
+    const connection = await relay.dispatchBridgeMessage({
+      type: "connect-device",
+      protocol: "propresenter",
+      target: bridgeTarget,
+      settings: {
+        host: target.host,
+        port: target.stagePort,
+        apiPort: target.apiPort,
+        password: target.password,
+      },
+    });
+    if (!connection.success) {
+      return { ok: false as const, error: connection.error ?? "ProPresenter connection failed" };
+    }
+  }
+
+  return { ok: true as const, relay, bridgeTarget, status };
 }
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
@@ -898,107 +940,39 @@ function ppStageDisplayKey() {
   return "propresenter-stage-display";
 }
 
-/**
- * Server-side proxy to fetch current slide from PP7 REST API.
- * Runs on the server to bypass browser CORS restrictions.
- * Tries multiple PP7 API endpoints since versions differ.
- */
+/** Read the latest ProPresenter slide delivered by the venue Bridge. */
 export const pollProPresenterSlide = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(proPresenterTargetSchema, data))
   .handler(async ({ data }): Promise<PPSlidePayload | null> => {
     await assertEffectiveOrgPermission(data.orgId, ["lowerthird:trigger", "rundown:control"]);
     const target = await readProPresenterTarget(data.orgId);
     if (!target) return null;
-    const { host, apiPort: port } = target;
-    const base = `http://${host}:${port}`;
-    const timeout = 2000;
-
-    // Try multiple PP7 REST endpoints in order of likelihood
-    // Note: /v1/stage/layout_map returns stage display fields including timers,
-    // so we try slide-specific endpoints first.
-    const endpoints = [
-      "/v1/stage/current_slide",
-      "/v1/presentation/active",
-      "/v1/status/slide",
-      "/v1/presentation/slide_index",
-      "/v1/stage/layout_map",
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        const res = await fetch(`${base}${endpoint}`, {
-          signal: AbortSignal.timeout(timeout),
-        });
-        if (!res.ok) continue;
-        const data = await res.json() as Record<string, unknown>;
-
-        // Try to extract useful text from the response
-        const text = extractTextFromPPResponse(data);
-        if (text) {
-          return {
-            text,
-            notes: (data.notes as string) || "",
-            presentationName: (data.presentation_name as string) || (data.presentation as string) || "",
-            isScripture: false,
-            updatedAt: Date.now(),
-          };
-        }
-      } catch {
-        continue;
-      }
+    try {
+      const connection = await connectConfiguredProPresenterBridge(data.orgId, target);
+      if (!connection.ok) return null;
+      const status = await connection.relay.getBridgeStatus();
+      const event = status.deviceEvents?.[connection.bridgeTarget];
+      if (event?.eventName !== "slide") return null;
+      const slide: unknown = JSON.parse(event.data);
+      if (!slide || typeof slide !== "object" || Array.isArray(slide)) return null;
+      const record = slide as Record<string, unknown>;
+      const text = typeof record.text === "string" ? record.text : "";
+      if (!text) return null;
+      return {
+        text,
+        notes: typeof record.notes === "string" ? record.notes : "",
+        presentationName: typeof record.presentationName === "string"
+          ? record.presentationName
+          : typeof record.pn === "string" ? record.pn : "",
+        isScripture: Boolean(record.isScripture ?? record.scripture),
+        updatedAt: event.receivedAt,
+      };
+    } catch {
+      return null;
     }
-    return null;
   });
 
-/** Extract text content from various PP7 REST API response formats */
-function extractTextFromPPResponse(data: Record<string, unknown>): string {
-  // Direct text fields
-  if (typeof data.text === "string" && data.text) return data.text;
-  if (typeof data.slide_text === "string" && data.slide_text) return data.slide_text;
-
-  // Nested slide object
-  if (data.slide && typeof data.slide === "object") {
-    const slide = data.slide as Record<string, unknown>;
-    if (typeof slide.text === "string") return slide.text;
-  }
-
-  // Current slide in presentation context
-  if (data.current && typeof data.current === "object") {
-    const current = data.current as Record<string, unknown>;
-    if (typeof current.text === "string") return current.text;
-  }
-
-  // Array of slides — find current
-  if (Array.isArray(data.slides)) {
-    const idx = typeof data.current_index === "number" ? data.current_index : 0;
-    const slide = (data.slides as Array<Record<string, unknown>>)[idx];
-    if (slide && typeof slide.text === "string") return slide.text;
-  }
-
-  // Layout map response (stage display) — filter out timer/clock fields
-  if (Array.isArray(data.ary)) {
-    const texts: string[] = [];
-    for (const item of data.ary as Array<Record<string, unknown>>) {
-      if (typeof item.txt === "string" && item.txt) {
-        // Skip timer-like content (e.g. "00:05:30", "5:30", countdown values)
-        const trimmed = item.txt.trim();
-        if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) continue;
-        // Skip stage display field labels (e.g. "Current Slide", "Next Slide", "Clock")
-        const acn = item.acn as string | undefined;
-        if (acn === "tmr" || acn === "cs" || acn === "ns") continue;
-        texts.push(trimmed);
-      }
-    }
-    if (texts.length > 0) return texts.join("\n");
-  }
-
-  return "";
-}
-
-/**
- * Send a command to ProPresenter via its REST API (server-side to bypass CORS).
- * Commands: next, previous, clear
- */
+/** Send a ProPresenter command through the venue Bridge on the local network. */
 export const sendProPresenterCommand = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
@@ -1010,65 +984,29 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
     await assertRundownControlAccess(data.orgId);
     const target = await readProPresenterTarget(data.orgId);
     if (!target) return { ok: false, error: "Set the ProPresenter host first" };
-    const { host, apiPort: port } = target;
-    const { command } = data;
-    const base = `http://${host}:${port}`;
-    const timeout = 3000;
+    if (!target.cuesEnabled) {
+      return { ok: false, error: "Enable ProPresenter cue control in Settings first" };
+    }
 
-    // PP7 API endpoints vary by version — try multiple known paths and methods.
-    const endpoints: { path: string; method: string }[] = (() => {
-      switch (command) {
-        case "next":
-          return [
-            { path: "/v1/trigger/next", method: "GET" },
-            { path: "/v1/trigger/next", method: "POST" },
-            { path: "/v1/presentation/active/focus/next", method: "GET" },
-          ];
-        case "previous":
-          return [
-            { path: "/v1/trigger/previous", method: "GET" },
-            { path: "/v1/trigger/previous", method: "POST" },
-            { path: "/v1/presentation/active/focus/previous", method: "GET" },
-          ];
-        case "clear":
-          return [
-            { path: "/v1/clear/layer/slide", method: "GET" },
-            { path: "/v1/clear/layer/slide", method: "DELETE" },
-            { path: "/v1/clear/slide", method: "GET" },
-            { path: "/v1/clear/all", method: "GET" },
-          ];
-      }
-    })();
-
-    const errors: string[] = [];
     try {
-      for (const { path, method } of endpoints) {
-        try {
-          const url = `${base}${path}`;
-          const res = await fetch(url, {
-            method,
-            signal: AbortSignal.timeout(timeout),
-          });
-          // Any 2xx = success
-          if (res.status >= 200 && res.status < 300) {
-            return { ok: true };
-          }
-          errors.push(`${method} ${path} → ${res.status}`);
-        } catch (e) {
-          errors.push(`${method} ${path} → ${e}`);
-          continue;
-        }
-      }
-      return { ok: false, error: `No endpoint worked (port ${port}): ${errors.join("; ")}` };
-    } catch (err) {
-      return { ok: false, error: String(err) };
+      const connection = await connectConfiguredProPresenterBridge(data.orgId, target);
+      if (!connection.ok) return connection;
+      const result = await connection.relay.dispatchBridgeMessage({
+        type: "command",
+        id: `web-pp-${crypto.randomUUID()}`,
+        protocol: "propresenter",
+        target: connection.bridgeTarget,
+        command: data.command,
+      });
+      return result.success
+        ? { ok: true }
+        : { ok: false, error: result.error ?? "ProPresenter command failed" };
+    } catch {
+      return { ok: false, error: "Venue Bridge could not complete the ProPresenter command" };
     }
   });
 
-/**
- * Test ProPresenter connection by hitting known API endpoints.
- * Returns success if any endpoint responds.
- */
+/** Test the configured ProPresenter connection from the venue Bridge. */
 export const testProPresenterConnection = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(proPresenterTargetSchema, data),
@@ -1077,39 +1015,12 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
     await assertEffectiveOrgPermission(data.orgId, "settings:integrations");
     const target = await readProPresenterTarget(data.orgId);
     if (!target) return { ok: false, error: "Set the ProPresenter host first" };
-    const { host, apiPort, stagePort } = target;
-    const timeout = 3000;
-
-    // Try API port first (REST), then stage display port
-    const ports = Array.from(new Set([apiPort, stagePort]));
-    const testEndpoints = [
-      "/v1/stage/current_slide",
-      "/v1/version",
-      "/v1/status/slide",
-      "/v1/presentation/active",
-    ];
-
-    for (const p of ports) {
-      const base = `http://${host}:${p}`;
-      for (const endpoint of testEndpoints) {
-        try {
-          const res = await fetch(`${base}${endpoint}`, {
-            signal: AbortSignal.timeout(timeout),
-          });
-          if (res.ok || res.status === 401) {
-            // 401 means PP is there but needs auth — still a valid connection
-            return { ok: true };
-          }
-        } catch {
-          continue;
-        }
-      }
+    try {
+      const connection = await connectConfiguredProPresenterBridge(data.orgId, target);
+      return connection.ok ? { ok: true } : connection;
+    } catch {
+      return { ok: false, error: "Venue Bridge could not test the ProPresenter connection" };
     }
-
-    return {
-      ok: false,
-      error: `Could not reach ProPresenter at ${host}. Make sure PP7 is running with Network enabled, and that this server can reach it. In production, use the ShowPilot Gateway bridge for local network access.`,
-    };
   });
 
 export interface PPSlidePayload {

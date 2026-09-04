@@ -28,15 +28,15 @@ post "$KIOSK_BASE_URL/on"
 pause
 
 say "Next slide"
-get "$PP_BASE_URL/v1/trigger/next"
+get "$PP_BASE_URL/v1/presentation/active/next/trigger"
 pause
 
 say "Next slide"
-get "$PP_BASE_URL/v1/trigger/next"
+get "$PP_BASE_URL/v1/presentation/active/next/trigger"
 pause
 
 say "Previous slide"
-get "$PP_BASE_URL/v1/trigger/previous"
+get "$PP_BASE_URL/v1/presentation/active/previous/trigger"
 pause
 
 say "Glitchy next transition"

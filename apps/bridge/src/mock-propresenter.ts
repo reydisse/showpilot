@@ -115,22 +115,19 @@ const apiServer = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/v1/trigger/next") {
+  if (req.method === "GET" && url.pathname === "/v1/presentation/active/next/trigger") {
     setSlide((currentIndex + 1) % slides.length);
     json(200, { ok: true, currentIndex });
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/v1/trigger/previous") {
+  if (req.method === "GET" && url.pathname === "/v1/presentation/active/previous/trigger") {
     setSlide((currentIndex - 1 + slides.length) % slides.length);
     json(200, { ok: true, currentIndex });
     return;
   }
 
-  if (
-    (req.method === "GET" || req.method === "DELETE") &&
-    (url.pathname === "/v1/clear/layer/slide" || url.pathname === "/v1/clear/slide" || url.pathname === "/v1/clear/all")
-  ) {
+  if (req.method === "GET" && url.pathname === "/v1/clear/layer/slide") {
     clearSlide();
     json(200, { ok: true });
     return;
@@ -215,8 +212,8 @@ apiServer.listen(apiPort, () => {
 stageServer.listen(stagePort, () => {
   console.log(`[mock-pp] Stage WebSocket on ws://127.0.0.1:${stagePort}/stagedisplay`);
   console.log(`[mock-pp] Control endpoints:`);
-  console.log(`  GET  /v1/trigger/next`);
-  console.log(`  GET  /v1/trigger/previous`);
+  console.log(`  GET  /v1/presentation/active/next/trigger`);
+  console.log(`  GET  /v1/presentation/active/previous/trigger`);
   console.log(`  POST /mock/clear`);
   console.log(`  POST /mock/glitch-next`);
 });

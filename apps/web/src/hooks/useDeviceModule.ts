@@ -53,9 +53,11 @@ export function useDeviceModule(
 
     const unsub = proxy.onBridgeStatus((online) => {
       setBridgeOnline(online);
-      if (online) {
-        setStatus("disconnected"); // Ready to connect via bridge
-      } else {
+      // Bridge availability and device connectivity are separate states. A
+      // bridge-status heartbeat can arrive immediately after device-status.
+      // Resetting the device here made a successful connection look
+      // disconnected and turned the Connect button into a silent no-op.
+      if (!online) {
         setStatus("bridge-required");
       }
     });
@@ -124,8 +126,20 @@ export function useDeviceModule(
   }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId]);
 
   const connect = useCallback(async () => {
-    await moduleRef.current?.connect();
-  }, []);
+    const mod = moduleRef.current;
+    if (!mod) {
+      const bridgeRequired = definition?.connectivity === "bridge-required";
+      const message = bridgeRequired && !bridgeOnline
+        ? "Venue Bridge is offline. Start it on the venue network before connecting this device."
+        : "Device controls are still starting. Try Connect again in a moment.";
+      setError(message);
+      setStatus(bridgeRequired && !bridgeOnline ? "bridge-required" : "error");
+      return;
+    }
+
+    setError(null);
+    await mod.connect();
+  }, [bridgeOnline, definition?.connectivity]);
 
   const disconnect = useCallback(() => {
     moduleRef.current?.disconnect();

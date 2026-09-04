@@ -93,6 +93,16 @@ export class ProPresenterClient {
     this.clearReconnectTimer();
     this.options.onStatusChange("connecting");
 
+    // Modern ProPresenter installations commonly expose their HTTP API and
+    // slide state on one Network port. That port does not provide the legacy
+    // /stagedisplay socket. Match the venue Bridge behavior and use polling
+    // only when both configured ports are the same.
+    const resolvedApiPort = apiPort ?? this.options.port;
+    if (this.options.port === resolvedApiPort) {
+      this.startPolling();
+      return;
+    }
+
     try {
       // PP7 WebSocket endpoint for stage display updates
       const wsUrl = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
@@ -217,6 +227,7 @@ export class ProPresenterClient {
       try {
         const slide = await this.pollFn(this.options.host, this.pollPort ?? this.options.port);
         if (slide && slide.text) {
+          this.options.onStatusChange("connected");
           this.noSlideSince = 0;
           this.pollSuccessCount++;
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
