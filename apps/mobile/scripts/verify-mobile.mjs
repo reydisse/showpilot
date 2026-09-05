@@ -134,6 +134,11 @@ const sourceContract = [
   ["src/app/chat.tsx", "PanResponder.create"],
   ["src/app/chat.tsx", "Swipe right to reply"],
   ["src/app/chat.tsx", "gesture.dx >= 54"],
+  ["src/app/chat.tsx", "messagesBelongToSameGroup"],
+  ["src/app/chat.tsx", "groupedWithPrevious"],
+  ["src/app/chat.tsx", "groupedWithNext"],
+  ["src/app/chat.tsx", "styles.avatarSpacer"],
+  ["src/app/chat.tsx", "styles.messageColumnOperational"],
   ["src/app/chat.tsx", "styles.attachmentImageFrame"],
   ["src/app/chat.tsx", "!isImage ? <View style={styles.attachmentCopy}"],
   ["src/app/chat.tsx", "styles.composerToolButton"],
@@ -157,6 +162,7 @@ const forbiddenSourceContract = [
   ["src/app/show/[showId].tsx", "items.map((item"],
   ["src/app/chat.tsx", "styles.composerTools"],
   ["src/app/chat.tsx", "setActiveThreadId"],
+  ["src/app/chat.tsx", "imageViewerTitle"],
 ];
 const apiContract = [
   "/api/mobile/v1/bootstrap",

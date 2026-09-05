@@ -44,12 +44,21 @@ describe("ChatPanel conversation flow", () => {
     const imageMessage: ChatMessage = {
       ...messages[0],
       id: "image",
+      senderId: "me",
+      senderName: "Sam",
       text: "",
       attachments: [{ id: "file", name: "stage.jpg", url: "/api/chat-file/org/file/stage.jpg", mimeType: "image/jpeg", size: 42 }],
     };
     render(<ChatPanel messages={[imageMessage]} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open stage.jpg" }));
+    const openImage = screen.getByRole("button", { name: "Open stage.jpg" });
+    expect(openImage.className).not.toContain("border");
+    expect(openImage.textContent).toBe("");
+    expect(openImage.closest("[data-attachment-layout]")?.getAttribute("data-attachment-layout")).toBe("image-only");
+    expect(openImage.parentElement?.className).not.toContain("sm:grid-cols-2");
+    expect(openImage.closest("[data-chat-message-id]")?.className).toContain("justify-end");
+    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).toContain("right-full");
+    fireEvent.click(openImage);
     const preview = screen.getByRole("dialog", { name: "stage.jpg" });
     expect(preview).toBeInstanceOf(HTMLElement);
     expect(within(preview).getByRole("img", { name: "stage.jpg" }).getAttribute("src")).toBe("/api/chat-file/org/file/stage.jpg");

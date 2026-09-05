@@ -190,6 +190,13 @@ function ChatMessageRow({
   const textLines = message.text.split("\n");
   const embeddedFileUrls = message.attachments?.length ? [] : textLines.filter((line) => /^\/api\/chat-file\/[^\s]+$/.test(line.trim())).map((line) => line.trim());
   const displayText = embeddedFileUrls.length ? textLines.filter((line) => !embeddedFileUrls.includes(line.trim())).join("\n").trim() : message.text;
+  const attachments = message.attachments ?? [];
+  const containsOnlyImages = !message.deletedAt
+    && !displayText
+    && !message.replyTo
+    && !message.poll
+    && (attachments.length > 0 && attachments.every((attachment) => attachment.mimeType.startsWith("image/"))
+      || embeddedFileUrls.length > 0 && embeddedFileUrls.every((url) => isImageFileName(chatFileName(url))));
 
   if (isEvent) {
     return (
@@ -232,19 +239,24 @@ function ChatMessageRow({
         </div>
       )}
       {!isOwn && grouped && <span className="w-7 shrink-0" />}
-      <div className={cn("flex min-w-0 max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
+      <div className={cn("relative flex min-w-0 max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
         {!grouped && !isOwn && (
           <div className="mb-1 flex min-w-0 items-center gap-2 px-2">
             <span className="truncate text-[11px] font-semibold text-board-muted">{message.senderName}</span>
             <RoleBadge role={message.senderRole} />
           </div>
         )}
-        <div className={cn(
-          "min-w-12 overflow-hidden rounded-[18px] px-3 py-2.5 shadow-sm",
-          isOwn
-            ? "rounded-br-md bg-fire-500 text-black"
-            : "rounded-bl-md border border-board-border/80 bg-board-bg/90 text-board-text",
-        )}>
+        <div
+          data-attachment-layout={containsOnlyImages ? "image-only" : undefined}
+          className={cn(
+            "min-w-12 overflow-hidden",
+            containsOnlyImages
+              ? "rounded-xl bg-transparent p-0 shadow-none"
+              : isOwn
+                ? "rounded-[18px] rounded-br-md bg-fire-500 px-3 py-2.5 text-black shadow-sm"
+                : "rounded-[18px] rounded-bl-md border border-board-border/80 bg-board-bg/90 px-3 py-2.5 text-board-text shadow-sm",
+          )}
+        >
         {message.replyTo && (
           <div className={cn("mb-2 flex max-w-2xl items-stretch gap-2 rounded-lg px-2 py-1.5 text-[11px]", isOwn ? "bg-black/10" : "bg-white/[0.035]")}>
             <span className={cn("w-0.5 shrink-0 rounded-full", isOwn ? "bg-black/55" : "bg-fire-400/65")} />
@@ -271,12 +283,11 @@ function ChatMessageRow({
             <p className="mt-2 text-[9px] text-board-muted">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
           </div>
         ) : null}
-        {!message.deletedAt && message.attachments?.length ? (
-          <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
-            {message.attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
-              <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-xl border border-board-border bg-board-bg/60 text-left" aria-label={`Open ${attachment.name}`}>
-                <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
-                <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{attachment.name}</span></span>
+        {!message.deletedAt && attachments.length ? (
+          <div className={cn("grid max-w-2xl gap-2", containsOnlyImages ? "mt-0" : "mt-2", attachments.length > 1 && "sm:grid-cols-2")}>
+            {attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
+              <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-xl bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${attachment.name}`}>
+                <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="block max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
               </button>
             ) : (
               <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
@@ -288,14 +299,13 @@ function ChatMessageRow({
           </div>
         ) : null}
         {!message.deletedAt && embeddedFileUrls.length ? (
-          <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-2">
+          <div className={cn("grid max-w-2xl gap-2", containsOnlyImages ? "mt-0" : "mt-2", embeddedFileUrls.length > 1 && "sm:grid-cols-2")}>
             {embeddedFileUrls.map((url) => {
               const name = chatFileName(url);
               const resolvedUrl = attachmentUrl(url);
               return isImageFileName(name) ? (
-                <button type="button" key={url} onClick={() => onOpenImage?.({ name, url: resolvedUrl })} className="group/media relative block w-full overflow-hidden rounded-xl border border-board-border bg-board-bg/60 text-left" aria-label={`Open ${name}`}>
-                  <img src={resolvedUrl} alt={name} loading="lazy" className="max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
-                  <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/80 to-transparent px-3 pb-2.5 pt-8 text-[10px] text-white/90"><ImageIcon className="h-3.5 w-3.5" /><span className="truncate">{name}</span></span>
+                <button type="button" key={url} onClick={() => onOpenImage?.({ name, url: resolvedUrl })} className="group/media relative block w-full overflow-hidden rounded-xl bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${name}`}>
+                  <img src={resolvedUrl} alt={name} loading="lazy" className="block max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
                 </button>
               ) : (
                 <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
@@ -325,14 +335,17 @@ function ChatMessageRow({
         </div>
         {message.externalDelivery?.status === "pending" ? <p className={cn("mt-1 px-2 text-[9px] text-board-muted", isOwn && "text-right")}>Sending to {message.externalDelivery.platform}…</p> : null}
         {message.externalDelivery?.status === "failed" ? <p className={cn("mt-1 px-2 text-[9px] text-red-300", isOwn && "text-right")}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</p> : null}
-      </div>
-      {!message.deletedAt && <div className="relative mt-1 flex shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100">
+        {!message.deletedAt && <div className={cn(
+          "absolute top-1 z-10 flex shrink-0 rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
+          isOwn ? "right-full mr-2" : "left-full ml-2",
+        )}>
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
         {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
         {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-64 grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
-      </div>}
+        </div>}
+      </div>
     </div>
   );
 }

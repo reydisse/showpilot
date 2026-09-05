@@ -68,6 +68,7 @@ import {
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type MessageType = "text" | "cue" | "alert";
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 function readableChatText(text: string) {
   return text.replace(/<@([^|>]+)\|([^>]+)>/g, "@$2");
@@ -75,6 +76,16 @@ function readableChatText(text: string) {
 
 function directMessageRoom(firstUserId: string, secondUserId: string) {
   return `dm:${[firstUserId, secondUserId].sort().join(":")}`;
+}
+
+function messagesBelongToSameGroup(previous: MobileChatMessage | undefined, current: MobileChatMessage | undefined) {
+  if (!previous || !current || previous.type !== "text" || current.type !== "text") return false;
+  const sameSender = previous.senderId && current.senderId
+    ? previous.senderId === current.senderId
+    : previous.senderName === current.senderName;
+  return sameSender
+    && current.timestamp >= previous.timestamp
+    && current.timestamp - previous.timestamp < MESSAGE_GROUP_WINDOW_MS;
 }
 
 function absoluteChatFileUrl(url: string) {
@@ -85,6 +96,8 @@ interface MessageCardProps {
   attachmentHeaders: Record<string, string>;
   currentUserId?: string;
   focused: boolean;
+  groupedWithNext: boolean;
+  groupedWithPrevious: boolean;
   message: MobileChatMessage;
   own: boolean;
   seen: boolean;
@@ -100,6 +113,8 @@ const MessageCard = memo(function MessageCard({
   attachmentHeaders,
   currentUserId,
   focused,
+  groupedWithNext,
+  groupedWithPrevious,
   message,
   own,
   seen,
@@ -112,6 +127,12 @@ const MessageCard = memo(function MessageCard({
 }: MessageCardProps) {
   const styles = useStyles();
   const deleted = Boolean(message.deletedAt);
+  const operational = message.type === "cue" || message.type === "alert";
+  const showAvatar = !own && !operational && !groupedWithNext;
+  const showSender = operational || (!own && !groupedWithPrevious);
+  const showMeta = operational
+    || !groupedWithNext
+    || Boolean(message.editedAt || message.external || message.externalDelivery);
   const translateX = useRef(new Animated.Value(0)).current;
   const swipeResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => !deleted
@@ -142,27 +163,36 @@ const MessageCard = memo(function MessageCard({
         onLongPress={() => onLongPress(message)}
         style={[
           styles.messageRow,
-          own && styles.messageRowOwn,
+          own && !operational && styles.messageRowOwn,
+          operational && styles.messageRowOperational,
+          groupedWithPrevious && !operational && styles.messageRowGrouped,
           focused && styles.messageFocused,
         ]}
       >
-      {!own ? (avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <View style={styles.avatarBubble}><Text style={styles.avatarBubbleText}>{message.senderName.trim().slice(0, 1).toUpperCase() || "?"}</Text></View>) : null}
-      <View style={[styles.messageColumn, own && styles.messageColumnOwn]}>
-        {!own ? <Text numberOfLines={1} style={styles.sender}>{message.senderName}</Text> : null}
+      {!own && !operational ? (showAvatar
+        ? (avatarUrl ? <Image source={{ uri: avatarUrl }} style={styles.avatarImage} /> : <View style={styles.avatarBubble}><Text style={styles.avatarBubbleText}>{message.senderName.trim().slice(0, 1).toUpperCase() || "?"}</Text></View>)
+        : <View style={styles.avatarSpacer} />) : null}
+      <View style={[styles.messageColumn, own && !operational && styles.messageColumnOwn, operational && styles.messageColumnOperational]}>
+        {showSender ? <Text numberOfLines={1} style={[styles.sender, operational && styles.senderOperational]}>{message.senderName}</Text> : null}
         <View style={[
           styles.messageBubble,
-          own && styles.messageBubbleOwn,
+          own && !operational && styles.messageBubbleOwn,
+          groupedWithPrevious && !own && !operational && styles.messageBubbleGroupedPrevious,
+          groupedWithNext && !own && !operational && styles.messageBubbleGroupedNext,
+          groupedWithPrevious && own && !operational && styles.messageBubbleOwnGroupedPrevious,
+          groupedWithNext && own && !operational && styles.messageBubbleOwnGroupedNext,
+          operational && styles.messageBubbleOperational,
           message.type === "alert" && styles.messageBubbleAlert,
           message.type === "cue" && styles.messageBubbleCue,
         ]}>
-        {message.type !== "text" ? <Text style={[styles.messageKindLabel, message.type === "alert" && styles.messageKindLabelAlert, own && styles.messageKindLabelOwn]}>{message.type}</Text> : null}
+        {operational ? <Text style={[styles.messageKindLabel, message.type === "alert" && styles.messageKindLabelAlert]}>{message.type}</Text> : null}
         {message.replyTo && !deleted ? (
-          <View style={[styles.replyReference, own && styles.replyReferenceOwn]}>
-            <Text numberOfLines={1} style={[styles.replySender, own && styles.replySenderOwn]}>{message.replyTo.senderName}</Text>
-            <Text numberOfLines={1} style={[styles.replyText, own && styles.replyTextOwn]}>{readableChatText(message.replyTo.text)}</Text>
+          <View style={[styles.replyReference, own && !operational && styles.replyReferenceOwn]}>
+            <Text numberOfLines={1} style={[styles.replySender, own && !operational && styles.replySenderOwn]}>{message.replyTo.senderName}</Text>
+            <Text numberOfLines={1} style={[styles.replyText, own && !operational && styles.replyTextOwn]}>{readableChatText(message.replyTo.text) || "Attachment"}</Text>
           </View>
         ) : null}
-        {deleted || message.text ? <Text style={[styles.messageText, own && styles.messageTextOwn, deleted && styles.deleted]}>{deleted ? "Message deleted" : readableChatText(message.text)}</Text> : null}
+        {deleted || message.text ? <Text style={[styles.messageText, own && !operational && styles.messageTextOwn, deleted && styles.deleted]}>{deleted ? "Message deleted" : readableChatText(message.text)}</Text> : null}
         {!deleted && message.attachments?.map((attachment) => {
         const isImage = attachment.mimeType.startsWith("image/");
         return (
@@ -212,12 +242,12 @@ const MessageCard = memo(function MessageCard({
             })}
           </View>
         ) : null}
-        <View style={[styles.messageMeta, own && styles.messageMetaOwn]}>
+        {showMeta ? <View style={[styles.messageMeta, own && !operational && styles.messageMetaOwn]}>
           {message.external ? <Text style={styles.gatewayBadge}>{message.external.platform}</Text> : null}
           <Text style={styles.time}>{new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
           {message.editedAt && !deleted ? <Text style={styles.edited}>edited</Text> : null}
           {own && seen ? <Text style={styles.seen}>Seen</Text> : null}
-        </View>
+        </View> : null}
         {message.externalDelivery?.status === "pending" ? <Text style={styles.deliveryPending}>Sending to {message.externalDelivery.platform}…</Text> : null}
         {message.externalDelivery?.status === "failed" ? <Text style={styles.deliveryFailed}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</Text> : null}
       </View>
@@ -630,12 +660,14 @@ export default function ChatScreen() {
   }
 
   const renderMessage = useCallback<ListRenderItem<MobileChatMessage>>(
-    ({ item }) => (
+    ({ index, item }) => (
         <MessageCard
           attachmentHeaders={attachmentHeaders}
           avatarUrl={item.senderId ? memberImageById.get(item.senderId) : null}
           currentUserId={currentUserId}
           focused={item.id === focusedMessageId}
+          groupedWithNext={messagesBelongToSameGroup(item, displayMessages[index + 1])}
+          groupedWithPrevious={messagesBelongToSameGroup(displayMessages[index - 1], item)}
           message={item}
           onLongPress={openMessageActions}
           onOpenAttachment={openMessageAttachment}
@@ -646,7 +678,7 @@ export default function ChatScreen() {
           seen={roomId.startsWith("dm:") && item.id === latestOwnMessageId && otherReadAt >= item.timestamp}
         />
     ),
-    [attachmentHeaders, beginReply, currentUserId, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
+    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;
@@ -710,7 +742,7 @@ export default function ChatScreen() {
         <View style={styles.imageViewer}>
           <View style={styles.imageViewerHeader}>
             <Pressable accessibilityRole="button" accessibilityLabel="Close image" onPress={() => setPreviewAttachment(null)} style={styles.imageViewerButton}><X color={colors.text} size={23} /></Pressable>
-            <Text numberOfLines={1} style={styles.imageViewerTitle}>{previewAttachment?.name}</Text>
+            <View style={styles.imageViewerHeaderSpacer} />
             <Pressable accessibilityRole="button" accessibilityLabel="Share image" disabled={!previewAttachment || previewLoading} onPress={() => previewAttachment && void shareAttachment(previewAttachment)} style={styles.imageViewerButton}><Share2 color={colors.text} size={21} /></Pressable>
           </View>
           {previewLoading ? <View style={styles.imageViewerLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.imageViewerLoadingText}>Opening image…</Text></View> : null}
@@ -854,29 +886,39 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   liveLabel: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
   liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.medium },
-  listContent: { flexGrow: 1, justifyContent: "flex-end", paddingVertical: 8 },
+  listContent: { flexGrow: 1, justifyContent: "flex-end", paddingTop: 12, paddingBottom: 8 },
   swipeContainer: { position: "relative", overflow: "hidden", backgroundColor: colors.stage },
   swipeReplyAction: { position: "absolute", left: 13, top: 0, bottom: 0, width: 48, alignItems: "center", justifyContent: "center", gap: 1 },
   swipeReplyIcon: { color: colors.amberText },
   swipeReplyText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "700" },
   swipeSurface: { backgroundColor: colors.stage },
-  messageRow: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 7, paddingHorizontal: 10, paddingVertical: 3 },
+  messageRow: { width: "100%", flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 2 },
   messageRowOwn: { justifyContent: "flex-end" },
-  messageFocused: { borderRadius: 18, backgroundColor: colors.amberSoft },
-  avatarBubble: { width: 28, height: 28, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.panelStrong },
-  avatarImage: { width: 28, height: 28, flexShrink: 0, borderRadius: 14 },
+  messageRowOperational: { paddingTop: 10, paddingBottom: 2 },
+  messageRowGrouped: { paddingTop: 2 },
+  messageFocused: { backgroundColor: colors.amberSoft },
+  avatarBubble: { width: 30, height: 30, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: colors.panelStrong },
+  avatarImage: { width: 30, height: 30, flexShrink: 0, borderRadius: 15 },
+  avatarSpacer: { width: 30, flexShrink: 0 },
   avatarBubbleText: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900" },
-  messageColumn: { minWidth: 0, maxWidth: "82%", alignItems: "flex-start", gap: 3 },
+  messageColumn: { minWidth: 0, maxWidth: "78%", alignItems: "flex-start", gap: 3 },
   messageColumnOwn: { alignItems: "flex-end" },
-  sender: { maxWidth: "100%", marginLeft: 10, color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
-  messageBubble: { minWidth: 46, maxWidth: "100%", flexShrink: 1, overflow: "hidden", gap: 6, borderRadius: 18, borderBottomLeftRadius: 5, backgroundColor: colors.panelStrong, paddingHorizontal: 12, paddingVertical: 9 },
+  messageColumnOperational: { width: "100%", maxWidth: "100%", alignItems: "stretch" },
+  sender: { maxWidth: "100%", marginLeft: 11, color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
+  senderOperational: { marginLeft: 10 },
+  messageBubble: { minWidth: 46, maxWidth: "100%", flexShrink: 1, overflow: "hidden", gap: 6, borderRadius: 18, borderBottomLeftRadius: 5, backgroundColor: colors.panelStrong, paddingHorizontal: 13, paddingVertical: 9 },
   messageBubbleOwn: { borderBottomLeftRadius: 18, borderBottomRightRadius: 5, backgroundColor: colors.amber },
+  messageBubbleGroupedPrevious: { borderTopLeftRadius: 8 },
+  messageBubbleGroupedNext: { borderBottomLeftRadius: 8 },
+  messageBubbleOwnGroupedPrevious: { borderTopRightRadius: 8 },
+  messageBubbleOwnGroupedNext: { borderBottomRightRadius: 8 },
+  messageBubbleOperational: { width: "100%", borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10 },
   messageBubbleAlert: { borderWidth: 1, borderColor: colors.red, backgroundColor: colors.redSoft },
-  messageBubbleCue: { borderWidth: 1, borderColor: colors.amberBorder },
+  messageBubbleCue: { borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   messageKindLabel: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   messageKindLabelAlert: { color: colors.red },
   messageKindLabelOwn: { color: colors.black },
-  messageMeta: { flexDirection: "row", alignItems: "center", gap: 5, marginHorizontal: 7 },
+  messageMeta: { minHeight: 14, flexDirection: "row", alignItems: "center", gap: 5, marginHorizontal: 9 },
   messageMetaOwn: { justifyContent: "flex-end" },
   gatewayBadge: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "capitalize" },
   time: { color: colors.textFaint, fontFamily, fontSize: 11 },
@@ -885,8 +927,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   deleted: { color: colors.textFaint, fontStyle: "italic" },
   edited: { color: colors.textFaint, fontFamily, fontSize: 11, fontStyle: "italic" },
   seen: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "700" },
-  replyReference: { gap: 1, borderLeftWidth: 2, borderLeftColor: colors.amber, paddingLeft: 7, paddingRight: 2, paddingVertical: 1 },
-  replyReferenceOwn: { borderLeftColor: colors.black },
+  replyReference: { gap: 1, borderLeftWidth: 3, borderLeftColor: colors.amber, backgroundColor: colors.stage, borderRadius: 7, paddingLeft: 8, paddingRight: 7, paddingVertical: 6 },
+  replyReferenceOwn: { borderLeftColor: colors.black, backgroundColor: "rgba(0, 0, 0, 0.10)" },
   replySender: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   replySenderOwn: { color: colors.black },
   replyText: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 14 },
@@ -936,18 +978,18 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   typeChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   typeChoiceTextActive: { color: colors.amberText },
   pollTool: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
-  composer: { flexDirection: "row", alignItems: "flex-end", gap: 7, paddingTop: 6 },
-  composerToolButton: { width: 38, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.panelStrong },
+  composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginHorizontal: -4, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingHorizontal: 4, paddingTop: 9 },
+  composerToolButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.panelStrong },
   composerTypeBadge: { height: 30, alignSelf: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 8 },
   composerTypeBadgeAlert: { borderColor: colors.red, backgroundColor: colors.redSoft },
   composerTypeBadgeText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   composerTypeBadgeTextAlert: { color: colors.red },
-  input: { flex: 1, maxHeight: 110, minHeight: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 14, paddingVertical: 9 },
-  send: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: colors.amber },
+  input: { flex: 1, maxHeight: 110, minHeight: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 14, paddingVertical: 10 },
+  send: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.amber },
   imageViewer: { flex: 1, backgroundColor: colors.black },
   imageViewerHeader: { height: 72, flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 8, paddingBottom: 8, backgroundColor: colors.black },
   imageViewerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.panelStrong },
-  imageViewerTitle: { minWidth: 0, flex: 1, color: colors.text, fontFamily, fontSize: 13, fontWeight: "700", textAlign: "center", paddingBottom: 13 },
+  imageViewerHeaderSpacer: { flex: 1 },
   imageViewerScroll: { flex: 1 },
   imageViewerCanvas: { flexGrow: 1, alignItems: "center", justifyContent: "center" },
   imageViewerLoading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
