@@ -60,7 +60,7 @@ import type { SavedRundownMeta, SavedRundown, PPSlidePayload } from "@/lib/rundo
 import { exportShowReport } from "@/lib/report";
 import { rundownItemNumbers } from "@/types/rundown";
 import { hasEffectivePermission } from "@/lib/app-permissions";
-import { computeCascadedTimes, formatTime, itemOverrunMs } from "@/lib/rundown-timing";
+import { computeCascadedTimes, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
 import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 import { formatServicePickerLabel } from "@/lib/service-picker";
@@ -84,6 +84,7 @@ import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
+import { NewShowModal, type NewShowInput } from "@/components/rundown/NewShowModal";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
@@ -188,7 +189,12 @@ export const Route = createFileRoute("/$slug/rundown")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "rundown:view", context.slug, context.orgId);
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
-    const today = getTodayDateString(settings["org-timezone"]);
+    const orgTimeZone = settings["org-timezone"] || "UTC";
+    const resolvedSettings: Record<string, string> = {
+      ...settings,
+      "org-timezone": orgTimeZone,
+    };
+    const today = getTodayDateString(orgTimeZone);
     // Open on a service that exists rather than blindly on today. A
     // church has no service most days, so "today" meant the editor
     // opened empty six days a week — and once the cue sheet started
@@ -211,7 +217,7 @@ export const Route = createFileRoute("/$slug/rundown")({
       today,
       openOn,
       initialState: state,
-      settings,
+      settings: resolvedSettings,
       role: context.role,
       grantedPermissions: context.grantedPermissions,
       shows: opening.shows,
@@ -225,6 +231,7 @@ function RundownPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const canEditRundown = hasEffectivePermission(role, grantedPermissions, "rundown:edit");
   const canControlRundown = hasEffectivePermission(role, grantedPermissions, "rundown:control");
+  const canCreateShow = hasEffectivePermission(role, grantedPermissions, "schedule:manage");
   const [target, setTarget] = useState<{ serviceDate: string; showId?: string }>(() => ({
     serviceDate: openOn,
     showId: initialState.meta?.showId,
@@ -509,6 +516,7 @@ function RundownPage() {
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [message, setMessage] = useState("");
   const [activeMessage, setActiveMessage] = useState("");
@@ -766,6 +774,24 @@ function RundownPage() {
       selectionInFlightRef.current = false;
       setLoading(false);
     }
+  };
+
+  const handleCreateShow = async (input: NewShowInput) => {
+    await waitForCurrentRundownWrites();
+    const { createNextService } = await import("@/lib/pm-actions");
+    const created = await createNextService({
+      data: {
+        orgId,
+        serviceDate: input.serviceDate,
+        name: input.name,
+        startTime: input.startTime,
+        location: input.location,
+        copyFrom: input.copyCurrent ? serviceDate : undefined,
+        copyFromShowId: input.copyCurrent ? showId : undefined,
+      },
+    });
+    setShowCreateModal(false);
+    await loadDate(created.serviceDate, created.showId);
   };
 
   const handleDateChange = (days: number) => {
@@ -1272,6 +1298,17 @@ function RundownPage() {
               </option>
             ))}
           </select>
+          {canCreateShow ? (
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              disabled={selectionBusy}
+              className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-lg border border-fire-500/35 bg-fire-500/10 px-2.5 py-1 text-xs font-semibold text-fire-300 transition-colors hover:bg-fire-500/20 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New show
+            </button>
+          ) : null}
           {/* Stepper for nudging a day either way; the picker is what
               makes planning six weeks out possible without 42 clicks. */}
           <div className="flex items-center gap-1">
@@ -2090,7 +2127,7 @@ function RundownPage() {
                               <div className="flex items-center gap-2 mt-0.5 pl-6">
                                 {item.scheduledStart && (
                                   <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
-                                    {formatTime(item.scheduledStart)} sched
+                                    {formatTimeInput(item.scheduledStart, settings["org-timezone"])} sched
                                   </span>
                                 )}
                                 {item.actualStart && (
@@ -2104,8 +2141,8 @@ function RundownPage() {
                                         })()
                                       : "text-fire-400/70"
                                   }`}>
-                                    {formatTime(item.actualStart)}
-                                    {item.actualEnd && ` – ${formatTime(item.actualEnd)}`}
+                                    {formatTimeInput(item.actualStart, settings["org-timezone"])}
+                                    {item.actualEnd && ` – ${formatTimeInput(item.actualEnd, settings["org-timezone"])}`}
                                     {item.status === "complete" && (() => {
                                       const overrun = itemOverrunMs(item);
                                       if (overrun === null) return null;
@@ -2201,6 +2238,15 @@ function RundownPage() {
           onClose={() => setShowSaveModal(false)}
         />
       )}
+      {canCreateShow && showCreateModal ? (
+        <NewShowModal
+          currentDate={serviceDate}
+          currentStartTime={scheduledStartTime}
+          canCopyCurrent={Boolean(showId)}
+          onCreate={handleCreateShow}
+          onClose={() => setShowCreateModal(false)}
+        />
+      ) : null}
       <ConfirmDialog
         open={showClearConfirmation}
         onOpenChange={setShowClearConfirmation}
