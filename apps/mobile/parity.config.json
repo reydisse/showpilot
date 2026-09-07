@@ -223,11 +223,11 @@
     },
     {
       "id": "reports",
-      "label": "Reports",
+      "label": "Reports & Notes",
       "webPath": "reports",
       "status": "complete",
       "nativeRoutes": ["src/app/reports.tsx"],
-      "apiContracts": ["/api/mobile/v1/reports"],
+      "apiContracts": ["/api/mobile/v1/reports", "const mobileReportNoteMatch"],
       "gaps": ""
     },
     {

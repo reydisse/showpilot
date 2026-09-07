@@ -121,7 +121,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   noteCard: { gap: 8, borderRadius: 14, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 13 },
   noteAuthor: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 19, fontWeight: "800" },
   noteBody: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 20, fontWeight: "400", textTransform: "none" },
-  noteMeta: { color: colors.textMuted, fontFamily, fontSize: 10, lineHeight: 18, fontWeight: "800" },
+  noteMeta: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 18, fontWeight: "800" },
   editor: { gap: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft, paddingTop: 12 },
   laneRow: { flexDirection: "row", gap: 8 },
   laneButton: { flex: 1 },
