@@ -82,6 +82,12 @@ const config = defineConfig({
           external: [],
           output: {
             manualChunks(id) {
+              // The show switcher and its label formatter are always used
+              // together across operational routes. Keep one shared chunk
+              // instead of paying for a second manifest dependency.
+              if (id.endsWith('/components/show-switcher-menu.tsx') || id.endsWith('/lib/service-picker.ts')) {
+                return 'service-picker'
+              }
               // Split heavy vendor libs into their own cacheable chunks
               if (id.includes('node_modules')) {
                 if (id.includes('better-auth')) return 'vendor-auth'

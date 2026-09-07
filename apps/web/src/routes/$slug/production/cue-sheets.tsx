@@ -8,11 +8,11 @@
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ListOrdered, Plus, Settings2, Wifi, WifiOff } from "lucide-react";
+import { ListOrdered, Plus, Settings2, Wifi, WifiOff } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
@@ -313,25 +313,6 @@ function CueSheetsPage() {
 
   const pickerShows = useMemo(() => [...model.shows].reverse(), [model.shows]);
 
-  const stepTo = useCallback(
-    (delta: number) => {
-      const index = pickerShows.findIndex((show) => show.id === showId);
-      if (index < 0) return null;
-      return pickerShows[index + delta]?.id ?? null;
-    },
-    [pickerShows, showId],
-  );
-  const canStep = useCallback((delta: number) => stepTo(delta) !== null, [stepTo]);
-  const step = useCallback(
-    (delta: number) => {
-      const next = stepTo(delta);
-      if (!next) return;
-      pickedRef.current = true;
-      setShowId(next);
-    },
-    [stepTo],
-  );
-
   const visibleCount = useMemo(
     () => model.columns.filter((c) => !hidden.has(c.id)).length,
     [model.columns, hidden],
@@ -359,47 +340,15 @@ function CueSheetsPage() {
             <span className="text-xs text-board-text">{model.serviceName}</span>
           )}
 
-          <span className="w-px h-5 bg-board-border" aria-hidden="true" />
-
-          {/* A picker of services, not a date stepper. Stepping a day at a
-              time through a week with one service in it is how the old
-              page ended up looking empty. */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => step(-1)}
-              disabled={!canStep(-1)}
-              aria-label="Previous service"
-              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <label htmlFor="cue-service-date" className="sr-only">
-              Show
-            </label>
-            <select
-              id="cue-service-date"
-              value={showId ?? ""}
-              onChange={(event) => {
-                pickedRef.current = true;
-                setShowId(event.target.value);
-              }}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium text-board-text bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-w-[190px]"
-            >
-              {pickerShows.map((show) => (
-                <option key={show.id} value={show.id}>
-                  {formatServicePickerLabel(show, { timeZone: orgTimezone, today })}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => step(1)}
-              disabled={!canStep(1)}
-              aria-label="Next service"
-              className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text disabled:opacity-25 transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          <ShowSwitcherMenu
+            selectedId={showId}
+            shows={pickerShows}
+            timeZone={orgTimezone}
+            onSelect={(selected) => {
+              pickedRef.current = true;
+              setShowId(selected.id);
+            }}
+          />
 
           <div className="ml-auto flex items-center gap-3">
             {/* Connection state is worth showing here, unlike in the

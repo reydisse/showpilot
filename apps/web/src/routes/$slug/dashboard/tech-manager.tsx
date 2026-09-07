@@ -41,7 +41,7 @@ import {
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getTmDashboard } from "@/lib/tm-dashboard";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import {
   TM_WIDGETS,
   type TmWidget,
@@ -323,22 +323,12 @@ function TechManagerPage() {
           >
             {phaseLabel(model.phase)}
           </span>
-          <select
-            aria-label="Show"
-            value={showId ?? ""}
-            onChange={(event) => {
-              const selected = shows.find((show) => show.id === event.target.value);
-              if (selected) void navigate({ search: { date: selected.serviceDate, show: selected.id } });
-            }}
-            className="text-xs bg-board-card border border-board-border rounded-lg px-2.5 py-1.5 text-board-text outline-none focus:border-fire-500/50"
-          >
-            {!showId && <option value="">No planned show</option>}
-            {shows.map((show) => (
-              <option key={show.id} value={show.id}>
-                {formatServicePickerLabel(show, { timeZone: orgTimezone })}
-              </option>
-            ))}
-          </select>
+          <ShowSwitcherMenu
+            selectedId={showId}
+            shows={shows}
+            timeZone={orgTimezone}
+            onSelect={(selected) => void navigate({ search: { date: selected.serviceDate, show: selected.id } })}
+          />
 
           <div className="ml-auto flex items-center gap-4">
             <button

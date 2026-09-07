@@ -9,7 +9,7 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import {
   PM_WIDGETS,
   type PmWidgetModel,
@@ -122,35 +122,12 @@ function ProdManagerPage() {
                 {phaseLabel(model.phase)}
               </span>
 
-              <span
-                className="w-px h-5 bg-board-border shrink-0"
-                aria-hidden="true"
+              <ShowSwitcherMenu
+                selectedId={showId}
+                shows={shows}
+                timeZone={orgTimezone}
+                onSelect={(selected) => void navigate({ search: { date: selected.serviceDate, show: selected.id } })}
               />
-
-              {model.serviceName && (
-                <span className="text-xs text-board-text shrink-0 whitespace-nowrap">
-                  {model.serviceName}
-                </span>
-              )}
-
-              <label htmlFor="pm-service-date" className="sr-only">
-                Service date
-              </label>
-              <select
-                id="pm-service-date"
-                value={showId ?? ""}
-                onChange={(event) => {
-                  const selected = shows.find((show) => show.id === event.target.value);
-                  if (selected) void navigate({ search: { date: selected.serviceDate, show: selected.id } });
-                }}
-                className="shrink-0 text-xs bg-transparent border border-board-border/70 rounded px-2 py-1 text-board-text hover:border-board-border transition-colors"
-              >
-                {shows.map((show) => (
-                  <option key={show.id} value={show.id}>
-                    {formatServicePickerLabel(show, { timeZone: orgTimezone })}
-                  </option>
-                ))}
-              </select>
 
               {model.timing.scheduledStartMs !== null && (
                 <span className="text-[11px] text-board-muted tabular-nums shrink-0 whitespace-nowrap">

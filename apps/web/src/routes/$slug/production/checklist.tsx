@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, CheckCircle2, Circle, ListChecks, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, ListChecks, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   getChecklistEntries,
@@ -22,7 +22,7 @@ import {
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
@@ -188,14 +188,6 @@ function ChecklistPage() {
     await loadEntries(serviceDate, showId);
   };
 
-  const handleDateChange = (direction: number) => {
-    const index = shows.findIndex((show) => show.id === showId);
-    const next = shows[index + direction];
-    if (!next) return;
-    setShowId(next.id);
-    setServiceDate(next.serviceDate);
-  };
-
   const handleGenerateDraft = async () => {
     if (!canManageChecklist) return;
     setGeneratorOpen(true);
@@ -232,46 +224,32 @@ function ChecklistPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <h1 className="text-lg font-semibold text-board-text">Pre-Show Checklist</h1>
+          </div>
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <ShowSwitcherMenu
+              selectedId={showId}
+              shows={shows}
+              timeZone={orgTimezone}
+              onSelect={(selected) => {
+                setShowId(selected.id);
+                setServiceDate(selected.serviceDate);
+              }}
+            />
             {canManageChecklist && (
               <button
                 type="button"
                 onClick={() => void handleGenerateDraft()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-2.5 py-1.5 text-xs font-semibold text-fire-400 transition-colors hover:bg-fire-500/20"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-2.5 text-xs font-semibold text-fire-400 transition-colors hover:bg-fire-500/20"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                Generate from rundown
+                <span className="hidden sm:inline">Generate from rundown</span>
+                <span className="sm:hidden">Generate</span>
               </button>
             )}
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => handleDateChange(-1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Previous service date">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-              <select
-                value={showId ?? ""}
-                onChange={(event) => {
-                  const selected = shows.find((show) => show.id === event.target.value);
-                  if (!selected) return;
-                  setShowId(selected.id);
-                  setServiceDate(selected.serviceDate);
-                }}
-                aria-label="Select show"
-                className="min-w-[210px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text"
-              >
-                {!showId && <option value="">No planned show</option>}
-                {shows.map((show) => (
-                  <option key={show.id} value={show.id}>
-                    {formatServicePickerLabel(show, { timeZone: orgTimezone })}
-                  </option>
-                ))}
-              </select>
-            <button onClick={() => handleDateChange(1)} className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors" aria-label="Next service date">
-              <ChevronRight className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>

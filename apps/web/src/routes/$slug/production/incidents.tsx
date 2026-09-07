@@ -2,8 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
-  ChevronLeft,
-  ChevronRight,
   Plus,
   AlertTriangle,
   ShieldCheck,
@@ -21,7 +19,7 @@ import {
   hasEffectivePermission,
 } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -310,17 +308,6 @@ function IncidentsPage() {
     },
   });
 
-  const handleDateChange = (direction: number) => {
-    const ordered = [...shows].sort((a, b) =>
-      `${a.serviceDate}:${a.scheduledStartTime ?? ""}`.localeCompare(`${b.serviceDate}:${b.scheduledStartTime ?? ""}`),
-    );
-    const index = ordered.findIndex((show) => show.id === showId);
-    const next = ordered[index + direction];
-    if (!next) return;
-    setShowId(next.id);
-    setServiceDate(next.serviceDate);
-  };
-
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canReportIncidents) return;
@@ -394,12 +381,12 @@ function IncidentsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-lg font-semibold text-board-text">
             Incident Log
           </h1>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <Link
               to="/$slug/production/incidents-history"
               params={{ slug }}
@@ -414,49 +401,24 @@ function IncidentsPage() {
                 sort: "newest",
                 page: 1,
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"
             >
               <History className="h-3.5 w-3.5" />
               History
             </Link>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleDateChange(-1)}
-                className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
-                aria-label="Previous service date"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <select
-                value={showId ?? ""}
-                onChange={(event) => {
-                  const selected = shows.find((show) => show.id === event.target.value);
-                  if (!selected) return;
-                  setShowId(selected.id);
-                  setServiceDate(selected.serviceDate);
-                }}
-                aria-label="Select show"
-                className="min-w-[210px] rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text transition-colors hover:border-fire-500/50"
-              >
-                {!showId && <option value="">No planned show</option>}
-                {shows.map((show) => (
-                  <option key={show.id} value={show.id}>
-                    {formatServicePickerLabel(show, { timeZone: orgTimezone })}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => handleDateChange(1)}
-                className="p-1.5 rounded-lg hover:bg-board-border text-board-muted hover:text-board-text transition-colors"
-                aria-label="Next service date"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+            <ShowSwitcherMenu
+              selectedId={showId}
+              shows={shows}
+              timeZone={orgTimezone}
+              onSelect={(selected) => {
+                setShowId(selected.id);
+                setServiceDate(selected.serviceDate);
+              }}
+            />
             {canReportIncidents && showId && (
               <button
                 onClick={() => setShowForm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
                 style={{
                   background:
                     "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",

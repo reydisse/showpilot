@@ -13,8 +13,6 @@ import {
   Trash2,
   ChevronUp,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   GripVertical,
   Clock,
   Music,
@@ -34,6 +32,7 @@ import {
   FolderOpen,
   Save,
   Calendar,
+  CalendarDays,
   FileText,
   Tv,
   Wifi,
@@ -62,9 +61,7 @@ import { rundownItemNumbers } from "@/types/rundown";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, itemOverrunMs } from "@/lib/rundown-timing";
 import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
-import { formatTimeInput, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
-import { formatServicePickerLabel } from "@/lib/service-picker";
-import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+import { formatTimeInput, formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
@@ -85,6 +82,7 @@ import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 import { NewShowModal, type NewShowInput } from "@/components/rundown/NewShowModal";
+import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
@@ -400,7 +398,6 @@ function RundownPage() {
   }, [scheduledStartTime, seedState, serviceDate, serviceName, settings, showId, syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, timer]);
 
   // Shared with the dashboard header — see components/ui/scroll-edges.
-  const headerScroll = useEdgeScroll();
 
   useEffect(() => {
     if (syncedServiceName !== null) setServiceName(syncedServiceName);
@@ -517,6 +514,7 @@ function RundownPage() {
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [message, setMessage] = useState("");
   const [activeMessage, setActiveMessage] = useState("");
@@ -1251,179 +1249,57 @@ function RundownPage() {
     : undefined;
   const timedItems = computeCascadedTimes(items, rundownMeta);
   const itemNumbers = rundownItemNumbers(items);
+  const selectedShowName = serviceName || shows.find((show) => show.id === showId)?.name || "Untitled show";
+  const selectedShowStart = scheduledStartTime ? formatWallTime(scheduledStartTime) : "";
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header — outside minWidth so it always fills the viewport */}
-      <div className="relative shrink-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border">
-        {/* One row that scrolls sideways when it does not fit. Nothing is
-            hidden and nothing wraps — on a narrow window you swipe the
-            toolbar, which is how dense tools behave and what an operator
-            on an iPad expects. The scrollbar is hidden, so the fades and
-            arrows below are the only thing telling you there is more. */}
-        <div ref={headerScroll.ref} className="overflow-x-auto hide-scrollbar">
-        <div className="flex items-center gap-3 w-max min-w-full px-6 py-3">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="shrink-0">
-              <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)] whitespace-nowrap">
-                Rundown
-              </h1>
-              <p className="text-xs text-board-muted mt-0.5 whitespace-nowrap">
-                {items.length} items · {formatDuration(totalDuration)} total
-              </p>
-            </div>
-
-            <span className="w-px h-7 bg-board-border shrink-0" aria-hidden="true" />
-
-            {/* Which service you are editing sits beside the title
-                rather than stranded on its own line: it is what the page
-                is about, and it fills the gap the action cluster would
-                otherwise float against. */}
-            <div className="flex items-center gap-1.5 shrink-0">
-          <select
-            aria-label="Show"
-            value={showId ?? ""}
-            onChange={(event) => {
-              const selected = shows.find((show) => show.id === event.target.value);
-              if (!selected) return;
-              void loadDate(selected.serviceDate, selected.id);
-            }}
-            disabled={selectionBusy}
-            className="max-w-56 rounded border border-board-border/70 bg-board-card px-2 py-1 text-xs text-board-text"
-          >
-            {!showId && <option value="">New show</option>}
-            {shows.map((show) => (
-              <option key={show.id} value={show.id}>
-                {formatServicePickerLabel(show, { timeZone: settings["org-timezone"] })}
-              </option>
-            ))}
-          </select>
-          {canCreateShow ? (
+      <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
+        <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">Rundown</h1>
+            <p className="mt-0.5 hidden truncate text-xs text-board-muted sm:block">
+              <span className="font-medium text-board-text">{selectedShowName}</span>
+              {" · "}{formatDisplayDate(serviceDate)}
+              {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
+              {` · ${items.length} items · ${formatDuration(totalDuration)}`}
+            </p>
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => setShowOptionsModal(true)}
               disabled={selectionBusy}
-              className="flex min-h-[32px] shrink-0 items-center gap-1.5 rounded-lg border border-fire-500/35 bg-fire-500/10 px-2.5 py-1 text-xs font-semibold text-fire-300 transition-colors hover:bg-fire-500/20 disabled:opacity-50"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-board-border bg-board-card px-3 text-xs font-semibold text-board-text transition-colors hover:border-fire-500/40 disabled:opacity-50"
+              aria-label="Show options"
             >
-              <Plus className="h-3.5 w-3.5" />
-              New show
-            </button>
-          ) : null}
-          {/* Stepper for nudging a day either way; the picker is what
-              makes planning six weeks out possible without 42 clicks. */}
-          <div className="flex items-center gap-1">
-            <label className="sr-only" htmlFor="rundown-service-date">
-                Service date
-              </label>
-              <input
-                id="rundown-service-date"
-                type="date"
-                value={serviceDate}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (!next) return;
-                  void loadDate(next);
-                }}
-                disabled={selectionBusy}
-                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text hover:border-board-border transition-colors"
-              />
-              <button
-                onClick={() => handleDateChange(-1)}
-                disabled={selectionBusy}
-                aria-label="Previous day"
-                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => {
-                  const nextToday = getTodayDateString(settings["org-timezone"]);
-                  void loadDate(nextToday);
-                }}
-                disabled={selectionBusy}
-                className="shrink-0 px-3 py-1 rounded-lg text-xs font-medium text-board-text hover:bg-board-border/50 transition-colors tabular-nums whitespace-nowrap"
-              >
-                {formatDisplayDate(serviceDate)}
-              </button>
-              <button
-                onClick={() => handleDateChange(1)}
-                disabled={selectionBusy}
-                aria-label="Next day"
-                className="shrink-0 p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-          </div>
-
-          {selectionBusy ? (
-            <span className="shrink-0 text-[10px] font-medium text-board-muted" role="status">
-              {loading || activePublishPending ? "Switching…" : "Saving…"}
-            </span>
-          ) : null}
-
-          {canEditRundown && (
-            <>
-              <span className="w-px h-5 bg-board-border mx-1 shrink-0" aria-hidden="true" />
-              <input
-                type="text"
-                value={serviceName}
-                onChange={(e) => handleServiceNameChange(e.target.value)}
-                placeholder="Name this service"
-                maxLength={120}
-                aria-label="Service name"
-                title="Optional label for a special event, e.g. Christmas Eve 7pm"
-                className="shrink-0 w-[150px] bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text placeholder:text-board-muted/50 hover:border-board-border transition-colors"
-              />
-            </>
-          )}
-            {/* Show start time */}
-            {canEditRundown && (
-              <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-board-border/70 text-xs text-board-muted hover:border-board-border transition-colors cursor-pointer shrink-0" title="Scheduled show start time — used for cascade timing">
-                <Clock className="w-3 h-3 shrink-0" />
-                <span className="whitespace-nowrap">Show</span>
-                <input
-                  type="time"
-                  value={scheduledStartTime}
-                  onChange={(e) => handleScheduledStartChange(e.target.value)}
-                  className="bg-transparent text-board-text tabular-nums outline-none w-[72px] cursor-pointer"
-                  style={{ colorScheme: "dark" }}
-                />
-              </label>
-            )}
-            </div>
-          </div>
-          <div className="ml-auto flex items-center gap-2 shrink-0 pl-3">
-            {/* Timer kiosk link */}
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(timerUrl);
-                setCopiedUrl(true);
-                setTimeout(() => setCopiedUrl(false), 2000);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-              title="Copy timer kiosk URL"
-            >
-              <Monitor className="w-3 h-3" />
-              <span>Kiosk</span>
-              {copiedUrl ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+              <CalendarDays className="h-4 w-4 text-board-muted" />
+              <span className="hidden sm:inline">Show options</span>
+              {selectionBusy ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-fire-400" /> : <ChevronDown className="h-3.5 w-3.5 text-board-muted" />}
             </button>
             {canEditRundown ? (
               <>
-                {/* Load, Save, Export, Reset and Clear All are occasional
-                    file operations, not live controls. They belong behind
-                    one menu so the toolbar stays short and Add Item — the
-                    only thing used constantly — keeps its prominence. */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
-                      title="Load, save, export and reset"
+                      title="Rundown actions"
                       aria-label="Rundown actions"
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
+                    <DropdownMenuItem onSelect={() => {
+                      navigator.clipboard.writeText(timerUrl);
+                      setCopiedUrl(true);
+                      setTimeout(() => setCopiedUrl(false), 2000);
+                    }}>
+                      <Monitor className="w-3.5 h-3.5" />
+                      {copiedUrl ? "Kiosk link copied" : "Copy kiosk link"}
+                      {copiedUrl ? <Check className="ml-auto w-3.5 h-3.5 text-green-400" /> : <Copy className="ml-auto w-3.5 h-3.5" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => setShowLoadModal(true)}>
                       <FolderOpen className="w-3.5 h-3.5" />
                       Load from date or template
@@ -1479,15 +1355,20 @@ function RundownPage() {
                 </button>
               </>
             ) : (
-              <span className="px-3 py-1.5 rounded-lg border border-board-border text-[11px] font-medium uppercase tracking-wider text-board-muted">
+              <span className="hidden rounded-lg border border-board-border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-board-muted sm:inline">
                 View only
               </span>
             )}
           </div>
+          <div className="order-last min-w-0 basis-full sm:hidden">
+            <p className="truncate text-xs font-medium text-board-text">{selectedShowName}</p>
+            <p className="mt-0.5 truncate text-[11px] text-board-muted">
+              {formatDisplayDate(serviceDate)}
+              {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
+              {` · ${items.length} items · ${formatDuration(totalDuration)}`}
+            </p>
+          </div>
         </div>
-        </div>
-
-        <ScrollEdges edges={headerScroll.edges} scrollBy={headerScroll.scrollBy} />
       </div>
 
       {(selectionError || saveError || syncError) && (
@@ -2238,6 +2119,30 @@ function RundownPage() {
           onClose={() => setShowSaveModal(false)}
         />
       )}
+      {showOptionsModal ? (
+        <ShowOptionsModal
+          busy={selectionBusy}
+          canCreate={canCreateShow}
+          canEdit={canEditRundown}
+          onClose={() => setShowOptionsModal(false)}
+          onCreate={() => {
+            setShowOptionsModal(false);
+            setShowCreateModal(true);
+          }}
+          onDateChange={(date) => void loadDate(date)}
+          onNameChange={handleServiceNameChange}
+          onSelectShow={(show) => void loadDate(show.serviceDate, show.id)}
+          onShiftDate={handleDateChange}
+          onStartTimeChange={handleScheduledStartChange}
+          onToday={() => void loadDate(getTodayDateString(settings["org-timezone"]))}
+          selectedDate={serviceDate}
+          selectedShowId={showId}
+          serviceName={serviceName}
+          shows={shows}
+          startTime={scheduledStartTime}
+          timeZone={settings["org-timezone"]}
+        />
+      ) : null}
       {canCreateShow && showCreateModal ? (
         <NewShowModal
           currentDate={serviceDate}

@@ -13,7 +13,6 @@ import {
   Radio,
   Headphones,
   Cable,
-  ChevronLeft,
   ChevronRight,
   Search,
   SlidersHorizontal,
@@ -30,7 +29,7 @@ import {
 } from "@/lib/data";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate } from "@/lib/rundown";
 
@@ -109,16 +108,6 @@ function AudioPage() {
     },
   });
 
-  const handleDateChange = (direction: number) => {
-    const ordered = [...shows].sort((a, b) => `${a.serviceDate}:${a.scheduledStartTime ?? ""}`.localeCompare(`${b.serviceDate}:${b.scheduledStartTime ?? ""}`));
-    const index = ordered.findIndex((show) => show.id === showId);
-    const next = ordered[index + direction];
-    if (!next) return;
-    setServiceDate(next.serviceDate);
-    setShowId(next.id);
-    void loadAssignments(next.serviceDate, next.id);
-  };
-
   const handleToggleMute = async (id: string, currentMuted: boolean) => {
     await updateMicAssignment({ data: { orgId, id, updates: { muted: !currentMuted } } });
     loadAssignments(serviceDate, showId);
@@ -152,8 +141,8 @@ function AudioPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               Audio
@@ -162,42 +151,17 @@ function AudioPage() {
               Mic assignments and channel management
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => handleDateChange(-1)}
-                aria-label="Previous service date"
-                title="Previous service date"
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <select
-                value={showId ?? ""}
-                onChange={(event) => {
-                  const selected = shows.find((show) => show.id === event.target.value);
-                  if (!selected) return;
-                  setServiceDate(selected.serviceDate);
-                  setShowId(selected.id);
-                  void loadAssignments(selected.serviceDate, selected.id);
-                }}
-                aria-label="Select show"
-                className="rounded-lg border border-board-border bg-board-card px-3 py-1 text-xs font-medium text-board-text"
-              >
-                {!showId && <option value="">No planned show</option>}
-                {shows.map((show) => <option key={show.id} value={show.id}>{formatServicePickerLabel(show, { timeZone: orgTimezone })}</option>)}
-              </select>
-              <button
-                type="button"
-                onClick={() => handleDateChange(1)}
-                aria-label="Next service date"
-                title="Next service date"
-                className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+            <ShowSwitcherMenu
+              selectedId={showId}
+              shows={shows}
+              timeZone={orgTimezone}
+              onSelect={(selected) => {
+                setServiceDate(selected.serviceDate);
+                setShowId(selected.id);
+                void loadAssignments(selected.serviceDate, selected.id);
+              }}
+            />
             <button
               disabled={!showId}
               onClick={() => {

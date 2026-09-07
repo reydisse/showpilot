@@ -340,6 +340,7 @@ export default function ChatScreen() {
   const initialScrollDoneRef = useRef(false);
   const focusScrollDoneRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(true);
+  const userHasScrolledRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNotificationsRef = useRef(new Map<string, { text: string; mentionedUserIds: string[] }>());
   useEffect(() => {
@@ -387,6 +388,7 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = false;
     focusScrollDoneRef.current = null;
     stickToBottomRef.current = true;
+    userHasScrolledRef.current = false;
     setReplyingTo(null);
     setEditing(null);
     setAttachment(null);
@@ -647,13 +649,14 @@ export default function ChatScreen() {
   }, [votePoll]);
 
   function trackScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (!userHasScrolledRef.current) return;
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     stickToBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 96;
   }
 
   function keepLatestMessageVisible() {
     if (!displayMessages.length || focusedMessageId) return;
-    if (!initialScrollDoneRef.current || stickToBottomRef.current) {
+    if (!userHasScrolledRef.current || stickToBottomRef.current) {
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: initialScrollDoneRef.current }));
     }
     initialScrollDoneRef.current = true;
@@ -716,7 +719,9 @@ export default function ChatScreen() {
           ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the conversation." : "Connecting to this room…"}</Text>}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           onContentSizeChange={keepLatestMessageVisible}
+          onLayout={keepLatestMessageVisible}
           onScroll={trackScroll}
+          onScrollBeginDrag={() => { userHasScrolledRef.current = true; }}
           onScrollToIndexFailed={({ index }) => setTimeout(() => listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 }), 250)}
           scrollEventThrottle={16}
         />

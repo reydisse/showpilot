@@ -445,6 +445,9 @@ export function ChatPanel({
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
+  const initialPositionDoneRef = useRef(false);
+  const stickToBottomRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
@@ -514,11 +517,37 @@ export function ChatPanel({
     };
   }, []);
 
-  // Keep the latest message visible as messages or pinned alerts change.
+  // Start at the latest message and follow new content only while the reader
+  // remains at the bottom. Async image sizing must not strand the viewport.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    setShowScrollButton(false);
-  }, [messages.length, pinnedIds.size]);
+    if (messages.length === 0) {
+      initialPositionDoneRef.current = false;
+      stickToBottomRef.current = true;
+      return;
+    }
+    if (focusedMessageId || (initialPositionDoneRef.current && !stickToBottomRef.current)) return;
+    const frame = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+      initialPositionDoneRef.current = true;
+      setShowScrollButton(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusedMessageId, messages.length, pinnedIds.size]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const content = messagesContentRef.current;
+    if (!container || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (!focusedMessageId && stickToBottomRef.current) {
+        messagesEndRef.current?.scrollIntoView({ block: "end" });
+        setShowScrollButton(false);
+      }
+    });
+    observer.observe(container);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [focusedMessageId]);
 
   // Detect if user has scrolled up
   const handleScroll = () => {
@@ -526,10 +555,12 @@ export function ChatPanel({
     if (!container) return;
     const isAtBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+    stickToBottomRef.current = isAtBottom;
     setShowScrollButton(!isAtBottom);
   };
 
   const scrollToBottom = () => {
+    stickToBottomRef.current = true;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollButton(false);
   };
@@ -784,17 +815,18 @@ export function ChatPanel({
         onScroll={handleScroll}
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2 modern-scrollbar"
       >
-        {displayMessages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-board-muted">
-            <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
-            <p className="text-sm">No messages yet</p>
-            <p className="text-xs mt-1">
-              {pinnedAlerts.length > 0 ? "Only active alerts are showing right now" : "Production chat will appear here"}
-            </p>
-          </div>
-        )}
+        <div ref={messagesContentRef}>
+          {displayMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-board-muted">
+              <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
+              <p className="text-sm">No messages yet</p>
+              <p className="text-xs mt-1">
+                {pinnedAlerts.length > 0 ? "Only active alerts are showing right now" : "Production chat will appear here"}
+              </p>
+            </div>
+          )}
 
-        {displayMessages.map((msg, index) => {
+          {displayMessages.map((msg, index) => {
           const previous = displayMessages[index - 1];
           const showDay = !previous || new Date(previous.timestamp).toDateString() !== new Date(msg.timestamp).toDateString();
           const grouped = Boolean(
@@ -816,14 +848,15 @@ export function ChatPanel({
               <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} />
             </div>
           );
-        })}
-        {typingUsers.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2 text-[10px] text-board-muted" aria-live="polite">
-            <span className="flex gap-0.5" aria-hidden="true"><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:120ms]" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:240ms]" /></span>
-            <span>{typingUsers.length === 1 ? `${typingUsers[0].name} is typing…` : `${typingUsers.slice(0, 2).map((user) => user.name).join(" and ")} are typing…`}</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+          })}
+          {typingUsers.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 text-[10px] text-board-muted" aria-live="polite">
+              <span className="flex gap-0.5" aria-hidden="true"><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:120ms]" /><span className="h-1 w-1 animate-bounce rounded-full bg-sky-300 [animation-delay:240ms]" /></span>
+              <span>{typingUsers.length === 1 ? `${typingUsers[0].name} is typing…` : `${typingUsers.slice(0, 2).map((user) => user.name).join(" and ")} are typing…`}</span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Scroll to bottom button */}

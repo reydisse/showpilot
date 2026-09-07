@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "../ChatPanel";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
@@ -7,8 +7,19 @@ vi.mock("@/components/ui/confirm-dialog", () => ({
   useConfirmDialog: () => ({ confirm: vi.fn(), ConfirmDialogEl: null }),
 }));
 
+let triggerResize = () => {};
+
 beforeAll(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
+  class MockResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      triggerResize = () => callback([], this as unknown as ResizeObserver);
+    }
+    observe() {}
+    disconnect() {}
+    unobserve() {}
+  }
+  globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
 });
 
 const messages: ChatMessage[] = [
@@ -77,5 +88,29 @@ describe("ChatPanel conversation flow", () => {
     expect(screen.getByTestId("chat-scroll-region").className).toContain("overflow-x-hidden");
     expect(screen.getByText(longMessage.text).className).toContain("[overflow-wrap:anywhere]");
     expect(screen.getByRole("button", { name: "Reply to Alex" }).parentElement?.className).not.toContain("left-full");
+  });
+
+  it("keeps late-loading content at the latest message until the reader scrolls up", async () => {
+    const scrollSpy = vi.mocked(HTMLElement.prototype.scrollIntoView);
+    scrollSpy.mockClear();
+    render(<ChatPanel messages={messages} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} />);
+
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+    scrollSpy.mockClear();
+    triggerResize();
+    expect(scrollSpy).toHaveBeenCalled();
+
+    const region = screen.getByTestId("chat-scroll-region");
+    Object.defineProperties(region, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    fireEvent.scroll(region);
+    scrollSpy.mockClear();
+    triggerResize();
+
+    expect(scrollSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "New messages" })).toBeInstanceOf(HTMLElement);
   });
 });
