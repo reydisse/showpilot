@@ -70,7 +70,7 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
 });
 
 function ProdManagerPage() {
-  const { model, rundownState, shows, showId, orgId } = Route.useLoaderData();
+  const { model, rundownState, shows, showId, orgId, orgTimezone } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -147,7 +147,7 @@ function ProdManagerPage() {
               >
                 {shows.map((show) => (
                   <option key={show.id} value={show.id}>
-                    {formatServicePickerLabel(show)}
+                    {formatServicePickerLabel(show, { timeZone: orgTimezone })}
                   </option>
                 ))}
               </select>

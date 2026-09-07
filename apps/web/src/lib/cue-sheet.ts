@@ -29,6 +29,7 @@ import {
   type CueColumnRow,
   type CueRow,
 } from "@/lib/cue-sheet-derive";
+import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import type { RundownItem } from "@/types/rundown";
 
 export { resolveCueSheetDate, toCueRows };
@@ -254,15 +255,14 @@ export const getCueSheet = createServerFn({ method: "GET" })
       loadShows(data.orgId),
       readActiveShow(data.orgId),
     ]);
-    const serviceDates = [...new Set(shows.map((show) => show.serviceDate))];
-    const target =
-      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
-      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
-      (active.showId ? shows.find((show) => show.id === active.showId) : undefined) ??
-      shows.find(
-        (show) =>
-          show.serviceDate === resolveCueSheetDate(serviceDates, data.today, active.serviceDate),
-      );
+    const target = resolveRundownOpeningShow({
+      shows,
+      today: data.today,
+      requestedShowId: data.showId,
+      requestedServiceDate: data.serviceDate,
+      activeShowId: active.showId ?? undefined,
+      activeServiceDate: active.serviceDate ?? undefined,
+    });
     const serviceDate = target?.serviceDate ?? data.serviceDate ?? data.today;
     const showId = target?.id;
 

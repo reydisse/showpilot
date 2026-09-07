@@ -4142,10 +4142,15 @@ async function resolveMobileShow(
     ).bind(requestedShowId, orgId).first();
   }
   return db.prepare(
-    `SELECT id, serviceDate, name, status FROM rundown WHERE orgId = ?
-     ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END,
-       CASE WHEN serviceDate >= ? THEN serviceDate END ASC, serviceDate DESC,
-       scheduledStartTime ASC, createdAt ASC LIMIT 1`,
+    `SELECT r.id, r.serviceDate, r.name, r.status
+       FROM rundown r
+       LEFT JOIN app_setting active
+         ON active.orgId = r.orgId AND active.key = 'active-show-id'
+      WHERE r.orgId = ?
+      ORDER BY CASE WHEN active.value = r.id THEN 0 ELSE 1 END,
+        CASE WHEN r.serviceDate >= ? THEN 0 ELSE 1 END,
+        CASE WHEN r.serviceDate >= ? THEN r.serviceDate END ASC, r.serviceDate DESC,
+        r.scheduledStartTime ASC, r.createdAt ASC LIMIT 1`,
   ).bind(orgId, today, today).first();
 }
 
@@ -4497,9 +4502,9 @@ async function mobileDashboard(request: Request, url: URL, db: MobileApiDatabase
 }
 
 async function mobileReports(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
-  const access = await authorize(request, url, db, ["schedule:view"]);
+  const access = await authorize(request, url, db, ["show:view"]);
   if (access instanceof Response) return access;
-  const result = await db.prepare(
+  const [result, noteResult] = await Promise.all([db.prepare(
     `SELECT r.id, r.serviceDate, r.name, r.location, r.status, r.scheduledStartTime,
       COUNT(DISTINCT i.id) AS itemCount,
       COUNT(DISTINCT CASE WHEN i.status = 'complete' THEN i.id END) AS completedItems,
@@ -4514,8 +4519,77 @@ async function mobileReports(request: Request, url: URL, db: MobileApiDatabase):
      LEFT JOIN service_assignment a ON a.orgId = r.orgId AND a.showId = r.id
      LEFT JOIN checklist_entry c ON c.orgId = r.orgId AND c.showId = r.id
      WHERE r.orgId = ? GROUP BY r.id ORDER BY r.serviceDate DESC, r.scheduledStartTime DESC LIMIT 100`,
-  ).bind(access.orgId).all<Record<string, unknown>>();
-  return json({ organization: access.orgId, generatedAt: new Date().toISOString(), reports: result.results ?? [] });
+  ).bind(access.orgId).all<Record<string, unknown>>(), db.prepare(
+    `SELECT id, showId, userId, authorName, role, summary, wins, issues,
+            followUps, createdAt, updatedAt
+       FROM show_report_note
+      WHERE orgId = ?
+      ORDER BY CASE role WHEN 'pm' THEN 0 ELSE 1 END, updatedAt ASC`,
+  ).bind(access.orgId).all<Record<string, unknown>>()]);
+  return json({
+    organization: access.orgId,
+    generatedAt: new Date().toISOString(),
+    reports: result.results ?? [],
+    notes: noteResult.results ?? [],
+    viewer: {
+      userId: access.identity.userId,
+      writableNoteLanes: (["pm", "tm"] as const).filter((lane) =>
+        hasAny(access.identity, [lane === "pm" ? "dashboard:pm" : "dashboard:tm"]),
+      ),
+    },
+  });
+}
+
+async function writeMobileReportNote(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+  showId: string,
+): Promise<Response> {
+  const body = await readJson(request);
+  const lane = body?.role === "pm" || body?.role === "tm" ? body.role : null;
+  if (!lane) return json({ error: "A PM or TM note lane is required." }, 400);
+  const permission: Permission = lane === "pm" ? "dashboard:pm" : "dashboard:tm";
+  const access = await authorize(request, url, db, [permission]);
+  if (access instanceof Response) return access;
+  const fields = {
+    summary: boundedText(body?.summary, 4_000),
+    wins: boundedText(body?.wins, 4_000),
+    issues: boundedText(body?.issues, 4_000),
+    followUps: boundedText(body?.followUps, 4_000),
+  };
+  if (Object.values(fields).some((value) => value === null)) {
+    return json({ error: "Each report note field may contain at most 4,000 characters." }, 400);
+  }
+  const show = await db.prepare(
+    "SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
+  ).bind(showId, access.orgId).first<{ id: string }>();
+  if (!show) return json({ error: "Show not found." }, 404);
+  await db.prepare(
+    `INSERT INTO show_report_note
+       (id, orgId, showId, userId, authorName, role, summary, wins, issues,
+        followUps, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     ON CONFLICT(orgId, showId, userId) DO UPDATE SET
+       authorName = excluded.authorName,
+       role = excluded.role,
+       summary = excluded.summary,
+       wins = excluded.wins,
+       issues = excluded.issues,
+       followUps = excluded.followUps,
+       updatedAt = CURRENT_TIMESTAMP`,
+  ).bind(
+    crypto.randomUUID(), access.orgId, showId, access.identity.userId,
+    access.identity.name, lane, fields.summary, fields.wins, fields.issues,
+    fields.followUps,
+  ).run();
+  const note = await db.prepare(
+    `SELECT id, showId, userId, authorName, role, summary, wins, issues,
+            followUps, createdAt, updatedAt
+       FROM show_report_note
+      WHERE orgId = ? AND showId = ? AND userId = ? LIMIT 1`,
+  ).bind(access.orgId, showId, access.identity.userId).first<Record<string, unknown>>();
+  return note ? json({ note }) : json({ error: "The report note did not save." }, 500);
 }
 
 async function mobileAudio(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
@@ -4710,6 +4784,11 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   }
   const mobileDashboardMatch = url.pathname.match(/^\/api\/mobile\/v1\/dashboards\/(pm|tm)$/);
   if (mobileDashboardMatch && request.method === "GET") return mobileDashboard(request, url, env.DB, mobileDashboardMatch[1] as "pm" | "tm");
+  const mobileReportNoteMatch = url.pathname.match(/^\/api\/mobile\/v1\/reports\/([^/]+)\/notes$/);
+  if (mobileReportNoteMatch && request.method === "POST") {
+    const showId = decodePathId(mobileReportNoteMatch[1]);
+    return showId ? writeMobileReportNote(request, url, env.DB, showId) : json({ error: "Show not found." }, 404);
+  }
   const mobileAssetMatch = url.pathname.match(/^\/api\/mobile\/v1\/assets\/([^/]+)$/);
   if (mobileAssetMatch && request.method === "POST") {
     const assetId = decodePathId(mobileAssetMatch[1]);

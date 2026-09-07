@@ -36,6 +36,9 @@ interface QueryCall {
 function fakeDatabase(input: {
   calls: QueryCall[];
   destination?: { rtmpUrl: string; streamKey: string; cfOutputId: string } | null;
+  activeShow?: { id: string; serviceDate: string; name: string; status: string } | null;
+  reportShow?: { id: string } | null;
+  reportNote?: Record<string, unknown> | null;
   changes?: number;
 }): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
@@ -45,6 +48,15 @@ function fakeDatabase(input: {
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
         if (sql.startsWith("SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination")) {
           return (input.destination ?? null) as T | null;
+        }
+        if (sql.includes("LEFT JOIN app_setting active") && sql.includes("active.value = r.id")) {
+          return (input.activeShow ?? null) as T | null;
+        }
+        if (sql.startsWith("SELECT id FROM rundown WHERE id = ? AND orgId = ?")) {
+          return (input.reportShow ?? null) as T | null;
+        }
+        if (sql.includes("FROM show_report_note") && sql.includes("userId = ?")) {
+          return (input.reportNote ?? null) as T | null;
         }
         return null;
       },
@@ -204,5 +216,91 @@ describe("mobile operations API", () => {
       columns: [],
       rows: [],
     });
+  });
+
+  it("opens the exact active show when multiple shows share a date", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["cuesheet:view"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await request(
+      fakeDatabase({
+        calls,
+        activeShow: {
+          id: "show-evening",
+          serviceDate: "2026-08-30",
+          name: "Evening Service",
+          status: "draft",
+        },
+      }),
+      "/api/mobile/v1/cue-sheets?orgId=org-1",
+      "GET",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      show: { id: "show-evening", name: "Evening Service" },
+    });
+    const selection = calls.find(
+      (call) => call.operation === "first" && call.sql.includes("active.value = r.id"),
+    );
+    expect(selection?.sql).toContain("LEFT JOIN app_setting active");
+    expect(selection?.params).toEqual(["org-1", "2026-08-27", "2026-08-27"]);
+  });
+
+  it("lets every show viewer open the shared reports and notes inbox", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["show:view"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/reports?orgId=org-1", "GET");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      organization: "org-1",
+      reports: [],
+      notes: [],
+      viewer: { userId: "operator-1", writableNoteLanes: [] },
+    });
+    expect(calls.filter((call) => call.operation === "all" && call.params[0] === "org-1")).toHaveLength(2);
+  });
+
+  it("saves a manager note to the selected show from mobile", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "pm", permissions: ["show:view", "dashboard:pm"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const note = {
+      id: "note-1",
+      showId: "show-1",
+      userId: "operator-1",
+      authorName: "Ada",
+      role: "pm",
+      summary: "Smooth show",
+      wins: "Fast changeover",
+      issues: "",
+      followUps: "",
+      createdAt: "2026-08-27T12:00:00.000Z",
+      updatedAt: "2026-08-27T12:00:00.000Z",
+    };
+    const response = await request(
+      fakeDatabase({ calls, reportShow: { id: "show-1" }, reportNote: note }),
+      "/api/mobile/v1/reports/show-1/notes?orgId=org-1",
+      "POST",
+      { role: "pm", summary: "Smooth show", wins: "Fast changeover", issues: "", followUps: "" },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ note });
+    const insert = calls.find((call) => call.operation === "run" && call.sql.includes("INSERT INTO show_report_note"));
+    expect(insert?.params.slice(1, 6)).toEqual(["org-1", "show-1", "operator-1", "Ada", "pm"]);
+  });
+
+  it("keeps report note editing limited to the requested manager lane", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["show:view"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/reports/show-1/notes?orgId=org-1",
+      "POST",
+      { role: "tm", summary: "Attempt", wins: "", issues: "", followUps: "" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(calls.some((call) => call.sql.includes("INSERT INTO show_report_note"))).toBe(false);
   });
 });

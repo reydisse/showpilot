@@ -2,7 +2,6 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 
 interface SidebarContextValue {
   collapsed: boolean;
-  setCollapsed: (value: boolean) => void;
   toggle: () => void;
   fullscreen: boolean;
   toggleFullscreen: () => void;
@@ -15,7 +14,6 @@ interface SidebarContextValue {
 
 const SidebarContext = createContext<SidebarContextValue>({
   collapsed: false,
-  setCollapsed: () => {},
   toggle: () => {},
   fullscreen: false,
   toggleFullscreen: () => {},
@@ -53,12 +51,6 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  // Close mobile drawer on route change (location change)
-  useEffect(() => {
-    if (mobileOpen) setMobileOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const toggleMobile = useCallback(() => {
     setMobileOpen((prev) => !prev);
   }, []);
@@ -73,11 +65,6 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
     document.addEventListener("fullscreenchange", handleChange);
     return () => document.removeEventListener("fullscreenchange", handleChange);
   }, []);
-
-  const setCollapsed = (value: boolean) => {
-    setCollapsedState(value);
-    localStorage.setItem("showpilot-sidebar-collapsed", String(value));
-  };
 
   const toggle = () => {
     setCollapsedState((prev) => {
@@ -106,7 +93,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
 
   return (
     <SidebarContext.Provider
-      value={{ collapsed, setCollapsed, toggle, fullscreen, toggleFullscreen, exitFullscreen, mobileOpen, setMobileOpen, toggleMobile, isMobile }}
+      value={{ collapsed, toggle, fullscreen, toggleFullscreen, exitFullscreen, mobileOpen, setMobileOpen, toggleMobile, isMobile }}
     >
       {children}
     </SidebarContext.Provider>

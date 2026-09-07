@@ -452,7 +452,7 @@ const weekAheadWidget: PmWidget = {
       <ul className="space-y-2">
         {model.upcoming.map((service) => (
           <li
-            key={service.serviceDate}
+            key={service.showId}
             className="flex items-center justify-between gap-2"
           >
             <div className="min-w-0">
@@ -1037,7 +1037,22 @@ const recentWidget: PmWidget = {
         <ul className="space-y-2">
           {model.recent.map((service) => {
             const over = (service.deltaMs ?? 0) > 0;
+            const dateLabel = new Date(
+              `${service.serviceDate}T12:00:00`,
+            ).toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            });
+            const startLabel = service.scheduledStartTime
+              ? new Date(service.scheduledStartTime).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })
+              : null;
             const facts = [
+              service.name ? dateLabel : null,
+              startLabel,
               service.plannedMs > 0
                 ? `${formatDuration(service.plannedMs, true)} planned`
                 : null,
@@ -1047,18 +1062,12 @@ const recentWidget: PmWidget = {
             ].filter(Boolean);
             return (
               <li
-                key={service.serviceDate}
+                key={service.showId}
                 className="flex items-center justify-between gap-2"
               >
                 <div className="min-w-0">
                   <p className="text-xs text-board-text">
-                    {new Date(
-                      `${service.serviceDate}T12:00:00`,
-                    ).toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                    {service.name || dateLabel}
                   </p>
                   <p className="text-[10px] text-board-muted truncate">
                     {facts.length > 0 ? facts.join(" · ") : "No rundown"}

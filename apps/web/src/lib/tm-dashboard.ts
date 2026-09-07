@@ -27,6 +27,7 @@ import { getTodayDateString } from "@/lib/utils";
 import { loadRosterDuty } from "@/lib/pm-dashboard";
 import { readPhaseSettings, getServicePhase } from "@/lib/service-phase";
 import { rundownPhaseStatus } from "@/lib/rundown-status";
+import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import {
   deriveTmDashboard,
   type TmDashboardModel,
@@ -52,6 +53,7 @@ export interface TmDashboardResult {
   orgId: string;
   showId: string | null;
   serviceDate: string;
+  orgTimezone: string;
   shows: Array<{ id: string; serviceDate: string; name: string; scheduledStartTime: string | null }>;
   viewerId: string;
   viewerRole: string;
@@ -91,13 +93,14 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       orderBy: [{ serviceDate: "asc" }, { scheduledStartTime: "asc" }, { createdAt: "asc" }],
       select: { id: true, serviceDate: true, name: true, scheduledStartTime: true },
     });
-    const targetShow =
-      (data.showId ? shows.find((show) => show.id === data.showId) : undefined) ??
-      (data.serviceDate ? shows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
-      (settingMap["active-show-id"] ? shows.find((show) => show.id === settingMap["active-show-id"]) : undefined) ??
-      (settingMap["active-service-date"] ? shows.find((show) => show.serviceDate === settingMap["active-service-date"]) : undefined) ??
-      shows.find((show) => show.serviceDate >= today) ??
-      shows.at(-1);
+    const targetShow = resolveRundownOpeningShow({
+      shows,
+      today,
+      requestedShowId: data.showId,
+      requestedServiceDate: data.serviceDate,
+      activeShowId: settingMap["active-show-id"],
+      activeServiceDate: settingMap["active-service-date"],
+    });
     const serviceDate = targetShow?.serviceDate ?? data.serviceDate ?? today;
     const showId = targetShow?.id;
 
@@ -236,6 +239,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       orgId,
       showId: showId ?? null,
       serviceDate,
+      orgTimezone,
       shows: shows.map((show) => ({
         id: show.id,
         serviceDate: show.serviceDate,

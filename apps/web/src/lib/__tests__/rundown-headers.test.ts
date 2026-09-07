@@ -38,6 +38,7 @@ function header(id: string, title: string): RundownItem {
 
 function snapshot(items: RundownItem[]): PmSnapshot {
   return {
+    showId: "show-current",
     serviceDate: "2026-08-09",
     serviceName: "",
     now: START,

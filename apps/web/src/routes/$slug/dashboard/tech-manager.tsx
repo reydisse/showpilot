@@ -110,6 +110,7 @@ function TechManagerPage() {
     orgId,
     showId,
     shows,
+    orgTimezone,
     viewerId,
     viewerRole,
     canAssignPeople,
@@ -334,7 +335,7 @@ function TechManagerPage() {
             {!showId && <option value="">No planned show</option>}
             {shows.map((show) => (
               <option key={show.id} value={show.id}>
-                {formatServicePickerLabel(show)}
+                {formatServicePickerLabel(show, { timeZone: orgTimezone })}
               </option>
             ))}
           </select>

@@ -136,14 +136,17 @@ export interface SnapshotOpenItem {
 }
 
 export interface SnapshotRecentService {
+  showId: string;
   serviceDate: string;
   name: string;
+  scheduledStartTime: string | null;
   plannedMs: number;
   actualMs: number | null;
   incidentCount: number;
 }
 
 export interface SnapshotUpcomingService {
+  showId: string;
   serviceDate: string;
   name: string;
   scheduledStartTime: string | null;
@@ -153,6 +156,7 @@ export interface SnapshotUpcomingService {
 }
 
 export interface PmSnapshot {
+  showId: string | null;
   serviceDate: string;
   /** Optional label, e.g. "Christmas Eve 7pm". */
   serviceName: string;
@@ -514,6 +518,15 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+function showScopedPath(
+  path: string,
+  snapshot: Pick<PmSnapshot, "serviceDate" | "showId">,
+): string {
+  const params = new URLSearchParams({ date: snapshot.serviceDate });
+  if (snapshot.showId) params.set("show", snapshot.showId);
+  return `${path}?${params.toString()}`;
+}
+
 export function deriveAttentionQueue(
   snapshot: PmSnapshot,
   health: RundownHealth,
@@ -544,7 +557,7 @@ export function deriveAttentionQueue(
       detail: `Incident · ${incident.category} · reported by ${incident.reportedBy || "unknown"}`,
       source: "incident",
       actionLabel: "Open",
-      actionPath: "production/incidents",
+      actionPath: showScopedPath("production/incidents", snapshot),
     });
   }
 
@@ -614,7 +627,7 @@ export function deriveAttentionQueue(
         detail: "Nothing to run, time, or cue from",
         source: "rundown",
         actionLabel: "Build",
-        actionPath: "rundown",
+        actionPath: showScopedPath("rundown", snapshot),
       });
     }
   } else {
@@ -626,7 +639,7 @@ export function deriveAttentionQueue(
         detail: "Runtime estimate is unreliable until these are set",
         source: "rundown",
         actionLabel: "Fix",
-        actionPath: "rundown",
+        actionPath: showScopedPath("rundown", snapshot),
       });
     }
     if (health.hardStopConflicts > 0) {
@@ -637,7 +650,7 @@ export function deriveAttentionQueue(
         detail: "Cascaded timing arrives after the pinned start",
         source: "rundown",
         actionLabel: "Retime",
-        actionPath: "rundown",
+        actionPath: showScopedPath("rundown", snapshot),
       });
     }
     if (health.missingOwner > 0) {
@@ -648,7 +661,7 @@ export function deriveAttentionQueue(
         detail: "Nobody is named to run these",
         source: "rundown",
         actionLabel: "Assign",
-        actionPath: "rundown",
+        actionPath: showScopedPath("rundown", snapshot),
       });
     }
     if (
@@ -663,7 +676,7 @@ export function deriveAttentionQueue(
         detail: `Planned ${formatMinutes(health.plannedMs)} against a ${formatMinutes(health.windowMs)} service`,
         source: "rundown",
         actionLabel: "Trim",
-        actionPath: "rundown",
+        actionPath: showScopedPath("rundown", snapshot),
       });
     }
   }
@@ -696,7 +709,7 @@ export function deriveAttentionQueue(
         detail: `${plural(unchecked.length, "item")} outstanding${scope}`,
         source: "checklist",
         actionLabel: "Open",
-        actionPath: "production/checklist",
+        actionPath: showScopedPath("production/checklist", snapshot),
       });
     }
   }
@@ -779,7 +792,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Fill",
-        actionPath: `schedule?date=${snapshot.serviceDate}`,
+        actionPath: showScopedPath("schedule", snapshot),
       });
     }
     if (crew.declined > 0) {
@@ -794,7 +807,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Replace",
-        actionPath: `schedule?date=${snapshot.serviceDate}`,
+        actionPath: showScopedPath("schedule", snapshot),
       });
     }
     // Unconfirmed only matters once the service is close enough that
@@ -811,7 +824,7 @@ export function deriveAttentionQueue(
           .join(", "),
         source: "crew",
         actionLabel: "Chase",
-        actionPath: `schedule?date=${snapshot.serviceDate}`,
+        actionPath: showScopedPath("schedule", snapshot),
       });
     }
   }
@@ -830,7 +843,7 @@ export function deriveAttentionQueue(
         detail: "Checks the crew ticks off before the service starts",
         source: "checklist",
         actionLabel: "Set up",
-        actionPath: "production/checklist",
+        actionPath: showScopedPath("production/checklist", snapshot),
       });
     }
     if (!crew.scheduled && snapshot.crew.length > 0) {
@@ -841,7 +854,7 @@ export function deriveAttentionQueue(
         detail: `${plural(snapshot.crew.length, "person")} on the roster and no positions assigned yet`,
         source: "crew",
         actionLabel: "Schedule",
-        actionPath: `schedule?date=${snapshot.serviceDate}`,
+        actionPath: showScopedPath("schedule", snapshot),
       });
     }
     if (streamDestinations.length === 0) {

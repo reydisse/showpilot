@@ -46,7 +46,7 @@ export default function OperationsScreen() {
   const canLowerThirds = permissions.has("lowerthird:view") || permissions.has("lowerthird:trigger") || permissions.has("lowerthird:configure");
   const canProdManager = permissions.has("dashboard:pm");
   const canTechManager = permissions.has("dashboard:tm");
-  const canReports = permissions.has("schedule:view");
+  const canReports = permissions.has("show:view");
 
   return (
     <Page eyebrow="CONTROL SURFACES" title="Operations" subtitle="Native tools available to your current role and on-duty access grants.">
@@ -68,7 +68,7 @@ export default function OperationsScreen() {
         {canMultiPlatform ? <FeatureLink icon={Share2} title="Multi-platform" description="Manage write-only RTMP credentials and connect or disconnect distribution outputs." onPress={() => router.push("/multi-platform")} /> : null}
         {canLowerThirds ? <FeatureLink icon={Captions} title="Lower thirds" description="Create, edit, take, stack, and clear cloud graphics on air." badge="LIVE" onPress={() => router.push("/lower-thirds")} /> : null}
         {canProdManager ? <FeatureLink icon={ClipboardList} title="Prod Manager" description="Crew, rundown, checklist, and planning readiness in one operational dashboard." onPress={() => router.push("/prod-manager")} /> : null}
-        {canReports ? <FeatureLink icon={FileChart} title="Reports" description="Review show outcomes and export native PDF handoff reports." onPress={() => router.push("/reports")} /> : null}
+        {canReports ? <FeatureLink icon={FileChart} title="Reports & notes" description="Review show outcomes, read team handoffs, add manager notes, and export reports." onPress={() => router.push("/reports")} /> : null}
         {canTechManager ? <FeatureLink icon={Wrench} title="Tech Manager" description="Fault, equipment, stream, device, and systems readiness with live drill-downs." onPress={() => router.push("/tech-manager")} /> : null}
         {canTechManager ? <FeatureLink icon={AudioLines} title="Audio" description="Build and operate the show input list, patch, gain, phantom power, and mute plan." onPress={() => router.push("/audio")} /> : null}
         {canDevices ? <FeatureLink icon={Cable} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices")} /> : null}

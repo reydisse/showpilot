@@ -215,7 +215,7 @@ function ChatMessageRow({
               <span className="truncate text-[10px] text-board-muted">{message.senderName}</span>
               <span className="ml-auto shrink-0 text-[9px] tabular-nums text-board-muted/50">{formatTimestamp(message.timestamp)}</span>
             </div>
-            <p className={cn("break-words text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
+            <p className={cn("break-words [overflow-wrap:anywhere] text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
           </div>
         </div>
       </div>
@@ -227,7 +227,7 @@ function ChatMessageRow({
       id={`chat-message-${message.id}`}
       data-chat-message-id={message.id}
       className={cn(
-        "group flex items-end gap-2 px-4",
+        "group flex w-full min-w-0 max-w-full items-end gap-2 overflow-hidden px-4",
         isOwn && "justify-end",
         grouped ? "py-0.5" : "pb-1 pt-2.5",
         isFocused && "rounded-lg bg-sky-400/[0.08] ring-2 ring-sky-400/50 ring-inset",
@@ -269,7 +269,7 @@ function ChatMessageRow({
         {message.deletedAt ? (
           <p className={cn("text-[12px] italic", isOwn ? "text-black/60" : "text-board-muted/60")}>Message deleted</p>
         ) : displayText ? (
-          <p className={cn("whitespace-pre-wrap break-words text-[13px] leading-[1.3rem]", isOwn ? "text-black" : "text-board-text/90")}>{renderMessageText(displayText)}</p>
+          <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-[1.3rem]", isOwn ? "text-black" : "text-board-text/90")}>{renderMessageText(displayText)}</p>
         ) : null}
         {!message.deletedAt && message.poll ? (
           <div className="mt-2 max-w-xl rounded-xl border border-board-border bg-board-bg/45 p-3">
@@ -284,7 +284,7 @@ function ChatMessageRow({
           </div>
         ) : null}
         {!message.deletedAt && attachments.length ? (
-          <div className={cn("grid max-w-2xl gap-2", containsOnlyImages ? "mt-0" : "mt-2", attachments.length > 1 && "sm:grid-cols-2")}>
+          <div className={cn("grid w-full min-w-0 max-w-full gap-2", containsOnlyImages ? "mt-0" : "mt-2", attachments.length > 1 && "sm:grid-cols-2")}>
             {attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
               <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-xl bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${attachment.name}`}>
                 <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="block max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
@@ -299,7 +299,7 @@ function ChatMessageRow({
           </div>
         ) : null}
         {!message.deletedAt && embeddedFileUrls.length ? (
-          <div className={cn("grid max-w-2xl gap-2", containsOnlyImages ? "mt-0" : "mt-2", embeddedFileUrls.length > 1 && "sm:grid-cols-2")}>
+          <div className={cn("grid w-full min-w-0 max-w-full gap-2", containsOnlyImages ? "mt-0" : "mt-2", embeddedFileUrls.length > 1 && "sm:grid-cols-2")}>
             {embeddedFileUrls.map((url) => {
               const name = chatFileName(url);
               const resolvedUrl = attachmentUrl(url);
@@ -336,14 +336,14 @@ function ChatMessageRow({
         {message.externalDelivery?.status === "pending" ? <p className={cn("mt-1 px-2 text-[9px] text-board-muted", isOwn && "text-right")}>Sending to {message.externalDelivery.platform}…</p> : null}
         {message.externalDelivery?.status === "failed" ? <p className={cn("mt-1 px-2 text-[9px] text-red-300", isOwn && "text-right")}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</p> : null}
         {!message.deletedAt && <div className={cn(
-          "absolute top-1 z-10 flex shrink-0 rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
-          isOwn ? "right-full mr-2" : "left-full ml-2",
+          "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
+          isOwn && "self-end",
         )}>
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
         {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
-        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-64 grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
+        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-[min(16rem,calc(100vw-2rem))] grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
         </div>}
       </div>
     </div>
@@ -700,8 +700,9 @@ export function ChatPanel({
 
   return (
     <div
+      data-testid="chat-panel"
       className={cn(
-        "relative flex h-full min-h-0 flex-col overflow-hidden bg-board-card",
+        "relative flex h-full w-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-board-card",
         className,
       )}
     >
@@ -778,9 +779,10 @@ export function ChatPanel({
 
       {/* Messages */}
       <div
+        data-testid="chat-scroll-region"
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto py-2 modern-scrollbar"
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2 modern-scrollbar"
       >
         {displayMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-board-muted">

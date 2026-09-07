@@ -10,6 +10,98 @@ import type { NativeTimerState, RundownItem } from "@/types/rundown";
 import { z } from "zod";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 
+export type ShowReportIndexItem = {
+  id: string;
+  serviceDate: string;
+  name: string;
+  scheduledStartTime: string | null;
+  location: string;
+  status: string;
+  itemCount: number;
+  completedItems: number;
+  plannedDurationMs: number;
+  actualStart: string | null;
+  actualEnd: string | null;
+  crewTotal: number;
+  crewConfirmed: number;
+  checklistTotal: number;
+  checklistComplete: number;
+  incidentCount: number;
+};
+
+export const getShowReportIndex = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(
+      z.object({ orgId: idSchema, from: serviceDateSchema, to: serviceDateSchema }),
+      data,
+    ),
+  )
+  .handler(async ({ data }): Promise<{ services: ShowReportIndexItem[] }> => {
+    await assertOrgPermission(data.orgId, "show:view");
+    const prisma = getPrisma();
+    const range = { gte: data.from, lte: data.to };
+    const [shows, items, assignments, checklist, incidents] = await Promise.all([
+      prisma.rundown.findMany({
+        where: { orgId: data.orgId, serviceDate: range },
+        orderBy: [
+          { serviceDate: "desc" },
+          { scheduledStartTime: "desc" },
+          { createdAt: "desc" },
+        ],
+      }),
+      prisma.rundownItem.findMany({
+        where: { orgId: data.orgId, serviceDate: range },
+        select: {
+          showId: true,
+          status: true,
+          duration: true,
+          actualStart: true,
+          actualEnd: true,
+        },
+      }),
+      prisma.serviceAssignment.findMany({
+        where: { orgId: data.orgId, serviceDate: range },
+        select: { showId: true, status: true },
+      }),
+      prisma.checklistEntry.findMany({
+        where: { orgId: data.orgId, serviceDate: range },
+        select: { showId: true, checked: true },
+      }),
+      prisma.incident.findMany({
+        where: { orgId: data.orgId, serviceDate: range },
+        select: { showId: true },
+      }),
+    ]);
+
+    return {
+      services: shows.map((show) => {
+        const showItems = items.filter((item) => item.showId === show.id);
+        const showAssignments = assignments.filter((item) => item.showId === show.id);
+        const showChecklist = checklist.filter((item) => item.showId === show.id);
+        const starts = showItems.flatMap((item) => item.actualStart ? [item.actualStart.getTime()] : []);
+        const ends = showItems.flatMap((item) => item.actualEnd ? [item.actualEnd.getTime()] : []);
+        return {
+          id: show.id,
+          serviceDate: show.serviceDate,
+          name: show.name || "Service",
+          scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+          location: show.location,
+          status: show.status,
+          itemCount: showItems.length,
+          completedItems: showItems.filter((item) => item.status === "complete").length,
+          plannedDurationMs: showItems.reduce((sum, item) => sum + item.duration, 0),
+          actualStart: starts.length ? new Date(Math.min(...starts)).toISOString() : null,
+          actualEnd: ends.length ? new Date(Math.max(...ends)).toISOString() : null,
+          crewTotal: showAssignments.length,
+          crewConfirmed: showAssignments.filter((item) => item.status === "confirmed").length,
+          checklistTotal: showChecklist.length,
+          checklistComplete: showChecklist.filter((item) => item.checked).length,
+          incidentCount: incidents.filter((item) => item.showId === show.id).length,
+        };
+      }),
+    };
+  });
+
 export type ShowReport = {
   generatedAt: string;
   showId: string;
@@ -69,7 +161,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }): Promise<ShowReport> => {
-    const request = await assertOrgPermission(data.orgId, "schedule:view");
+    const request = await assertOrgPermission(data.orgId, "show:view");
 
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({

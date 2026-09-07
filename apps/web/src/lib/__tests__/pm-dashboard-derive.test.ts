@@ -47,6 +47,7 @@ function item(overrides: Partial<RundownItem> = {}): RundownItem {
 
 function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
   return {
+    showId: "show-current",
     serviceDate: "2026-08-09",
     serviceName: "",
     now: START - 3 * 60 * MINUTE,
@@ -196,6 +197,13 @@ describe("deriveAttentionQueue", () => {
     const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
     const entry = queue.find((q) => q.id === "rundown:missing-duration");
     expect(entry?.severity).toBe("critical");
+  });
+
+  it("keeps operational links scoped to the exact show instance", () => {
+    const snap = snapshot({ items: [item({ id: "a", duration: 0 })] });
+    const queue = deriveAttentionQueue(snap, deriveRundownHealth(snap), "prep");
+    expect(queue.find((entry) => entry.id === "rundown:missing-duration")?.actionPath)
+      .toBe("rundown?date=2026-08-09&show=show-current");
   });
 
   it("raises checklists only once crew is on site", () => {
@@ -557,6 +565,7 @@ describe("deriveUpcoming", () => {
       snapshot({
         upcoming: [
           {
+            showId: "show-upcoming-empty",
             serviceDate: "2026-08-16",
             name: "",
             scheduledStartTime: null,
@@ -576,6 +585,7 @@ describe("deriveUpcoming", () => {
       snapshot({
         upcoming: [
           {
+            showId: "show-upcoming-no-time",
             serviceDate: "2026-08-16",
             name: "",
             scheduledStartTime: null,
@@ -858,15 +868,19 @@ describe("recent services", () => {
       snapshot({
         recent: [
           {
+            showId: "show-recent-timed",
             serviceDate: "2026-08-02",
             name: "",
+            scheduledStartTime: "2026-08-02T10:00:00.000Z",
             plannedMs: 60 * MINUTE,
             actualMs: 68 * MINUTE,
             incidentCount: 1,
           },
           {
+            showId: "show-recent-untimed",
             serviceDate: "2026-07-26",
             name: "",
+            scheduledStartTime: null,
             plannedMs: 60 * MINUTE,
             actualMs: null,
             incidentCount: 0,

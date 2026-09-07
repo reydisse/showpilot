@@ -15,8 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { exportShowReport, type ShowReport } from "@/lib/report";
-import { getSchedule } from "@/lib/schedule";
+import { exportShowReport, getShowReportIndex, type ShowReport } from "@/lib/report";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
 import { saveShowReportNote, type ShowReportLane } from "@/lib/show-report-notes";
@@ -70,13 +69,13 @@ export const Route = createFileRoute("/$slug/reports")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
-      "schedule:view",
+      "show:view",
       context.slug,
       context.orgId,
     );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
-    const schedule = await getSchedule({
+    const reportIndex = await getShowReportIndex({
       data: {
         orgId: context.orgId,
         from: shiftDate(today, -365),
@@ -84,7 +83,7 @@ export const Route = createFileRoute("/$slug/reports")({
       },
     });
     return {
-      services: [...schedule.services].reverse(),
+      services: reportIndex.services,
       orgId: context.orgId,
     };
   },
@@ -198,12 +197,19 @@ function ReportsPage() {
     <div className="h-full overflow-auto">
       <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-board-text">Show reports</h1>
-          <ContextHelp title="Show reports" description="Review what happened during each show, add optional production or technical manager notes, and export the report with those notes included." className="size-7" />
+          <h1 className="text-lg font-semibold text-board-text">Reports &amp; notes</h1>
+          <ContextHelp title="Reports & notes" description="Everyone on the team can review show outcomes here. Production and Technical Managers can add optional notes, and exports include every saved note." className="size-7" />
         </div>
       </header>
 
       <div className="mx-auto max-w-[1500px] p-4 md:p-6">
+        <section className="mb-4 flex items-start gap-3 rounded-xl border border-fire-500/20 bg-fire-500/[0.055] p-4">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fire-500/10 text-fire-400"><MessageSquareText className="h-4 w-4" /></span>
+          <div>
+            <h2 className="text-sm font-semibold text-board-text">Post-show notes live here</h2>
+            <p className="mt-1 text-xs leading-5 text-board-muted">Open any show to read the team handoff. PMs and TMs can add or update their notes here at any time; reminders bring them back to this same page.</p>
+          </div>
+        </section>
         <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-board-border p-3">
             <label className="relative block w-full max-w-sm">

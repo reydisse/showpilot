@@ -58,7 +58,7 @@ export const getShowReportNotes = createServerFn({ method: "GET" })
     const canRead = hasEffectivePermission(
       request.access.role,
       request.access.grantedPermissions,
-      "schedule:view",
+      "show:view",
     );
     if (!canRead) throw new Error("Forbidden");
     const show = await getD1().prepare(

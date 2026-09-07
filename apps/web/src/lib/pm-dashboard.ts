@@ -33,6 +33,7 @@ import {
 } from "@/lib/pm-dashboard-derive";
 import { isHeaderItem } from "@/types/rundown";
 import type { RundownItem, RundownState } from "@/types/rundown";
+import { partitionShowsAround, resolveRundownOpeningShow } from "@/lib/rundown-opening";
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
 const UPCOMING_LIMIT = 3;
@@ -56,6 +57,7 @@ interface RundownDateRow {
   scheduledStartTime: Date | null;
   status: string;
   name: string;
+  createdAt: Date;
 }
 
 /**
@@ -74,7 +76,9 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
           scheduledStartTime: true;
           status: true;
           name: true;
+          createdAt: true;
         };
+        orderBy: Array<Record<string, string>>;
       }): Promise<RundownDateRow[]>;
     };
   };
@@ -88,7 +92,13 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
         scheduledStartTime: true,
         status: true,
         name: true,
+        createdAt: true,
       },
+      orderBy: [
+        { serviceDate: "asc" },
+        { scheduledStartTime: "asc" },
+        { createdAt: "asc" },
+      ],
     });
   } catch {
     return [];
@@ -198,13 +208,16 @@ interface OpenIncidentRow {
 async function loadOpenItems(
   orgId: string,
   serviceDate: string,
+  previousShowIds: string[],
 ): Promise<OpenIncidentRow[]> {
   const prisma = getPrisma();
   try {
     return (await prisma.incident.findMany({
       where: {
         orgId,
-        serviceDate: { lt: serviceDate },
+        ...(previousShowIds.length > 0
+          ? { showId: { in: previousShowIds } }
+          : { serviceDate: { lt: serviceDate } }),
         status: "open",
       } as never,
       orderBy: { timestamp: "desc" },
@@ -292,7 +305,12 @@ export interface PmDashboardResult {
   rundownState: RundownState;
   orgId: string;
   showId: string | null;
-  shows: Array<{ id: string; serviceDate: string; name: string }>;
+  shows: Array<{
+    id: string;
+    serviceDate: string;
+    name: string;
+    scheduledStartTime: string | null;
+  }>;
   /** Every service date the org has, newest first — powers the picker. */
   serviceDates: string[];
   orgTimezone: string;
@@ -337,33 +355,50 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const { callLeadMinutes, serviceWindowMinutes, serviceWindowConfigured } =
       readPhaseSettings(settings);
 
-    const startTimes = new Map<string, RundownDateRow>();
-    for (const row of rundownRows) if (!startTimes.has(row.serviceDate)) startTimes.set(row.serviceDate, row);
+    const firstShowByDate = new Map<string, RundownDateRow>();
+    for (const row of rundownRows) {
+      if (!firstShowByDate.has(row.serviceDate)) firstShowByDate.set(row.serviceDate, row);
+    }
+    const summaryForShow = (show: RundownDateRow): ItemSummary =>
+      itemSummaries.get(show.id) ??
+      (firstShowByDate.get(show.serviceDate)?.id === show.id
+        ? itemSummaries.get(show.serviceDate)
+        : undefined) ??
+      EMPTY_SUMMARY;
 
     const allDates = [
       ...new Set([
         ...[...itemSummaries.keys()].filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)),
-        ...startTimes.keys(),
+        ...firstShowByDate.keys(),
       ]),
     ].sort();
-    const selectedShow =
-      (data.showId ? rundownRows.find((show) => show.id === data.showId) : undefined) ??
-      (data.serviceDate ? rundownRows.find((show) => show.serviceDate === data.serviceDate) : undefined) ??
-      (settings["active-show-id"] ? rundownRows.find((show) => show.id === settings["active-show-id"]) : undefined) ??
-      rundownRows.find((show) => show.serviceDate === resolveServiceDate(allDates, today));
+    const selectedShow = resolveRundownOpeningShow({
+      shows: rundownRows,
+      today,
+      requestedShowId: data.showId,
+      requestedServiceDate: data.serviceDate,
+      activeShowId: settings["active-show-id"],
+      activeServiceDate: settings["active-service-date"],
+    });
     if (data.showId && !selectedShow) throw new Error("Show not found");
     const serviceDate = selectedShow?.serviceDate ?? data.serviceDate ?? resolveServiceDate(allDates, today);
     const showId = selectedShow?.id;
     const lastServiceDate = resolveLastServiceDate(allDates, today);
+    const timeline = showId
+      ? partitionShowsAround(rundownRows, showId)
+      : {
+          previous: rundownRows.filter((show) => show.serviceDate < serviceDate).reverse(),
+          upcoming: rundownRows.filter((show) => show.serviceDate > serviceDate),
+        };
+    const recentShows = timeline.previous.slice(0, RECENT_LIMIT);
+    const upcomingShows = timeline.upcoming.slice(0, UPCOMING_LIMIT);
+    const recentShowIds = recentShows.map((show) => show.id);
 
     // Every read below selects only the columns the dashboard uses. That
     // keeps the payload small and stops the page inheriting a failure from
     // a column it never reads.
-    // The four most recent services before this one, for the history card.
-    const recentDates = allDates
-      .filter((d) => d < serviceDate)
-      .slice(-RECENT_LIMIT)
-      .reverse();
+    // History and upcoming cards use exact show IDs. Calendar dates are not
+    // unique because a venue can run several shows on the same day.
 
     const [
       rundownState,
@@ -466,30 +501,31 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         },
       }),
       prisma.crewMember.count({ where: { orgId, isOnline: true } }),
-      loadOpenItems(orgId, serviceDate),
-      recentDates.length === 0
+      loadOpenItems(orgId, serviceDate, timeline.previous.map((show) => show.id)),
+      recentShowIds.length === 0
         ? Promise.resolve([])
         : prisma.rundownItem.findMany({
-            where: { orgId, serviceDate: { in: recentDates } },
-            select: { serviceDate: true, actualStart: true, actualEnd: true },
+            where: { orgId, showId: { in: recentShowIds } },
+            select: { showId: true, actualStart: true, actualEnd: true },
           }),
-      recentDates.length === 0
+      recentShowIds.length === 0
         ? Promise.resolve([])
         : prisma.incident.findMany({
-            where: { orgId, serviceDate: { in: recentDates } },
-            select: { serviceDate: true },
+            where: { orgId, showId: { in: recentShowIds } },
+            select: { showId: true },
           }),
     ]);
 
     // Actual runtime is the span from the first item that started to the
     // last that finished. Null until a service has actually been run with
     // the timer, which only became possible once 0011 added the columns.
-    const actualByDate = new Map<string, { first: number; last: number }>();
+    const actualByShow = new Map<string, { first: number; last: number }>();
     for (const row of recentItems) {
+      if (!row.showId) continue;
       const start = row.actualStart ? row.actualStart.getTime() : null;
       const end = row.actualEnd ? row.actualEnd.getTime() : null;
       if (start === null && end === null) continue;
-      const current = actualByDate.get(row.serviceDate);
+      const current = actualByShow.get(row.showId);
       const first = Math.min(
         current?.first ?? Number.POSITIVE_INFINITY,
         start ?? end ?? 0,
@@ -498,25 +534,25 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         current?.last ?? Number.NEGATIVE_INFINITY,
         end ?? start ?? 0,
       );
-      actualByDate.set(row.serviceDate, { first, last });
+      actualByShow.set(row.showId, { first, last });
     }
-    const incidentsByDate = new Map<string, number>();
+    const incidentsByShow = new Map<string, number>();
     for (const row of recentIncidents) {
-      incidentsByDate.set(
-        row.serviceDate,
-        (incidentsByDate.get(row.serviceDate) ?? 0) + 1,
-      );
+      if (!row.showId) continue;
+      incidentsByShow.set(row.showId, (incidentsByShow.get(row.showId) ?? 0) + 1);
     }
 
-    const recent: SnapshotRecentService[] = recentDates.map((date) => {
-      const span = actualByDate.get(date);
+    const recent: SnapshotRecentService[] = recentShows.map((show) => {
+      const span = actualByShow.get(show.id);
       return {
-        serviceDate: date,
-        name: startTimes.get(date)?.name ?? "",
-        plannedMs: itemSummaries.get(date)?.plannedMs ?? 0,
+        showId: show.id,
+        serviceDate: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+        plannedMs: summaryForShow(show).plannedMs,
         actualMs:
           span && Number.isFinite(span.first) ? span.last - span.first : null,
-        incidentCount: incidentsByDate.get(date) ?? 0,
+        incidentCount: incidentsByShow.get(show.id) ?? 0,
       };
     });
 
@@ -524,18 +560,16 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       entries.map((e) => [e.templateId, e.checked]),
     );
 
-    const upcoming: SnapshotUpcomingService[] = allDates
-      .filter((d) => d > serviceDate)
-      .slice(0, UPCOMING_LIMIT)
-      .map((date) => {
-        const summary = itemSummaries.get(date) ?? EMPTY_SUMMARY;
-        const row = startTimes.get(date);
+    const upcoming: SnapshotUpcomingService[] = upcomingShows
+      .map((show) => {
+        const summary = summaryForShow(show);
         return {
-          serviceDate: date,
-          scheduledStartTime: row?.scheduledStartTime
-            ? row.scheduledStartTime.toISOString()
+          showId: show.id,
+          serviceDate: show.serviceDate,
+          scheduledStartTime: show.scheduledStartTime
+            ? show.scheduledStartTime.toISOString()
             : null,
-          name: row?.name ?? "",
+          name: show.name,
           itemCount: summary.itemCount,
           missingDuration: summary.missingDuration,
           missingOwner: summary.missingOwner,
@@ -543,8 +577,9 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       });
 
     const snapshot: PmSnapshot = {
+      showId: showId ?? null,
       serviceDate,
-      serviceName: selectedShow?.name ?? startTimes.get(serviceDate)?.name ?? "",
+      serviceName: selectedShow?.name ?? firstShowByDate.get(serviceDate)?.name ?? "",
       now: Date.now(),
       callLeadMinutes,
       serviceWindowMinutes,
@@ -640,7 +675,12 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       rundownState,
       orgId,
       showId: showId ?? null,
-      shows: rundownRows.map((show) => ({ id: show.id, serviceDate: show.serviceDate, name: show.name })),
+      shows: rundownRows.map((show) => ({
+        id: show.id,
+        serviceDate: show.serviceDate,
+        name: show.name,
+        scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
+      })),
       serviceDates: [...allDates].reverse(),
       orgTimezone,
     };

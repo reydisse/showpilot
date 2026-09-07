@@ -49,30 +49,31 @@ interface NavItem {
   icon: React.ElementType;
   label: string;
   path: string; // relative to /:slug/
+  permission?: Permission | readonly Permission[];
 }
 
 const mainNav: NavItem[] = [
-  { icon: ListMusic, label: "Show", path: "show" },
-  { icon: CalendarDays, label: "Schedule", path: "schedule" },
-  { icon: MonitorPlay, label: "Show Board", path: "board" },
-  { icon: Timer, label: "Rundown", path: "rundown" },
-  { icon: Clock4, label: "Timecode", path: "timecode" },
-  { icon: MessageSquare, label: "Chat", path: "chat" },
-  { icon: Users, label: "Team", path: "team" },
+  { icon: ListMusic, label: "Show", path: "show", permission: "show:view" },
+  { icon: CalendarDays, label: "Schedule", path: "schedule", permission: "schedule:view" },
+  { icon: MonitorPlay, label: "Show Board", path: "board", permission: "showboard:view" },
+  { icon: Timer, label: "Rundown", path: "rundown", permission: "rundown:view" },
+  { icon: Clock4, label: "Timecode", path: "timecode", permission: "timecode:access" },
+  { icon: MessageSquare, label: "Chat", path: "chat", permission: "chat:access" },
+  { icon: Users, label: "Team", path: "team", permission: ["settings:members", "checkin:access"] },
 ];
 
 const productionNav: NavItem[] = [
-  { icon: Clapperboard, label: "Cue Sheets", path: "production/cue-sheets" },
-  { icon: ClipboardCheck, label: "Checklist", path: "production/checklist" },
-  { icon: UserCheck, label: "Crew Check-in", path: "checkin" },
-  { icon: AlertTriangle, label: "Incidents", path: "production/incidents" },
-  { icon: Package, label: "Assets", path: "production/assets" },
+  { icon: Clapperboard, label: "Cue Sheets", path: "production/cue-sheets", permission: ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"] },
+  { icon: ClipboardCheck, label: "Checklist", path: "production/checklist", permission: ["checklist:view", "checklist:access"] },
+  { icon: UserCheck, label: "Crew Check-in", path: "checkin", permission: "checkin:access" },
+  { icon: AlertTriangle, label: "Incidents", path: "production/incidents", permission: ["incidents:report", "incidents:access"] },
+  { icon: Package, label: "Assets", path: "production/assets", permission: "assets:view" },
 ];
 
 const streamingNav: NavItem[] = [
-  { icon: Activity, label: "Stream", path: "streaming/health" },
-  { icon: Radio, label: "Multi-Platform", path: "streaming/platforms" },
-  { icon: Type, label: "Lower Thirds", path: "streaming/graphics" },
+  { icon: Activity, label: "Stream", path: "streaming/health", permission: "stream_health:view" },
+  { icon: Radio, label: "Multi-Platform", path: "streaming/platforms", permission: "streaming_suite:access" },
+  { icon: Type, label: "Lower Thirds", path: "streaming/graphics", permission: "lowerthird:view" },
 ];
 
 const dashboardNav: NavItem[] = [
@@ -80,11 +81,12 @@ const dashboardNav: NavItem[] = [
     icon: LayoutDashboard,
     label: "Prod Manager",
     path: "dashboard/prod-manager",
+    permission: "dashboard:pm",
   },
-  { icon: FileBarChart, label: "Reports", path: "reports" },
-  { icon: Wrench, label: "Tech Manager", path: "dashboard/tech-manager" },
-  { icon: Mic, label: "Audio", path: "dashboard/audio" },
-  { icon: Monitor, label: "Devices", path: "dashboard/devices" },
+  { icon: FileBarChart, label: "Reports & Notes", path: "reports", permission: "show:view" },
+  { icon: Wrench, label: "Tech Manager", path: "dashboard/tech-manager", permission: "dashboard:tm" },
+  { icon: Mic, label: "Audio", path: "dashboard/audio", permission: "dashboard:tm" },
+  { icon: Monitor, label: "Devices", path: "dashboard/devices", permission: "devices:access" },
 ];
 
 function NavLink({
@@ -138,9 +140,8 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
     >
       <button
         onClick={toggleTheme}
-        type="button"
-        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
-        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+        title={theme === "dark" ? "Light" : "Dark"}
+        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
       >
         {theme === "dark" ? (
           <Sun className="w-3.5 h-3.5" />
@@ -151,9 +152,8 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
       {!desktop ? (
         <button
           onClick={toggleFullscreen}
-          type="button"
           title={fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-          className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+          className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
         >
           {fullscreen ? (
             <Minimize className="w-3.5 h-3.5" />
@@ -164,9 +164,8 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
       ) : null}
       <button
         onClick={toggle}
-        type="button"
-        title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors cursor-pointer"
+        title={collapsed ? "Expand" : "Collapse"}
+        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
       >
         {collapsed ? (
           <ChevronsRight className="w-3.5 h-3.5" />
@@ -226,7 +225,7 @@ export function Sidebar() {
   };
 
   const hidden = fullscreen || isSettings;
-  const w = hidden ? 0 : collapsed ? 68 : 240;
+  const w = collapsed ? 68 : 240;
 
   if (hidden && !isMobile) {
     return null;
@@ -272,9 +271,7 @@ export function Sidebar() {
     <>
       <aside
         style={{ width: w, transition: "width 200ms ease-in-out" }}
-        className={`fixed top-0 left-0 h-[100dvh] z-30 bg-board-card border-r border-board-border flex flex-col overflow-hidden ${
-          hidden ? "pointer-events-none opacity-0" : "opacity-100"
-        }`}
+        className="fixed top-0 left-0 z-30 flex h-[100dvh] flex-col overflow-hidden border-r border-board-border bg-board-card"
       >
         {renderSidebarContent({
           collapsed,
@@ -331,57 +328,14 @@ function renderSidebarContent({
     hasEffectivePermission(role, grantedPermissions, permission);
   const canAny = (permissions: readonly Permission[]) =>
     hasAnyEffectivePermission(role, grantedPermissions, permissions);
+  const canOpen = (item: NavItem) => !item.permission || (typeof item.permission === "string"
+    ? can(item.permission)
+    : canAny(item.permission));
 
-  const visibleMainNav = mainNav.filter((item) => {
-    if (item.path === "show") return can("show:view");
-    if (item.path === "schedule") return can("schedule:view");
-    if (item.path === "board") return can("showboard:view");
-    if (item.path === "rundown") return can("rundown:view");
-    if (item.path === "timecode") return can("timecode:access");
-    if (item.path === "chat") return can("chat:access");
-    if (item.path === "checkin") return can("checkin:access");
-    if (item.path === "team")
-      return canManageAccess || canAny(["settings:members", "checkin:access"]);
-    return true;
-  });
-
-  const visibleProductionNav = productionNav.filter((item) => {
-    if (item.path === "checkin") return can("checkin:access");
-    if (item.path === "production/checklist")
-      return canAny(["checklist:view", "checklist:access"]);
-    if (item.path === "production/incidents") {
-      return canAny(["incidents:report", "incidents:access"]);
-    }
-    if (item.path === "production/cue-sheets") {
-      return canAny([
-        "cuesheet:view",
-        "cuesheet:edit",
-        "cuesheet:add_notes",
-      ]);
-    }
-    if (item.path === "production/assets")
-      return can("assets:view");
-    return true;
-  });
-
-  const visibleStreamingNav = streamingNav.filter((item) => {
-    if (item.path === "streaming/health")
-      return can("stream_health:view");
-    if (item.path === "streaming/platforms")
-      return can("streaming_suite:access");
-    if (item.path === "streaming/graphics")
-      return can("lowerthird:view");
-    return true;
-  });
-
-  const visibleDashboardNav = dashboardNav.filter((item) => {
-    if (item.path === "dashboard/devices")
-      return can("devices:access");
-    if (item.path === "dashboard/prod-manager")
-      return can("dashboard:pm");
-    if (item.path === "reports") return can("dashboard:pm");
-    return can("dashboard:tm");
-  });
+  const visibleMainNav = mainNav.filter((item) => item.path === "team" ? canManageAccess || canOpen(item) : canOpen(item));
+  const visibleProductionNav = productionNav.filter(canOpen);
+  const visibleStreamingNav = streamingNav.filter(canOpen);
+  const visibleDashboardNav = dashboardNav.filter(canOpen);
 
   const roleColour = ROLE_COLOURS[role ?? ""] ?? ROLE_COLOURS.member;
 

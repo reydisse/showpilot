@@ -677,7 +677,14 @@ const reportsSchema = z.object({
     id: z.string(), serviceDate: z.string(), name: z.string(), location: z.string(), status: z.string(), scheduledStartTime: z.string().nullable(),
     itemCount: z.number(), completedItems: z.number(), incidentCount: z.number(), assignmentCount: z.number(), confirmedAssignments: z.number(), checklistCount: z.number(), completedChecks: z.number(),
   })),
+  notes: z.array(z.object({
+    id: z.string(), showId: z.string(), userId: z.string(), authorName: z.string(), role: z.enum(["pm", "tm"]),
+    summary: z.string(), wins: z.string(), issues: z.string(), followUps: z.string(), createdAt: z.string(), updatedAt: z.string(),
+  })),
+  viewer: z.object({ userId: z.string(), writableNoteLanes: z.array(z.enum(["pm", "tm"])) }),
 });
+
+const reportNoteSchema = reportsSchema.shape.notes.element;
 
 const audioAssignmentSchema = z.object({
   id: z.string(), showId: z.string().nullable(), channel: z.number(), label: z.string(), micType: z.string(), micModel: z.string(), notes: z.string(),
@@ -1743,6 +1750,22 @@ export async function getMobileDashboard(orgId: string, kind: "pm" | "tm", showI
 export async function getMobileReports(orgId: string): Promise<MobileReports> {
   const response = await authenticatedFetch(`/api/mobile/v1/reports?orgId=${encodeURIComponent(orgId)}`);
   return reportsSchema.parse(await response.json());
+}
+
+export async function saveMobileShowReportNote(input: {
+  orgId: string;
+  showId: string;
+  role: "pm" | "tm";
+  summary: string;
+  wins: string;
+  issues: string;
+  followUps: string;
+}) {
+  const response = await authenticatedFetch(`/api/mobile/v1/reports/${encodeURIComponent(input.showId)}/notes?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return z.object({ note: reportNoteSchema }).parse(await response.json()).note;
 }
 
 export async function getMobileAudio(orgId: string, showId?: string): Promise<MobileAudio> {

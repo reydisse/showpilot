@@ -57,10 +57,25 @@ describe("ChatPanel conversation flow", () => {
     expect(openImage.closest("[data-attachment-layout]")?.getAttribute("data-attachment-layout")).toBe("image-only");
     expect(openImage.parentElement?.className).not.toContain("sm:grid-cols-2");
     expect(openImage.closest("[data-chat-message-id]")?.className).toContain("justify-end");
-    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).toContain("right-full");
+    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).toContain("self-end");
+    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).not.toContain("right-full");
     fireEvent.click(openImage);
     const preview = screen.getByRole("dialog", { name: "stage.jpg" });
     expect(preview).toBeInstanceOf(HTMLElement);
     expect(within(preview).getByRole("img", { name: "stage.jpg" }).getAttribute("src")).toBe("/api/chat-file/org/file/stage.jpg");
+  });
+
+  it("contains long messages and message controls inside the chat viewport", () => {
+    const longMessage: ChatMessage = {
+      ...messages[0],
+      id: "long-message",
+      text: "https://example.com/" + "unbroken".repeat(80),
+    };
+    render(<ChatPanel messages={[longMessage]} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} />);
+
+    expect(screen.getByTestId("chat-panel").className).toContain("max-w-full");
+    expect(screen.getByTestId("chat-scroll-region").className).toContain("overflow-x-hidden");
+    expect(screen.getByText(longMessage.text).className).toContain("[overflow-wrap:anywhere]");
+    expect(screen.getByRole("button", { name: "Reply to Alex" }).parentElement?.className).not.toContain("left-full");
   });
 });
