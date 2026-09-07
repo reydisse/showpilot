@@ -625,6 +625,7 @@ async function rundown(request: Request, url: URL, showId: string, env: MobileAp
   return json({
     show,
     timeZone: timezone?.value || "Africa/Accra",
+    canCreateShows: identity.permissions.includes("schedule:manage"),
     canEdit: identity.permissions.includes("rundown:edit"),
     canControl: identity.permissions.includes("rundown:control"),
     proPresenter: {

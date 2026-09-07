@@ -136,6 +136,7 @@ export const timerSchema = z.object({
 export const mobileRundownSchema = z.object({
   show: rundownSchema.omit({ itemCount: true }).extend({ updatedAt: z.string() }),
   timeZone: z.string().min(1),
+  canCreateShows: z.boolean(),
   canEdit: z.boolean(),
   canControl: z.boolean(),
   proPresenter: z.object({
