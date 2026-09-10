@@ -48,7 +48,7 @@ import {
 } from "@/lib/mobile-api";
 import { formatTimer, timerElapsed } from "@/lib/rundown-state";
 import { shareRundownCsv, shareRundownPdf } from "@/lib/rundown-export";
-import { serviceWallTimeInput } from "@/lib/service-time";
+import { formatServiceTime, serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 function titleFor(show: MobileRundown["show"]) {
@@ -153,6 +153,14 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
   const queryClient = useQueryClient();
   const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
   const showTitle = relay.serviceName ?? titleFor(detail.show);
+  const showStart = relay.scheduledStartTime === undefined ? detail.show.scheduledStartTime : relay.scheduledStartTime;
+  const showCall = relay.scheduledCallTime === undefined ? detail.show.scheduledCallTime : relay.scheduledCallTime;
+  const showLocation = relay.location === undefined ? detail.show.location : relay.location;
+  const showSummary = [
+    `${formatServiceTime(showStart, detail.timeZone)} start`,
+    showCall ? `${formatServiceTime(showCall, detail.timeZone)} call` : null,
+    showLocation || null,
+  ].filter(Boolean).join(" · ");
   const [editor, setEditor] = useState<{ item: RundownItem | null; index: number } | null>(null);
   const [newShowOpen, setNewShowOpen] = useState(false);
   const [showDetailsOpen, setShowDetailsOpen] = useState(false);
@@ -201,6 +209,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
       relay.seedState(detail.items, detail.timer, {
         serviceName: detail.show.name,
         scheduledStartTime: detail.show.scheduledStartTime,
+        scheduledCallTime: detail.show.scheduledCallTime,
         location: detail.show.location,
       });
     } else if (sameRoom && (relay.initialized || !canEdit)) {
@@ -309,6 +318,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
       serviceDate: draft.serviceDate,
       name: draft.name,
       startTime: draft.startTime,
+      callTime: draft.callTime,
       location: draft.location,
       copyFrom: draft.copyCurrent ? detail.show.serviceDate : undefined,
       copyFromShowId: draft.copyCurrent ? detail.show.id : undefined,
@@ -335,6 +345,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
       backLabel="Back to shows"
       eyebrow={detail.show.serviceDate}
       title={showTitle}
+      subtitle={showSummary}
       scroll={false}
     >
       <FlatList
@@ -478,6 +489,9 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
         scheduledStartTime={relay.scheduledStartTime === undefined
           ? detail.show.scheduledStartTime
           : relay.scheduledStartTime}
+        scheduledCallTime={relay.scheduledCallTime === undefined
+          ? detail.show.scheduledCallTime
+          : relay.scheduledCallTime}
         timeZone={detail.timeZone}
       /> : null}
       {newShowOpen ? <RundownNewShowSheet

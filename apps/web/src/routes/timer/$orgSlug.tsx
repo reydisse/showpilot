@@ -10,6 +10,7 @@ import { getRundownStateForOrg } from "@/lib/rundown";
 import { elapsedAt } from "@/lib/rundown-transport";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
+import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
 
 // ─── Server Functions ────────────────────────────────────────
 
@@ -226,6 +227,11 @@ const TIMER_CSS = `
     100% { opacity: 1; }
   }
 
+  @keyframes lyrics-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .phase-normal {}
   .phase-alert { animation: none; }
   .phase-danger { animation: blink-slow 1s ease-in-out infinite; }
@@ -258,6 +264,8 @@ function TimerKioskPage() {
   const lastStageMessageRef = useRef("");
   const messageProminentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
+  const [lyrics, setLyrics] = useState<LyricsDisplayState | null>(null);
+  const [lyricsTimecode, setLyricsTimecode] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [clockFormat, setClockFormat] = useState<ClockFormat>("12hr");
@@ -443,6 +451,34 @@ function TimerKioskPage() {
     };
   }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
+  useEffect(() => {
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | null = null;
+    const connect = () => {
+      if (disposed) return;
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1`);
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as TimecodeWsMessage;
+          if (message.type === "hydrate" || message.type === "tc-update") {
+            setLyrics(message.state.lyrics ?? null);
+            setLyricsTimecode(message.state.display);
+          }
+          else if (message.type === "lyrics-update") setLyrics(message.lyrics);
+          else if (message.type === "lyrics-clear") setLyrics(null);
+        } catch {}
+      };
+      socket.onclose = () => {
+        if (!disposed) reconnect = setTimeout(connect, 2_000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+    connect();
+    return () => { disposed = true; if (reconnect) clearTimeout(reconnect); socket?.close(); };
+  }, [orgSlug]);
+
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
     try {
@@ -574,6 +610,10 @@ function TimerKioskPage() {
 
   // ── Render by view mode ──
 
+  if (lyrics) {
+    return <LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode ?? undefined} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />;
+  }
+
   if (viewMode === "minimal") {
     return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />;
   }
@@ -618,6 +658,18 @@ function TimerKioskPage() {
       progress={progress}
     />
   );
+}
+
+function LyricsKiosk({ lyrics, timecode, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode?: string; isFullscreen: boolean; toggleFullscreen: () => void }) {
+  const lines = lyrics.lyrics.split(/\r?\n/).filter((line) => line.trim()).slice(0, 4);
+  const longest = Math.max(1, ...lines.map((line) => line.length));
+  const fontSize = longest > 70 ? "clamp(2rem,5vw,5.5rem)" : longest > 42 ? "clamp(2.5rem,6.5vw,7rem)" : "clamp(3rem,8vw,9rem)";
+  return <main className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-black px-[5vw] py-[4vh] text-white">
+    <style>{TIMER_CSS}</style>
+    <header className="flex items-start justify-between gap-4"><div><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div><button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button></header>
+    <div key={lyrics.sectionId + lyrics.updatedAt} className="flex flex-1 animate-[lyrics-in_.22s_ease-out] items-center justify-center text-center"><p className="whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ fontSize }}>{lines.join("\n")}</p></div>
+    <footer className="flex items-end justify-between gap-4 text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><span>{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono">{timecode}</span> : null}</footer>
+  </main>;
 }
 
 function formatClockForZone(date: Date, clockFormat: ClockFormat, timeZone?: string): string {

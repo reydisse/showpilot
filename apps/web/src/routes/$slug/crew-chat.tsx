@@ -38,11 +38,12 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, openingReadThrough, markRead } = useChat({
     orgId,
     isVisible: true,
     senderName,
     senderRole: "Crew",
+    currentUserId: userId,
   });
 
   useEffect(() => {
@@ -159,6 +160,9 @@ function CrewChatPage() {
             onSendMessage={sendMessage}
           onUploadAttachment={uploadAttachment}
           gatewayStatus={gatewayStatus}
+          hydrated={hydrated}
+          openingReadThrough={openingReadThrough}
+          onReadThrough={markRead}
             typingUsers={typingUsers}
             onTypingChange={setTyping}
             onVotePoll={votePoll}

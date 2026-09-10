@@ -84,6 +84,15 @@
       "gaps": ""
     },
     {
+      "id": "songs",
+      "label": "Songs",
+      "webPath": "songs",
+      "status": "missing",
+      "nativeRoutes": [],
+      "apiContracts": [],
+      "gaps": "Song library editing and ProPresenter import are operator workflows on web and Desktop; mobile can monitor lyrics and run lyric automation from Timecode."
+    },
+    {
       "id": "chat",
       "label": "Chat",
       "webPath": "chat",

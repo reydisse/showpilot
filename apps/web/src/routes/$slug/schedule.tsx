@@ -1167,6 +1167,7 @@ function CreateServiceModal({
   );
   const [name, setName] = useState("");
   const [time, setTime] = useState("10:00");
+  const [callTime, setCallTime] = useState("");
   const [location, setLocation] = useState("");
   const [inventoryId, setInventoryId] = useState(initialInventoryId ?? "");
   const [copy, setCopy] = useState(true);
@@ -1202,6 +1203,7 @@ function CreateServiceModal({
                 serviceDate: date,
                 name,
                 startTime: time,
+                callTime: callTime || undefined,
                 location,
                 copyFrom: copy ? previousDate : undefined,
                 copyFromShowId: copy ? previousShowId : undefined,
@@ -1248,7 +1250,7 @@ function CreateServiceModal({
             </p>
           ) : null}
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Date">
             <input
               type="date"
@@ -1263,6 +1265,14 @@ function CreateServiceModal({
               type="time"
               value={time}
               onChange={(event) => setTime(event.target.value)}
+              className={FORM_CONTROL}
+            />
+          </Field>
+          <Field label="Crew call (optional)">
+            <input
+              type="time"
+              value={callTime}
+              onChange={(event) => setCallTime(event.target.value)}
               className={FORM_CONTROL}
             />
           </Field>
@@ -1484,6 +1494,7 @@ function ServiceDetailsModal({
 }) {
   const [name, setName] = useState(service.name);
   const [time, setTime] = useState(inputTime(service.scheduledStartTime, orgTimezone));
+  const [callTime, setCallTime] = useState(inputTime(service.scheduledCallTime, orgTimezone));
   const [location, setLocation] = useState(service.location);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1503,6 +1514,7 @@ function ServiceDetailsModal({
                 serviceDate: service.serviceDate,
                 name,
                 startTime: time,
+                callTime,
                 location,
               },
             });
@@ -1529,6 +1541,21 @@ function ServiceDetailsModal({
             onChange={(event) => setTime(event.target.value)}
             className={FORM_CONTROL}
           />
+        </Field>
+        <Field label="Crew call time">
+          <input
+            type="time"
+            value={callTime}
+            onChange={(event) => setCallTime(event.target.value)}
+            className={FORM_CONTROL}
+          />
+          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">
+            {callTime
+              ? "This show overrides the organization default. Clear it to use the default."
+              : service.effectiveCallTime
+                ? `Using organization default: ${timeLabel(service.effectiveCallTime, orgTimezone)}.`
+                : "No call time until this show has a start time."}
+          </p>
         </Field>
         <Field label="Venue or location">
           <input

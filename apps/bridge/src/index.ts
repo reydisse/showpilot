@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "child_process";
+import { createInterface } from "readline";
 import { Bridge } from "./bridge.js";
 import { startParentProcessMonitor } from "./parent-process.js";
 import { loadConfigFile, resolveBridgeUrl, startSetupServer, type BridgeConfig } from "./setup-server.js";
@@ -81,6 +82,48 @@ function startBridge(nextConfig: BridgeConfig) {
   bridge.start();
 }
 
+function startDesktopControlInput(): void {
+  if (!desktopMode) return;
+  const lines = createInterface({ input: process.stdin, terminal: false });
+  lines.on("line", (line) => {
+    try {
+      const value: unknown = JSON.parse(line);
+      if (
+        typeof value !== "object" || value === null
+        || !("type" in value) || value.type !== "timecode-feed"
+        || !("timecode" in value) || typeof value.timecode !== "object" || value.timecode === null
+        || !("format" in value) || typeof value.format !== "object" || value.format === null
+        || !("totalFrames" in value) || typeof value.totalFrames !== "number"
+      ) return;
+      const timecode = value.timecode as Record<string, unknown>;
+      const format = value.format as Record<string, unknown>;
+      if (
+        typeof timecode.hours !== "number"
+        || typeof timecode.minutes !== "number"
+        || typeof timecode.seconds !== "number"
+        || typeof timecode.frames !== "number"
+        || ![24, 25, 29.97, 30].includes(format.frameRate as number)
+        || (format.dropFrame !== "df" && format.dropFrame !== "ndf")
+      ) return;
+      bridge?.feedTimecode({
+        timecode: {
+          hours: timecode.hours,
+          minutes: timecode.minutes,
+          seconds: timecode.seconds,
+          frames: timecode.frames,
+        },
+        format: {
+          frameRate: format.frameRate as 24 | 25 | 29.97 | 30,
+          dropFrame: format.dropFrame,
+        },
+        totalFrames: value.totalFrames,
+      });
+    } catch {
+      // Ignore malformed supervisor messages without interrupting devices.
+    }
+  });
+}
+
 // The native desktop supervisor owns configuration and does not need the
 // standalone setup server. Avoid binding port 9450 so an older bridge process
 // cannot make the packaged sidecar exit with EADDRINUSE.
@@ -96,6 +139,8 @@ if (!desktopMode) {
     startBridge(nextConfig);
   });
 }
+
+startDesktopControlInput();
 
 const directUrl = getArg("url") ?? process.env.SHOWPILOT_BRIDGE_URL ?? config?.url;
 

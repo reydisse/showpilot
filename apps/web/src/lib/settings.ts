@@ -187,6 +187,7 @@ function permissionForSettingKey(key: string): Permission {
   if (
     key === "chat-adapter" ||
     key === "rundown-adapter" ||
+    key === "lyrics-output" ||
     key.startsWith("slack-") ||
     key.startsWith("mattermost-") ||
     key.startsWith("teams-") ||

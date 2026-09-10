@@ -93,6 +93,7 @@ interface MobileRundownRow {
   serviceDate: string;
   name: string;
   scheduledStartTime: string | null;
+  scheduledCallTime: string | null;
   location: string;
   status: string;
   itemCount: number;
@@ -498,7 +499,7 @@ async function bootstrap(request: Request, url: URL, db: MobileApiDatabase): Pro
   const today = getTodayDateString(timezone?.value || "Africa/Accra");
   const [showsResult, notificationsResult, unreadResult, accessAuthority] = await Promise.all([
     db.prepare(
-      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location,
+      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.scheduledCallTime, r.location,
               CASE
                 WHEN json_extract(timer.value, '$.playback') = 'play' THEN 'running'
                 WHEN json_extract(timer.value, '$.playback') = 'pause' THEN 'paused'
@@ -596,7 +597,7 @@ async function rundown(request: Request, url: URL, showId: string, env: MobileAp
   if (access instanceof Response) return access;
   const { orgId, identity } = access;
   const show = await db.prepare(
-    `SELECT id, serviceDate, name, scheduledStartTime, location, status, updatedAt
+    `SELECT id, serviceDate, name, scheduledStartTime, scheduledCallTime, location, status, updatedAt
      FROM rundown WHERE id = ? AND orgId = ? LIMIT 1`,
   ).bind(showId, orgId).first<Omit<MobileRundownRow, "itemCount"> & { updatedAt: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
@@ -1144,12 +1145,14 @@ async function updateMobileRundownMeta(
   const name = typeof body?.name === "string" ? body.name.trim() : null;
   const location = typeof body?.location === "string" ? body.location.trim() : null;
   const startTime = typeof body?.startTime === "string" ? body.startTime.trim() : null;
+  const callTime = typeof body?.callTime === "string" ? body.callTime.trim() : undefined;
   if (
     !validId(requestId) || requestId.length > 100
     || typeof expectedRevision !== "number" || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0
     || name === null || name.length > 120
     || location === null || location.length > 240
     || startTime === null || !/^$|^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)
+    || (callTime !== undefined && !/^$|^([01]\d|2[0-3]):[0-5]\d$/.test(callTime))
   ) return json({ error: "Check the show title, start time, and location." }, 400);
   const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
   if (access instanceof Response) return access;
@@ -1160,6 +1163,7 @@ async function updateMobileRundownMeta(
     .bind(access.orgId).first<{ value: string }>();
   const timeZone = timezone?.value || "Africa/Accra";
   const scheduledStartTime = serviceTimeToIso(show.serviceDate, startTime, timeZone);
+  const scheduledCallTime = callTime === undefined ? undefined : serviceTimeToIso(show.serviceDate, callTime, timeZone);
   const relayResponse = await postMobileRundownRelayCommand({
     env,
     orgId: access.orgId,
@@ -1169,7 +1173,7 @@ async function updateMobileRundownMeta(
     requestId,
     expectedRevision,
     action: "update-meta",
-    payload: { serviceName: name, scheduledStartTime, location },
+    payload: { serviceName: name, scheduledStartTime, ...(scheduledCallTime !== undefined ? { scheduledCallTime } : {}), location },
   });
   if (!relayResponse) return json({ error: "Live rundown editing is temporarily unavailable." }, 503);
   const relayBody: unknown = await relayResponse.json();
@@ -1232,6 +1236,11 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
     : typeof body.startTime === "string"
       ? body.startTime.trim()
       : null;
+  const callTime = body.callTime === undefined || body.callTime === ""
+    ? undefined
+    : typeof body.callTime === "string"
+      ? body.callTime.trim()
+      : null;
   const inventoryId = body.inventoryId === undefined || body.inventoryId === ""
     ? undefined
     : typeof body.inventoryId === "string"
@@ -1254,6 +1263,8 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
     || location.length > 240
     || startTime === null
     || (startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))
+    || callTime === null
+    || (callTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime))
     || inventoryId === null
     || (inventoryId !== undefined && !validId(inventoryId))
     || copyFrom === null
@@ -1278,6 +1289,7 @@ async function createRundown(request: Request, db: MobileApiDatabase): Promise<R
       serviceDate: body.serviceDate,
       name,
       startTime,
+      callTime,
       location,
       ...(inventoryId ? { inventoryId } : {}),
       ...(copyFrom && copyFromShowId ? { copyFrom, copyFromShowId } : {}),
@@ -1747,7 +1759,7 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
 
   const [servicesResult, assignmentsResult, crewResult, inventoryData] = await Promise.all([
     db.prepare(
-      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.location, r.status, r.updatedAt,
+      `SELECT r.id, r.serviceDate, r.name, r.scheduledStartTime, r.scheduledCallTime, r.location, r.status, r.updatedAt,
               CAST(COUNT(DISTINCT i.id) AS INTEGER) AS itemCount,
               CAST(COUNT(DISTINCT CASE WHEN i.status = 'complete' THEN i.id END) AS INTEGER) AS completedItems,
               CAST(COUNT(DISTINCT a.id) AS INTEGER) AS crewTotal,
@@ -1847,6 +1859,7 @@ async function schedule(request: Request, url: URL, db: MobileApiDatabase): Prom
 interface MobileScheduleShowWriteRow {
   id: string;
   serviceDate: string;
+  scheduledCallTime: string | null;
   status: string;
   updatedAt: string;
 }
@@ -1906,7 +1919,7 @@ function parseMobileScheduleAssignmentWrite(body: Record<string, unknown> | null
 
 async function getMobileScheduleShow(db: MobileApiDatabase, orgId: string, showId: string) {
   return db.prepare(
-    "SELECT id, serviceDate, status, updatedAt FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
+    "SELECT id, serviceDate, scheduledCallTime, status, updatedAt FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
   ).bind(showId, orgId).first<MobileScheduleShowWriteRow>();
 }
 
@@ -2218,9 +2231,11 @@ async function updateMobileScheduleService(
   const body = await readJson(request);
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const startTime = typeof body?.startTime === "string" ? body.startTime.trim() : "";
+  const callTimeProvided = typeof body?.callTime === "string";
+  const callTime = callTimeProvided ? String(body?.callTime).trim() : "";
   const location = typeof body?.location === "string" ? body.location.trim() : "";
   const expectedUpdatedAt = typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : "";
-  if (name.length > 120 || location.length > 240 || (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) || !expectedUpdatedAt || expectedUpdatedAt.length > 64) {
+  if (name.length > 120 || location.length > 240 || (startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) || (callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime)) || !expectedUpdatedAt || expectedUpdatedAt.length > 64) {
     return json({ error: "Check the service title, start time, and location." }, 400);
   }
   const [show, timezone] = await Promise.all([
@@ -2231,10 +2246,13 @@ async function updateMobileScheduleService(
   if (!show) return json({ error: "Show not found." }, 404);
   if (show.updatedAt !== expectedUpdatedAt) return json({ error: "This show changed on another device. Refresh and try again." }, 409);
   const scheduledStartTime = serviceTimeToIso(show.serviceDate, startTime, timezone?.value) || null;
+  const scheduledCallTime = callTimeProvided
+    ? serviceTimeToIso(show.serviceDate, callTime, timezone?.value) || null
+    : show.scheduledCallTime ?? null;
   const result = await db.prepare(
-    `UPDATE rundown SET name = ?, scheduledStartTime = ?, location = ?, updatedAt = CURRENT_TIMESTAMP
+    `UPDATE rundown SET name = ?, scheduledStartTime = ?, scheduledCallTime = ?, location = ?, updatedAt = CURRENT_TIMESTAMP
      WHERE id = ? AND orgId = ? AND updatedAt = ?`,
-  ).bind(name, scheduledStartTime, location, showId, access.orgId, expectedUpdatedAt).run();
+  ).bind(name, scheduledStartTime, scheduledCallTime, location, showId, access.orgId, expectedUpdatedAt).run();
   return changedExactlyOneRow(result)
     ? json({ ok: true })
     : json({ error: "This show changed on another device. Refresh and try again." }, 409);
@@ -3083,7 +3101,7 @@ async function showWorkspace(request: Request, url: URL, db: MobileApiDatabase):
 
   const activeShowId = settings["active-show-id"] ?? "";
   const show = await db.prepare(
-    `SELECT id, serviceDate, name, scheduledStartTime, location, status, updatedAt
+    `SELECT id, serviceDate, name, scheduledStartTime, scheduledCallTime, location, status, updatedAt
      FROM rundown
      WHERE orgId = ? AND (id = ? OR status IN ('running', 'paused') OR serviceDate >= ?)
      ORDER BY CASE

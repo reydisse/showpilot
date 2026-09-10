@@ -36,7 +36,7 @@ export type BridgeDispatchMessage =
       target: string;
     };
 
-type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "DB">;
+type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
 
 interface SocketAttachment {
   role: "bridge" | "client";
@@ -277,7 +277,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
 
       if (ws === this.bridgeWs) {
         // Message from bridge → forward to clients
-        this.handleBridgeMessage(msg);
+        void this.handleBridgeMessage(msg);
       } else {
         // Message from browser client → forward to bridge
         this.handleClientMessage(msg, ws);
@@ -294,6 +294,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
       void this.clearPreviewSlide();
+      void this.stopBridgeTimecode();
       this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
         online: false,
@@ -309,7 +310,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
 
   // ─── Message Routing ────────────────────────────────────
 
-  private handleBridgeMessage(msg: BridgeMessage): void {
+  private async handleBridgeMessage(msg: BridgeMessage): Promise<void> {
     switch (msg.type) {
       case "bridge-status":
         this.bridgeInfo = {
@@ -405,6 +406,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
 
       case "pong":
         // Bridge responding to keepalive
+        break;
+
+      case "timecode-feed":
+        await this.pushTimecode(msg);
         break;
     }
   }
@@ -515,5 +520,32 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     } catch (err) {
       console.error("[BridgeRelay] failed to clear preview slide", err);
     }
+  }
+
+  private async pushTimecode(message: BridgeMessage): Promise<void> {
+    if (!this.orgId || !isRecord(message.timecode) || !isRecord(message.format)) return;
+    const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
+    await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "feed-tc",
+        payload: {
+          timecode: message.timecode,
+          format: message.format,
+          totalFrames: message.totalFrames,
+        },
+      }),
+    }));
+  }
+
+  private async stopBridgeTimecode(): Promise<void> {
+    if (!this.orgId) return;
+    const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
+    await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "bridge-disconnected" }),
+    }));
   }
 }

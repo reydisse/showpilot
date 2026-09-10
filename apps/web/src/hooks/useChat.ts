@@ -13,6 +13,7 @@ interface UseChatOptions {
   senderRole?: string;
   guestToken?: string;
   roomId?: string;
+  currentUserId?: string;
 }
 
 interface UseChatReturn {
@@ -29,6 +30,9 @@ interface UseChatReturn {
   typingUsers: ChatTypingState[];
   setTyping: (typing: boolean) => void;
   readReceipts: Record<string, number>;
+  hydrated: boolean;
+  openingReadThrough: number | null;
+  markRead: (readAt: number) => void;
   gatewayStatus: ChatGatewayStatus;
 }
 
@@ -43,12 +47,14 @@ function createAdapter(orgId: string, guest?: { token: string; name: string }, r
  * configured external-platform gateway so web, Desktop, and mobile always
  * share one ordered conversation.
  */
-export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production" }: UseChatOptions): UseChatReturn {
+export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production", currentUserId }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<ChatTypingState[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
+  const [hydrated, setHydrated] = useState(false);
+  const [openingReadThrough, setOpeningReadThrough] = useState<number | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState<ChatGatewayStatus>({ platform: null, status: "disabled" });
   const adapterRef = useRef<ChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
@@ -72,6 +78,8 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     setMessages([]);
     setTypingUsers([]);
     setReadReceipts({});
+    setHydrated(false);
+    setOpeningReadThrough(null);
     setGatewayStatus({ platform: null, status: "connecting" });
     setConnectionStatus("disconnected");
 
@@ -122,6 +130,10 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => {
       setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] || 0, readAt) }));
     });
+    const unsubHydrated = adapter.onHydrated?.(({ readReceipts: initialReceipts }) => {
+      setOpeningReadThrough(currentUserId ? initialReceipts[currentUserId] ?? null : null);
+      setHydrated(true);
+    });
     const unsubGatewayStatus = adapter.onGatewayStatus?.(setGatewayStatus);
 
     // Connect
@@ -134,19 +146,14 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
       unsubStatus?.();
       unsubTyping?.();
       unsubReadReceipt?.();
+      unsubHydrated?.();
       unsubGatewayStatus?.();
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
       adapter.disconnect();
       adapterRef.current = null;
     };
-  }, [orgId, guestToken, roomId, userName]);
-
-  useEffect(() => {
-    if (!isVisible || !roomId.startsWith("dm:") || messages.length === 0) return;
-    const latestTimestamp = messages.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
-    adapterRef.current?.markRead?.(latestTimestamp);
-  }, [isVisible, messages, roomId]);
+  }, [currentUserId, guestToken, orgId, roomId, userName]);
 
   const sendMessage = useCallback(
     (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
@@ -213,6 +220,10 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     adapterRef.current?.setTyping?.(typing);
   }, []);
 
+  const markRead = useCallback((readAt: number) => {
+    adapterRef.current?.markRead?.(readAt);
+  }, []);
+
   return {
     messages,
     sendMessage,
@@ -227,6 +238,9 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     typingUsers,
     setTyping,
     readReceipts,
+    hydrated,
+    openingReadThrough,
+    markRead,
     gatewayStatus,
   };
 }

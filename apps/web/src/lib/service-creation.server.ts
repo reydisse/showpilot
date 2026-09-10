@@ -17,6 +17,7 @@ export interface CreateServiceForOrgInput {
   copyFromShowId?: string;
   name?: string;
   startTime?: string;
+  callTime?: string;
   location?: string;
   inventoryId?: string;
 }
@@ -39,7 +40,7 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   if (data.requestId) {
     const existing = await prisma.rundown.findUnique({
       where: { id: data.requestId },
-      select: { id: true, orgId: true, serviceDate: true, name: true, location: true, scheduledStartTime: true },
+      select: { id: true, orgId: true, serviceDate: true, name: true, location: true, scheduledStartTime: true, scheduledCallTime: true },
     });
     if (existing) {
       if (existing.orgId !== data.orgId) throw new Error("Show request ID is already in use");
@@ -48,11 +49,17 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
         data.startTime || inventory?.defaultStartTime || "",
         timezone?.value,
       );
+      const expectedCall = serviceTimeToIso(
+        data.serviceDate,
+        data.callTime || "",
+        timezone?.value,
+      );
       if (
         existing.serviceDate !== data.serviceDate
         || existing.name !== (data.name?.trim() || inventory?.name || "")
         || existing.location !== (data.location || inventory?.location || "")
         || (existing.scheduledStartTime?.toISOString() ?? null) !== expectedStart
+        || (existing.scheduledCallTime?.toISOString() ?? null) !== expectedCall
       ) throw new Error("Show request ID was already used with different details");
       return { ok: true as const, showId: existing.id, serviceDate: existing.serviceDate };
     }
@@ -84,12 +91,15 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   const startTime = data.startTime || inventory?.defaultStartTime || "";
   const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, timezone?.value);
   const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
+  const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime || "", timezone?.value);
+  const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
   const rundown = await prisma.rundown.create({
     data: {
       ...(data.requestId ? { id: data.requestId } : {}),
       orgId: data.orgId,
       serviceDate: data.serviceDate,
       scheduledStartTime,
+      scheduledCallTime,
       status: "stopped",
       name: data.name?.trim() || inventory?.name || "",
       location: data.location || inventory?.location || "",

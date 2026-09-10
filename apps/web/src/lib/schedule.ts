@@ -7,7 +7,7 @@ import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { serviceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
-import { readPhaseSettings } from "@/lib/service-phase";
+import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
 import { deleteServiceForOrg } from "@/lib/service-deletion.server";
 import { deliverScheduleAssignmentInvitation } from "@/lib/schedule-assignment-delivery.server";
@@ -105,6 +105,10 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
           z.literal(""),
           z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
         ]),
+        callTime: z.union([
+          z.literal(""),
+          z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        ]).default(""),
         location: z.string().trim().max(240),
       }),
       value,
@@ -127,9 +131,11 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
     });
     const scheduledStartIso = serviceTimeToIso(data.serviceDate, data.startTime, timezone?.value);
     const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
+    const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime, timezone?.value);
+    const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
     return getPrisma().rundown.update({
       where: { id: show.id },
-      data: { name: data.name, scheduledStartTime, location: data.location },
+      data: { name: data.name, scheduledStartTime, scheduledCallTime, location: data.location },
     });
   });
 
@@ -221,6 +227,7 @@ export const getSchedule = createServerFn({ method: "GET" })
               "terminology-profile",
               "org-timezone",
               "default-service-window-minutes",
+              "default-call-lead-minutes",
             ],
           },
         },
@@ -240,7 +247,7 @@ export const getSchedule = createServerFn({ method: "GET" })
     const terminologyProfile = parsedTerminology.success
       ? parsedTerminology.data
       : "general";
-    const { serviceWindowMinutes } = readPhaseSettings(providerMap);
+    const { serviceWindowMinutes, callLeadMinutes } = readPhaseSettings(providerMap);
     const selectedShow = data.selectedShowId
       ? rundowns.find((rundown) => rundown.id === data.selectedShowId)
       : undefined;
@@ -269,11 +276,18 @@ export const getSchedule = createServerFn({ method: "GET" })
           : 0,
         dayCrew.length ? confirmed / dayCrew.length : 0,
       ];
+      const callTimeMs = getServiceTiming({
+        scheduledStartTime: rundown.scheduledStartTime?.toISOString(),
+        scheduledCallTime: rundown.scheduledCallTime?.toISOString(),
+        callLeadMinutes,
+      }).callTimeMs;
       return {
         id: rundown.id,
         serviceDate: rundown.serviceDate,
         name: rundown.name || "Service",
         scheduledStartTime: rundown.scheduledStartTime?.toISOString() ?? null,
+        scheduledCallTime: rundown.scheduledCallTime?.toISOString() ?? null,
+        effectiveCallTime: callTimeMs === null ? null : new Date(callTimeMs).toISOString(),
         location: rundown.location,
         status: rundown.status,
         itemCount: dayItems.length,

@@ -34,6 +34,11 @@ const createServiceInputSchema = z.object({
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Start time must be HH:MM")
     .optional(),
+  /** Optional show-specific venue call, "HH:MM". */
+  callTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Call time must be HH:MM")
+    .optional(),
   location: z.string().trim().max(240).optional(),
   inventoryId: idSchema.optional(),
 });

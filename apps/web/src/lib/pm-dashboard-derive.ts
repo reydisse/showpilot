@@ -169,6 +169,7 @@ export interface PmSnapshot {
   lastServiceDate: string | null;
   rundown: {
     scheduledStartTime: string | null;
+    scheduledCallTime?: string | null;
     status: "stopped" | "live" | "complete";
   } | null;
   items: RundownItem[];
@@ -482,6 +483,7 @@ export function deriveRundownHealth(snapshot: PmSnapshot): RundownHealth {
 
   const timing = getServiceTiming({
     scheduledStartTime: rundown?.scheduledStartTime ?? null,
+    scheduledCallTime: rundown?.scheduledCallTime ?? null,
     status: rundown?.status,
     plannedDurationMs: plannedMs,
     callLeadMinutes: snapshot.callLeadMinutes,
@@ -1546,6 +1548,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
 
   const phaseInput = {
     scheduledStartTime: snapshot.rundown?.scheduledStartTime ?? null,
+    scheduledCallTime: snapshot.rundown?.scheduledCallTime ?? null,
     status: snapshot.rundown?.status,
     plannedDurationMs: rundownHealth.plannedMs,
     callLeadMinutes: snapshot.callLeadMinutes,

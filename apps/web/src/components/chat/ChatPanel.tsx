@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   MessageSquare,
   Send,
@@ -400,6 +400,9 @@ interface ChatPanelProps {
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
   focusedMessageId?: string;
   gatewayStatus?: ChatGatewayStatus;
+  hydrated?: boolean;
+  openingReadThrough?: number | null;
+  onReadThrough?: (readAt: number) => void;
 }
 
 export function ChatPanel({
@@ -428,10 +431,14 @@ export function ChatPanel({
   onToggleReaction,
   focusedMessageId,
   gatewayStatus,
+  hydrated = true,
+  openingReadThrough = null,
+  onReadThrough,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [openingUnreadId, setOpeningUnreadId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [openImage, setOpenImage] = useState<{ name: string; url: string } | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
@@ -517,22 +524,43 @@ export function ChatPanel({
     };
   }, []);
 
-  // Start at the latest message and follow new content only while the reader
-  // remains at the bottom. Async image sizing must not strand the viewport.
+  const markLatestRead = useCallback(() => {
+    const latestTimestamp = messages.reduce((latest, message) => Math.max(latest, message.timestamp), 0);
+    if (latestTimestamp) onReadThrough?.(latestTimestamp);
+  }, [messages, onReadThrough]);
+
+  // Start at the first message received since this person last reached the
+  // bottom. With no prior marker, open at the latest message.
   useEffect(() => {
     if (messages.length === 0) {
       initialPositionDoneRef.current = false;
       stickToBottomRef.current = true;
+      setOpeningUnreadId(null);
       return;
     }
+    if (!hydrated) return;
     if (focusedMessageId || (initialPositionDoneRef.current && !stickToBottomRef.current)) return;
     const frame = requestAnimationFrame(() => {
+      if (!initialPositionDoneRef.current && openingReadThrough !== null) {
+        const firstUnread = messages.find((message) => message.type !== "system" && message.timestamp > openingReadThrough);
+        const unreadElement = firstUnread ? document.getElementById(`chat-message-${firstUnread.id}`) : null;
+        if (firstUnread && unreadElement) {
+          setOpeningUnreadId(firstUnread.id);
+          unreadElement.scrollIntoView({ block: "start" });
+          initialPositionDoneRef.current = true;
+          stickToBottomRef.current = false;
+          setShowScrollButton(true);
+          return;
+        }
+      }
       messagesEndRef.current?.scrollIntoView({ block: "end" });
       initialPositionDoneRef.current = true;
+      stickToBottomRef.current = true;
       setShowScrollButton(false);
+      markLatestRead();
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusedMessageId, messages.length, pinnedIds.size]);
+  }, [focusedMessageId, hydrated, markLatestRead, messages, openingReadThrough, pinnedIds.size]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -542,12 +570,13 @@ export function ChatPanel({
       if (!focusedMessageId && stickToBottomRef.current) {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
         setShowScrollButton(false);
+        markLatestRead();
       }
     });
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [focusedMessageId]);
+  }, [focusedMessageId, markLatestRead]);
 
   // Detect if user has scrolled up
   const handleScroll = () => {
@@ -557,12 +586,14 @@ export function ChatPanel({
       container.scrollHeight - container.scrollTop - container.clientHeight < 60;
     stickToBottomRef.current = isAtBottom;
     setShowScrollButton(!isAtBottom);
+    if (isAtBottom) markLatestRead();
   };
 
   const scrollToBottom = () => {
     stickToBottomRef.current = true;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setShowScrollButton(false);
+    markLatestRead();
   };
 
   const dismissAlert = (alertId: string) => {
@@ -838,6 +869,13 @@ export function ChatPanel({
           );
           return (
             <div key={msg.id}>
+              {msg.id === openingUnreadId && (
+                <div className="my-2 flex items-center gap-3 px-4" role="separator" aria-label="New messages">
+                  <span className="h-px flex-1 bg-fire-500/45" />
+                  <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-fire-300">New messages</span>
+                  <span className="h-px flex-1 bg-fire-500/45" />
+                </div>
+              )}
               {showDay && (
                 <div className="my-2 flex items-center gap-3 px-4" role="separator">
                   <span className="h-px flex-1 bg-board-border/70" />

@@ -76,4 +76,45 @@ describe("ProPresenter commands", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
     bridge.disconnect();
   });
+
+  it("imports the official grouped presentation response as ordered slides", async () => {
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/v1/libraries")) return Promise.resolve(Response.json([{ id: { uuid: "library-1", name: "Songs", index: 0 } }]));
+      if (url.endsWith("/v1/library/library-1")) return Promise.resolve(Response.json({ updateType: "all", items: [{ uuid: "song-1", name: "Amazing Grace", index: 0 }] }));
+      if (url.endsWith("/v1/presentation/song-1")) return Promise.resolve(Response.json({
+        id: { uuid: "song-1", name: "Amazing Grace", index: 0 },
+        groups: [
+          { name: "Verse 1", slides: [{ enabled: true, text: "Amazing grace", notes: "Lead", label: "" }] },
+          { name: "Chorus", slides: [{ enabled: true, text: "My chains are gone", notes: "", label: "Big" }] },
+        ],
+      }));
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const bridge = createBridge(() => {});
+
+    const response = await bridge.sendCommand(JSON.stringify({ action: "query-presentations" }));
+
+    expect(JSON.parse(response as string)).toEqual([{
+      uuid: "song-1",
+      name: "Amazing Grace",
+      slides: [
+        { index: 0, text: "Amazing grace", label: "Verse 1", notes: "Lead" },
+        { index: 1, text: "My chains are gone", label: "Big", notes: "" },
+      ],
+    }]);
+    bridge.disconnect();
+  });
+
+  it("triggers a mapped slide through the documented presentation endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bridge = createBridge(() => {});
+
+    await bridge.sendCommand(JSON.stringify({ action: "trigger-slide", presentationUuid: "song-1", slideIndex: 4 }));
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:1025/v1/presentation/song-1/4/trigger");
+    bridge.disconnect();
+  });
 });

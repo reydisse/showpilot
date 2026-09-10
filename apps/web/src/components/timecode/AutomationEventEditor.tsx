@@ -25,6 +25,11 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string; category: st
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
   { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
+  { value: "lyrics-goto", label: "Show Lyrics Section", category: "Lyrics" },
+  { value: "lyrics-clear", label: "Clear Lyrics", category: "Lyrics" },
+  { value: "pp-trigger-slide", label: "Trigger ProPresenter Slide", category: "Lyrics" },
+  { value: "pp-trigger-next", label: "Next ProPresenter Slide", category: "Lyrics" },
+  { value: "pp-trigger-clear", label: "Clear ProPresenter Slide", category: "Lyrics" },
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
@@ -58,7 +63,7 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
       action,
       payload,
       label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
-      toleranceFrames: 2,
+      toleranceFrames: 5,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
     });
 

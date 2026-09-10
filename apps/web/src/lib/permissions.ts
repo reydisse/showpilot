@@ -39,6 +39,8 @@ export type Permission =
   | "incidents:access"
   | "checkin:access"
   | "timecode:access"
+  | "songs:access"
+  | "songs:manage"
   | "lowerthird:view"
   | "lowerthird:trigger"
   | "lowerthird:configure"
@@ -83,6 +85,8 @@ export const ALL_PERMISSIONS = [
   "incidents:access",
   "checkin:access",
   "timecode:access",
+  "songs:access",
+  "songs:manage",
   "lowerthird:view",
   "lowerthird:trigger",
   "lowerthird:configure",
@@ -136,6 +140,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "incidents:access",
     "checkin:access",
     "timecode:access",
+    "songs:access",
+    "songs:manage",
     "lowerthird:view",
     "lowerthird:trigger",
     "dashboard:pm",
@@ -154,6 +160,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "incidents:access",
     "checkin:access",
     "timecode:access",
+    "songs:access",
     "lowerthird:view",
     "lowerthird:trigger",
     "lowerthird:configure",
@@ -186,6 +193,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "incidents:access",
     "checkin:access",
     "timecode:access",
+    "songs:access",
+    "songs:manage",
     "dashboard:pm",
     "stream_health:view",
     "assets:view",
@@ -201,6 +210,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "chat:access",
     "checklist:view",
     "incidents:report",
+    "songs:access",
   ],
 };
 

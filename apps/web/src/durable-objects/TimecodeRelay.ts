@@ -5,6 +5,7 @@ import type {
   TimecodeFormat,
   TimecodeValue,
   AutomationEvent,
+  LyricsDisplayState,
   TimecodeCommand,
   TimecodeWsMessage,
 } from "@/types/timecode";
@@ -19,6 +20,7 @@ import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
+  BRIDGE_RELAY: DurableObjectNamespace<import("@/durable-objects/BridgeRelay").BridgeRelay>;
   DB: D1Database;
 }
 
@@ -36,6 +38,11 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "stage-clear",
   "device-action",
   "lighting-scene",
+  "lyrics-goto",
+  "lyrics-clear",
+  "pp-trigger-slide",
+  "pp-trigger-next",
+  "pp-trigger-clear",
   "custom-webhook",
 ]);
 
@@ -48,6 +55,7 @@ export class TimecodeRelay extends DurableObject {
     running: false,
     serverTime: Date.now(),
     totalFrames: 0,
+    lyrics: null,
   };
   private events: AutomationEvent[] = [];
   private orgId = "";
@@ -60,7 +68,12 @@ export class TimecodeRelay extends DurableObject {
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.get<{ state: TimecodeState; events: AutomationEvent[] }>("timecode");
       if (stored) {
-        this.state = { ...stored.state, running: false, serverTime: Date.now() };
+        this.state = {
+          ...stored.state,
+          running: false,
+          serverTime: Date.now(),
+          lyrics: stored.state.lyrics ?? null,
+        };
         this.events = stored.events ?? [];
       }
     });
@@ -217,6 +230,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(tc, format.dropFrame === "df");
         this.state.format = format;
+        if (!sessionId) this.state.source = "mtc";
         this.state.running = true;
         this.state.serverTime = Date.now();
 
@@ -232,6 +246,15 @@ export class TimecodeRelay extends DurableObject {
         this.broadcastState();
         break;
       }
+
+      case "bridge-disconnected":
+        if (this.state.source !== "mtc") break;
+        this.masterSessionId = null;
+        this.state.running = false;
+        this.previousFeedFrame = null;
+        await this.persist();
+        this.broadcastState();
+        break;
 
       case "set-timecode": {
         if (!payload) break;
@@ -285,7 +308,7 @@ export class TimecodeRelay extends DurableObject {
         ) break;
         event.id = event.id || crypto.randomUUID();
         event.fired = false;
-        event.toleranceFrames = event.toleranceFrames ?? 2;
+        event.toleranceFrames = event.toleranceFrames ?? 5;
         event.triggerFrame = timecodeToFrames(
           event.triggerTimecode,
           this.state.format
@@ -339,12 +362,48 @@ export class TimecodeRelay extends DurableObject {
         await this.persist();
         this.broadcastEvents();
         break;
+
+      case "set-lyrics": {
+        const required = ["songId", "songTitle", "sectionId", "sectionLabel", "lyrics"] as const;
+        if (!payload || !required.every((key) => typeof payload[key] === "string")) break;
+        this.state.lyrics = {
+          songId: payload.songId as string,
+          songTitle: payload.songTitle as string,
+          sectionId: payload.sectionId as string,
+          sectionLabel: payload.sectionLabel as string,
+          lyrics: payload.lyrics as string,
+          nextLabel: typeof payload.nextLabel === "string" ? payload.nextLabel : "",
+          updatedAt: Date.now(),
+          manual: true,
+        };
+        await this.persist();
+        this.broadcastLyrics(this.state.lyrics);
+        this.broadcastState();
+        break;
+      }
+
+      case "clear-lyrics":
+        this.state.lyrics = null;
+        await this.persist();
+        this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
+        this.broadcastState();
+        break;
     }
   }
 
   // ─── Automation Engine ──────────────────────────────────
 
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
+    if (previousFrame !== null && totalFrames < previousFrame) {
+      let reset = false;
+      for (const event of this.events) {
+        if (event.fired && event.triggerFrame > totalFrames) {
+          event.fired = false;
+          reset = true;
+        }
+      }
+      if (reset) this.broadcastEvents();
+    }
     let fired = false;
     for (const event of this.events) {
       if (event.fired) continue;
@@ -397,6 +456,25 @@ export class TimecodeRelay extends DurableObject {
       );
       if (!response.ok) throw new Error(`${type} failed with ${response.status}`);
       logResult(type, "success", `${type} action executed.`);
+    };
+
+    const executeProPresenterCommand = async (
+      command: "trigger-slide" | "next" | "clear",
+    ) => {
+      const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
+      const status = await relay.getBridgeStatus();
+      const target = typeof event.payload.target === "string"
+        ? event.payload.target
+        : status.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"));
+      if (!target) throw new Error("ProPresenter is not connected through Venue Bridge.");
+      const result = await relay.dispatchBridgeMessage({
+        type: "command",
+        id: crypto.randomUUID(),
+        protocol: "propresenter",
+        target,
+        command: JSON.stringify({ action: command, ...event.payload }),
+      });
+      if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
     };
 
     try {
@@ -566,6 +644,42 @@ export class TimecodeRelay extends DurableObject {
           // The event-fired broadcast carries the action info
           break;
 
+        case "lyrics-goto": {
+          const required = ["songId", "songTitle", "sectionId", "sectionLabel", "lyrics"] as const;
+          if (!required.every((key) => typeof event.payload[key] === "string")) {
+            throw new Error("Lyrics cue is missing its song or section content.");
+          }
+          this.state.lyrics = {
+            songId: event.payload.songId as string,
+            songTitle: event.payload.songTitle as string,
+            sectionId: event.payload.sectionId as string,
+            sectionLabel: event.payload.sectionLabel as string,
+            lyrics: event.payload.lyrics as string,
+            nextLabel: typeof event.payload.nextLabel === "string" ? event.payload.nextLabel : "",
+            updatedAt: Date.now(),
+            manual: event.payload.manual === true,
+          } satisfies LyricsDisplayState;
+          this.broadcastLyrics(this.state.lyrics);
+          break;
+        }
+
+        case "lyrics-clear":
+          this.state.lyrics = null;
+          this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
+          break;
+
+        case "pp-trigger-slide":
+          await executeProPresenterCommand("trigger-slide");
+          break;
+
+        case "pp-trigger-next":
+          await executeProPresenterCommand("next");
+          break;
+
+        case "pp-trigger-clear":
+          await executeProPresenterCommand("clear");
+          break;
+
         case "custom-webhook": {
           const url = event.payload.url;
           if (!isSafeAutomationWebhookUrl(url)) {
@@ -646,6 +760,10 @@ export class TimecodeRelay extends DurableObject {
       firedAt: Date.now(),
     };
     this.broadcast(JSON.stringify(msg));
+  }
+
+  private broadcastLyrics(lyrics: LyricsDisplayState): void {
+    this.broadcast(JSON.stringify({ type: "lyrics-update", lyrics } satisfies TimecodeWsMessage));
   }
 
   private broadcast(data: string): void {

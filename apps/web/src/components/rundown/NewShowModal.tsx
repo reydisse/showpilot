@@ -5,6 +5,7 @@ export interface NewShowInput {
   serviceDate: string;
   name: string;
   startTime: string;
+  callTime: string;
   location: string;
   copyCurrent: boolean;
 }
@@ -40,6 +41,7 @@ export function NewShowModal({
   const [serviceDate, setServiceDate] = useState(currentDate);
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState(() => nextStartTime(currentStartTime));
+  const [callTime, setCallTime] = useState("");
   const [location, setLocation] = useState("");
   const [copyCurrent, setCopyCurrent] = useState(canCopyCurrent);
   const [pending, setPending] = useState(false);
@@ -54,6 +56,7 @@ export function NewShowModal({
         serviceDate,
         name: name.trim(),
         startTime,
+        callTime,
         location: location.trim(),
         copyCurrent,
       });
@@ -108,6 +111,17 @@ export function NewShowModal({
               maxLength={120}
               className={FORM_CONTROL}
             />
+          </label>
+
+          <label className="block text-xs text-board-muted">
+            <span className="mb-1.5 block">Crew call time (optional)</span>
+            <input
+              type="time"
+              value={callTime}
+              onChange={(event) => setCallTime(event.target.value)}
+              className={FORM_CONTROL}
+            />
+            <span className="mt-1 block text-[11px]">Leave blank to use the organization default.</span>
           </label>
 
           <div className="grid grid-cols-2 gap-3">

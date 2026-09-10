@@ -183,11 +183,12 @@ function ChatPanel({
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, openingReadThrough, markRead } = useChat({
     orgId,
     isVisible: true,
     senderName: userName,
     senderRole: userRole,
+    currentUserId: userId,
   });
 
   // Vibrate on new incoming chat message (two short pulses)
@@ -213,6 +214,9 @@ function ChatPanel({
         onSendMessage={sendMessage}
         onUploadAttachment={uploadAttachment}
         gatewayStatus={gatewayStatus}
+        hydrated={hydrated}
+        openingReadThrough={openingReadThrough}
+        onReadThrough={markRead}
         onVotePoll={votePoll}
         onToggleReaction={toggleReaction}
         typingUsers={typingUsers}

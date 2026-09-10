@@ -33,6 +33,11 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
   "stage-message": Monitor,
   "stage-clear": Monitor,
   "lighting-scene": Lightbulb,
+  "lyrics-goto": Tv,
+  "lyrics-clear": Tv,
+  "pp-trigger-slide": Tv,
+  "pp-trigger-next": Tv,
+  "pp-trigger-clear": Tv,
   "custom-webhook": Globe,
 };
 
@@ -50,6 +55,11 @@ const ACTION_COLORS: Record<string, string> = {
   "stage-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "stage-clear": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "lighting-scene": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+  "lyrics-goto": "text-amber-300 bg-amber-500/10 border-amber-500/20",
+  "lyrics-clear": "text-amber-300 bg-amber-500/10 border-amber-500/20",
+  "pp-trigger-slide": "text-blue-300 bg-blue-500/10 border-blue-500/20",
+  "pp-trigger-next": "text-blue-300 bg-blue-500/10 border-blue-500/20",
+  "pp-trigger-clear": "text-blue-300 bg-blue-500/10 border-blue-500/20",
   "custom-webhook": "text-board-muted bg-board-border/30 border-board-border",
 };
 

@@ -39,10 +39,10 @@ function parityDatabase(input: {
       async first<T>() {
         input.calls.push({ sql, params, operation: "first" });
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
-        if (sql.startsWith("SELECT id, serviceDate, status, updatedAt FROM rundown")) {
+        if (sql.startsWith("SELECT id, serviceDate, scheduledCallTime, status, updatedAt FROM rundown")) {
           const showId = params[0];
-          if (showId === "show-target") return { id: showId, serviceDate: "2026-09-13", status: "stopped", updatedAt: "target-v1" } as T;
-          if (showId === "show-source") return { id: showId, serviceDate: "2026-09-06", status: "stopped", updatedAt: "source-v1" } as T;
+          if (showId === "show-target") return { id: showId, serviceDate: "2026-09-13", scheduledCallTime: null, status: "stopped", updatedAt: "target-v1" } as T;
+          if (showId === "show-source") return { id: showId, serviceDate: "2026-09-06", scheduledCallTime: null, status: "stopped", updatedAt: "source-v1" } as T;
           return null;
         }
         if (sql.startsWith("SELECT id, name, description, location, defaultStartTime, sourceTemplateId")) return null;

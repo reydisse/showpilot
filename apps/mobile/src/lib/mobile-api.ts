@@ -39,6 +39,7 @@ const rundownSchema = z.object({
   serviceDate: z.string(),
   name: z.string(),
   scheduledStartTime: z.string().nullable(),
+  scheduledCallTime: z.string().nullable().default(null),
   location: z.string(),
   status: z.string(),
   itemCount: z.number(),
@@ -704,10 +705,14 @@ const timecodeStateSchema = z.object({
   source: z.enum(["internal-freerun", "internal-rundown", "mtc", "ltc-bridge", "network"]),
   format: z.object({ frameRate: z.union([z.literal(24), z.literal(25), z.literal(29.97), z.literal(30)]), dropFrame: z.enum(["df", "ndf"]) }),
   running: z.boolean(), serverTime: z.number(), totalFrames: z.number(),
+  lyrics: z.object({
+    songId: z.string(), songTitle: z.string(), sectionId: z.string(), sectionLabel: z.string(),
+    lyrics: z.string(), nextLabel: z.string(), updatedAt: z.number(),
+  }).nullable().default(null),
 });
 const timecodeEventSchema = z.object({
   id: z.string(), label: z.string(), triggerTimecode: timecodeValueSchema, triggerFrame: z.number(),
-  action: z.enum(["lower-third-show", "lower-third-clear", "rundown-advance", "rundown-start-item", "rundown-previous", "rundown-pause", "rundown-resume", "rundown-stop", "rundown-adjust", "stage-message", "stage-clear", "device-action", "lighting-scene", "custom-webhook"]),
+  action: z.enum(["lower-third-show", "lower-third-clear", "rundown-advance", "rundown-start-item", "rundown-previous", "rundown-pause", "rundown-resume", "rundown-stop", "rundown-adjust", "stage-message", "stage-clear", "device-action", "lighting-scene", "lyrics-goto", "lyrics-clear", "pp-trigger-slide", "pp-trigger-next", "pp-trigger-clear", "custom-webhook"]),
   payload: z.record(z.string(), z.unknown()), fired: z.boolean(), toleranceFrames: z.number().optional(),
 });
 
@@ -1015,6 +1020,7 @@ export async function updateMobileRundownMeta(input: {
   expectedRevision: number;
   name: string;
   startTime: string;
+  callTime: string;
   location: string;
 }) {
   const response = await authenticatedFetch(
@@ -1026,6 +1032,7 @@ export async function updateMobileRundownMeta(input: {
         expectedRevision: input.expectedRevision,
         name: input.name,
         startTime: input.startTime,
+        callTime: input.callTime,
         location: input.location,
       }),
     },
@@ -1063,6 +1070,7 @@ export async function createMobileRundown(input: {
   serviceDate: string;
   name?: string;
   startTime?: string;
+  callTime?: string;
   location?: string;
   inventoryId?: string;
   copyFrom?: string;
@@ -1176,6 +1184,7 @@ export async function updateMobileScheduleService(input: {
   showId: string;
   name: string;
   startTime: string;
+  callTime: string;
   location: string;
   expectedUpdatedAt: string;
 }) {
@@ -1828,7 +1837,7 @@ export async function getMobileTimecode(orgId: string): Promise<{ state: MobileT
 
 export async function commandMobileTimecode(input: {
   orgId: string;
-  action: "start" | "stop" | "set-timecode" | "set-source" | "set-format" | "add-event" | "update-event" | "remove-event" | "reset-events";
+  action: "start" | "stop" | "set-timecode" | "set-source" | "set-format" | "add-event" | "update-event" | "remove-event" | "reset-events" | "set-lyrics" | "clear-lyrics";
   payload?: Record<string, unknown>;
 }) {
   const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command`, {

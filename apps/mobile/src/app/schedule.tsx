@@ -123,6 +123,7 @@ export default function ScheduleScreen() {
         showId: editor.service.id,
         name: draft.name,
         startTime: draft.startTime,
+        callTime: draft.callTime,
         location: draft.location,
         expectedUpdatedAt: draft.expectedUpdatedAt,
       });
@@ -133,6 +134,7 @@ export default function ScheduleScreen() {
         serviceDate: draft.serviceDate,
         name: draft.name,
         startTime: draft.startTime || undefined,
+        callTime: draft.callTime || undefined,
         location: draft.location || undefined,
         inventoryId: draft.inventoryId,
         copyFrom: draft.copyFrom,

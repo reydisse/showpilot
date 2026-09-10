@@ -1421,6 +1421,20 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                   getSetting={getSetting}
                   saveSetting={saveSetting}
                 />
+                <div className="mt-3">
+                  <FieldGroup label="Default lyrics output" description="Used when loading a song cue map into Timecode.">
+                    <SettingSelect
+                      settingKey="lyrics-output"
+                      options={[
+                        { value: "both", label: "Native display + ProPresenter" },
+                        { value: "native", label: "Native display only" },
+                        { value: "propresenter", label: "ProPresenter only" },
+                      ]}
+                      getSetting={getSetting}
+                      saveSetting={saveSetting}
+                    />
+                  </FieldGroup>
+                </div>
               </div>
             </div>
           </IntegrationCard>
@@ -1480,6 +1494,19 @@ function ProductionSection({ getSetting, saveSetting }: SectionProps) {
         description="Default settings for rundowns, timers, and displays"
       />
       <div className="space-y-5">
+        <FieldGroup
+          label="Default crew call lead (minutes)"
+          description="Used only when a show does not have its own crew call time."
+        >
+          <SettingInput
+            settingKey="default-call-lead-minutes"
+            placeholder="90"
+            getSetting={getSetting}
+            saveSetting={saveSetting}
+            type="number"
+          />
+        </FieldGroup>
+
         <FieldGroup label="Default Countdown Duration (minutes)">
           <SettingInput
             settingKey="default-countdown-minutes"

@@ -46,6 +46,20 @@ async function openChat(orgId: string, roomId = "production", expectEmpty = true
 }
 
 describe("ChatRelay threads", () => {
+  it("hydrates read progress in shared rooms so clients can resume at the first missed message", async () => {
+    const firstConnection = await openChat("shared-read-org", "production");
+    const receiptFrame = nextFrame(firstConnection.socket, "read-receipt");
+    firstConnection.socket.send(JSON.stringify({ type: "read", readAt: 1_788_390_000_000 }));
+    await expect(receiptFrame).resolves.toMatchObject({
+      type: "read-receipt",
+      userId: "user-1",
+      readAt: 1_788_390_000_000,
+    });
+
+    const reopened = await openChat("shared-read-org", "production");
+    expect(reopened.hydration.readReceipts).toEqual({ "user-1": 1_788_390_000_000 });
+  });
+
   it("keeps replies to replies in one stable thread", async () => {
     const { socket } = await openChat("thread-org");
     const rootId = "8ed6691e-8f4f-4cf1-8554-cba1876f79df";

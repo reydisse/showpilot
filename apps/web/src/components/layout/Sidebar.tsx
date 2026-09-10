@@ -33,6 +33,7 @@ import {
   Clock4,
   CalendarDays,
   FileBarChart,
+  LibraryBig,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
@@ -58,6 +59,7 @@ const mainNav: NavItem[] = [
   { icon: MonitorPlay, label: "Show Board", path: "board", permission: "showboard:view" },
   { icon: Timer, label: "Rundown", path: "rundown", permission: "rundown:view" },
   { icon: Clock4, label: "Timecode", path: "timecode", permission: "timecode:access" },
+  { icon: LibraryBig, label: "Songs", path: "songs", permission: "songs:access" },
   { icon: MessageSquare, label: "Chat", path: "chat", permission: "chat:access" },
   { icon: Users, label: "Team", path: "team", permission: ["settings:members", "checkin:access"] },
 ];

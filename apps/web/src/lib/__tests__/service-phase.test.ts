@@ -30,6 +30,12 @@ describe("getServiceTiming", () => {
     expect(timing.callTimeMs).toBe(START - 90 * MINUTE);
   });
 
+  it("uses a show-specific crew call instead of the organization default", () => {
+    const explicitCall = START - 30 * MINUTE;
+    const timing = getServiceTiming(input({ scheduledCallTime: new Date(explicitCall).toISOString() }));
+    expect(timing.callTimeMs).toBe(explicitCall);
+  });
+
   it("prefers real planned runtime over the configured window", () => {
     const timing = getServiceTiming(input());
     expect(timing.expectedEndMs).toBe(START + 70 * MINUTE);

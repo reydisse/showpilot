@@ -14,6 +14,7 @@ export interface RundownNewShowDraft {
   serviceDate: string;
   name: string;
   startTime: string;
+  callTime: string;
   location: string;
   copyCurrent: boolean;
 }
@@ -49,6 +50,7 @@ export function RundownNewShowSheet({
   const [name, setName] = useState("");
   const [serviceDate, setServiceDate] = useState(currentDate);
   const [startTime, setStartTime] = useState(() => nextShowStartTime(currentStartTime));
+  const [callTime, setCallTime] = useState("");
   const [location, setLocation] = useState(currentLocation);
   const [copyCurrent, setCopyCurrent] = useState(canCopyCurrent);
   const [busy, setBusy] = useState(false);
@@ -72,6 +74,7 @@ export function RundownNewShowSheet({
           <AppField autoCapitalize="sentences" label="Show name" maxLength={120} onChangeText={setName} placeholder="Evening service" value={name} />
           <AppField autoCapitalize="none" error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined} keyboardType="numbers-and-punctuation" label="Date" maxLength={10} onChangeText={setServiceDate} placeholder="2026-09-07" value={serviceDate} />
           <AppField autoCapitalize="none" error={startTime && !validTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time" maxLength={5} onChangeText={setStartTime} placeholder="20:00" value={startTime} />
+          <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="18:30" value={callTime} />
           <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
           <Pressable
             accessibilityRole="checkbox"
@@ -99,6 +102,7 @@ export function RundownNewShowSheet({
                 serviceDate,
                 name: name.trim(),
                 startTime,
+                callTime,
                 location: location.trim(),
                 copyCurrent,
               }).then(onClose).catch((error: unknown) => {

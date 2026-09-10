@@ -45,6 +45,18 @@ export interface TimecodeState {
   running: boolean;
   serverTime: number;
   totalFrames: number;
+  lyrics: LyricsDisplayState | null;
+}
+
+export interface LyricsDisplayState {
+  songId: string;
+  songTitle: string;
+  sectionId: string;
+  sectionLabel: string;
+  lyrics: string;
+  nextLabel: string;
+  updatedAt: number;
+  manual: boolean;
 }
 
 // ─── Automation Events ──────────────────────────────────────
@@ -63,6 +75,11 @@ export type AutomationActionType =
   | "stage-message"
   | "stage-clear"
   | "lighting-scene"
+  | "lyrics-goto"
+  | "lyrics-clear"
+  | "pp-trigger-slide"
+  | "pp-trigger-next"
+  | "pp-trigger-clear"
   | "custom-webhook";
 
 export interface AutomationEvent {
@@ -114,6 +131,8 @@ export type TimecodeWsMessage =
   | { type: "tc-update"; state: TimecodeState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
   | { type: "events-update"; events: AutomationEvent[] }
+  | { type: "lyrics-update"; lyrics: LyricsDisplayState }
+  | { type: "lyrics-clear" }
   | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
   | { type: "master-status"; granted: boolean };
 
@@ -127,4 +146,7 @@ export type TimecodeCommand =
   | "add-event"
   | "update-event"
   | "remove-event"
-  | "reset-events";
+  | "reset-events"
+  | "set-lyrics"
+  | "clear-lyrics"
+  | "bridge-disconnected";

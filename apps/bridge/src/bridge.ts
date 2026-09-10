@@ -172,6 +172,14 @@ export class Bridge {
     this.connect();
   }
 
+  feedTimecode(payload: {
+    timecode: { hours: number; minutes: number; seconds: number; frames: number };
+    format: { frameRate: 24 | 25 | 29.97 | 30; dropFrame: "df" | "ndf" };
+    totalFrames: number;
+  }): void {
+    this.send({ type: "timecode-feed", ...payload });
+  }
+
   stop(): void {
     this.reconnect = false;
     if (this.reconnectTimer) {
@@ -313,7 +321,7 @@ export class Bridge {
           await this.executeUdpCommand(msg.target, msg.command);
           break;
         case "propresenter":
-          await this.executePPCommand(msg.target, msg.command);
+          response = await this.executePPCommand(msg.target, msg.command);
           break;
         case "atem":
           await this.executeAtemCommand(msg.target, msg.command);
@@ -490,13 +498,10 @@ export class Bridge {
   private async executePPCommand(
     target: string,
     command: string,
-  ): Promise<void> {
-    if (command !== "next" && command !== "previous" && command !== "clear") {
-      throw new Error(`Unknown ProPresenter command: ${command}`);
-    }
+  ): Promise<string | void> {
     const pp = this.ppConnections.get(target);
     if (!pp) throw new Error("ProPresenter is not connected");
-    await pp.sendCommand(command);
+    return pp.sendCommand(command);
   }
 
   private async connectAtem(

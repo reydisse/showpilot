@@ -31,6 +31,7 @@ import { Route as SlugRundownPinRouteImport } from './routes/$slug/rundown-pin'
 import { Route as SlugScheduleRouteImport } from './routes/$slug/schedule'
 import { Route as SlugSettingsRouteImport } from './routes/$slug/settings'
 import { Route as SlugShowRouteImport } from './routes/$slug/show'
+import { Route as SlugSongsRouteImport } from './routes/$slug/songs'
 import { Route as SlugTeamRouteImport } from './routes/$slug/team'
 import { Route as SlugTimecodeRouteImport } from './routes/$slug/timecode'
 import { Route as AuthForgotPasswordRouteImport } from './routes/_auth/forgot-password'
@@ -52,6 +53,7 @@ import { Route as SlugProductionChecklistRouteImport } from './routes/$slug/prod
 import { Route as SlugProductionCueSheetsRouteImport } from './routes/$slug/production/cue-sheets'
 import { Route as SlugProductionIncidentsRouteImport } from './routes/$slug/production/incidents'
 import { Route as SlugProductionIncidentsHistoryRouteImport } from './routes/$slug/production/incidents-history'
+import { Route as SlugSongsSongIdRouteImport } from './routes/$slug/songs.$songId'
 import { Route as SlugStreamingGraphicsRouteImport } from './routes/$slug/streaming/graphics'
 import { Route as SlugStreamingHealthRouteImport } from './routes/$slug/streaming/health'
 import { Route as SlugStreamingLowerThirdsDisabledRouteImport } from './routes/$slug/streaming/lower-thirds-disabled'
@@ -197,6 +199,11 @@ const SlugShowRoute = SlugShowRouteImport.update({
   path: '/show',
   getParentRoute: () => SlugRoute,
 } as any)
+const SlugSongsRoute = SlugSongsRouteImport.update({
+  id: '/songs',
+  path: '/songs',
+  getParentRoute: () => SlugRoute,
+} as any)
 const SlugTeamRoute = SlugTeamRouteImport.update({
   id: '/team',
   path: '/team',
@@ -305,6 +312,11 @@ const SlugProductionIncidentsHistoryRoute =
     path: '/production/incidents-history',
     getParentRoute: () => SlugRoute,
   } as any)
+const SlugSongsSongIdRoute = SlugSongsSongIdRouteImport.update({
+  id: '/$songId',
+  path: '/$songId',
+  getParentRoute: () => SlugSongsRoute,
+} as any)
 const SlugStreamingGraphicsRoute = SlugStreamingGraphicsRouteImport.update({
   id: '/streaming/graphics',
   path: '/streaming/graphics',
@@ -516,6 +528,7 @@ export interface FileRoutesByFullPath {
   '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/songs': typeof SlugSongsRouteWithChildren
   '/$slug/team': typeof SlugTeamRoute
   '/$slug/timecode': typeof SlugTimecodeRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
@@ -538,6 +551,7 @@ export interface FileRoutesByFullPath {
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
+  '/$slug/songs/$songId': typeof SlugSongsSongIdRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -594,6 +608,7 @@ export interface FileRoutesByTo {
   '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/songs': typeof SlugSongsRouteWithChildren
   '/$slug/team': typeof SlugTeamRoute
   '/$slug/timecode': typeof SlugTimecodeRoute
   '/forgot-password': typeof AuthForgotPasswordRoute
@@ -616,6 +631,7 @@ export interface FileRoutesByTo {
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
+  '/$slug/songs/$songId': typeof SlugSongsSongIdRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -675,6 +691,7 @@ export interface FileRoutesById {
   '/$slug/schedule': typeof SlugScheduleRoute
   '/$slug/settings': typeof SlugSettingsRoute
   '/$slug/show': typeof SlugShowRoute
+  '/$slug/songs': typeof SlugSongsRouteWithChildren
   '/$slug/team': typeof SlugTeamRoute
   '/$slug/timecode': typeof SlugTimecodeRoute
   '/_auth/forgot-password': typeof AuthForgotPasswordRoute
@@ -697,6 +714,7 @@ export interface FileRoutesById {
   '/$slug/production/cue-sheets': typeof SlugProductionCueSheetsRoute
   '/$slug/production/incidents': typeof SlugProductionIncidentsRoute
   '/$slug/production/incidents-history': typeof SlugProductionIncidentsHistoryRoute
+  '/$slug/songs/$songId': typeof SlugSongsSongIdRoute
   '/$slug/streaming/graphics': typeof SlugStreamingGraphicsRouteWithChildren
   '/$slug/streaming/health': typeof SlugStreamingHealthRoute
   '/$slug/streaming/lower-thirds-disabled': typeof SlugStreamingLowerThirdsDisabledRoute
@@ -756,6 +774,7 @@ export interface FileRouteTypes {
     | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/songs'
     | '/$slug/team'
     | '/$slug/timecode'
     | '/forgot-password'
@@ -778,6 +797,7 @@ export interface FileRouteTypes {
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
     | '/$slug/production/incidents-history'
+    | '/$slug/songs/$songId'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -834,6 +854,7 @@ export interface FileRouteTypes {
     | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/songs'
     | '/$slug/team'
     | '/$slug/timecode'
     | '/forgot-password'
@@ -856,6 +877,7 @@ export interface FileRouteTypes {
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
     | '/$slug/production/incidents-history'
+    | '/$slug/songs/$songId'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -914,6 +936,7 @@ export interface FileRouteTypes {
     | '/$slug/schedule'
     | '/$slug/settings'
     | '/$slug/show'
+    | '/$slug/songs'
     | '/$slug/team'
     | '/$slug/timecode'
     | '/_auth/forgot-password'
@@ -936,6 +959,7 @@ export interface FileRouteTypes {
     | '/$slug/production/cue-sheets'
     | '/$slug/production/incidents'
     | '/$slug/production/incidents-history'
+    | '/$slug/songs/$songId'
     | '/$slug/streaming/graphics'
     | '/$slug/streaming/health'
     | '/$slug/streaming/lower-thirds-disabled'
@@ -1174,6 +1198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugShowRouteImport
       parentRoute: typeof SlugRoute
     }
+    '/$slug/songs': {
+      id: '/$slug/songs'
+      path: '/songs'
+      fullPath: '/$slug/songs'
+      preLoaderRoute: typeof SlugSongsRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/team': {
       id: '/$slug/team'
       path: '/team'
@@ -1320,6 +1351,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/$slug/production/incidents-history'
       preLoaderRoute: typeof SlugProductionIncidentsHistoryRouteImport
       parentRoute: typeof SlugRoute
+    }
+    '/$slug/songs/$songId': {
+      id: '/$slug/songs/$songId'
+      path: '/$songId'
+      fullPath: '/$slug/songs/$songId'
+      preLoaderRoute: typeof SlugSongsSongIdRouteImport
+      parentRoute: typeof SlugSongsRoute
     }
     '/$slug/streaming/graphics': {
       id: '/$slug/streaming/graphics'
@@ -1569,6 +1607,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SlugSongsRouteChildren {
+  SlugSongsSongIdRoute: typeof SlugSongsSongIdRoute
+}
+
+const SlugSongsRouteChildren: SlugSongsRouteChildren = {
+  SlugSongsSongIdRoute: SlugSongsSongIdRoute,
+}
+
+const SlugSongsRouteWithChildren = SlugSongsRoute._addFileChildren(
+  SlugSongsRouteChildren,
+)
+
 interface SlugDashboardDevicesRouteChildren {
   SlugDashboardDevicesDeviceIdRoute: typeof SlugDashboardDevicesDeviceIdRoute
 }
@@ -1605,6 +1655,7 @@ interface SlugRouteChildren {
   SlugScheduleRoute: typeof SlugScheduleRoute
   SlugSettingsRoute: typeof SlugSettingsRoute
   SlugShowRoute: typeof SlugShowRoute
+  SlugSongsRoute: typeof SlugSongsRouteWithChildren
   SlugTeamRoute: typeof SlugTeamRoute
   SlugTimecodeRoute: typeof SlugTimecodeRoute
   SlugIndexRoute: typeof SlugIndexRoute
@@ -1636,6 +1687,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugScheduleRoute: SlugScheduleRoute,
   SlugSettingsRoute: SlugSettingsRoute,
   SlugShowRoute: SlugShowRoute,
+  SlugSongsRoute: SlugSongsRouteWithChildren,
   SlugTeamRoute: SlugTeamRoute,
   SlugTimecodeRoute: SlugTimecodeRoute,
   SlugIndexRoute: SlugIndexRoute,

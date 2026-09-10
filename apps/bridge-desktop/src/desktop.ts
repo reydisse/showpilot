@@ -8,7 +8,11 @@ export type BridgeConfig = {
   propresenterPort?: number;
   propresenterApiPort?: number;
   propresenterPassword?: string;
+  midiInputName?: string;
 };
+
+export type MidiInputInfo = { id: string; name: string };
+export type MtcStatus = { connected: boolean; inputName: string | null; timecode: string | null };
 
 export type BridgeStatus = {
   configured: boolean;
@@ -41,3 +45,8 @@ export function startBridge(config: BridgeConfig): Promise<BridgeStatus> {
 export async function stopBridge(): Promise<void> {
   await invoke("stop_bridge");
 }
+
+export function listMidiInputs(): Promise<MidiInputInfo[]> { return invoke("list_midi_inputs"); }
+export function startMtcInput(inputId: string): Promise<MtcStatus> { return invoke("start_mtc_input", { inputId }); }
+export function stopMtcInput(): Promise<void> { return invoke("stop_mtc_input"); }
+export function getMtcStatus(): Promise<MtcStatus> { return invoke("mtc_status"); }

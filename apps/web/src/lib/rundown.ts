@@ -358,7 +358,14 @@ async function getRundownStateFromStorage(
   const rundownRecord = await prisma.rundown.findFirst({
     where: showId ? { id: showId, orgId } : { orgId, serviceDate },
     orderBy: showId ? undefined : [{ scheduledStartTime: "asc" }, { createdAt: "asc" }],
-    select: { id: true, serviceDate: true, scheduledStartTime: true, status: true, name: true },
+    select: {
+      id: true,
+      serviceDate: true,
+      scheduledStartTime: true,
+      scheduledCallTime: true,
+      status: true,
+      name: true,
+    },
   }).catch(() => null);
 
   if (showId && (!rundownRecord || rundownRecord.serviceDate !== serviceDate)) {
@@ -409,6 +416,7 @@ async function getRundownStateFromStorage(
     serviceDate,
     name: rundownRecord?.name ?? "",
     scheduledStartTime: rundownRecord?.scheduledStartTime?.toISOString() ?? null,
+    scheduledCallTime: rundownRecord?.scheduledCallTime?.toISOString() ?? null,
     status: rundownPhaseStatus(rundownRecord?.status ?? "stopped"),
   };
 
@@ -707,7 +715,7 @@ export const saveRundownTimer = createServerFn({ method: "POST" })
 
 type RundownPrismaExt = {
   rundown?: {
-    findFirst(args: { where: { id?: string; orgId: string; serviceDate: string }; orderBy?: Array<Record<string, string>>; select?: Record<string, boolean> }): Promise<{ id: string; scheduledStartTime?: Date | null; status?: string } | null>;
+    findFirst(args: { where: { id?: string; orgId: string; serviceDate: string }; orderBy?: Array<Record<string, string>>; select?: Record<string, boolean> }): Promise<{ id: string; scheduledStartTime?: Date | null; scheduledCallTime?: Date | null; status?: string } | null>;
     update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<unknown>;
     create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
@@ -720,13 +728,14 @@ type RundownPrismaExt = {
 };
 
 /**
- * Upsert the Rundown meta record (scheduledStartTime, status).
+ * Upsert the Rundown meta record (show times, status, and label).
  */
 export const saveRundownMeta = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
       orgServiceDateSchema.extend({
         scheduledStartTime: z.string().max(40).nullish(),
+        scheduledCallTime: z.string().max(40).nullish(),
         status: z.string().max(20).optional(),
         name: z.string().max(120).optional(),
       }),
@@ -742,6 +751,9 @@ export const saveRundownMeta = createServerFn({ method: "POST" })
     const update = {
         ...(data.scheduledStartTime !== undefined
           ? { scheduledStartTime: data.scheduledStartTime ? new Date(data.scheduledStartTime) : null }
+          : {}),
+        ...(data.scheduledCallTime !== undefined
+          ? { scheduledCallTime: data.scheduledCallTime ? new Date(data.scheduledCallTime) : null }
           : {}),
         ...(data.status ? { status: data.status } : {}),
         ...(data.name !== undefined ? { name: data.name.trim() } : {}),

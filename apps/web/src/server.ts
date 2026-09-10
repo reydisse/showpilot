@@ -297,13 +297,16 @@ export default {
       const [, slugOrId, subpath] = tcMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
       const access = await getRelayAccess(request, orgId, e.DB);
-      if (!canUse(access, "timecode:access")) return new Response("Unauthorized", { status: 401 });
+      const publicDisplayRead = request.method === "GET"
+        && (subpath === "ws" || subpath === "state")
+        && url.searchParams.get("display") === "1";
+      if (!publicDisplayRead && !canUse(access, "timecode:access")) return new Response("Unauthorized", { status: 401 });
       const id = e.TIMECODE_RELAY.idFromName(orgId);
       const stub = e.TIMECODE_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
-      doUrl.searchParams.set("access", "write");
+      doUrl.searchParams.set("access", publicDisplayRead ? "read" : "write");
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

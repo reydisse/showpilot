@@ -56,8 +56,8 @@ function fakeDatabase(input: {
       async first<T>() {
         input.calls?.push({ sql, params, operation: "first" });
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
-        if (sql.startsWith("SELECT id, serviceDate, status, updatedAt FROM rundown")) {
-          return { id: "show-1", serviceDate: "2026-09-06", status: "stopped", updatedAt: "show-version-1" } as T;
+        if (sql.startsWith("SELECT id, serviceDate, scheduledCallTime, status, updatedAt FROM rundown")) {
+          return { id: "show-1", serviceDate: "2026-09-06", scheduledCallTime: null, status: "stopped", updatedAt: "show-version-1" } as T;
         }
         if (sql.startsWith("SELECT id, name, email FROM crew_member")) {
           return { id: "crew-1", name: "Ada", email: input.crewEmail ?? "ada@example.com" } as T;
@@ -208,7 +208,7 @@ describe("mobile schedule management", () => {
     expect(response.status).toBe(200);
     const update = calls.find((call) => call.sql.startsWith("UPDATE rundown SET name"));
     expect(update?.params).toEqual([
-      "Sunday Morning", "2026-09-06T09:30:00.000Z", "Main room", "show-1", "org-1", "show-version-1",
+      "Sunday Morning", "2026-09-06T09:30:00.000Z", null, "Main room", "show-1", "org-1", "show-version-1",
     ]);
   });
 

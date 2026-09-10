@@ -40,3 +40,5 @@
 0033_chat_user_room_index.sql
 0034_better_auth_account_issuer.sql
 0035_reports_and_moderation.sql
+0036_service_call_time.sql
+0037_songs.sql

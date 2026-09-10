@@ -25,7 +25,10 @@ const automationActions = [
   ["rundown-adjust", "Adjust timer"], ["stage-message", "Stage message"],
   ["stage-clear", "Clear stage"], ["lower-third-show", "Show lower third"],
   ["lower-third-clear", "Clear lower third"], ["device-action", "Device action"],
-  ["lighting-scene", "Lighting scene"], ["custom-webhook", "Webhook"],
+  ["lighting-scene", "Lighting scene"], ["lyrics-goto", "Show lyric section"],
+  ["lyrics-clear", "Clear lyrics"], ["pp-trigger-slide", "ProPresenter slide"],
+  ["pp-trigger-next", "ProPresenter next"], ["pp-trigger-clear", "Clear ProPresenter"],
+  ["custom-webhook", "Webhook"],
 ] as const;
 
 export default function TimecodeScreen() {
@@ -90,7 +93,7 @@ export default function TimecodeScreen() {
       action: eventAction,
       payload,
       fired: false,
-      toleranceFrames: 2,
+      toleranceFrames: 5,
     });
     setEventLabel("");
   };
@@ -112,6 +115,7 @@ export default function TimecodeScreen() {
         <AppField label="Set timecode" value={timecode} onChangeText={setTimecode} autoCapitalize="characters" placeholder="00:00:00:00" />
         <AppButton label="Set relay time" variant="secondary" disabled={command.isPending || data?.state.running} onPress={setManualTimecode} />
       </OperationsPanel>
+      {data?.state.lyrics ? <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel> : null}
       <OperationsPanel title="Source and format" detail="This device can generate internal freerun. MTC, LTC, rundown, and network sources remain visible here when supplied by the desktop or bridge.">
         <View style={styles.buttonRow}>
           {[24, 25, 29.97, 30].map((frameRate) => (
@@ -147,4 +151,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   actionChoiceTextActive: { color: colors.amberText },
   buttonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   button: { flex: 1, minWidth: 80 },
+  lyricsPreview: { gap: 16, borderRadius: 18, backgroundColor: colors.black, paddingHorizontal: 18, paddingVertical: 28 },
+  lyricsText: { color: colors.white, fontFamily, fontSize: 24, lineHeight: 31, fontWeight: "800", textAlign: "center" },
+  lyricsNext: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 0.8 },
 }));

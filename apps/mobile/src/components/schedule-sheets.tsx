@@ -20,6 +20,7 @@ export interface ScheduleServiceDraft {
   serviceDate: string;
   name: string;
   startTime: string;
+  callTime: string;
   location: string;
   expectedUpdatedAt?: string;
   inventoryId?: string;
@@ -101,6 +102,9 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   const [startTime, setStartTime] = useState(service
     ? serviceWallTimeInput(service.scheduledStartTime, timeZone)
     : initialInventory?.defaultStartTime ?? "");
+  const [callTime, setCallTime] = useState(service
+    ? serviceWallTimeInput(service.scheduledCallTime, timeZone)
+    : "");
   const [location, setLocation] = useState(service?.location ?? initialInventory?.location ?? "");
   const [inventoryId, setInventoryId] = useState(initialInventoryId ?? "");
   const [copyFromShowId, setCopyFromShowId] = useState("");
@@ -110,6 +114,7 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   const valid = isServiceDate(serviceDate)
     && name.trim().length > 0
     && (!startTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))
+    && (!callTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(callTime))
     && (!selectedPrevious || selectedPrevious.serviceDate < serviceDate);
   const applyInventory = (id: string) => {
     const item = inventory.find((candidate) => candidate.id === id);
@@ -119,6 +124,7 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
     setName(item.name);
     setLocation(item.location);
     setStartTime(item.defaultStartTime ?? "");
+    setCallTime("");
   };
   const applyPrevious = (id: string) => {
     const previous = previousServices.find((candidate) => candidate.id === id);
@@ -128,6 +134,7 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
     setName(previous.name);
     setLocation(previous.location);
     setStartTime(serviceWallTimeInput(previous.scheduledStartTime, timeZone));
+    setCallTime(serviceWallTimeInput(previous.scheduledCallTime, timeZone));
   };
   return (
     <ScheduleSheet eyebrow={service ? "EDIT SHOW" : "NEW SHOW"} onClose={onClose} title={service?.name || "Schedule a show"}>
@@ -141,6 +148,7 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
       {!service ? <AppField autoCapitalize="none" error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined} label="Service date" maxLength={10} onChangeText={setServiceDate} placeholder="2026-09-06" value={serviceDate} /> : null}
       <AppField autoCapitalize="sentences" label="Show or service name" maxLength={120} onChangeText={setName} placeholder="Sunday Morning" value={name} />
       <AppField autoCapitalize="none" error={startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time (optional)" maxLength={5} onChangeText={setStartTime} placeholder="09:30" value={startTime} />
+      <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:00 · blank uses workspace default" value={callTime} />
       <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
       <AppButton disabled={!valid || busy} label={busy ? "Saving show…" : service ? "Save show" : "Create show"} loading={busy} onPress={() => runSave(async () => {
         await onSave({
@@ -148,6 +156,7 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
           serviceDate,
           name: name.trim(),
           startTime,
+          callTime,
           location: location.trim(),
           expectedUpdatedAt: service?.updatedAt,
           inventoryId: inventoryId || undefined,

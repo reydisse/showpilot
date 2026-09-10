@@ -297,6 +297,8 @@ export default function ChatScreen() {
   });
   const {
     deleteMessage,
+    hydrated,
+    markRead,
     messages,
     readReceipts,
     toggleReaction: mutateReaction,
@@ -336,6 +338,8 @@ export default function ChatScreen() {
   const [attachmentHeaders, setAttachmentHeaders] = useState<Record<string, string>>({});
   const [actionTarget, setActionTarget] = useState<MobileChatMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
+  const [openingUnreadMessageId, setOpeningUnreadMessageId] = useState<string | null>(null);
+  const [showLatestButton, setShowLatestButton] = useState(false);
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
   const initialScrollDoneRef = useRef(false);
   const focusScrollDoneRef = useRef<string | null>(null);
@@ -389,6 +393,8 @@ export default function ChatScreen() {
     focusScrollDoneRef.current = null;
     stickToBottomRef.current = true;
     userHasScrolledRef.current = false;
+    setOpeningUnreadMessageId(null);
+    setShowLatestButton(false);
     setReplyingTo(null);
     setEditing(null);
     setAttachment(null);
@@ -651,19 +657,59 @@ export default function ChatScreen() {
   function trackScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     if (!userHasScrolledRef.current) return;
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    stickToBottomRef.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 96;
+    const isAtBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96;
+    stickToBottomRef.current = isAtBottom;
+    setShowLatestButton(!isAtBottom);
+    if (isAtBottom) {
+      const latest = displayMessages.at(-1)?.timestamp;
+      if (latest) markRead(latest);
+    }
   }
 
   function keepLatestMessageVisible() {
-    if (!displayMessages.length || focusedMessageId) return;
-    if (!userHasScrolledRef.current || stickToBottomRef.current) {
+    if (!hydrated || !currentUserId || !displayMessages.length || focusedMessageId || !initialScrollDoneRef.current) return;
+    if (stickToBottomRef.current) {
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: initialScrollDoneRef.current }));
+      const latest = displayMessages.at(-1)?.timestamp;
+      if (latest) markRead(latest);
     }
-    initialScrollDoneRef.current = true;
   }
+
+  useEffect(() => {
+    if (!hydrated || !currentUserId || initialScrollDoneRef.current || displayMessages.length === 0) return;
+    const openingReadThrough = readReceipts[currentUserId] ?? null;
+    initialScrollDoneRef.current = true;
+    if (focusedMessageId) return;
+    const firstUnreadIndex = openingReadThrough === null
+      ? -1
+      : displayMessages.findIndex((message) => message.timestamp > openingReadThrough);
+    if (firstUnreadIndex >= 0) {
+      setOpeningUnreadMessageId(displayMessages[firstUnreadIndex]?.id ?? null);
+      stickToBottomRef.current = false;
+      setShowLatestButton(true);
+      requestAnimationFrame(() => listRef.current?.scrollToIndex({ animated: false, index: firstUnreadIndex, viewPosition: 0.08 }));
+      return;
+    }
+    stickToBottomRef.current = true;
+    setShowLatestButton(false);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+    const latest = displayMessages.at(-1)?.timestamp;
+    if (latest) markRead(latest);
+  }, [currentUserId, displayMessages, focusedMessageId, hydrated, markRead, readReceipts]);
+
+  const scrollToLatest = useCallback(() => {
+    stickToBottomRef.current = true;
+    userHasScrolledRef.current = true;
+    setShowLatestButton(false);
+    listRef.current?.scrollToEnd({ animated: true });
+    const latest = displayMessages.at(-1)?.timestamp;
+    if (latest) markRead(latest);
+  }, [displayMessages, markRead]);
 
   const renderMessage = useCallback<ListRenderItem<MobileChatMessage>>(
     ({ index, item }) => (
+      <View>
+        {item.id === openingUnreadMessageId ? <View accessibilityLabel="New messages" style={styles.newMessagesDivider}><View style={styles.newMessagesLine} /><Text style={styles.newMessagesText}>NEW MESSAGES</Text><View style={styles.newMessagesLine} /></View> : null}
         <MessageCard
           attachmentHeaders={attachmentHeaders}
           avatarUrl={item.senderId ? memberImageById.get(item.senderId) : null}
@@ -680,8 +726,9 @@ export default function ChatScreen() {
           own={item.senderId === currentUserId}
           seen={roomId.startsWith("dm:") && item.id === latestOwnMessageId && otherReadAt >= item.timestamp}
         />
+      </View>
     ),
-    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
+    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, openingUnreadMessageId, otherReadAt, roomId, styles, toggleMessageReaction, voteOnMessagePoll],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;
@@ -701,30 +748,36 @@ export default function ChatScreen() {
         {relay.lastError ? <Text style={styles.error}>{relay.lastError}</Text> : null}
         {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
         {liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
-        <FlatList
-          ref={listRef}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          data={displayMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          initialNumToRender={18}
-          maxToRenderPerBatch={12}
-          windowSize={7}
-          ListHeaderComponent={relay.hasOlder ? (
-            <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder }} disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
-              <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
-            </Pressable>
-          ) : null}
-          ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the conversation." : "Connecting to this room…"}</Text>}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          onContentSizeChange={keepLatestMessageVisible}
-          onLayout={keepLatestMessageVisible}
-          onScroll={trackScroll}
-          onScrollBeginDrag={() => { userHasScrolledRef.current = true; }}
-          onScrollToIndexFailed={({ index }) => setTimeout(() => listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 }), 250)}
-          scrollEventThrottle={16}
-        />
+        <View style={styles.listWrap}>
+          <FlatList
+            ref={listRef}
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            data={displayMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            initialNumToRender={18}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            ListHeaderComponent={relay.hasOlder ? (
+              <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder }} disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
+                <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
+              </Pressable>
+            ) : null}
+            ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the conversation." : "Connecting to this room…"}</Text>}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            onContentSizeChange={keepLatestMessageVisible}
+            onLayout={keepLatestMessageVisible}
+            onScroll={trackScroll}
+            onScrollBeginDrag={() => { userHasScrolledRef.current = true; }}
+            onScrollToIndexFailed={({ averageItemLength, index }) => {
+              listRef.current?.scrollToOffset({ animated: false, offset: Math.max(0, averageItemLength * index) });
+              setTimeout(() => listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.08 }), 250);
+            }}
+            scrollEventThrottle={16}
+          />
+          {showLatestButton ? <Pressable accessibilityRole="button" accessibilityLabel="Jump to latest messages" onPress={scrollToLatest} style={({ pressed }) => [styles.latestButton, pressed && styles.pressed]}><ChevronDown color={colors.text} size={15} /><Text style={styles.latestButtonText}>Latest</Text></Pressable> : null}
+        </View>
         {relay.typingUsers.filter((user) => user.userId !== currentUserId).length ? <Text style={styles.typing}>{relay.typingUsers.filter((user) => user.userId !== currentUserId).map((user) => user.name).join(", ")} typing…</Text> : null}
         {replyingTo || editing ? (
           <View style={styles.composerContext}>
@@ -891,7 +944,13 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   liveLabel: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
   liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.medium },
+  listWrap: { flex: 1, position: "relative" },
   listContent: { flexGrow: 1, justifyContent: "flex-end", paddingTop: 12, paddingBottom: 8 },
+  newMessagesDivider: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 14, marginVertical: 8 },
+  newMessagesLine: { flex: 1, height: 1, backgroundColor: colors.amberBorder },
+  newMessagesText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  latestButton: { position: "absolute", alignSelf: "center", bottom: 12, flexDirection: "row", alignItems: "center", gap: 5, minHeight: 34, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panelStrong, paddingHorizontal: 12 },
+  latestButtonText: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   swipeContainer: { position: "relative", overflow: "hidden", backgroundColor: colors.stage },
   swipeReplyAction: { position: "absolute", left: 13, top: 0, bottom: 0, width: 48, alignItems: "center", justifyContent: "center", gap: 1 },
   swipeReplyIcon: { color: colors.amberText },

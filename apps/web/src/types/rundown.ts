@@ -71,6 +71,7 @@ export interface RundownMeta {
   /** Optional label, e.g. "Christmas Eve 7pm". */
   name?: string;
   scheduledStartTime?: string | null; // ISO timestamp
+  scheduledCallTime?: string | null; // ISO timestamp; null uses the organization default
   status: "stopped" | "live" | "complete";
 }
 

@@ -4,6 +4,7 @@ import type {
   TimecodeFormat,
   TimecodeValue,
   AutomationEvent,
+  LyricsDisplayState,
   TimecodeWsMessage,
 } from "@/types/timecode";
 import { timecodeToFrames, timecodeToString } from "@/lib/timecode";
@@ -37,6 +38,8 @@ interface UseTimecodeReturn {
   updateEvent: (id: string, updates: Partial<AutomationEvent>) => void;
   removeEvent: (id: string) => void;
   resetEvents: () => void;
+  setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
+  clearLyrics: () => void;
 
   // MTC support
   mtcSupported: boolean;
@@ -140,6 +143,12 @@ export function useTimecode({
                 e.id === msg.event.id ? { ...e, fired: true } : e
               )
             );
+            break;
+          case "lyrics-update":
+            setState((current) => current ? { ...current, lyrics: msg.lyrics } : current);
+            break;
+          case "lyrics-clear":
+            setState((current) => current ? { ...current, lyrics: null } : current);
             break;
           case "master-status":
             setIsMaster(msg.granted);
@@ -332,6 +341,14 @@ export function useTimecode({
     sendCommand("reset-events");
   }, [sendCommand]);
 
+  const setLyrics = useCallback((lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => {
+    sendCommand("set-lyrics", lyrics);
+  }, [sendCommand]);
+
+  const clearLyrics = useCallback(() => {
+    sendCommand("clear-lyrics");
+  }, [sendCommand]);
+
   // ─── Cleanup ────────────────────────────────────────────
 
   useEffect(() => {
@@ -358,6 +375,8 @@ export function useTimecode({
     updateEvent,
     removeEvent,
     resetEvents,
+    setLyrics,
+    clearLyrics,
     mtcSupported,
   };
 }

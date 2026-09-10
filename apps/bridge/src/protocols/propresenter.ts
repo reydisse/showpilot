@@ -194,9 +194,22 @@ export class ProPresenterBridge {
   }
 
   /** Send a command to PP (for control actions like next slide, clear, etc.) */
-  async sendCommand(command: string): Promise<void> {
+  async sendCommand(command: string): Promise<string | void> {
+    let structured: Record<string, unknown> | null = null;
+    if (command.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(command);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) structured = parsed as Record<string, unknown>;
+      } catch {
+        throw new Error("Invalid ProPresenter command payload");
+      }
+    }
+    const action = typeof structured?.action === "string" ? structured.action : command;
+    if (action === "query-presentations") {
+      return JSON.stringify(await this.queryPresentations());
+    }
     const ports = this.getApiPorts();
-    const endpoints = this.commandEndpoints(command);
+    const endpoints = this.commandEndpoints(action, structured ?? undefined);
 
     for (const port of ports) {
       const base = `http://${this.options.host}:${port}`;
@@ -218,7 +231,83 @@ export class ProPresenterBridge {
       return;
     }
 
-    throw new Error(`No ProPresenter command endpoint worked for ${command}`);
+    throw new Error(`No ProPresenter command endpoint worked for ${action}`);
+  }
+
+  private async requestJson(path: string): Promise<unknown> {
+    for (const port of this.getApiPorts()) {
+      try {
+        const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.timeout(4_000) });
+        if (response.ok) return response.json();
+      } catch {}
+    }
+    throw new Error(`ProPresenter did not answer ${path}`);
+  }
+
+  private objectArray(value: unknown): Record<string, unknown>[] {
+    if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+    if (!value || typeof value !== "object") return [];
+    const record = value as Record<string, unknown>;
+    for (const key of ["items", "libraries", "presentations", "slides", "cues"]) {
+      if (Array.isArray(record[key])) return this.objectArray(record[key]);
+    }
+    return [];
+  }
+
+  private identifier(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (!value || typeof value !== "object") return "";
+    const record = value as Record<string, unknown>;
+    return String(record.uuid ?? record.id ?? record.value ?? "");
+  }
+
+  private presentationSlides(detail: unknown): Array<{ index: number; text: string; label: string; notes: string }> {
+    if (!detail || typeof detail !== "object" || Array.isArray(detail)) return [];
+    const groups = (detail as Record<string, unknown>).groups;
+    if (!Array.isArray(groups)) return [];
+    const slides: Array<{ index: number; text: string; label: string; notes: string }> = [];
+    for (const groupValue of groups) {
+      if (!groupValue || typeof groupValue !== "object" || Array.isArray(groupValue)) continue;
+      const group = groupValue as Record<string, unknown>;
+      const groupName = String(group.name ?? "");
+      for (const slide of this.objectArray(group.slides)) {
+        const index = slides.length;
+        const slideLabel = typeof slide.label === "string" ? slide.label.trim() : "";
+        slides.push({
+          index,
+          text: this.extractTextFromResponse(slide),
+          label: slideLabel || groupName || `Slide ${index + 1}`,
+          notes: String(slide.notes ?? ""),
+        });
+      }
+    }
+    return slides;
+  }
+
+  private async queryPresentations(): Promise<Array<{ uuid: string; name: string; slides: Array<{ index: number; text: string; label: string; notes: string }> }>> {
+    const libraries = this.objectArray(await this.requestJson("/v1/libraries"));
+    const presentations = new Map<string, { uuid: string; name: string }>();
+    for (const library of libraries.slice(0, 50)) {
+      const libraryId = this.identifier(library.id ?? library.uuid ?? library);
+      if (!libraryId) continue;
+      const items = this.objectArray(await this.requestJson(`/v1/library/${encodeURIComponent(libraryId)}`));
+      for (const item of items) {
+        const uuid = this.identifier(item.id ?? item.uuid);
+        if (!uuid) continue;
+        presentations.set(uuid, { uuid, name: String(item.name ?? item.title ?? "Untitled presentation") });
+      }
+    }
+    const result: Array<{ uuid: string; name: string; slides: Array<{ index: number; text: string; label: string; notes: string }> }> = [];
+    for (const presentation of [...presentations.values()].slice(0, 500)) {
+      try {
+        const detail = await this.requestJson(`/v1/presentation/${encodeURIComponent(presentation.uuid)}`);
+        const slides = this.presentationSlides(detail);
+        result.push({ ...presentation, slides });
+      } catch {
+        result.push({ ...presentation, slides: [] });
+      }
+    }
+    return result;
   }
 
   private handleMessage(data: Record<string, unknown>): void {
@@ -520,6 +609,7 @@ export class ProPresenterBridge {
 
   private commandEndpoints(
     command: string,
+    payload?: Record<string, unknown>,
   ): Array<{ path: string; method: string }> {
     switch (command) {
       case "next":
@@ -534,6 +624,13 @@ export class ProPresenterBridge {
         ];
       case "clear":
         return [{ path: "/v1/clear/layer/slide", method: "GET" }];
+      case "trigger-slide": {
+        const uuid = typeof payload?.presentationUuid === "string" ? payload.presentationUuid : "";
+        const index = typeof payload?.slideIndex === "number" && Number.isInteger(payload.slideIndex) && payload.slideIndex >= 0 ? payload.slideIndex : null;
+        if (uuid && index !== null) return [{ path: `/v1/presentation/${encodeURIComponent(uuid)}/${index}/trigger`, method: "GET" }];
+        if (index !== null) return [{ path: `/v1/presentation/active/${index}/trigger`, method: "GET" }];
+        return [];
+      }
       default:
         return [];
     }

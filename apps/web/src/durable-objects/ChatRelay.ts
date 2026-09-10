@@ -460,7 +460,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         JSON.stringify({
           type: "hydrate",
           messages: this.recentMessages,
-          readReceipts: this.isDirectMessageRoom(this.roomId) ? this.getReadReceipts() : undefined,
+          readReceipts: this.getReadReceipts(),
         })
       );
       if (this.lastGatewayStatus) server.send(JSON.stringify(this.lastGatewayStatus));
@@ -583,7 +583,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       if (parsed.type === "read") {
-        if (!session.userId || !this.isDirectMessageRoom(session.roomId) || !session.roomId.split(":").slice(1).includes(session.userId)) return;
+        if (!session.userId) return;
+        if (this.isDirectMessageRoom(session.roomId) && !session.roomId.split(":").slice(1).includes(session.userId)) return;
         const readAt = Math.max(0, Math.min(Date.now(), Math.floor(Number(parsed.readAt) || 0)));
         if (!readAt) return;
         this.ctx.storage.sql.exec(

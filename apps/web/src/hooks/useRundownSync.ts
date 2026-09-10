@@ -173,6 +173,7 @@ interface UseRundownSyncReturn {
   stateShowId: string | null;
   serviceName: string | null;
   scheduledStartTime: string | null | undefined;
+  scheduledCallTime: string | null | undefined;
   /** False only for a brand-new room that still needs its D1 seed. */
   stateInitialized: boolean;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
@@ -188,7 +189,11 @@ interface UseRundownSyncReturn {
     items: RundownItem[],
     timer: TimerState,
     force?: boolean,
-    meta?: { serviceName: string; scheduledStartTime: string | null },
+    meta?: {
+      serviceName: string;
+      scheduledStartTime: string | null;
+      scheduledCallTime: string | null;
+    },
   ) => void;
 }
 
@@ -212,6 +217,7 @@ export function useRundownSync(
   const [stateShowId, setStateShowId] = useState<string | null>(null);
   const [serviceName, setServiceName] = useState<string | null>(null);
   const [scheduledStartTime, setScheduledStartTime] = useState<string | null | undefined>(undefined);
+  const [scheduledCallTime, setScheduledCallTime] = useState<string | null | undefined>(undefined);
   const [stateInitialized, setStateInitialized] = useState(false);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
@@ -293,6 +299,7 @@ export function useRundownSync(
     setStateShowId(null);
     setServiceName(null);
     setScheduledStartTime(undefined);
+    setScheduledCallTime(undefined);
     setStateInitialized(false);
     setItems([]);
     setTimer({
@@ -402,6 +409,13 @@ export function useRundownSync(
                 : undefined,
             );
           }
+          if ("scheduledCallTime" in state) {
+            setScheduledCallTime(
+              state.scheduledCallTime === null || typeof state.scheduledCallTime === "string"
+                ? state.scheduledCallTime
+                : undefined,
+            );
+          }
           if ("initialized" in state) {
             setStateInitialized(state.initialized === true);
           }
@@ -475,7 +489,11 @@ export function useRundownSync(
       seedItems: RundownItem[],
       seedTimer: TimerState,
       force = false,
-      meta?: { serviceName: string; scheduledStartTime: string | null },
+      meta?: {
+        serviceName: string;
+        scheduledStartTime: string | null;
+        scheduledCallTime: string | null;
+      },
     ) => {
       sendCommand("seed", {
         items: seedItems,
@@ -496,6 +514,7 @@ export function useRundownSync(
     stateShowId,
     serviceName,
     scheduledStartTime,
+    scheduledCallTime,
     stateInitialized,
     ppPreviewSlide,
     stageMessage,

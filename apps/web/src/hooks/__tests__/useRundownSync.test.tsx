@@ -130,4 +130,35 @@ describe("useRundownSync command confirmation", () => {
     expect(result.current.lastError).toContain("Another operator changed");
     unmount();
   });
+
+  it("drops the previous show's call time before hydrating a newly selected show", async () => {
+    const { result, rerender, unmount } = renderHook(
+      ({ showId }) => useRundownSync("org-1", "2026-09-06", showId),
+      { initialProps: { showId: "show-1" } },
+    );
+    const firstSocket = MockWebSocket.instances[0];
+
+    act(() => {
+      firstSocket.open();
+      firstSocket.receive({
+        type: "hydrate",
+        state: {
+          initialized: true,
+          revision: 4,
+          serviceDate: "2026-09-06",
+          showId: "show-1",
+          scheduledCallTime: "2026-09-06T08:00:00.000Z",
+          items: [],
+          timer: { playback: "stop", currentItemId: null, elapsed: 0, startedAt: null },
+        },
+      });
+    });
+    expect(result.current.scheduledCallTime).toBe("2026-09-06T08:00:00.000Z");
+
+    rerender({ showId: "show-2" });
+
+    await waitFor(() => expect(result.current.scheduledCallTime).toBeUndefined());
+    expect(result.current.hydrated).toBe(false);
+    unmount();
+  });
 });

@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,29 +9,29 @@ datasource db {
 }
 
 model User {
-  id            String       @id
-  name          String
-  email         String
-  emailVerified Boolean      @default(false)
-  image         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  members       Member[]
-  orgMembers    OrgMember[]
-  invitations   Invitation[]
-  dashboardLayouts DashboardLayout[]
-  accessGrantsReceived MemberPermissionGrant[] @relation("AccessGrantRecipient")
-  accessGrantsIssued   MemberPermissionGrant[] @relation("AccessGrantIssuer")
-  accessGrantsRevoked  MemberPermissionGrant[] @relation("AccessGrantRevoker")
-  showReportNotes      ShowReportNote[]
-  showReportReminders  ShowReportReminder[]
-  contentBlocksCreated ContentBlock[] @relation("ContentBlockBlocker")
-  contentBlocksReceived ContentBlock[] @relation("ContentBlockBlocked")
-  contentReportsCreated ContentReport[] @relation("ContentReportReporter")
-  contentReportsReceived ContentReport[] @relation("ContentReportAuthor")
-  contentReportsReviewed ContentReport[] @relation("ContentReportReviewer")
+  id                     String                  @id
+  name                   String
+  email                  String
+  emailVerified          Boolean                 @default(false)
+  image                  String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  sessions               Session[]
+  accounts               Account[]
+  members                Member[]
+  orgMembers             OrgMember[]
+  invitations            Invitation[]
+  dashboardLayouts       DashboardLayout[]
+  accessGrantsReceived   MemberPermissionGrant[] @relation("AccessGrantRecipient")
+  accessGrantsIssued     MemberPermissionGrant[] @relation("AccessGrantIssuer")
+  accessGrantsRevoked    MemberPermissionGrant[] @relation("AccessGrantRevoker")
+  showReportNotes        ShowReportNote[]
+  showReportReminders    ShowReportReminder[]
+  contentBlocksCreated   ContentBlock[]          @relation("ContentBlockBlocker")
+  contentBlocksReceived  ContentBlock[]          @relation("ContentBlockBlocked")
+  contentReportsCreated  ContentReport[]         @relation("ContentReportReporter")
+  contentReportsReceived ContentReport[]         @relation("ContentReportAuthor")
+  contentReportsReviewed ContentReport[]         @relation("ContentReportReviewer")
 
   @@unique([email])
   @@map("user")
@@ -72,8 +71,8 @@ model Account {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  @@index([userId])
   @@unique([issuer, accountId], map: "account_issuer_accountId_uidx")
+  @@index([userId])
   @@map("account")
 }
 
@@ -90,20 +89,20 @@ model Verification {
 }
 
 model Organization {
-  id          String       @id
-  name        String
-  slug        String
-  logo        String?
-  cloud_enabled Boolean    @default(true)
-  createdAt   DateTime
-  metadata    String?
+  id            String   @id
+  name          String
+  slug          String
+  logo          String?
+  cloud_enabled Boolean  @default(true)
+  createdAt     DateTime
+  metadata      String?
 
   // Billing (Stripe) — effective plan is resolved by getEffectivePlan()
   // in src/lib/plan-limits.ts (beta > trial > plan precedence).
   plan                 String    @default("free") // "free" | "starter" | "pro"
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?
-  subscriptionStatus   String?   // mirrors Stripe subscription status
+  subscriptionStatus   String? // mirrors Stripe subscription status
   trialEndsAt          DateTime?
   foundingMember       Boolean   @default(false)
   betaTester           Boolean   @default(false)
@@ -113,33 +112,37 @@ model Organization {
   invitations Invitation[]
 
   // App relations
-  crewMembers        CrewMember[]
-  serviceAssignments ServiceAssignment[]
-  checklistTemplates ChecklistTemplate[]
-  checklistEntries   ChecklistEntry[]
-  cueSheets          CueSheet[]
-  cueColumns         CueColumn[]
-  incidents          Incident[]
-  micAssignments     MicAssignment[]
-  equipment          Equipment[]
-  notifications      Notification[]
-  devices            Device[]
-  appSettings        AppSetting[]
-  rundowns           Rundown[]
-  rundownItems       RundownItem[]
-  graphicTemplates   GraphicTemplate[]
-  streamDestinations StreamDestination[]
-  liveInputs         LiveInput[]
-  chatMessages       ChatMessage[]
-  dashboardLayouts   DashboardLayout[]
-  kioskTokens        KioskToken[]
-  companionTokens    CompanionToken[]
-  showInventory      ShowInventoryItem[]
+  crewMembers            CrewMember[]
+  serviceAssignments     ServiceAssignment[]
+  checklistTemplates     ChecklistTemplate[]
+  checklistEntries       ChecklistEntry[]
+  cueSheets              CueSheet[]
+  cueColumns             CueColumn[]
+  incidents              Incident[]
+  micAssignments         MicAssignment[]
+  equipment              Equipment[]
+  notifications          Notification[]
+  devices                Device[]
+  appSettings            AppSetting[]
+  rundowns               Rundown[]
+  rundownItems           RundownItem[]
+  graphicTemplates       GraphicTemplate[]
+  streamDestinations     StreamDestination[]
+  liveInputs             LiveInput[]
+  chatMessages           ChatMessage[]
+  dashboardLayouts       DashboardLayout[]
+  kioskTokens            KioskToken[]
+  companionTokens        CompanionToken[]
+  showInventory          ShowInventoryItem[]
   memberPermissionGrants MemberPermissionGrant[]
-  showReportNotes       ShowReportNote[]
-  showReportReminders   ShowReportReminder[]
-  contentBlocks         ContentBlock[]
-  contentReports        ContentReport[]
+  showReportNotes        ShowReportNote[]
+  showReportReminders    ShowReportReminder[]
+  contentBlocks          ContentBlock[]
+  contentReports         ContentReport[]
+  songs                  Song[]
+  songSections           SongSection[]
+  songCueMaps            SongCueMap[]
+  songCues               SongCue[]
 
   organizationroles OrganizationRole[]
 
@@ -235,36 +238,36 @@ model Invitation {
 /// future scheduled service; it is intentionally separate from a rundown's
 /// date-scoped operational records.
 model ShowInventoryItem {
-  id            String       @id @default(cuid())
-  orgId         String
-  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  name          String
-  description   String       @default("")
-  location      String       @default("")
+  id               String       @id @default(cuid())
+  orgId            String
+  organization     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name             String
+  description      String       @default("")
+  location         String       @default("")
   defaultStartTime String?
-  rundownJson   String       @default("[]")
+  rundownJson      String       @default("[]")
   sourceTemplateId String?
-  archivedAt    DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  archivedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([orgId, archivedAt, name])
   @@map("show_inventory_item")
 }
 
 model CrewMember {
-  id           String       @id @default(cuid())
+  id           String              @id @default(cuid())
   orgId        String
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   memberId     String
   name         String
   role         String
-  email        String       @default("")
-  photoUrl     String       @default("")
-  isOnline     Boolean      @default(false)
+  email        String              @default("")
+  photoUrl     String              @default("")
+  isOnline     Boolean             @default(false)
   lastCheckIn  DateTime?
   lastCheckOut DateTime?
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime            @default(now())
   assignments  ServiceAssignment[]
 
   @@unique([orgId, memberId])
@@ -300,10 +303,10 @@ model ChecklistEntry {
   checkedBy    String?
   checkedAt    DateTime?
 
+  @@unique([orgId, showId, templateId])
   @@index([orgId, serviceDate])
   @@index([orgId, showId])
   @@index([templateId])
-  @@unique([orgId, showId, templateId])
   @@map("checklist_entry")
 }
 
@@ -314,8 +317,8 @@ model CueSheet {
   id                String       @id @default(cuid())
   orgId             String
   organization      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  showId             String?
-  show               Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
+  showId            String?
+  show              Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
   cueNumber         Int
   rundownItem       String
   cameraAssignments String       @default("")
@@ -388,33 +391,33 @@ model DashboardLayout {
 }
 
 model Incident {
-  id           String       @id @default(cuid())
-  orgId        String
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  showId       String?
-  show         Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
-  category     String // audio | video | stream | lighting | other
-  severity     String // low | medium | high
-  description  String
-  reportedBy   String
-  serviceDate  String
-  timestamp    DateTime     @default(now())
+  id             String            @id @default(cuid())
+  orgId          String
+  organization   Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId         String?
+  show           Rundown?          @relation(fields: [showId], references: [id], onDelete: Cascade)
+  category       String // audio | video | stream | lighting | other
+  severity       String // low | medium | high
+  description    String
+  reportedBy     String
+  serviceDate    String
+  timestamp      DateTime          @default(now())
   // Lifecycle. Without it nothing carries forward between services.
-  status       String       @default("open") // open | resolved
-  resolvedAt   DateTime?
-  resolvedBy   String?
+  status         String            @default("open") // open | resolved
+  resolvedAt     DateTime?
+  resolvedBy     String?
   /// Who is on it. An unowned fault is the one that gets dropped —
   /// two techs both grabbing the same problem, or nobody grabbing it,
   /// is the failure mode a tech team actually has.
-  assignedTo   String?
+  assignedTo     String?
   /// Denormalised for display. The dashboard renders a name on every
   /// fault row and joining out to `user` for each one, on a page that
   /// re-reads every twenty seconds during a service, is not worth it.
-  assignedName String       @default("")
+  assignedName   String            @default("")
   acknowledgedAt DateTime?
-  assignedBy   String?
-  assignedAt   DateTime?
-  comments     IncidentComment[]
+  assignedBy     String?
+  assignedAt     DateTime?
+  comments       IncidentComment[]
 
   @@index([orgId, serviceDate])
   @@index([orgId, showId])
@@ -424,17 +427,17 @@ model Incident {
 }
 
 model IncidentComment {
-  id         String   @id @default(cuid())
+  id         String            @id @default(cuid())
   orgId      String
   incidentId String
-  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incident   Incident          @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   userId     String
   authorName String
   body       String
   parentId   String?
   parent     IncidentComment?  @relation("IncidentCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies    IncidentComment[] @relation("IncidentCommentReplies")
-  createdAt  DateTime @default(now())
+  createdAt  DateTime          @default(now())
 
   @@index([orgId, incidentId, createdAt])
   @@index([parentId, createdAt])
@@ -580,29 +583,29 @@ model AppSetting {
 }
 
 model RundownItem {
-  id           String   @id @default(cuid())
-  orgId        String
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  showId       String?
-  show         Rundown? @relation(fields: [showId], references: [id], onDelete: Cascade)
-  serviceDate  String
-  itemId       String
-  title        String
-  type         String
-  duration     Int
-  notes        String
-  assignee     String
-  cue          String
-  status       String
-  sortOrder    Int
-  hardStop       Boolean   @default(false)
+  id             String       @id @default(cuid())
+  orgId          String
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId         String?
+  show           Rundown?     @relation(fields: [showId], references: [id], onDelete: Cascade)
+  serviceDate    String
+  itemId         String
+  title          String
+  type           String
+  duration       Int
+  notes          String
+  assignee       String
+  cue            String
+  status         String
+  sortOrder      Int
+  hardStop       Boolean      @default(false)
   lowerThirdId   String?
   scheduledStart DateTime?
   expectedEnd    DateTime?
   actualStart    DateTime?
   actualEnd      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   @@unique([orgId, showId, itemId])
   @@index([orgId, serviceDate, sortOrder])
@@ -619,42 +622,117 @@ model Rundown {
   /// Optional label, e.g. "Christmas Eve 7pm". Empty for a regular service.
   name               String       @default("")
   scheduledStartTime DateTime?
-  location           String   @default("")
+  /// Optional show-specific crew call. When null, use the organization lead-time default.
+  scheduledCallTime  DateTime?
+  location           String       @default("")
   status             String       @default("stopped")
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
-  checklistEntries   ChecklistEntry[]
-  cueSheets          CueSheet[]
-  cueNotes           CueNote[]
-  incidents          Incident[]
-  serviceAssignments ServiceAssignment[]
+  checklistEntries    ChecklistEntry[]
+  cueSheets           CueSheet[]
+  cueNotes            CueNote[]
+  incidents           Incident[]
+  serviceAssignments  ServiceAssignment[]
   showReportNotes     ShowReportNote[]
   showReportReminders ShowReportReminder[]
-  micAssignments     MicAssignment[]
-  items              RundownItem[]
+  micAssignments      MicAssignment[]
+  items               RundownItem[]
 
   @@index([orgId, serviceDate])
   @@index([orgId, serviceDate, scheduledStartTime])
   @@map("rundown")
 }
 
-model ShowReportNote {
-  id         String       @id @default(cuid())
-  orgId      String
+model Song {
+  id                 String        @id @default(cuid())
+  orgId              String
+  organization       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  title              String
+  artist             String        @default("")
+  ccliNumber         String        @default("")
+  bpm                Int?
+  keySignature       String        @default("")
+  ppPresentationUuid String        @default("")
+  importSource       String        @default("manual")
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  sections           SongSection[]
+  cueMaps            SongCueMap[]
+
+  @@index([orgId, title])
+  @@map("song")
+}
+
+model SongSection {
+  id               String       @id @default(cuid())
+  songId           String
+  song             Song         @relation(fields: [songId], references: [id], onDelete: Cascade)
+  orgId            String
+  organization     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  label            String
+  lyrics           String       @default("")
+  sortOrder        Int          @default(0)
+  sourceSlideIndex Int?
+  cues             SongCue[]
+
+  @@index([songId, sortOrder])
+  @@index([orgId])
+  @@map("song_section")
+}
+
+model SongCueMap {
+  id           String       @id @default(cuid())
+  songId       String
+  song         Song         @relation(fields: [songId], references: [id], onDelete: Cascade)
+  orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  showId     String
-  show       Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  authorName String
-  role       String
-  summary    String       @default("")
-  wins       String       @default("")
-  issues     String       @default("")
-  followUps  String       @default("")
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  name         String       @default("Default")
+  format       String       @default("{\"frameRate\":30,\"dropFrame\":\"ndf\"}")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  cues         SongCue[]
+
+  @@index([songId])
+  @@index([orgId])
+  @@map("song_cue_map")
+}
+
+model SongCue {
+  id           String       @id @default(cuid())
+  cueMapId     String
+  cueMap       SongCueMap   @relation(fields: [cueMapId], references: [id], onDelete: Cascade)
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sectionId    String
+  section      SongSection  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  triggerTc    String
+  triggerFrame Int
+  sortOrder    Int          @default(0)
+  ppSlideIndex Int?
+
+  @@index([cueMapId, sortOrder])
+  @@index([sectionId])
+  @@index([orgId])
+  @@map("song_cue")
+}
+
+model ShowReportNote {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  showId       String
+  show         Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authorName   String
+  role         String
+  summary      String       @default("")
+  wins         String       @default("")
+  issues       String       @default("")
+  followUps    String       @default("")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   @@unique([orgId, showId, userId])
   @@index([orgId, showId, updatedAt])
@@ -662,14 +740,14 @@ model ShowReportNote {
 }
 
 model ShowReportReminder {
-  id         String       @id @default(cuid())
-  orgId      String
+  id           String       @id @default(cuid())
+  orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  showId     String
-  show       Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime     @default(now())
+  showId       String
+  show         Rundown      @relation(fields: [showId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime     @default(now())
 
   @@unique([orgId, showId, userId])
   @@map("show_report_reminder")

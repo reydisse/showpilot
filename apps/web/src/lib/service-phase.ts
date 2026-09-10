@@ -37,6 +37,8 @@ export const DEBRIEF_WINDOW_MS = 6 * HOUR_MS;
 export interface PhaseInput {
   /** ISO timestamp from Rundown.scheduledStartTime. */
   scheduledStartTime?: string | null;
+  /** Optional show-specific crew call. Falls back to the organization lead. */
+  scheduledCallTime?: string | null;
   /** Rundown.status. */
   status?: "stopped" | "live" | "complete";
   /** Sum of rundown item durations, ms. Falls back to the service window. */
@@ -74,12 +76,13 @@ export function getServiceTiming(input: PhaseInput): ServiceTiming {
   }
 
   const callLead = positive(input.callLeadMinutes, DEFAULT_CALL_LEAD_MINUTES);
+  const explicitCallTimeMs = toMs(input.scheduledCallTime);
   const windowMinutes = positive(input.serviceWindowMinutes, DEFAULT_SERVICE_WINDOW_MINUTES);
   const durationMs = positive(input.plannedDurationMs, windowMinutes * MINUTE_MS);
 
   return {
     scheduledStartMs,
-    callTimeMs: scheduledStartMs - callLead * MINUTE_MS,
+    callTimeMs: explicitCallTimeMs ?? scheduledStartMs - callLead * MINUTE_MS,
     expectedEndMs: scheduledStartMs + durationMs,
   };
 }

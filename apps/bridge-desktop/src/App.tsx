@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import { enable } from "@tauri-apps/plugin-autostart";
-import { Activity, CheckCircle2, Eye, EyeOff, RefreshCw, Server, ShieldCheck, Square, XCircle } from "lucide-react";
-import { getBridgeConfig, getBridgeStatus, startBridge, stopBridge, type BridgeConfig, type BridgeStatus } from "./desktop";
+import { Activity, CheckCircle2, Eye, EyeOff, Radio, RefreshCw, Server, ShieldCheck, Square, XCircle } from "lucide-react";
+import { getBridgeConfig, getBridgeStatus, getMtcStatus, listMidiInputs, startBridge, startMtcInput, stopBridge, stopMtcInput, type BridgeConfig, type BridgeStatus, type MidiInputInfo, type MtcStatus } from "./desktop";
 
 const emptyConfig: BridgeConfig = { site: "", org: "", key: "" };
 
@@ -13,14 +13,17 @@ export function App() {
   const [showKey, setShowKey] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [midiInputs, setMidiInputs] = useState<MidiInputInfo[]>([]);
+  const [mtc, setMtc] = useState<MtcStatus>({ connected: false, inputName: null, timecode: null });
 
   async function refresh() {
-    const next = await getBridgeStatus();
-    setStatus(next);
+    const [next, midiStatus] = await Promise.all([getBridgeStatus(), getMtcStatus()]);
+    setStatus(next); setMtc(midiStatus);
   }
 
   useEffect(() => {
     void getBridgeConfig().then((saved) => saved && setConfig(saved));
+    void listMidiInputs().then(setMidiInputs).catch(() => setMidiInputs([]));
     void refresh();
     const timer = window.setInterval(() => void refresh(), 3000);
     const updateTimer = window.setTimeout(() => void checkForUpdates({ automatic: true }), 2500);
@@ -133,6 +136,12 @@ export function App() {
         <label>ShowPilot site<input value={config.site} onChange={(event) => update({ site: event.target.value })} placeholder="https://showpilot.tech" /></label>
         <label>Organization slug<input value={config.org} onChange={(event) => update({ org: event.target.value })} placeholder="faithfire-production" /></label>
         <label>Bridge API key<div className="input-with-action"><input type={showKey ? "text" : "password"} value={config.key} onChange={(event) => update({ key: event.target.value })} placeholder="sp_…" /><button type="button" onClick={() => setShowKey((visible) => !visible)} aria-label={showKey ? "Hide API key" : "Show API key"}>{showKey ? <EyeOff /> : <Eye />}</button></div></label>
+      </section>
+
+      <section className="card">
+        <div className="card-title"><Radio /><div><h1>Ableton MIDI timecode</h1><p>Decode MTC on this Mac and relay it to every ShowPilot lyrics output.</p></div></div>
+        <label>MIDI input<select value={mtc.inputName ?? config.midiInputName ?? ""} onChange={(event) => update({ midiInputName: event.target.value || undefined })}><option value="">Choose an input</option>{midiInputs.map((input) => <option key={input.id} value={input.id}>{input.name}</option>)}</select></label>
+        <div className="mtc-row"><div><strong>{mtc.connected ? "MTC connected" : "MTC stopped"}</strong><small>{mtc.timecode ?? "00:00:00:00"}</small></div><div className="mtc-actions"><button className="secondary" type="button" onClick={() => void listMidiInputs().then(setMidiInputs)}>Rescan</button>{mtc.connected ? <button className="secondary" type="button" onClick={() => void stopMtcInput().then(refresh)}>Stop</button> : <button className="primary" type="button" disabled={!config.midiInputName} onClick={() => config.midiInputName && void startMtcInput(config.midiInputName).then(setMtc).catch((reason) => setError(String(reason)))}>Connect MTC</button>}</div></div>
       </section>
 
       <section className="card">

@@ -32,6 +32,7 @@ describe("NewShowModal", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Show name"), { target: { value: "Late service" } });
+    fireEvent.change(screen.getByLabelText(/Crew call time/), { target: { value: "18:45" } });
     fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
     fireEvent.change(screen.getByLabelText("Venue or location"), { target: { value: "Main room" } });
     fireEvent.click(screen.getByRole("button", { name: "Create show" }));
@@ -40,6 +41,7 @@ describe("NewShowModal", () => {
       expect(onCreate).toHaveBeenCalledWith({
         serviceDate: "2026-09-07",
         name: "Late service",
+        callTime: "18:45",
         startTime: "20:00",
         location: "Main room",
         copyCurrent: true,

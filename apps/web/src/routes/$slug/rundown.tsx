@@ -83,6 +83,7 @@ import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 import { NewShowModal, type NewShowInput } from "@/components/rundown/NewShowModal";
 import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
+import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
@@ -289,6 +290,7 @@ function RundownPage() {
     stateShowId: syncedShowId,
     serviceName: syncedServiceName,
     scheduledStartTime: syncedScheduledStartTime,
+    scheduledCallTime: syncedScheduledCallTime,
     stateInitialized: syncedInitialized,
     ppPreviewSlide: syncedPpSlide,
     lastError: syncError,
@@ -296,6 +298,8 @@ function RundownPage() {
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
+  const relayMatchesTarget = syncedServiceDate === serviceDate
+    && (!showId || syncedShowId === showId);
   const syncSavingRef = useRef(syncSaving);
   syncSavingRef.current = syncSaving;
 
@@ -337,13 +341,16 @@ function RundownPage() {
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
     formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
   );
+  const [scheduledCallTime, setScheduledCallTime] = useState<string>(
+    formatTimeInput(initialState.meta?.scheduledCallTime, settings["org-timezone"])
+  );
   const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingMetaFieldsRef = useRef(new Set<"name" | "time">());
+  const pendingMetaFieldsRef = useRef(new Set<"name" | "time" | "call">());
   const [metaSavePending, setMetaSavePending] = useState(false);
 
-  const setMetaFieldPending = useCallback((field: "name" | "time", pending: boolean) => {
+  const setMetaFieldPending = useCallback((field: "name" | "time" | "call", pending: boolean) => {
     if (pending) pendingMetaFieldsRef.current.add(field);
     else pendingMetaFieldsRef.current.delete(field);
     setMetaSavePending(pendingMetaFieldsRef.current.size > 0);
@@ -391,15 +398,21 @@ function RundownPage() {
           scheduledStartTime,
           settings["org-timezone"],
         ),
+        scheduledCallTime: serviceTimeToIso(
+          serviceDate,
+          scheduledCallTime,
+          settings["org-timezone"],
+        ),
       });
     } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
     }
-  }, [scheduledStartTime, seedState, serviceDate, serviceName, settings, showId, syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, timer]);
+  }, [scheduledCallTime, scheduledStartTime, seedState, serviceDate, serviceName, settings, showId, syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, timer]);
 
   // Shared with the dashboard header — see components/ui/scroll-edges.
 
   useEffect(() => {
+    if (!relayMatchesTarget) return;
     if (syncedServiceName !== null) setServiceName(syncedServiceName);
     if (syncedScheduledStartTime !== undefined) {
       setScheduledStartTime(
@@ -408,7 +421,14 @@ function RundownPage() {
           : "",
       );
     }
-  }, [settings, syncedScheduledStartTime, syncedServiceName]);
+    if (syncedScheduledCallTime !== undefined) {
+      setScheduledCallTime(
+        syncedScheduledCallTime
+          ? formatTimeInput(syncedScheduledCallTime, settings["org-timezone"])
+          : "",
+      );
+    }
+  }, [relayMatchesTarget, settings, syncedScheduledCallTime, syncedScheduledStartTime, syncedServiceName]);
 
   // The web app remains the source of truth. Desktop keeps a bounded local
   // snapshot after edits so the native engine can grow an offline bootstrap
@@ -479,6 +499,32 @@ function RundownPage() {
     }, 800);
   }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
 
+  const handleScheduledCallChange = useCallback((timeStr: string) => {
+    setScheduledCallTime(timeStr);
+    setSaveError(null);
+    setMetaFieldPending("call", true);
+    const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
+    if (showId) {
+      setMetaFieldPending("call", false);
+      sendCommand("update-meta", { scheduledCallTime: isoTime });
+      return;
+    }
+    void ensureShowId()
+      .then(async (targetShowId) => {
+        await saveRundownMeta({
+          data: {
+            orgId,
+            showId: targetShowId,
+            serviceDate,
+            scheduledCallTime: isoTime,
+          },
+        });
+        if (!showId) await adoptShowId(targetShowId);
+      })
+      .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Crew call did not save"))
+      .finally(() => setMetaFieldPending("call", false));
+  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
+
   useEffect(() => () => {
     if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
     if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
@@ -535,6 +581,7 @@ function RundownPage() {
   loadingRef.current = loading;
   useEffect(() => {
     if (!syncHydrated || !syncedInitialized) return;
+    if (!relayMatchesTarget) return;
     if (loadingRef.current) return; // Date load in progress — don't overwrite
 
     setItems(syncedItems as RundownItem[]);
@@ -545,7 +592,7 @@ function RundownPage() {
       startedAt: syncedTimer.startedAt,
       mode: syncedTimer.mode,
     });
-  }, [syncHydrated, syncedInitialized, syncedItems, syncedTimer]);
+  }, [relayMatchesTarget, syncHydrated, syncedInitialized, syncedItems, syncedTimer]);
 
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customAdjust, setCustomAdjust] = useState("1:00");
@@ -756,6 +803,11 @@ function RundownPage() {
           ? formatTimeInput(state.meta.scheduledStartTime, settings["org-timezone"])
           : ""
       );
+      setScheduledCallTime(
+        state.meta?.scheduledCallTime
+          ? formatTimeInput(state.meta.scheduledCallTime, settings["org-timezone"])
+          : "",
+      );
       showCreationRef.current = null;
       setTarget({ serviceDate: date, showId: nextShowId });
       setSaveError(null);
@@ -783,6 +835,7 @@ function RundownPage() {
         serviceDate: input.serviceDate,
         name: input.name,
         startTime: input.startTime,
+        callTime: input.callTime,
         location: input.location,
         copyFrom: input.copyCurrent ? serviceDate : undefined,
         copyFromShowId: input.copyCurrent ? showId : undefined,
@@ -829,11 +882,16 @@ function RundownPage() {
           scheduledStartTime,
           settings["org-timezone"],
         ),
+        scheduledCallTime: serviceTimeToIso(
+          serviceDate,
+          scheduledCallTime,
+          settings["org-timezone"],
+        ),
       });
     }
 
     sendCommand(action, payload);
-  }, [relayNeedsPriming, scheduledStartTime, sendCommand, serviceDate, serviceName, settings]);
+  }, [relayNeedsPriming, scheduledCallTime, scheduledStartTime, sendCommand, serviceDate, serviceName, settings]);
 
   // The text changes at second boundaries; sampling at 10 Hz keeps it precise
   // without rerendering this dense operator page on every animation frame.
@@ -1251,17 +1309,27 @@ function RundownPage() {
   const itemNumbers = rundownItemNumbers(items);
   const selectedShowName = serviceName || shows.find((show) => show.id === showId)?.name || "Untitled show";
   const selectedShowStart = scheduledStartTime ? formatWallTime(scheduledStartTime) : "";
+  const phaseSettings = readPhaseSettings(settings);
+  const effectiveCallTimeMs = getServiceTiming({
+    scheduledStartTime: serviceTimeToIso(serviceDate, scheduledStartTime, settings["org-timezone"]),
+    scheduledCallTime: serviceTimeToIso(serviceDate, scheduledCallTime, settings["org-timezone"]),
+    callLeadMinutes: phaseSettings.callLeadMinutes,
+  }).callTimeMs;
+  const selectedShowCall = effectiveCallTimeMs === null
+    ? ""
+    : formatTimeInput(new Date(effectiveCallTimeMs), settings["org-timezone"]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
         <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <div className="min-w-0 flex-1">
-            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">Rundown</h1>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">Rundown</p>
+            <h1 className="truncate font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">{selectedShowName}</h1>
             <p className="mt-0.5 hidden truncate text-xs text-board-muted sm:block">
-              <span className="font-medium text-board-text">{selectedShowName}</span>
-              {" · "}{formatDisplayDate(serviceDate)}
+              {formatDisplayDate(serviceDate)}
               {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
+              {selectedShowCall ? ` · ${formatWallTime(selectedShowCall)} call` : ""}
               {` · ${items.length} items · ${formatDuration(totalDuration)}`}
             </p>
           </div>
@@ -1343,13 +1411,13 @@ function RundownPage() {
                 <button
                   onClick={() => setShowAddForm(true)}
                   aria-label="Add item"
-                  className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2.5 pr-3.5 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0"
+                  className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0 sm:px-2.5 sm:pr-3.5"
                   style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
                 >
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
                     <Plus className="w-3.5 h-3.5" />
                   </span>
-                  <span className="font-[family-name:var(--font-display)] text-sm font-bold tracking-tight whitespace-nowrap">
+                  <span className="hidden whitespace-nowrap font-[family-name:var(--font-display)] text-sm font-bold tracking-tight sm:inline">
                     Add Item
                   </span>
                 </button>
@@ -1360,14 +1428,12 @@ function RundownPage() {
               </span>
             )}
           </div>
-          <div className="order-last min-w-0 basis-full sm:hidden">
-            <p className="truncate text-xs font-medium text-board-text">{selectedShowName}</p>
-            <p className="mt-0.5 truncate text-[11px] text-board-muted">
-              {formatDisplayDate(serviceDate)}
-              {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
-              {` · ${items.length} items · ${formatDuration(totalDuration)}`}
-            </p>
-          </div>
+          <p className="basis-full truncate text-[11px] text-board-muted sm:hidden">
+            {formatDisplayDate(serviceDate)}
+            {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
+            {selectedShowCall ? ` · ${formatWallTime(selectedShowCall)} call` : ""}
+            {` · ${items.length} items · ${formatDuration(totalDuration)}`}
+          </p>
         </div>
       </div>
 
@@ -2130,6 +2196,7 @@ function RundownPage() {
             setShowCreateModal(true);
           }}
           onDateChange={(date) => void loadDate(date)}
+          onCallTimeChange={handleScheduledCallChange}
           onNameChange={handleServiceNameChange}
           onSelectShow={(show) => void loadDate(show.serviceDate, show.id)}
           onShiftDate={handleDateChange}
@@ -2138,6 +2205,7 @@ function RundownPage() {
           selectedDate={serviceDate}
           selectedShowId={showId}
           serviceName={serviceName}
+          callTime={scheduledCallTime}
           shows={shows}
           startTime={scheduledStartTime}
           timeZone={settings["org-timezone"]}

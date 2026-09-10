@@ -4,7 +4,9 @@ const MEMBER_VISIBLE_SETTING_KEYS = [
   "timezone-display",
   "default-timer-mode",
   "default-countdown-minutes",
+  "default-call-lead-minutes",
   "overtime-behavior",
+  "lyrics-output",
 ] as const;
 
 interface SettingsResult<T> {

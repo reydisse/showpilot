@@ -94,6 +94,7 @@ interface RundownState {
   showId?: string;
   serviceName?: string;
   scheduledStartTime?: string | null;
+  scheduledCallTime?: string | null;
   location?: string;
   revision: number;
   recentCommandIds: string[];
@@ -142,6 +143,7 @@ export class RundownRelay extends DurableObject {
             showId: stored.showId,
             serviceName: stored.serviceName,
             scheduledStartTime: stored.scheduledStartTime,
+            scheduledCallTime: stored.scheduledCallTime,
             location: stored.location,
             revision: Number.isFinite(stored.revision) ? stored.revision : 0,
             recentCommandIds: Array.isArray(stored.recentCommandIds)
@@ -326,6 +328,10 @@ export class RundownRelay extends DurableObject {
         assignments.push("scheduledStartTime = ?");
         values.push(this.state.scheduledStartTime);
       }
+      if (this.state.scheduledCallTime !== previousState.scheduledCallTime && this.state.scheduledCallTime !== undefined) {
+        assignments.push("scheduledCallTime = ?");
+        values.push(this.state.scheduledCallTime);
+      }
       if (this.state.location !== previousState.location && this.state.location !== undefined) {
         assignments.push("location = ?");
         values.push(this.state.location);
@@ -424,6 +430,7 @@ export class RundownRelay extends DurableObject {
       this.state.showId = showId ?? undefined;
       this.state.serviceName = undefined;
       this.state.scheduledStartTime = undefined;
+      this.state.scheduledCallTime = undefined;
       this.state.location = undefined;
       this.state.initialized = false;
       this.state.items = [];
@@ -621,6 +628,7 @@ export class RundownRelay extends DurableObject {
         const timer = payload?.timer === undefined ? null : parseRelayTimer(payload.timer);
         const serviceName = payload?.serviceName;
         const scheduledStartTime = payload?.scheduledStartTime;
+        const scheduledCallTime = payload?.scheduledCallTime;
         const location = payload?.location;
         if (
           !items
@@ -631,6 +639,11 @@ export class RundownRelay extends DurableObject {
             scheduledStartTime !== undefined
             && scheduledStartTime !== null
             && (typeof scheduledStartTime !== "string" || !Number.isFinite(Date.parse(scheduledStartTime)))
+          )
+          || (
+            scheduledCallTime !== undefined
+            && scheduledCallTime !== null
+            && (typeof scheduledCallTime !== "string" || !Number.isFinite(Date.parse(scheduledCallTime)))
           )
         ) return false;
         // Empty is valid, authoritative state after clear-all. Only a room
@@ -645,6 +658,11 @@ export class RundownRelay extends DurableObject {
           this.state.scheduledStartTime = scheduledStartTime === null
             ? null
             : new Date(scheduledStartTime).toISOString();
+        }
+        if (scheduledCallTime !== undefined) {
+          this.state.scheduledCallTime = scheduledCallTime === null
+            ? null
+            : new Date(scheduledCallTime).toISOString();
         }
         break;
       }
@@ -948,15 +966,21 @@ export class RundownRelay extends DurableObject {
       case "update-meta": {
         const serviceName = payload?.serviceName;
         const scheduledStartTime = payload?.scheduledStartTime;
+        const scheduledCallTime = payload?.scheduledCallTime;
         const location = payload?.location;
         if (
-          serviceName === undefined && scheduledStartTime === undefined && location === undefined
+          serviceName === undefined && scheduledStartTime === undefined && scheduledCallTime === undefined && location === undefined
           || (serviceName !== undefined && (typeof serviceName !== "string" || serviceName.length > 120))
           || (location !== undefined && (typeof location !== "string" || location.length > 240))
           || (
             scheduledStartTime !== undefined
             && scheduledStartTime !== null
             && (typeof scheduledStartTime !== "string" || !Number.isFinite(Date.parse(scheduledStartTime)))
+          )
+          || (
+            scheduledCallTime !== undefined
+            && scheduledCallTime !== null
+            && (typeof scheduledCallTime !== "string" || !Number.isFinite(Date.parse(scheduledCallTime)))
           )
         ) return false;
         if (serviceName !== undefined) this.state.serviceName = serviceName;
@@ -965,6 +989,11 @@ export class RundownRelay extends DurableObject {
           this.state.scheduledStartTime = scheduledStartTime === null
             ? null
             : new Date(scheduledStartTime).toISOString();
+        }
+        if (scheduledCallTime !== undefined) {
+          this.state.scheduledCallTime = scheduledCallTime === null
+            ? null
+            : new Date(scheduledCallTime).toISOString();
         }
         break;
       }
@@ -1007,6 +1036,9 @@ export class RundownRelay extends DurableObject {
       ...(this.state.scheduledStartTime === undefined
         ? {}
         : { scheduledStartTime: this.state.scheduledStartTime }),
+      ...(this.state.scheduledCallTime === undefined
+        ? {}
+        : { scheduledCallTime: this.state.scheduledCallTime }),
       ...(this.state.location === undefined ? {} : { location: this.state.location }),
       initialized: this.state.initialized,
       revision: this.state.revision,

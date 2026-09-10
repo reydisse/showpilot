@@ -163,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0035_reports_and_moderation.sql`). They deliberately do **not** use wrangler's
+`0037_songs.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -204,7 +204,7 @@ The check rejects gaps, duplicate entries, unknown files, and out-of-order
 entries. The deploy workflow runs the same command and stops before either
 Worker changes if any migration remains pending.
 
-For migrations 0030 through 0034, use these read-only preflights where noted:
+For migrations 0030 through 0037, use these read-only preflights where noted:
 
 ```sh
 # 0030: must return 0.
@@ -217,6 +217,12 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command='SELECT COUNT(*) A
 # credential account needs an explicit provider-owned backfill before rollout.
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS non_credential_accounts FROM \"account\" WHERE \"providerId\" <> 'credential'"
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS duplicate_credential_users FROM (SELECT \"userId\" FROM \"account\" WHERE \"providerId\" = 'credential' GROUP BY \"userId\" HAVING COUNT(*) > 1)"
+
+# 0036: must return 0.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS existing_scheduled_call_time FROM pragma_table_info('rundown') WHERE name = 'scheduledCallTime'"
+
+# 0037: must return 0.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS existing_song_objects FROM sqlite_master WHERE name IN ('song','song_orgId_title_idx','song_orgId_ppPresentationUuid_key','song_section','song_section_songId_sortOrder_idx','song_section_orgId_idx','song_cue_map','song_cue_map_songId_idx','song_cue_map_orgId_idx','song_cue','song_cue_cueMapId_sortOrder_idx','song_cue_sectionId_idx','song_cue_orgId_idx')"
 ```
 
 After applying each file, require its exact postcondition:
@@ -241,6 +247,12 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT \"name\" F
 
 # After 0035: returns four tables and seven indexes.
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('show_report_note','show_report_note_author_key','show_report_note_show_idx','show_report_reminder','show_report_reminder_recipient_key','content_block','content_block_pair_key','content_block_viewer_idx','content_report','content_report_queue_idx','content_report_target_idx') ORDER BY type, name"
+
+# After 0036: returns scheduledCallTime.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT name FROM pragma_table_info('rundown') WHERE name = 'scheduledCallTime'"
+
+# After 0037: returns four tables and nine indexes.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('song','song_orgId_title_idx','song_orgId_ppPresentationUuid_key','song_section','song_section_songId_sortOrder_idx','song_section_orgId_idx','song_cue_map','song_cue_map_songId_idx','song_cue_map_orgId_idx','song_cue','song_cue_cueMapId_sortOrder_idx','song_cue_sectionId_idx','song_cue_orgId_idx') ORDER BY type, name"
 
 # After all files: returns no rows.
 pnpm exec wrangler d1 execute showpilot-db --remote --command='PRAGMA foreign_key_check'
@@ -278,11 +290,12 @@ a fresh local state directory.
 
 ### Current state
 
-The production manifest records every migration through
-`0035_reports_and_moderation.sql`. Migrations 0030 through 0035 were applied
-in order on 2026-08-28 after every required preflight returned zero and a D1
-Time Travel bookmark was captured. Every migration postcondition passed, and
-`PRAGMA foreign_key_check` returned no rows after the rollout.
+The production manifest records every migration through `0037_songs.sql`.
+Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
+0036 and 0037 were applied in order on 2026-09-10. Before each rollout, every
+required preflight returned zero and a D1 Time Travel bookmark was captured.
+Every migration postcondition passed, and `PRAGMA foreign_key_check` returned
+no rows after each rollout.
 
 ---
 

@@ -159,6 +159,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     const phase = getServicePhase(
       {
         scheduledStartTime: rundownRow?.scheduledStartTime ?? null,
+        scheduledCallTime: rundownRow?.scheduledCallTime ?? null,
         callLeadMinutes,
         serviceWindowMinutes,
         // The column is a plain string in D1; narrow it rather than
@@ -352,18 +353,21 @@ async function loadRundownMeta(
   orgId: string,
   serviceDate: string,
   showId?: string,
-): Promise<{ scheduledStartTime: string | null; status: string } | null> {
+): Promise<{ scheduledStartTime: string | null; scheduledCallTime: string | null; status: string } | null> {
   try {
     const row = await getD1()
       .prepare(
-        `SELECT scheduledStartTime, status FROM rundown WHERE orgId = ? AND ${showId ? "id = ?" : "serviceDate = ?"}`,
+        `SELECT scheduledStartTime, scheduledCallTime, status FROM rundown WHERE orgId = ? AND ${showId ? "id = ?" : "serviceDate = ?"}`,
       )
       .bind(orgId, showId ?? serviceDate)
-      .first<{ scheduledStartTime: string | null; status: string }>();
+      .first<{ scheduledStartTime: string | null; scheduledCallTime: string | null; status: string }>();
     if (!row) return null;
     return {
       scheduledStartTime: row.scheduledStartTime
         ? new Date(row.scheduledStartTime).toISOString()
+        : null,
+      scheduledCallTime: row.scheduledCallTime
+        ? new Date(row.scheduledCallTime).toISOString()
         : null,
       status: row.status,
     };

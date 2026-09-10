@@ -24,6 +24,7 @@ interface RelayState {
   showId: string | null;
   serviceName: string | null;
   scheduledStartTime: string | null | undefined;
+  scheduledCallTime: string | null | undefined;
   location: string | null;
   stageMessage: string;
   ppPreviewSlide: {
@@ -44,6 +45,23 @@ const EMPTY_TIMER: RundownTimer = {
   mode: "count-down",
 };
 
+function emptyRelayState(): RelayState {
+  return {
+    initialized: false,
+    revision: 0,
+    items: [],
+    timer: EMPTY_TIMER,
+    serviceDate: null,
+    showId: null,
+    serviceName: null,
+    scheduledStartTime: undefined,
+    scheduledCallTime: undefined,
+    location: null,
+    stageMessage: "",
+    ppPreviewSlide: null,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -61,19 +79,7 @@ function relayUrl(orgId: string, serviceDate: string, showId: string) {
 }
 
 export function useRundownRelay(orgId: string, serviceDate: string, showId: string) {
-  const [state, setState] = useState<RelayState>({
-    initialized: false,
-    revision: 0,
-    items: [],
-    timer: EMPTY_TIMER,
-    serviceDate: null,
-    showId: null,
-    serviceName: null,
-    scheduledStartTime: undefined,
-    location: null,
-    stageMessage: "",
-    ppPreviewSlide: null,
-  });
+  const [state, setState] = useState<RelayState>(emptyRelayState);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [hydrated, setHydrated] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -133,6 +139,9 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     queueRef.current = [];
     pendingRef.current = null;
     clearPendingTimer();
+    setState(emptyRelayState());
+    setHydrated(false);
+    setLastError(null);
 
     if (!orgId || !serviceDate || !showId) {
       setStatus("offline");
@@ -194,6 +203,10 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           && (value.scheduledStartTime === null || typeof value.scheduledStartTime === "string")
           ? value.scheduledStartTime
           : current.scheduledStartTime,
+        scheduledCallTime: "scheduledCallTime" in value
+          && (value.scheduledCallTime === null || typeof value.scheduledCallTime === "string")
+          ? value.scheduledCallTime
+          : current.scheduledCallTime,
         location: "location" in value && typeof value.location === "string"
           ? value.location
           : current.location,
@@ -327,7 +340,12 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
   const seedState = useCallback((
     items: RundownItem[],
     timer: RundownTimer,
-    meta?: { serviceName: string; scheduledStartTime: string | null; location: string },
+    meta?: {
+      serviceName: string;
+      scheduledStartTime: string | null;
+      scheduledCallTime: string | null;
+      location: string;
+    },
   ) => {
     sendCommand("seed", { items, timer, force: false, ...meta });
   }, [sendCommand]);

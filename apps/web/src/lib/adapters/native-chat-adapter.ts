@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatMessageOptions,
   ChatReadReceipt,
+  ChatHydrationState,
   ChatGatewayStatus,
   ChatTypingState,
   ConnectionStatus,
@@ -43,6 +44,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private typingListeners = new Set<(state: ChatTypingState) => void>();
   private readReceiptListeners = new Set<(receipt: ChatReadReceipt) => void>();
+  private hydrationListeners = new Set<(state: ChatHydrationState) => void>();
   private gatewayStatusListeners = new Set<(status: ChatGatewayStatus) => void>();
   private gatewayStatus: ChatGatewayStatus | null = null;
   private messageQueue: QueuedMessage[] = [];
@@ -92,11 +94,14 @@ export class NativeChatAdapter implements ChatAdapter {
               for (const msg of data.messages) {
                 this.notifyListeners(msg);
               }
+              const readReceipts: Record<string, number> = {};
               if (data.readReceipts && typeof data.readReceipts === "object") {
                 for (const [userId, readAt] of Object.entries(data.readReceipts)) {
+                  if (typeof readAt === "number") readReceipts[userId] = readAt;
                   if (typeof readAt === "number") this.notifyReadReceipt({ userId, readAt });
                 }
               }
+              for (const listener of this.hydrationListeners) listener({ readReceipts });
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
               if (existingIndex >= 0) this.messageHistory[existingIndex] = data.message;
@@ -180,6 +185,11 @@ export class NativeChatAdapter implements ChatAdapter {
   onReadReceipt(callback: (receipt: ChatReadReceipt) => void): () => void {
     this.readReceiptListeners.add(callback);
     return () => this.readReceiptListeners.delete(callback);
+  }
+
+  onHydrated(callback: (state: ChatHydrationState) => void): () => void {
+    this.hydrationListeners.add(callback);
+    return () => this.hydrationListeners.delete(callback);
   }
 
   onGatewayStatus(callback: (status: ChatGatewayStatus) => void): () => void {

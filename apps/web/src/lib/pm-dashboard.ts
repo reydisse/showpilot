@@ -55,6 +55,7 @@ interface RundownDateRow {
   id: string;
   serviceDate: string;
   scheduledStartTime: Date | null;
+  scheduledCallTime: Date | null;
   status: string;
   name: string;
   createdAt: Date;
@@ -74,6 +75,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
           id: true;
           serviceDate: true;
           scheduledStartTime: true;
+          scheduledCallTime: true;
           status: true;
           name: true;
           createdAt: true;
@@ -90,6 +92,7 @@ async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
         id: true,
         serviceDate: true,
         scheduledStartTime: true,
+        scheduledCallTime: true,
         status: true,
         name: true,
         createdAt: true,
@@ -588,6 +591,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
       rundown: rundownState.meta
         ? {
             scheduledStartTime: rundownState.meta.scheduledStartTime ?? null,
+            scheduledCallTime: rundownState.meta.scheduledCallTime ?? null,
             status: rundownState.meta.status,
           }
         : null,

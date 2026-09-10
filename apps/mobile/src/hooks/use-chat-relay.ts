@@ -81,6 +81,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [typingUsers, setTypingUsers] = useState<MobileChatTypingState[]>([]);
   const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
+  const [hydrated, setHydrated] = useState(false);
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({ platform: null, status: "disabled" });
   const socketRef = useRef<WebSocket | null>(null);
   const queueRef = useRef<string[]>([]);
@@ -108,6 +109,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     setHasOlder(false);
     setTypingUsers([]);
     setReadReceipts({});
+    setHydrated(false);
     setGatewayStatus({ platform: null, status: "connecting" });
     queueRef.current = [];
 
@@ -196,6 +198,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
               }
               setReadReceipts(receipts);
             }
+            setHydrated(true);
           } else if ("type" in payload && (payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted")) {
             const message = "message" in payload ? parseChatMessage(payload.message) : null;
             if (message) setMessages((current) => mergeChatMessage(current, message));
@@ -334,12 +337,6 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "read", readAt }));
   }, []);
 
-  useEffect(() => {
-    if (!roomId.startsWith("dm:") || messages.length === 0) return;
-    const latest = messages.reduce((timestamp, message) => Math.max(timestamp, message.timestamp), 0);
-    markRead(latest);
-  }, [markRead, messages, roomId]);
-
   const loadOlder = useCallback(async () => {
     if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
     setLoadingOlder(true);
@@ -382,6 +379,8 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     typingUsers,
     setTyping,
     readReceipts,
+    hydrated,
+    markRead,
     hasOlder,
     loadingOlder,
     loadOlder,

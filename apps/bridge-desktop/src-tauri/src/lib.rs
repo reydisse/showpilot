@@ -1,13 +1,15 @@
+use midir::{Ignore, MidiInput, MidiInputConnection};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
@@ -35,16 +37,22 @@ struct BridgeConfig {
     propresenter_api_port: Option<u16>,
     #[serde(default)]
     propresenter_password: Option<String>,
+    #[serde(default)]
+    midi_input_name: Option<String>,
 }
 
 struct BridgeProcess {
     child: Child,
     logs: Arc<Mutex<VecDeque<String>>>,
     connection: Arc<Mutex<BridgeConnection>>,
+    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
 }
 
 impl Drop for BridgeProcess {
     fn drop(&mut self) {
+        if let Ok(mut stdin) = self.sidecar_stdin.lock() {
+            *stdin = None;
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -54,6 +62,87 @@ struct BridgeRuntime {
     process: Mutex<Option<BridgeProcess>>,
     auto_restart: AtomicBool,
     last_logs: Mutex<VecDeque<String>>,
+    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+}
+
+struct MtcRuntime {
+    connection: Mutex<Option<MidiInputConnection<()>>>,
+    selected_input: Mutex<Option<String>>,
+    last_timecode: Arc<Mutex<Option<String>>>,
+    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MidiInputInfo {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MtcStatus {
+    connected: bool,
+    input_name: Option<String>,
+    timecode: Option<String>,
+}
+
+#[derive(Default)]
+struct MtcQuarterFrameDecoder {
+    pieces: [u8; 8],
+    received: u8,
+    last_emit: Option<Instant>,
+}
+
+impl MtcQuarterFrameDecoder {
+    fn feed(&mut self, message: &[u8]) -> Option<serde_json::Value> {
+        if message.len() < 2 || message[0] != 0xF1 {
+            return None;
+        }
+        let piece = (message[1] >> 4) as usize;
+        if piece > 7 {
+            return None;
+        }
+        self.pieces[piece] = message[1] & 0x0F;
+        self.received |= 1 << piece;
+        if self.received != 0xFF
+            || self
+                .last_emit
+                .is_some_and(|last| last.elapsed() < Duration::from_millis(100))
+        {
+            return None;
+        }
+        self.last_emit = Some(Instant::now());
+        let frames = u32::from(self.pieces[0] | ((self.pieces[1] & 0x01) << 4));
+        let seconds = u32::from(self.pieces[2] | ((self.pieces[3] & 0x03) << 4));
+        let minutes = u32::from(self.pieces[4] | ((self.pieces[5] & 0x03) << 4));
+        let hours = u32::from(self.pieces[6] | ((self.pieces[7] & 0x01) << 4));
+        let rate_code = (self.pieces[7] >> 1) & 0x03;
+        let (frame_rate, drop_frame, nominal_fps) = match rate_code {
+            0 => (24.0, "ndf", 24_u32),
+            1 => (25.0, "ndf", 25_u32),
+            2 => (29.97, "df", 30_u32),
+            _ => (30.0, "ndf", 30_u32),
+        };
+        if minutes > 59 || seconds > 59 || frames >= nominal_fps {
+            return None;
+        }
+        let raw = hours * nominal_fps * 3600
+            + minutes * nominal_fps * 60
+            + seconds * nominal_fps
+            + frames;
+        let total_frames = if drop_frame == "df" {
+            raw.saturating_sub(2 * (hours * 60 + minutes - (hours * 60 + minutes) / 10))
+        } else {
+            raw
+        };
+        Some(serde_json::json!({
+            "type": "timecode-feed",
+            "timecode": { "hours": hours, "minutes": minutes, "seconds": seconds, "frames": frames },
+            "format": { "frameRate": frame_rate, "dropFrame": drop_frame },
+            "totalFrames": total_frames,
+        }))
+    }
 }
 
 #[derive(Serialize)]
@@ -313,11 +402,15 @@ fn save_bridge_config(app: tauri::AppHandle, config: BridgeConfig) -> Result<(),
 fn spawn_bridge_process(
     app: &tauri::AppHandle,
     config: &BridgeConfig,
+    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
 ) -> Result<BridgeProcess, String> {
     let logs = Arc::new(Mutex::new(VecDeque::new()));
     let connection = Arc::new(Mutex::new(BridgeConnection::Connecting));
     let mut command = bridge_command(app, config)?;
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| format!("Unable to start bridge: {error}"))?;
@@ -327,10 +420,14 @@ fn spawn_bridge_process(
     if let Some(stderr) = child.stderr.take() {
         capture_output(stderr, Arc::clone(&logs), Arc::clone(&connection));
     }
+    if let Ok(mut target) = sidecar_stdin.lock() {
+        *target = child.stdin.take();
+    }
     Ok(BridgeProcess {
         child,
         logs,
         connection,
+        sidecar_stdin,
     })
 }
 
@@ -345,7 +442,7 @@ fn restart_configured_bridge(
         .lock()
         .map_err(|_| "Bridge state unavailable".to_string())?;
     *process = None;
-    let active = spawn_bridge_process(app, &config)?;
+    let active = spawn_bridge_process(app, &config, Arc::clone(&runtime.sidecar_stdin))?;
     *process = Some(active);
     runtime.auto_restart.store(true, Ordering::Relaxed);
     Ok(())
@@ -439,7 +536,7 @@ fn start_bridge(
         .map_err(|_| "Bridge state unavailable".to_string())?;
     *process = None;
 
-    let active = spawn_bridge_process(&app, &config)?;
+    let active = spawn_bridge_process(&app, &config, Arc::clone(&runtime.sidecar_stdin))?;
     let pid = active.child.id();
     let current_logs = active
         .logs
@@ -482,8 +579,144 @@ fn cache_service(app: tauri::AppHandle, payload: String) -> Result<String, Strin
     Ok(format!("Cached locally · {}", path.display()))
 }
 
+#[tauri::command]
+fn list_midi_inputs() -> Result<Vec<MidiInputInfo>, String> {
+    let input = MidiInput::new("ShowPilot MTC discovery").map_err(|error| error.to_string())?;
+    input
+        .ports()
+        .iter()
+        .map(|port| {
+            let name = input.port_name(port).map_err(|error| error.to_string())?;
+            Ok(MidiInputInfo {
+                id: name.clone(),
+                name,
+            })
+        })
+        .collect()
+}
+
+fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), String> {
+    let mut input = MidiInput::new("ShowPilot MTC").map_err(|error| error.to_string())?;
+    input.ignore(Ignore::None);
+    let port = input
+        .ports()
+        .into_iter()
+        .find(|port| input.port_name(port).ok().as_deref() == Some(input_name))
+        .ok_or_else(|| format!("MIDI input not found: {input_name}"))?;
+    let sink = Arc::clone(&runtime.sidecar_stdin);
+    let last_timecode = Arc::clone(&runtime.last_timecode);
+    let mut decoder = MtcQuarterFrameDecoder::default();
+    let connection = input
+        .connect(
+            &port,
+            "ShowPilot MTC input",
+            move |_stamp, message, _| {
+                let Some(payload) = decoder.feed(message) else {
+                    return;
+                };
+                let tc = &payload["timecode"];
+                let separator = if payload["format"]["dropFrame"] == "df" {
+                    ';'
+                } else {
+                    ':'
+                };
+                let display = format!(
+                    "{:02}:{:02}:{:02}{}{:02}",
+                    tc["hours"].as_u64().unwrap_or(0),
+                    tc["minutes"].as_u64().unwrap_or(0),
+                    tc["seconds"].as_u64().unwrap_or(0),
+                    separator,
+                    tc["frames"].as_u64().unwrap_or(0)
+                );
+                if let Ok(mut value) = last_timecode.lock() {
+                    *value = Some(display);
+                }
+                if let Ok(mut writer) = sink.lock() {
+                    if let Some(stdin) = writer.as_mut() {
+                        let _ = writeln!(stdin, "{payload}");
+                        let _ = stdin.flush();
+                    }
+                }
+            },
+            (),
+        )
+        .map_err(|error| error.to_string())?;
+    *runtime
+        .connection
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())? = Some(connection);
+    *runtime
+        .selected_input
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())? = Some(input_name.to_string());
+    Ok(())
+}
+
+#[tauri::command]
+fn start_mtc_input(
+    app: tauri::AppHandle,
+    input_id: String,
+    runtime: tauri::State<'_, MtcRuntime>,
+) -> Result<MtcStatus, String> {
+    connect_mtc_input(&input_id, &runtime)?;
+    if let Some(mut config) = read_bridge_config(&app)? {
+        config.midi_input_name = Some(input_id);
+        save_bridge_config(app, config)?;
+    }
+    mtc_status(runtime)
+}
+
+#[tauri::command]
+fn stop_mtc_input(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, MtcRuntime>,
+) -> Result<(), String> {
+    *runtime
+        .connection
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())? = None;
+    *runtime
+        .selected_input
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())? = None;
+    *runtime
+        .last_timecode
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())? = None;
+    if let Some(mut config) = read_bridge_config(&app)? {
+        config.midi_input_name = None;
+        save_bridge_config(app, config)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn mtc_status(runtime: tauri::State<'_, MtcRuntime>) -> Result<MtcStatus, String> {
+    let connected = runtime
+        .connection
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())?
+        .is_some();
+    let input_name = runtime
+        .selected_input
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())?
+        .clone();
+    let timecode = runtime
+        .last_timecode
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())?
+        .clone();
+    Ok(MtcStatus {
+        connected,
+        input_name,
+        timecode,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let sidecar_stdin = Arc::new(Mutex::new(None));
     tauri::Builder::default()
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -495,6 +728,13 @@ pub fn run() {
             process: Mutex::new(None),
             auto_restart: AtomicBool::new(false),
             last_logs: Mutex::new(VecDeque::new()),
+            sidecar_stdin: Arc::clone(&sidecar_stdin),
+        })
+        .manage(MtcRuntime {
+            connection: Mutex::new(None),
+            selected_input: Mutex::new(None),
+            last_timecode: Arc::new(Mutex::new(None)),
+            sidecar_stdin,
         })
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "Open ShowPilot Bridge", true, None::<&str>)?;
@@ -542,7 +782,11 @@ pub fn run() {
 
             if let Ok(Some(config)) = read_bridge_config(app.handle()) {
                 let runtime = app.state::<BridgeRuntime>();
-                match spawn_bridge_process(app.handle(), &config) {
+                match spawn_bridge_process(
+                    app.handle(),
+                    &config,
+                    Arc::clone(&runtime.sidecar_stdin),
+                ) {
                     Ok(active) => {
                         runtime.auto_restart.store(true, Ordering::Relaxed);
                         if let Ok(mut process) = runtime.process.lock() {
@@ -550,6 +794,15 @@ pub fn run() {
                         }
                     }
                     Err(error) => eprintln!("[desktop] Unable to restore bridge: {error}"),
+                }
+                if let Some(input_name) = config.midi_input_name.as_deref() {
+                    let mtc_runtime = app.state::<MtcRuntime>();
+                    if let Ok(mut selected) = mtc_runtime.selected_input.lock() {
+                        *selected = Some(input_name.to_string());
+                    }
+                    if let Err(error) = connect_mtc_input(input_name, &mtc_runtime) {
+                        eprintln!("[desktop] Waiting for saved MTC input {input_name}: {error}");
+                    }
                 }
             }
 
@@ -575,13 +828,56 @@ pub fn run() {
                 *process = None;
                 drop(process);
                 if let Ok(Some(config)) = read_bridge_config(&app_handle) {
-                    match spawn_bridge_process(&app_handle, &config) {
+                    match spawn_bridge_process(
+                        &app_handle,
+                        &config,
+                        Arc::clone(&runtime.sidecar_stdin),
+                    ) {
                         Ok(active) => {
                             if let Ok(mut process) = runtime.process.lock() {
                                 *process = Some(active);
                             }
                         }
                         Err(error) => eprintln!("[desktop] Bridge restart failed: {error}"),
+                    }
+                }
+            });
+
+            // MIDI devices can appear after launch or briefly disappear when
+            // an interface is power-cycled. Keep the saved selection and
+            // converge back to a live connection without operator action.
+            let mtc_app_handle = app.handle().clone();
+            thread::spawn(move || loop {
+                thread::sleep(Duration::from_secs(2));
+                let runtime = mtc_app_handle.state::<MtcRuntime>();
+                let desired = runtime
+                    .selected_input
+                    .lock()
+                    .ok()
+                    .and_then(|selected| selected.clone());
+                let Some(input_name) = desired else {
+                    continue;
+                };
+                let available = list_midi_inputs()
+                    .map(|inputs| inputs.into_iter().any(|input| input.id == input_name))
+                    .unwrap_or(false);
+                if !available {
+                    if let Ok(mut connection) = runtime.connection.lock() {
+                        *connection = None;
+                    }
+                    if let Ok(mut timecode) = runtime.last_timecode.lock() {
+                        *timecode = None;
+                    }
+                    continue;
+                }
+                let connected = runtime
+                    .connection
+                    .lock()
+                    .map(|connection| connection.is_some())
+                    .unwrap_or(false);
+                if !connected {
+                    if let Err(error) = connect_mtc_input(&input_name, &runtime) {
+                        eprintln!("[desktop] MTC reconnect failed for {input_name}: {error}");
                     }
                 }
             });
@@ -594,7 +890,11 @@ pub fn run() {
             save_bridge_config,
             bridge_status,
             start_bridge,
-            stop_bridge
+            stop_bridge,
+            list_midi_inputs,
+            start_mtc_input,
+            stop_mtc_input,
+            mtc_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShowPilot Bridge");
@@ -616,6 +916,7 @@ mod tests {
             propresenter_port: None,
             propresenter_api_port: None,
             propresenter_password: None,
+            midi_input_name: None,
         }
     }
 

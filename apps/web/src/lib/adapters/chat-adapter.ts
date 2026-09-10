@@ -71,6 +71,10 @@ export interface ChatReadReceipt {
   readAt: number;
 }
 
+export interface ChatHydrationState {
+  readReceipts: Record<string, number>;
+}
+
 export interface ChatGatewayStatus {
   platform: "mattermost" | "slack" | "discord" | "teams" | null;
   status: "disabled" | "connecting" | "connected" | "error";
@@ -104,6 +108,9 @@ export interface ChatAdapter {
   onTyping?(callback: (state: ChatTypingState) => void): () => void;
 
   onReadReceipt?(callback: (receipt: ChatReadReceipt) => void): () => void;
+
+  /** Fires once the initial room history and read markers are available. */
+  onHydrated?(callback: (state: ChatHydrationState) => void): () => void;
 
   onGatewayStatus?(callback: (status: ChatGatewayStatus) => void): () => void;
 
