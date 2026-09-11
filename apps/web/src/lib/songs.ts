@@ -18,6 +18,13 @@ const metadataSchema = z.object({
   keySignature: z.string().trim().max(20).default(""),
 });
 
+const createSongSchema = metadataSchema.omit({ songId: true }).extend({
+  sections: z.array(z.object({
+    label: z.string().trim().min(1, "Section name is required.").max(200),
+    lyrics: z.string().trim().min(1, "Section lyrics are required.").max(10_000),
+  })).min(1, "Add at least one lyric section.").max(100),
+});
+
 const sectionSchema = z.object({
   orgId: idSchema,
   songId: idSchema,
@@ -83,6 +90,31 @@ export const saveSongMetadata = createServerFn({ method: "POST" })
     const existing = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
     if (!existing) throw new Error("Song not found");
     return prisma.song.update({ where: { id: existing.id }, data: details });
+  });
+
+export const createSong = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(createSongSchema, data))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "songs:manage");
+    return getPrisma().song.create({
+      data: {
+        orgId: data.orgId,
+        title: data.title.trim(),
+        artist: data.artist,
+        ccliNumber: data.ccliNumber,
+        bpm: data.bpm,
+        keySignature: data.keySignature,
+        sections: {
+          create: data.sections.map((section, sortOrder) => ({
+            orgId: data.orgId,
+            label: section.label,
+            lyrics: section.lyrics,
+            sortOrder,
+          })),
+        },
+      },
+      select: { id: true },
+    });
   });
 
 export const saveSongSection = createServerFn({ method: "POST" })
@@ -160,9 +192,10 @@ export const deleteSong = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(songIdInput, data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "songs:manage");
-    const song = await getPrisma().song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
+    const prisma = getPrisma();
+    const song = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
     if (!song) throw new Error("Song not found");
-    await getPrisma().song.delete({ where: { id: song.id } });
+    await prisma.song.delete({ where: { id: song.id } });
     return { ok: true };
   });
 
