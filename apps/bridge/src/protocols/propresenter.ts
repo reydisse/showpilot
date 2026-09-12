@@ -40,6 +40,22 @@ interface PollResult {
   slide: SlideSnapshot | null;
 }
 
+interface PresentationSummary {
+  uuid: string;
+  name: string;
+}
+
+interface PresentationSlide {
+  index: number;
+  text: string;
+  label: string;
+  notes: string;
+}
+
+interface PresentationDetail extends PresentationSummary {
+  slides: PresentationSlide[];
+}
+
 export class ProPresenterBridge {
   private static readonly POLL_INTERVAL_MS = 400;
   private ws: WebSocket | null = null;
@@ -54,6 +70,8 @@ export class ProPresenterBridge {
   private lastSlideEvent: Record<string, unknown> | null = null;
   private lastForwardAt = 0;
   private useWebSocket = true;
+  private stageWebSocketDisabled = false;
+  private stageSocketWarningLogged = false;
   private noSlideSince = 0;
   private pollInFlight = false;
   private lastReportedConnected = false;
@@ -74,7 +92,8 @@ export class ProPresenterBridge {
     // PP 21.x often exposes slide state on the API port but doesn't keep a
     // stable stage-display websocket there.
     this.useWebSocket =
-      this.options.port !== (this.options.apiPort ?? this.options.port);
+      !this.stageWebSocketDisabled
+      && this.options.port !== (this.options.apiPort ?? this.options.port);
 
     if (this.useWebSocket) {
       const url = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
@@ -84,6 +103,7 @@ export class ProPresenterBridge {
 
       this.ws.on("open", () => {
         console.log("[pp-bridge] Connected to ProPresenter");
+        this.stageSocketWarningLogged = false;
         this.wsConnected = true;
         this.emitStatus();
 
@@ -107,17 +127,28 @@ export class ProPresenterBridge {
       });
 
       this.ws.on("close", () => {
-        console.log("[pp-bridge] Disconnected from ProPresenter");
         this.wsConnected = false;
+        this.ws = null;
         this.emitStatus();
         if (!this.destroyed) {
-          this.reconnectTimer = setTimeout(() => this.connect(), 5000);
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.pollingActive) {
+              this.stageWebSocketDisabled = true;
+              this.useWebSocket = false;
+              console.log("[pp-bridge] Stage display socket unavailable; continuing with ProPresenter API polling");
+              return;
+            }
+            this.connect();
+          }, 1_000);
         }
       });
 
       this.ws.on("error", (err) => {
-        console.error("[pp-bridge] Error:", err.message);
-        // Keep the bridge alive if REST polling is working.
+        if (!this.stageSocketWarningLogged) {
+          console.warn(`[pp-bridge] Stage display socket unavailable (${err.message}); checking the ProPresenter API instead`);
+          this.stageSocketWarningLogged = true;
+        }
         this.emitStatus();
       });
     } else {
@@ -208,6 +239,13 @@ export class ProPresenterBridge {
     if (action === "query-presentations") {
       return JSON.stringify(await this.queryPresentations());
     }
+    if (action === "query-presentation") {
+      const presentationUuid = structured?.presentationUuid;
+      if (typeof presentationUuid !== "string" || !presentationUuid.trim()) {
+        throw new Error("A ProPresenter presentation UUID is required");
+      }
+      return JSON.stringify(await this.queryPresentation(presentationUuid));
+    }
     const ports = this.getApiPorts();
     const endpoints = this.commandEndpoints(action, structured ?? undefined);
 
@@ -261,11 +299,21 @@ export class ProPresenterBridge {
     return String(record.uuid ?? record.id ?? record.value ?? "");
   }
 
-  private presentationSlides(detail: unknown): Array<{ index: number; text: string; label: string; notes: string }> {
-    if (!detail || typeof detail !== "object" || Array.isArray(detail)) return [];
-    const groups = (detail as Record<string, unknown>).groups;
+  private presentationRecord(detail: unknown): Record<string, unknown> | null {
+    if (!detail || typeof detail !== "object" || Array.isArray(detail)) return null;
+    const record = detail as Record<string, unknown>;
+    const presentation = record.presentation;
+    return presentation && typeof presentation === "object" && !Array.isArray(presentation)
+      ? presentation as Record<string, unknown>
+      : record;
+  }
+
+  private presentationSlides(detail: unknown): PresentationSlide[] {
+    const presentation = this.presentationRecord(detail);
+    if (!presentation) return [];
+    const groups = presentation.groups;
     if (!Array.isArray(groups)) return [];
-    const slides: Array<{ index: number; text: string; label: string; notes: string }> = [];
+    const slides: PresentationSlide[] = [];
     for (const groupValue of groups) {
       if (!groupValue || typeof groupValue !== "object" || Array.isArray(groupValue)) continue;
       const group = groupValue as Record<string, unknown>;
@@ -284,30 +332,40 @@ export class ProPresenterBridge {
     return slides;
   }
 
-  private async queryPresentations(): Promise<Array<{ uuid: string; name: string; slides: Array<{ index: number; text: string; label: string; notes: string }> }>> {
+  private async queryPresentations(): Promise<PresentationSummary[]> {
     const libraries = this.objectArray(await this.requestJson("/v1/libraries"));
-    const presentations = new Map<string, { uuid: string; name: string }>();
-    for (const library of libraries.slice(0, 50)) {
+    const presentations = new Map<string, PresentationSummary>();
+    const libraryResults = await Promise.allSettled(libraries.map(async (library) => {
       const libraryId = this.identifier(library.id ?? library.uuid ?? library);
-      if (!libraryId) continue;
-      const items = this.objectArray(await this.requestJson(`/v1/library/${encodeURIComponent(libraryId)}`));
+      if (!libraryId) return [];
+      return this.objectArray(await this.requestJson(`/v1/library/${encodeURIComponent(libraryId)}`));
+    }));
+    const readableLibraries = libraryResults.filter((result) => result.status === "fulfilled");
+    if (libraries.length && !readableLibraries.length) {
+      throw new Error("ProPresenter libraries could not be read");
+    }
+    for (const result of readableLibraries) {
+      const items = result.value;
       for (const item of items) {
         const uuid = this.identifier(item.id ?? item.uuid);
         if (!uuid) continue;
         presentations.set(uuid, { uuid, name: String(item.name ?? item.title ?? "Untitled presentation") });
       }
     }
-    const result: Array<{ uuid: string; name: string; slides: Array<{ index: number; text: string; label: string; notes: string }> }> = [];
-    for (const presentation of [...presentations.values()].slice(0, 500)) {
-      try {
-        const detail = await this.requestJson(`/v1/presentation/${encodeURIComponent(presentation.uuid)}`);
-        const slides = this.presentationSlides(detail);
-        result.push({ ...presentation, slides });
-      } catch {
-        result.push({ ...presentation, slides: [] });
-      }
-    }
-    return result;
+    return [...presentations.values()].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  private async queryPresentation(presentationUuid: string): Promise<PresentationDetail> {
+    const detail = await this.requestJson(`/v1/presentation/${encodeURIComponent(presentationUuid)}`);
+    const presentation = this.presentationRecord(detail);
+    const id = presentation?.id;
+    const idRecord = id && typeof id === "object" && !Array.isArray(id) ? id as Record<string, unknown> : null;
+    const name = String(idRecord?.name ?? presentation?.name ?? "Untitled presentation");
+    return {
+      uuid: this.identifier(idRecord?.uuid ?? presentation?.uuid ?? presentationUuid) || presentationUuid,
+      name,
+      slides: this.presentationSlides(detail),
+    };
   }
 
   private handleMessage(data: Record<string, unknown>): void {

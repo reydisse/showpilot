@@ -172,6 +172,9 @@ fn child_has_exited<T, E>(result: &Result<Option<T>, E>) -> bool {
 
 fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnection {
     let normalized = line.to_ascii_lowercase();
+    if !normalized.starts_with("[bridge]") {
+        return current;
+    }
     if normalized.contains("connecting to") {
         BridgeConnection::Connecting
     } else if normalized.contains("connected to showpilot") {
@@ -964,6 +967,15 @@ mod tests {
         assert_eq!(state, BridgeConnection::Error);
         let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
         assert_eq!(state, BridgeConnection::Error);
+    }
+
+    #[test]
+    fn ignores_propresenter_logs_when_deriving_cloud_connection() {
+        let state = connection_from_log(
+            BridgeConnection::Connected,
+            "[pp-bridge] Disconnected from ProPresenter",
+        );
+        assert_eq!(state, BridgeConnection::Connected);
     }
 
     #[test]

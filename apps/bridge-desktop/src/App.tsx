@@ -139,7 +139,7 @@ export function App() {
       </section>
 
       <section className="card">
-        <div className="card-title"><Radio /><div><h1>Ableton MIDI timecode</h1><p>Decode MTC on this Mac and relay it to every ShowPilot lyrics output.</p></div></div>
+        <div className="card-title"><Radio /><div><h1>MIDI timecode (MTC)</h1><p>Receive SMPTE MTC from any Mac MIDI input and relay it to ShowPilot. MIDI Clock is a different protocol and does not carry timecode.</p></div></div>
         <label>MIDI input<select value={mtc.inputName ?? config.midiInputName ?? ""} onChange={(event) => update({ midiInputName: event.target.value || undefined })}><option value="">Choose an input</option>{midiInputs.map((input) => <option key={input.id} value={input.id}>{input.name}</option>)}</select></label>
         <div className="mtc-row"><div><strong>{mtc.connected ? "MTC connected" : "MTC stopped"}</strong><small>{mtc.timecode ?? "00:00:00:00"}</small></div><div className="mtc-actions"><button className="secondary" type="button" onClick={() => void listMidiInputs().then(setMidiInputs)}>Rescan</button>{mtc.connected ? <button className="secondary" type="button" onClick={() => void stopMtcInput().then(refresh)}>Stop</button> : <button className="primary" type="button" disabled={!config.midiInputName} onClick={() => config.midiInputName && void startMtcInput(config.midiInputName).then(setMtc).catch((reason) => setError(String(reason)))}>Connect MTC</button>}</div></div>
       </section>

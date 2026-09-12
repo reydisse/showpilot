@@ -6,6 +6,7 @@ import { getPrisma } from "@/lib/db";
 import { idSchema, labelSchema, parseOrThrow, textSchema } from "@/lib/validation";
 import { isValidTimecode, parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
+import { isBridgeVersionAtLeast } from "@/lib/bridge-version";
 
 const songIdInput = z.object({ orgId: idSchema, songId: idSchema });
 const metadataSchema = z.object({
@@ -199,40 +200,102 @@ export const deleteSong = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-interface BridgePresentation {
+export interface BridgePresentationSummary {
   uuid: string;
   name: string;
+}
+
+export interface BridgePresentation extends BridgePresentationSummary {
   slides: Array<{ index: number; text: string; label: string; notes: string }>;
 }
 
-function parsePresentations(response: string | undefined): BridgePresentation[] {
+type ProPresenterQueryResult =
+  | { kind: "offline" }
+  | { kind: "success"; response: string | undefined };
+
+const PROPRESENTER_IMPORT_BRIDGE_VERSION = "0.1.11";
+
+function parsePresentationSummaries(response: string | undefined): BridgePresentationSummary[] {
   if (!response) return [];
   const value: unknown = JSON.parse(response);
   if (!Array.isArray(value)) return [];
-  return value.flatMap((candidate): BridgePresentation[] => {
+  return value.flatMap((candidate): BridgePresentationSummary[] => {
     if (!candidate || typeof candidate !== "object") return [];
     const item = candidate as Record<string, unknown>;
-    if (typeof item.uuid !== "string" || typeof item.name !== "string" || !Array.isArray(item.slides)) return [];
-    const slides = item.slides.flatMap((slide, index) => {
+    if (typeof item.uuid !== "string" || typeof item.name !== "string") return [];
+    return [{ uuid: item.uuid, name: item.name }];
+  });
+}
+
+function parsePresentation(response: string | undefined): BridgePresentation {
+  if (!response) throw new Error("ProPresenter returned an empty presentation.");
+  const value: unknown = JSON.parse(response);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ProPresenter returned an invalid presentation.");
+  }
+  const item = value as Record<string, unknown>;
+  if (typeof item.uuid !== "string" || typeof item.name !== "string" || !Array.isArray(item.slides)) {
+    throw new Error("ProPresenter returned an invalid presentation.");
+  }
+  const slides = item.slides.flatMap((slide, index) => {
       if (!slide || typeof slide !== "object") return [];
       const row = slide as Record<string, unknown>;
       return [{ index: typeof row.index === "number" ? row.index : index, text: String(row.text ?? ""), label: String(row.label ?? `Slide ${index + 1}`), notes: String(row.notes ?? "") }];
     });
-    return [{ uuid: item.uuid, name: item.name, slides }];
-  });
+  return { uuid: item.uuid, name: item.name, slides };
+}
+
+async function queryProPresenter(orgId: string, command: Record<string, string>): Promise<ProPresenterQueryResult> {
+  const bridge = (env as Cloudflare.Env).BRIDGE_RELAY.get((env as Cloudflare.Env).BRIDGE_RELAY.idFromName(orgId));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const status = await bridge.getBridgeStatus();
+    const target = status.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"));
+    if (!target) return { kind: "offline" };
+    if (!isBridgeVersionAtLeast(status.version, PROPRESENTER_IMPORT_BRIDGE_VERSION)) {
+      throw new Error(
+        `Song import requires Venue Bridge ${PROPRESENTER_IMPORT_BRIDGE_VERSION} or newer. Update the Bridge on the venue Mac, then reconnect.`,
+      );
+    }
+    const result = await bridge.dispatchBridgeMessage({
+      type: "command",
+      id: crypto.randomUUID(),
+      protocol: "propresenter",
+      target,
+      command: JSON.stringify(command),
+    });
+    if (result.success) return { kind: "success", response: result.response };
+    const retryableHandoff = result.error === "Venue Bridge was replaced" || result.error === "Venue Bridge disconnected";
+    if (!retryableHandoff || attempt === 1) {
+      throw new Error(result.error ?? "ProPresenter did not answer.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error("ProPresenter did not answer.");
 }
 
 export const listProPresenterSongs = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "songs:manage");
-    const bridge = (env as Cloudflare.Env).BRIDGE_RELAY.get((env as Cloudflare.Env).BRIDGE_RELAY.idFromName(data.orgId));
-    const status = await bridge.getBridgeStatus();
-    const target = status.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"));
-    if (!target) return { connected: false, presentations: [] as BridgePresentation[] };
-    const result = await bridge.dispatchBridgeMessage({ type: "command", id: crypto.randomUUID(), protocol: "propresenter", target, command: JSON.stringify({ action: "query-presentations" }) });
-    if (!result.success) throw new Error(result.error ?? "ProPresenter did not return its presentations.");
-    return { connected: true, presentations: parsePresentations(result.response) };
+    const result = await queryProPresenter(data.orgId, { action: "query-presentations" });
+    if (result.kind === "offline") return { connected: false, presentations: [] as BridgePresentationSummary[] };
+    return { connected: true, presentations: parsePresentationSummaries(result.response) };
+  });
+
+export const getProPresenterSong = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, presentationUuid: idSchema }), data))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "songs:manage");
+    const result = await queryProPresenter(data.orgId, {
+      action: "query-presentation",
+      presentationUuid: data.presentationUuid,
+    });
+    if (result.kind === "offline") throw new Error("Venue Bridge or ProPresenter is offline.");
+    const presentation = parsePresentation(result.response);
+    if (!presentation.slides.length) {
+      throw new Error("This ProPresenter presentation has no readable text slides.");
+    }
+    return presentation;
   });
 
 export const importProPresenterSong = createServerFn({ method: "POST" })

@@ -88,12 +88,12 @@ function timeLabel(value: string | null, timeZone?: string) {
     ? new Date(value).toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit",
-        timeZone,
+        timeZone: timeZone || "UTC",
       })
     : "Time not set";
 }
 function inputTime(value: string | null, timeZone?: string) {
-  return formatTimeInput(value, timeZone);
+  return formatTimeInput(value, timeZone || "UTC");
 }
 function wallTimeLabel(value: string) {
   return formatWallTime(value) || "Service start";
@@ -126,7 +126,8 @@ export const Route = createFileRoute("/$slug/schedule")({
       context.orgId,
     );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
-    const today = getTodayDateString(settings["org-timezone"]);
+    const orgTimezone = settings["org-timezone"] || "UTC";
+    const today = getTodayDateString(orgTimezone);
     const schedule = await getSchedule({
       data: {
         orgId: context.orgId,
@@ -153,7 +154,7 @@ export const Route = createFileRoute("/$slug/schedule")({
       defaultSelectedDate,
       defaultSelectedShowId,
       today,
-      orgTimezone: settings["org-timezone"],
+      orgTimezone,
       orgId: context.orgId,
       canManage: hasEffectivePermission(
         context.role,

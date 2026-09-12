@@ -9,6 +9,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { AccessGrantSyncController } from "@/components/layout/AccessGrantSyncController";
+import { hasEffectivePermission } from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
@@ -74,6 +75,7 @@ function OrgLayout() {
   const isBoard = matchRoute({ to: "/$slug/board" });
   const isCrewChat = matchRoute({ to: "/$slug/crew-chat" });
   const isCheckin = matchRoute({ to: "/$slug/checkin" });
+  const isRundown = matchRoute({ to: "/$slug/rundown" });
   const standaloneRoute = isBoard || isCrewChat || isCheckin;
 
   // Standalone routes — no sidebar, full screen
@@ -96,7 +98,16 @@ function OrgLayout() {
 
   return (
     <ThemeProvider>
-      <AppShell>
+      <AppShell
+        orgId={context.orgId}
+        slug={context.slug}
+        canControlRundown={hasEffectivePermission(
+          context.role,
+          context.grantedPermissions,
+          "rundown:control",
+        )}
+        showLiveRundown={!isRundown}
+      >
         <AccessGrantSyncController
           orgId={context.orgId}
           revision={context.accessRevision}

@@ -5,7 +5,7 @@ import { hasEffectivePermission } from "@/lib/app-permissions";
 import { DeleteSongModal } from "@/components/SongDialogs";
 import { buildSongAutomationEvents, formatCueFrame } from "@/lib/song-cues";
 import { insertPastedLyrics } from "@/lib/song-lyrics-format";
-import { deleteSong, deleteSongSection, getSong, importProPresenterSong, listProPresenterSongs, reorderSongSections, saveSongCueMap, saveSongMetadata, saveSongSection } from "@/lib/songs";
+import { deleteSong, deleteSongSection, getProPresenterSong, getSong, importProPresenterSong, reorderSongSections, saveSongCueMap, saveSongMetadata, saveSongSection } from "@/lib/songs";
 import { useTimecode } from "@/hooks/useTimecode";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
 import { parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
@@ -125,10 +125,7 @@ function SongStudioPage() {
     if (!song.ppPresentationUuid) return;
     setBusy(true); setNotice(null);
     try {
-      const result = await listProPresenterSongs({ data: { orgId } });
-      if (!result.connected) throw new Error("Venue Bridge or ProPresenter is offline. Connect it, then try again.");
-      const presentation = result.presentations.find((candidate) => candidate.uuid === song.ppPresentationUuid);
-      if (!presentation) throw new Error("This presentation is no longer available in ProPresenter.");
+      const presentation = await getProPresenterSong({ data: { orgId, presentationUuid: song.ppPresentationUuid } });
       await importProPresenterSong({ data: { orgId, presentation, strategy: "merge" } });
       await refresh();
       setNotice("Updated from ProPresenter. Existing section IDs and cue maps were preserved.");

@@ -5,10 +5,9 @@ import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-a
 import type { RundownItem, NativeTimerState, RundownState, RundownMeta, ItemType, ItemStatus } from "@/types/rundown";
 import { z } from "zod";
 import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
-import { idSchema, labelSchema, parseOrThrow, serviceDateSchema, textSchema } from "@/lib/validation";
-import { rundownRelayKey } from "@/lib/rundown-relay-key";
-import { getTodayDateString } from "@/lib/utils";
+import { idSchema, labelSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { rundownPhaseStatus } from "@/lib/rundown-status";
+import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 
 // ─── Input schemas ───────────────────────────────────────────
 // Item arrays are validated as bounded unknowns here; per-item shape is
@@ -33,14 +32,6 @@ const timerStateSchema = z.object({
 });
 
 const proPresenterTargetSchema = z.object({ orgId: idSchema });
-
-const ppSlideSchema = z.object({
-  text: textSchema,
-  notes: textSchema,
-  presentationName: z.string().max(500),
-  isScripture: z.boolean(),
-  updatedAt: z.number(),
-});
 
 interface RundownRelayEnv {
   RUNDOWN_RELAY?: DurableObjectNamespace;
@@ -944,10 +935,6 @@ export const saveRundownMessage = createServerFn({ method: "POST" })
 
 // ─── ProPresenter Slide Data ─────────────────────────────────
 
-function ppSlideKey(serviceDate: string) {
-  return `rundown-ppslide:${serviceDate}`;
-}
-
 function ppStageDisplayKey() {
   return "propresenter-stage-display";
 }
@@ -1044,69 +1031,6 @@ export interface PPSlidePayload {
 }
 
 /**
- * Save current ProPresenter slide data for kiosk consumption.
- * Called by operator's browser when PP slide changes.
- */
-export const saveProPresenterSlide = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(orgServiceDateSchema.extend({ slide: ppSlideSchema.nullable() }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertRundownEditAccess(data.orgId);
-    const prisma = getPrisma();
-    const showId = await resolveWritableShowId(prisma, data.orgId, data.serviceDate, data.showId);
-    const key = ppSlideKey(showId);
-    if (!data.slide) {
-      // Upsert a "cleared" marker so kiosk sees null immediately on next poll
-      // (deleteMany has a race with polling — kiosk might read stale data)
-      await prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key } },
-        update: { value: "null" },
-        create: { orgId: data.orgId, key, value: "null" },
-      });
-    } else {
-      await prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key } },
-        update: { value: JSON.stringify(data.slide) },
-        create: { orgId: data.orgId, key, value: JSON.stringify(data.slide) },
-      });
-    }
-
-    const bindings = env as unknown as RundownRelayEnv;
-    if (bindings.RUNDOWN_RELAY) {
-      try {
-        const timezone = await prisma.appSetting.findUnique({
-          where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
-          select: { value: true },
-        });
-        const id = bindings.RUNDOWN_RELAY.idFromName(
-          rundownRelayKey(
-            data.orgId,
-            data.serviceDate,
-            getTodayDateString(timezone?.value),
-            showId,
-          ),
-        );
-        const stub = bindings.RUNDOWN_RELAY.get(id);
-        await stub.fetch(
-          new Request(`https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(data.serviceDate)}&showId=${encodeURIComponent(showId)}&access=edit`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "pp-slide",
-              payload: { slide: data.slide },
-            }),
-          })
-        );
-      } catch (err) {
-        console.warn("[SP] PP slide relay sync failed:", err);
-      }
-    }
-
-    return { ok: true };
-  });
-
-/**
  * Persist the ProPresenter-lyrics-on-timer flag for an org. Caller is
  * responsible for access control (server fn below; Companion endpoint).
  */
@@ -1134,8 +1058,35 @@ export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    await setProPresenterStageDisplayForOrg(data.orgId, data.enabled);
+    const bindings = env as unknown as RundownRelayEnv & { DB: Parameters<typeof getActiveRundownRelayTarget>[0] };
+    if (!bindings.RUNDOWN_RELAY) {
+      await setProPresenterStageDisplayForOrg(data.orgId, data.enabled);
+      return { ok: true };
+    }
+    const target = await getActiveRundownRelayTarget(bindings.DB, data.orgId);
+    const relay = bindings.RUNDOWN_RELAY.get(bindings.RUNDOWN_RELAY.idFromName(target.key));
+    const response = await relay.fetch(new Request(
+      `https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=edit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "pp-output-enabled",
+          payload: { enabled: data.enabled },
+        }),
+      },
+    ));
+    if (!response.ok) throw new Error("Could not update the shared kiosk lyrics output.");
     return { ok: true };
+  });
+
+export const getActiveRundownTarget = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }) => {
+    await assertEffectiveOrgPermission(data.orgId, ["rundown:view", "rundown:control"]);
+    const bindings = env as unknown as { DB: Parameters<typeof getActiveRundownRelayTarget>[0] };
+    const target = await getActiveRundownRelayTarget(bindings.DB, data.orgId);
+    return { serviceDate: target.serviceDate, showId: target.showId ?? undefined };
   });
 
 // ─── Saved Rundown Templates ──────────────────────────────────

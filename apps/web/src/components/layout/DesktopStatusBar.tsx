@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Download, Laptop, MonitorPlay, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   getDesktopBridgeStatus,
   getDesktopEngineInfo,
   checkDesktopUpdate,
   installDesktopUpdate,
+  isDesktopLocalDeviceMode,
   isDesktopRuntime,
   openDesktopWindow,
   stopDesktopBridge,
@@ -36,6 +38,7 @@ export function DesktopStatusBar() {
   const [update, setUpdate] = useState<DesktopUpdateInfo | null>(null);
   const [updateState, setUpdateState] = useState<"idle" | "checking" | "current" | "installing" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const desktop = isDesktopRuntime();
 
   useEffect(() => {
@@ -104,7 +107,7 @@ export function DesktopStatusBar() {
 
   if (!desktop) return null;
 
-  const localDevicesEnabled = bridge?.localDevicesEnabled ?? false;
+  const localDevicesEnabled = isDesktopLocalDeviceMode(bridge);
   const bridgeFailed = Boolean(
     localDevicesEnabled
       && (bridge?.connection === "unauthorized"
@@ -134,13 +137,15 @@ export function DesktopStatusBar() {
 
   const toggleLocalDevices = async () => {
     if (!slug || bridgeBusy) return;
-    if (
-      !localDevicesEnabled
-      && !window.confirm(
-        "Use this computer for local devices? Only enable this on the computer connected to the equipment network. It will replace the venue Bridge as the active device agent.",
-      )
-    ) {
-      return;
+    if (!localDevicesEnabled) {
+      const approved = await confirm({
+        title: "Use this computer for local devices?",
+        description:
+          "Only enable this on the computer connected to the equipment network. It will replace the venue Bridge as the active device agent.",
+        confirmLabel: "Use this computer",
+        variant: "warning",
+      });
+      if (!approved) return;
     }
 
     setBridgeBusy(true);
@@ -202,6 +207,7 @@ export function DesktopStatusBar() {
   };
 
   return (
+    <>
     <div className="flex min-h-8 shrink-0 items-center gap-3 border-b border-board-border bg-board-card px-3 text-[10px] text-board-muted">
       <span className="flex items-center gap-1.5 font-semibold text-fire-400">
         <PanelTopOpen className="h-3.5 w-3.5" />
@@ -249,6 +255,11 @@ export function DesktopStatusBar() {
           </button>
         ) : null}
       </span>
+      {bridgeError ? (
+        <span role="alert" className="max-w-80 truncate text-red-400" title={bridgeError}>
+          {bridgeError}
+        </span>
+      ) : null}
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
@@ -286,5 +297,7 @@ export function DesktopStatusBar() {
           : null}
       </div>
     </div>
+    {ConfirmDialogEl}
+    </>
   );
 }

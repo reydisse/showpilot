@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRundownSync } from "../useRundownSync";
 
 class MockWebSocket {
@@ -42,6 +42,7 @@ class MockWebSocket {
 }
 
 const OriginalWebSocket = globalThis.WebSocket;
+const OriginalFetch = globalThis.fetch;
 
 function hydrate(socket: MockWebSocket) {
   socket.receive({
@@ -57,6 +58,11 @@ function hydrate(socket: MockWebSocket) {
   });
 }
 
+async function waitForSocket(index = 0): Promise<MockWebSocket> {
+  await waitFor(() => expect(MockWebSocket.instances.length).toBeGreaterThan(index));
+  return MockWebSocket.instances[index];
+}
+
 describe("useRundownSync command confirmation", () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
@@ -65,13 +71,14 @@ describe("useRundownSync command confirmation", () => {
 
   afterEach(() => {
     globalThis.WebSocket = OriginalWebSocket;
+    globalThis.fetch = OriginalFetch;
   });
 
   it("keeps saving true until every queued command is confirmed", async () => {
     const { result, unmount } = renderHook(() =>
       useRundownSync("org-1", "2026-09-06", "show-1"),
     );
-    const socket = MockWebSocket.instances[0];
+    const socket = await waitForSocket();
 
     act(() => {
       socket.open();
@@ -107,7 +114,7 @@ describe("useRundownSync command confirmation", () => {
     const { result, unmount } = renderHook(() =>
       useRundownSync("org-1", "2026-09-06", "show-1"),
     );
-    const socket = MockWebSocket.instances[0];
+    const socket = await waitForSocket();
 
     act(() => {
       socket.open();
@@ -136,7 +143,7 @@ describe("useRundownSync command confirmation", () => {
       ({ showId }) => useRundownSync("org-1", "2026-09-06", showId),
       { initialProps: { showId: "show-1" } },
     );
-    const firstSocket = MockWebSocket.instances[0];
+    const firstSocket = await waitForSocket();
 
     act(() => {
       firstSocket.open();
@@ -160,5 +167,56 @@ describe("useRundownSync command confirmation", () => {
     await waitFor(() => expect(result.current.scheduledCallTime).toBeUndefined());
     expect(result.current.hydrated).toBe(false);
     unmount();
+  });
+
+  it("hydrates the active stage message from relay state", async () => {
+    const { result, unmount } = renderHook(() =>
+      useRundownSync("org-1", "2026-09-06", "show-1"),
+    );
+    const socket = await waitForSocket();
+
+    act(() => {
+      socket.open();
+      socket.receive({
+        type: "hydrate",
+        state: {
+          initialized: true,
+          revision: 4,
+          serviceDate: "2026-09-06",
+          showId: "show-1",
+          stageMessage: "!!PRIORITY!!Hold the stage",
+          items: [],
+          timer: { playback: "stop", currentItemId: null, elapsed: 0, startedAt: null },
+        },
+      });
+    });
+
+    expect(result.current.stageMessage).toBe("!!PRIORITY!!Hold the stage");
+    unmount();
+  });
+
+  it("hands queued commands to keepalive HTTP when the route unmounts", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true, revision: 5 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const { result, unmount } = renderHook(() =>
+      useRundownSync("org-1", "2026-09-06", "show-1"),
+    );
+    await waitForSocket();
+
+    act(() => {
+      result.current.sendCommand("stage-message", { message: "Stay ready" });
+    });
+    expect(result.current.hasPendingCommands()).toBe(true);
+
+    unmount();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, options] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/rundown/org-1/command?serviceDate=2026-09-06&showId=show-1");
+    expect(options.keepalive).toBe(true);
+    expect(JSON.parse(String(options.body))).toMatchObject({
+      action: "stage-message",
+      payload: { message: "Stay ready" },
+    });
   });
 });

@@ -89,6 +89,7 @@ interface RundownState {
   timer: TimerState;
   ppSlide: PPSlideState | null;
   ppPreviewSlide: PPSlideState | null;
+  ppOutputEnabled: boolean;
   stageMessage: string;
   serviceDate?: string;
   showId?: string;
@@ -116,6 +117,7 @@ export class RundownRelay extends DurableObject {
     timer: { ...DEFAULT_TIMER },
     ppSlide: null,
     ppPreviewSlide: null,
+    ppOutputEnabled: false,
     stageMessage: "",
     revision: 0,
     recentCommandIds: [],
@@ -131,6 +133,9 @@ export class RundownRelay extends DurableObject {
     if (!this.hydrationPromise) {
       this.hydrationPromise = (async () => {
         const stored = await this.ctx.storage.get<RundownState>("state");
+        const ppOutputEnabled = typeof stored?.ppOutputEnabled === "boolean"
+          ? stored.ppOutputEnabled
+          : await this.readProPresenterStageDisplaySetting();
         if (stored) {
           this.state = {
             initialized: inferRundownRelayInitialized(stored),
@@ -138,6 +143,7 @@ export class RundownRelay extends DurableObject {
             timer: stored.timer ?? { ...DEFAULT_TIMER },
             ppSlide: stored.ppSlide ?? null,
             ppPreviewSlide: stored.ppPreviewSlide ?? null,
+            ppOutputEnabled,
             stageMessage: stored.stageMessage ?? "",
             serviceDate: stored.serviceDate,
             showId: stored.showId,
@@ -150,6 +156,8 @@ export class RundownRelay extends DurableObject {
               ? stored.recentCommandIds.slice(-100)
               : [],
           };
+        } else {
+          this.state.ppOutputEnabled = ppOutputEnabled;
         }
         this.hydrated = true;
       })().finally(() => {
@@ -189,7 +197,11 @@ export class RundownRelay extends DurableObject {
     const persistsMessage = action === "stage-message" || action === "stage-clear";
     const persistsMeta = action === "update-meta"
       || action === "seed" && this.state.serviceName !== undefined;
-    if (!persistsTimer && !persistsMessage && !persistsMeta) return;
+    const persistsPpOutput = action === "pp-output-enabled";
+    const persistsPpSlide = action === "pp-preview"
+      || action === "pp-slide"
+      || persistsPpOutput;
+    if (!persistsTimer && !persistsMessage && !persistsMeta && !persistsPpOutput && !persistsPpSlide) return;
 
     const env = this.env as unknown as Env;
     const identity = this.state.showId ?? this.state.serviceDate;
@@ -362,6 +374,31 @@ export class RundownRelay extends DurableObject {
       }
     }
 
+    if (persistsPpOutput) {
+      statements.push(env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, 'propresenter-stage-display', ?)
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      ).bind(
+        crypto.randomUUID(),
+        this.orgId,
+        this.state.ppOutputEnabled ? "true" : "false",
+      ));
+    }
+
+    if (persistsPpSlide) {
+      statements.push(env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      ).bind(
+        crypto.randomUUID(),
+        this.orgId,
+        `rundown-ppslide:${identity}`,
+        this.state.ppSlide ? JSON.stringify(this.state.ppSlide) : "null",
+      ));
+    }
+
     // A metadata command can be valid yet make no durable change (for
     // example, saving an unchanged show title). Avoid depending on whether a
     // runtime accepts an empty D1 batch.
@@ -395,7 +432,7 @@ export class RundownRelay extends DurableObject {
     );
   }
 
-  private async isProPresenterStageDisplayEnabled(): Promise<boolean> {
+  private async readProPresenterStageDisplaySetting(): Promise<boolean> {
     if (!this.orgId) return false;
 
     try {
@@ -411,10 +448,21 @@ export class RundownRelay extends DurableObject {
     }
   }
 
+  private async reconcileProPresenterOutputSetting(): Promise<void> {
+    const enabled = await this.readProPresenterStageDisplaySetting();
+    if (enabled === this.state.ppOutputEnabled) return;
+    this.state.ppOutputEnabled = enabled;
+    this.state.ppSlide = enabled && this.state.ppPreviewSlide
+      ? { ...this.state.ppPreviewSlide, updatedAt: Date.now() }
+      : null;
+    await this.persistState();
+  }
+
   async fetch(request: Request): Promise<Response> {
-    await this.hydrateFromStorage();
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
+    await this.hydrateFromStorage();
+    await this.reconcileProPresenterOutputSetting();
     const serviceDate = url.searchParams.get("serviceDate");
     const showId = url.searchParams.get("showId");
     const access = url.searchParams.get("access");
@@ -435,6 +483,8 @@ export class RundownRelay extends DurableObject {
       this.state.initialized = false;
       this.state.items = [];
       this.state.timer = { ...DEFAULT_TIMER };
+      this.state.ppSlide = null;
+      this.state.ppPreviewSlide = null;
       this.state.revision += 1;
       this.state.recentCommandIds = [];
       await this.persistState();
@@ -520,6 +570,11 @@ export class RundownRelay extends DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    const attachment = ws.deserializeAttachment?.() as {
+      writeAccess?: RundownRelayWriteAccess | null;
+      orgId?: string;
+    } | null;
+    if (attachment?.orgId) this.orgId = attachment.orgId;
     await this.hydrateFromStorage();
     try {
       const raw: unknown = JSON.parse(data as string);
@@ -542,12 +597,7 @@ export class RundownRelay extends DurableObject {
           }));
           return;
         }
-        const attachment = ws.deserializeAttachment?.() as {
-          writeAccess?: RundownRelayWriteAccess | null;
-          orgId?: string;
-        } | null;
         if (!attachment?.writeAccess) return;
-        if (attachment.orgId) this.orgId = attachment.orgId;
         if (!canApplyRundownRelayAction(attachment.writeAccess, parsed.action)) {
           ws.send(JSON.stringify({
             type: "command-result",
@@ -908,15 +958,31 @@ export class RundownRelay extends DurableObject {
       case "pp-slide": {
         const slide = payload?.slide === null ? null : parseRelayPPSlide(payload?.slide);
         if (payload?.slide !== null && !slide) return false;
-        const enabled = await this.isProPresenterStageDisplayEnabled();
-        this.state.ppSlide = enabled && slide ? { ...slide, updatedAt: Date.now() } : null;
+        this.state.ppSlide = this.state.ppOutputEnabled && slide
+          ? { ...slide, updatedAt: Date.now() }
+          : null;
         break;
       }
 
       case "pp-preview": {
         const slide = payload?.slide === null ? null : parseRelayPPSlide(payload?.slide);
         if (payload?.slide !== null && !slide) return false;
+        if (typeof payload?.outputEnabled === "boolean") {
+          this.state.ppOutputEnabled = payload.outputEnabled;
+        }
         this.state.ppPreviewSlide = slide ? { ...slide, updatedAt: Date.now() } : null;
+        this.state.ppSlide = this.state.ppOutputEnabled && slide
+          ? { ...slide, updatedAt: Date.now() }
+          : null;
+        break;
+      }
+
+      case "pp-output-enabled": {
+        if (typeof payload?.enabled !== "boolean") return false;
+        this.state.ppOutputEnabled = payload.enabled;
+        this.state.ppSlide = payload.enabled && this.state.ppPreviewSlide
+          ? { ...this.state.ppPreviewSlide, updatedAt: Date.now() }
+          : null;
         break;
       }
 
@@ -1049,6 +1115,7 @@ export class RundownRelay extends DurableObject {
       },
       ppSlide: this.state.ppSlide,
       ppPreviewSlide: this.state.ppPreviewSlide,
+      ppOutputEnabled: this.state.ppOutputEnabled,
       stageMessage: this.state.stageMessage,
     };
   }

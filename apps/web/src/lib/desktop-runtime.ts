@@ -27,13 +27,20 @@ export type DesktopBridgeConfig = {
 
 export type DesktopBridgeStatus = {
   configured: boolean;
-  localDevicesEnabled: boolean;
+  /** Added in Desktop 0.1.2. Older native engines report only `running`. */
+  localDevicesEnabled?: boolean;
   running: boolean;
   connection: "offline" | "connecting" | "connected" | "disconnected" | "unauthorized" | "error";
   pid: number | null;
   logs: string[];
   lastError: string | null;
 };
+
+export function isDesktopLocalDeviceMode(
+  status: DesktopBridgeStatus | null,
+): boolean {
+  return status?.localDevicesEnabled ?? status?.running ?? false;
+}
 
 export type DesktopNotificationPayload = {
   notificationId: string;

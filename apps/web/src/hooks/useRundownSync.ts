@@ -178,11 +178,15 @@ interface UseRundownSyncReturn {
   stateInitialized: boolean;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
+  /** Canonical org-wide switch that routes venue lyrics to the kiosk. */
+  ppOutputEnabled: boolean;
   /** Current stage message broadcast to kiosk (empty string = none active) */
   stageMessage: string;
   lastError: string | null;
   /** True while local commands still need relay confirmation. */
   saving: boolean;
+  /** Synchronous pending check for navigation guards. */
+  hasPendingCommands: () => boolean;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
   /** Seed the DO with DB-loaded items (call once after connecting if DO is empty) */
   seedState: (
@@ -220,6 +224,7 @@ export function useRundownSync(
   const [scheduledCallTime, setScheduledCallTime] = useState<string | null | undefined>(undefined);
   const [stateInitialized, setStateInitialized] = useState(false);
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
+  const [ppOutputEnabled, setPpOutputEnabled] = useState(false);
   const [stageMessage, setStageMessage] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -230,6 +235,11 @@ export function useRundownSync(
   const pendingCommandRef = useRef<QueuedCommand | null>(null);
   const pendingTimerRef = useRef<number | null>(null);
   const unconfirmedCommandIdsRef = useRef(new Set<string>());
+
+  const hasPendingCommands = useCallback(
+    () => unconfirmedCommandIdsRef.current.size > 0,
+    [],
+  );
 
   const confirmCommand = useCallback((id: string) => {
     unconfirmedCommandIdsRef.current.delete(id);
@@ -301,6 +311,8 @@ export function useRundownSync(
     setScheduledStartTime(undefined);
     setScheduledCallTime(undefined);
     setStateInitialized(false);
+    setPpOutputEnabled(false);
+    setStageMessage("");
     setItems([]);
     setTimer({
       playback: "stop",
@@ -423,6 +435,9 @@ export function useRundownSync(
           if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
             setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
           }
+          if (Object.prototype.hasOwnProperty.call(state, "ppOutputEnabled")) {
+            setPpOutputEnabled(state.ppOutputEnabled === true);
+          }
           if (Object.prototype.hasOwnProperty.call(state, "stageMessage")) {
             setStageMessage(typeof state.stageMessage === "string" ? state.stageMessage : "");
           }
@@ -451,12 +466,50 @@ export function useRundownSync(
       ws.onerror = () => {};
     }
 
-    connect();
+    // Deferring the first connection by one task prevents React Strict Mode's
+    // development remount from opening and immediately aborting a WebSocket.
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 0);
 
     return () => {
       disposed = true;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       clearPendingTimer();
+      const commandsToHandOff = [
+        ...(pendingCommandRef.current ? [pendingCommandRef.current] : []),
+        ...commandQueue.current,
+      ];
+      if (commandsToHandOff.length > 0) {
+        // Route changes tear down this socket. Keepalive requests carry any
+        // unconfirmed work to the relay with the same idempotency keys.
+        let expectedRevision = revisionRef.current;
+        void commandsToHandOff.reduce<Promise<void>>(async (previous, command) => {
+          await previous;
+          try {
+            const response = await fetch(
+              `${window.location.origin}/api/rundown/${encodeURIComponent(orgId)}/command${suffix}`,
+              {
+                method: "POST",
+                credentials: "same-origin",
+                keepalive: true,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: command.action,
+                  id: command.id,
+                  expectedRevision: command.expectedRevision ?? expectedRevision,
+                  payload: command.payload,
+                }),
+              },
+            );
+            const result = await response.json() as { revision?: number };
+            if (typeof result.revision === "number") expectedRevision = result.revision;
+          } catch {
+            // The command remains unconfirmed; never invent local success.
+          }
+        }, Promise.resolve());
+      }
       commandQueue.current = [];
       pendingCommandRef.current = null;
       unconfirmedCommandIdsRef.current.clear();
@@ -517,9 +570,11 @@ export function useRundownSync(
     scheduledCallTime,
     stateInitialized,
     ppPreviewSlide,
+    ppOutputEnabled,
     stageMessage,
     lastError,
     saving,
+    hasPendingCommands,
     sendCommand,
     seedState,
   };

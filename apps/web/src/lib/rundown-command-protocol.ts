@@ -18,6 +18,7 @@ const EDIT_ACTIONS = new Set([
   "timer-mode",
   "pp-slide",
   "pp-preview",
+  "pp-output-enabled",
   "reset",
   "clear-all",
   "stage-message",

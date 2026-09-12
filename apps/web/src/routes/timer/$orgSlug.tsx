@@ -11,6 +11,7 @@ import { elapsedAt } from "@/lib/rundown-transport";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
+import { decodeStageMessage } from "@/lib/stage-message";
 
 // ─── Server Functions ────────────────────────────────────────
 
@@ -280,8 +281,7 @@ function TimerKioskPage() {
   const lastTodayRef = useRef(serviceDate.current);
 
   const applyStageMessage = useCallback((raw: string) => {
-    const priority = raw.startsWith("!!PRIORITY!!");
-    const message = priority ? raw.slice(12) : raw;
+    const { text: message, priority } = decodeStageMessage(raw);
     const changed = raw !== lastStageMessageRef.current;
     lastStageMessageRef.current = raw;
     setStageMessage(message);

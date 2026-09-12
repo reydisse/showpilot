@@ -46,6 +46,7 @@ describe("rundown command arbitration", () => {
   it("separates rundown editing from live transport control", () => {
     expect(canApplyRundownRelayAction("edit", "update-item")).toBe(true);
     expect(canApplyRundownRelayAction("edit", "update-meta")).toBe(true);
+    expect(canApplyRundownRelayAction("edit", "pp-output-enabled")).toBe(true);
     expect(canApplyRundownRelayAction("edit", "timer-next")).toBe(false);
     expect(canApplyRundownRelayAction("control", "timer-next")).toBe(true);
   });

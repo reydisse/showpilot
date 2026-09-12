@@ -26,7 +26,12 @@ export function selectActiveShow(
 export async function getActiveRundownRelayTarget(
   db: D1Database,
   orgId: string,
-): Promise<{ key: string; showId: string | null; serviceDate: string }> {
+): Promise<{
+  key: string;
+  showId: string | null;
+  serviceDate: string;
+  ppOutputEnabled: boolean;
+}> {
   const [showRows, settingRows] = await Promise.all([
     db
       .prepare(
@@ -42,7 +47,7 @@ export async function getActiveRundownRelayTarget(
         `SELECT key, value
            FROM app_setting
           WHERE orgId = ?
-            AND key IN ('active-show-id', 'active-service-date', 'org-timezone')`,
+            AND key IN ('active-show-id', 'active-service-date', 'org-timezone', 'propresenter-stage-display')`,
       )
       .bind(orgId)
       .all<{ key: string; value: string }>(),
@@ -62,5 +67,6 @@ export async function getActiveRundownRelayTarget(
     key: rundownRelayKey(orgId, serviceDate, today, show?.id),
     showId: show?.id ?? null,
     serviceDate,
+    ppOutputEnabled: settings["propresenter-stage-display"] === "true",
   };
 }

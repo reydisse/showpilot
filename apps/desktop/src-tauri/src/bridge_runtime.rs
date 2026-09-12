@@ -85,6 +85,9 @@ pub enum BridgeConnection {
 
 fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnection {
     let normalized = line.to_ascii_lowercase();
+    if !normalized.starts_with("[bridge]") {
+        return current;
+    }
     if normalized.contains("authentication failed")
         || normalized.contains("unexpected server response: 401")
     {
@@ -125,7 +128,9 @@ fn last_error_from_logs(logs: &[String]) -> Option<String> {
     logs.iter().rev().find_map(|line| {
         let trimmed = line.trim();
         let normalized = trimmed.to_ascii_lowercase();
-        if normalized.starts_with("error:")
+        if normalized.starts_with("[pp-bridge]") {
+            None
+        } else if normalized.starts_with("error:")
             || normalized.contains("authentication failed")
             || normalized.contains("connection rejected")
             || normalized.contains("websocket error")
@@ -598,6 +603,17 @@ mod tests {
 
         let error = vec!["[bridge] WebSocket error: DNS lookup failed".to_string()];
         assert_eq!(connection_from_logs(&error), BridgeConnection::Error);
+    }
+
+    #[test]
+    fn ignores_local_device_logs_when_deriving_cloud_connection() {
+        let logs = vec![
+            "[bridge] Connected to ShowPilot".to_string(),
+            "[pp-bridge] Connecting to ws://192.168.2.48:50001/stagedisplay".to_string(),
+            "[pp-bridge] Disconnected from ProPresenter".to_string(),
+        ];
+        assert_eq!(connection_from_logs(&logs), BridgeConnection::Connected);
+        assert_eq!(last_error_from_logs(&logs), None);
     }
 
     #[test]

@@ -1,13 +1,9 @@
-import { DurableObject } from "cloudflare:workers";
+import { RundownRelay } from "../durable-objects/RundownRelay";
 
 export { BridgeRelay } from "../durable-objects/BridgeRelay";
 export { ChatRelay } from "../durable-objects/ChatRelay";
 
-export class TestRundownRelay extends DurableObject<Env> {
-  fetch(): Response {
-    return new Response(null, { status: 204 });
-  }
-}
+export class TestRundownRelay extends RundownRelay {}
 
 export default {
   fetch(): Response {

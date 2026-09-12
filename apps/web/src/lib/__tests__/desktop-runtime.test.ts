@@ -52,6 +52,7 @@ import {
   isDesktopRuntime,
   isDesktopNotificationSupported,
   installDesktopUpdate,
+  isDesktopLocalDeviceMode,
   listenForDesktopNotificationActions,
   openDesktopWindow,
   requestDesktopNotificationPermission,
@@ -79,6 +80,22 @@ afterEach(() => {
 });
 
 describe("desktop runtime boundary", () => {
+  it("recognizes local-device mode reported by current and legacy Desktop engines", () => {
+    const base = {
+      configured: true,
+      running: false,
+      connection: "offline" as const,
+      pid: null,
+      logs: [],
+      lastError: null,
+    };
+
+    expect(isDesktopLocalDeviceMode(null)).toBe(false);
+    expect(isDesktopLocalDeviceMode({ ...base, localDevicesEnabled: false })).toBe(false);
+    expect(isDesktopLocalDeviceMode({ ...base, localDevicesEnabled: true })).toBe(true);
+    expect(isDesktopLocalDeviceMode({ ...base, running: true })).toBe(true);
+  });
+
   it("stays inert in a normal browser", async () => {
     window.__TAURI__ = undefined;
     expect(isDesktopRuntime()).toBe(false);

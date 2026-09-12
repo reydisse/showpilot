@@ -495,7 +495,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "pp-preview", payload: { slide: payload } }),
+          body: JSON.stringify({
+            action: "pp-preview",
+            payload: { slide: payload, outputEnabled: target.ppOutputEnabled },
+          }),
         })
       );
     } catch (err) {
@@ -514,7 +517,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
         new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "pp-preview", payload: { slide: null } }),
+          body: JSON.stringify({
+            action: "pp-preview",
+            payload: { slide: null, outputEnabled: target.ppOutputEnabled },
+          }),
         })
       );
     } catch (err) {

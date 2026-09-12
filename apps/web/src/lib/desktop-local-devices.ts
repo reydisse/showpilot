@@ -1,5 +1,6 @@
 import {
   getDesktopBridgeStatus,
+  isDesktopLocalDeviceMode,
   startDesktopBridge,
   type DesktopBridgeStatus,
 } from "@/lib/desktop-runtime";
@@ -24,7 +25,7 @@ export async function configureDesktopLocalDevices(
 ): Promise<DesktopBridgeStatus> {
   const status = await getDesktopBridgeStatus();
   if (!status) throw new Error("ShowPilot Desktop is not available");
-  if (!forceEnable && !status.localDevicesEnabled) return status;
+  if (!forceEnable && !isDesktopLocalDeviceMode(status)) return status;
 
   const context = await getOrgRouteContext({ data: slug });
   if (!context) throw new Error("Sign in before enabling local devices");

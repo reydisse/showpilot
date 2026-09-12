@@ -17,6 +17,12 @@ describe("organization service wall times", () => {
     expect(formatTimeInput(winter, "America/New_York")).toBe("09:30");
   });
 
+  it("round-trips the Toronto schedule time used by the venue", () => {
+    const iso = serviceTimeToIso("2026-09-13", "09:30", "America/Toronto");
+    expect(iso).toBe("2026-09-13T13:30:00.000Z");
+    expect(formatTimeInput(iso, "America/Toronto")).toBe("09:30");
+  });
+
   it("uses an empty value to clear a saved time", () => {
     expect(serviceTimeToIso("2026-08-23", "", "Africa/Accra")).toBeNull();
     expect(formatTimeInput(null, "Africa/Accra")).toBe("");

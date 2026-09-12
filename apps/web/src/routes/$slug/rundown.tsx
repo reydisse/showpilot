@@ -46,7 +46,6 @@ import {
   saveRundownMeta,
   setActiveServiceDate,
   getRundownOpeningDate,
-  saveProPresenterSlide,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
   listSavedRundowns,
@@ -84,6 +83,8 @@ import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 import { NewShowModal, type NewShowInput } from "@/components/rundown/NewShowModal";
 import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
+import { ACTIVE_RUNDOWN_CHANGED_EVENT } from "@/components/layout/LiveRundownBar";
+import { decodeStageMessage, encodeStageMessage } from "@/lib/stage-message";
 
 type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
@@ -247,6 +248,7 @@ function RundownPage() {
     try {
       await setActiveServiceDate({ data: { orgId, serviceDate: date, showId: targetShowId } });
       publishedTargetRef.current = key;
+      window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT));
     } finally {
       activePublishInFlightRef.current = false;
       setActivePublishPending(false);
@@ -293,15 +295,16 @@ function RundownPage() {
     scheduledCallTime: syncedScheduledCallTime,
     stateInitialized: syncedInitialized,
     ppPreviewSlide: syncedPpSlide,
+    ppOutputEnabled: ppOnKiosk,
+    stageMessage: syncedStageMessage,
     lastError: syncError,
     saving: syncSaving,
+    hasPendingCommands,
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
   const relayMatchesTarget = syncedServiceDate === serviceDate
     && (!showId || syncedShowId === showId);
-  const syncSavingRef = useRef(syncSaving);
-  syncSavingRef.current = syncSaving;
 
   // Local state — source of truth for rendering
   const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
@@ -344,7 +347,6 @@ function RundownPage() {
   const [scheduledCallTime, setScheduledCallTime] = useState<string>(
     formatTimeInput(initialState.meta?.scheduledCallTime, settings["org-timezone"])
   );
-  const saveMetaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMetaFieldsRef = useRef(new Set<"name" | "time" | "call">());
@@ -480,23 +482,20 @@ function RundownPage() {
   const handleScheduledStartChange = useCallback((timeStr: string) => {
     setScheduledStartTime(timeStr);
     setSaveError(null);
-    if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     setMetaFieldPending("time", true);
-    saveMetaTimeoutRef.current = setTimeout(() => {
-      const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
-      if (showId) {
-        setMetaFieldPending("time", false);
-        sendCommand("update-meta", { scheduledStartTime: isoTime });
-        return;
-      }
-      void ensureShowId()
-        .then(async (targetShowId) => {
-          await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
-          if (!showId) await adoptShowId(targetShowId);
-        })
-        .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"))
-        .finally(() => setMetaFieldPending("time", false));
-    }, 800);
+    const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
+    if (showId) {
+      sendCommand("update-meta", { scheduledStartTime: isoTime });
+      setMetaFieldPending("time", false);
+      return;
+    }
+    void ensureShowId()
+      .then(async (targetShowId) => {
+        await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
+        if (!showId) await adoptShowId(targetShowId);
+      })
+      .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"))
+      .finally(() => setMetaFieldPending("time", false));
   }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
 
   const handleScheduledCallChange = useCallback((timeStr: string) => {
@@ -527,7 +526,6 @@ function RundownPage() {
 
   useEffect(() => () => {
     if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
-    if (saveMetaTimeoutRef.current) clearTimeout(saveMetaTimeoutRef.current);
     pendingMetaFieldsRef.current.clear();
     setMetaSavePending(false);
   }, [serviceDate]);
@@ -563,16 +561,15 @@ function RundownPage() {
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [message, setMessage] = useState("");
-  const [activeMessage, setActiveMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
   const selectionInFlightRef = useRef(false);
 
   const waitForCurrentRundownWrites = useCallback(async () => {
     await waitForRundownWrites(() => pendingMetaFieldsRef.current.size > 0
-        || syncSavingRef.current
+        || hasPendingCommands()
         || activePublishInFlightRef.current);
-  }, []);
+  }, [hasPendingCommands]);
 
   // Sync: accept DO state as source of truth, but ONLY after hydration.
   // Skip during date loads — loadDate() sets items directly and we don't
@@ -603,14 +600,13 @@ function RundownPage() {
   const [ppPassword, setPpPassword] = useState("");
   const [ppApiPort, setPpApiPort] = useState(0);
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
-  const [ppOnKiosk, setPpOnKiosk] = useState(false);
+  const [ppOutputPending, setPpOutputPending] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
   const [ppCmdPending, setPpCmdPending] = useState<"next" | "previous" | "clear" | null>(null);
   const [ppCmdNotice, setPpCmdNotice] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
-  const ppKioskClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerRef = useRef(timer);
   const itemsRef = useRef(items);
   const progressResetRef = useRef(false);
@@ -629,13 +625,11 @@ function RundownPage() {
       const pwd = settings["propresenter-password"] || "";
       const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
       const cues = settings["propresenter-send-cues"] === "true";
-      const stageDisplay = settings["propresenter-stage-display"] === "true";
       setPpHost(host);
       setPpPort(port);
       setPpPassword(pwd);
       setPpApiPort(apiPort);
       setPpCuesEnabled(cues);
-      setPpOnKiosk(stageDisplay);
     }).catch(() => {});
   }, [canControlRundown, orgId]);
 
@@ -704,36 +698,6 @@ function RundownPage() {
       ? ppCurrentSlide
       : null;
 
-  // Keep the kiosk slide feed stable. Slide transitions can briefly report no text,
-  // so hold the last good slide unless the feed stays empty for a short window.
-  useEffect(() => {
-    if (ppKioskClearTimeoutRef.current) {
-      clearTimeout(ppKioskClearTimeoutRef.current);
-      ppKioskClearTimeoutRef.current = null;
-    }
-
-    if (!(ppEnabled && ppOnKiosk)) {
-      return;
-    }
-
-    if (activePpSlide?.text) {
-      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: activePpSlide } }).catch(() => {});
-      return;
-    }
-
-    ppKioskClearTimeoutRef.current = setTimeout(() => {
-      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch(() => {});
-      ppKioskClearTimeoutRef.current = null;
-    }, 700);
-
-    return () => {
-      if (ppKioskClearTimeoutRef.current) {
-        clearTimeout(ppKioskClearTimeoutRef.current);
-        ppKioskClearTimeoutRef.current = null;
-      }
-    };
-  }, [activePpSlide, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
-
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
   const ppIsConnected = ppSource !== null || pp.status === "connected";
 
@@ -742,36 +706,24 @@ function RundownPage() {
     if (ppEnabled) {
       setPpEnabled(false);
       setPpCurrentSlide(null);
-      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch((e) => console.warn("[SP] PP slide clear failed:", e));
     } else {
       setPpEnabled(true);
     }
-  }, [canEditRundown, ppEnabled, orgId, serviceDate, showId]);
+  }, [canEditRundown, ppEnabled]);
 
-  const togglePPOnKiosk = useCallback(() => {
-    if (!canEditRundown) return;
-
+  const togglePPOnKiosk = useCallback(async () => {
+    if (!canEditRundown || ppOutputPending) return;
     const next = !ppOnKiosk;
-    setPpOnKiosk(next);
-    setProPresenterStageDisplay({ data: { orgId, enabled: next } }).catch((e) => {
-      setPpCmdError(String(e));
-      setPpOnKiosk(!next);
-    });
-
-    if (!next || !ppEnabled) {
-      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide: null } }).catch((e) =>
-        console.warn("[SP] PP slide clear failed:", e)
-      );
-      return;
+    setPpOutputPending(true);
+    setPpCmdError("");
+    try {
+      await setProPresenterStageDisplay({ data: { orgId, enabled: next } });
+    } catch (error) {
+      setPpCmdError(error instanceof Error ? error.message : "Could not update the kiosk output");
+    } finally {
+      setPpOutputPending(false);
     }
-
-    const slide = activePpSlide;
-    if (slide?.text) {
-      saveProPresenterSlide({ data: { orgId, showId, serviceDate, slide } }).catch((e) =>
-        console.warn("[SP] PP slide persist failed:", e)
-      );
-    }
-  }, [activePpSlide, canEditRundown, orgId, ppEnabled, ppOnKiosk, serviceDate, showId]);
+  }, [canEditRundown, orgId, ppOnKiosk, ppOutputPending]);
 
   // Load rundown for new date
   const loadDate = async (date: string, targetShowId?: string) => {
@@ -1242,17 +1194,16 @@ function RundownPage() {
   const handleSendMessage = () => {
     if (!canEditRundown) return;
     if (message.trim()) {
-      setActiveMessage(message.trim());
-      // Encode priority flag into message string for kiosk
-      const encoded = messagePriority ? `!!PRIORITY!!${message.trim()}` : message.trim();
       // The relay persists before broadcasting so every display converges.
-      sendRundownCommand("stage-message", { message: encoded });
+      sendRundownCommand("stage-message", {
+        message: encodeStageMessage(message, messagePriority),
+      });
+      setMessage("");
     }
   };
 
   const handleClearMessage = () => {
     if (!canEditRundown) return;
-    setActiveMessage("");
     setMessagePriority(false);
     sendRundownCommand("stage-clear");
   };
@@ -1318,6 +1269,7 @@ function RundownPage() {
   const selectedShowCall = effectiveCallTimeMs === null
     ? ""
     : formatTimeInput(new Date(effectiveCallTimeMs), settings["org-timezone"]);
+  const activeStageMessage = decodeStageMessage(syncedStageMessage);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -1464,10 +1416,10 @@ function RundownPage() {
       )}
 
       {/* Message bar */}
-      {activeMessage && (
+      {activeStageMessage.text && (
         <div className="shrink-0 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center gap-3">
           <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
-          <p className="text-sm font-medium text-amber-300 flex-1">{activeMessage}</p>
+          <p className="text-sm font-medium text-amber-300 flex-1">{activeStageMessage.text}</p>
           <button
             type="button"
             onClick={handleClearMessage}
@@ -1739,6 +1691,8 @@ function RundownPage() {
                         </button>
                         <button
                           onClick={togglePPOnKiosk}
+                          disabled={ppOutputPending}
+                          aria-busy={ppOutputPending}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
                             ppOnKiosk
                               ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
@@ -1747,7 +1701,7 @@ function RundownPage() {
                           title={ppOnKiosk ? "Hide ProPresenter on kiosk" : "Show ProPresenter on kiosk"}
                         >
                           {ppOnKiosk ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                          {ppOnKiosk ? "On Kiosk" : "Kiosk Off"}
+                          {ppOutputPending ? "Updating…" : ppOnKiosk ? "On Kiosk" : "Kiosk Off"}
                         </button>
                       </>
                     )}

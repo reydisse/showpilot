@@ -1,6 +1,6 @@
 {
   "name": "@showpilot/bridge",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
+    "check:propresenter-import": "pnpm build && node scripts/check-propresenter-import.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

@@ -6,7 +6,6 @@ import { getPrisma } from "@/lib/db";
 import { isRateLimited } from "@/lib/rate-limit";
 import { parseOrThrow, ValidationError } from "@/lib/validation";
 import {
-  setProPresenterStageDisplayForOrg,
   getProPresenterStageDisplayForOrg,
 } from "@/lib/rundown";
 import {
@@ -190,7 +189,11 @@ export function buildCompanionDeps(): CompanionDeps {
   return {
     relayCommand: rundownRelayCommand,
     relayState: rundownRelayState,
-    setLyrics: setProPresenterStageDisplayForOrg,
+    setLyrics: (orgId, enabled) => rundownRelayCommand(
+      orgId,
+      "pp-output-enabled",
+      { enabled },
+    ),
     getLyrics: getProPresenterStageDisplayForOrg,
     isCloudEnabled,
     async triggerLowerThird(orgId, payload: LowerThirdLike, triggeredBy) {
