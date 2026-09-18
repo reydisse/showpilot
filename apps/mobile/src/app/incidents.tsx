@@ -23,6 +23,7 @@ import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { authClient } from "@/lib/auth-client";
 import {
   addMobileIncidentComment,
@@ -76,7 +77,8 @@ export default function IncidentsScreen() {
   const reportServiceDate = bootstrap?.timeZone
     ? getServiceDateForTimeZone(bootstrap.timeZone)
     : null;
-  const query = useQuery({ queryKey: ["mobile-incidents", organization?.id], queryFn: () => getMobileIncidents(organization!.id), enabled: Boolean(organization?.id), refetchInterval: 20_000 });
+  const pollingInterval = useScreenPollingInterval(20_000);
+  const query = useQuery({ queryKey: ["mobile-incidents", organization?.id], queryFn: () => getMobileIncidents(organization!.id), enabled: Boolean(organization?.id), refetchInterval: pollingInterval });
   const mutation = useMutation({
     mutationFn: () => {
       if (editingId) {

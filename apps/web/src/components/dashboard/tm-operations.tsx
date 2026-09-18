@@ -39,6 +39,7 @@ function StreamHealthPanel({ orgId, slug, inputs, destinations, compact }: { org
     if (!inputs.length) return;
     let active = true;
     const poll = async () => {
+      if (document.visibilityState !== "visible") return;
       const results = await Promise.all(inputs.map(async (input) => {
         try { return [input.id, (await getLiveInputStatus({ data: { orgId, inputId: input.id } }))?.status ?? input.status] as const; }
         catch { return [input.id, input.status] as const; }
@@ -95,8 +96,19 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
   const [busy, setBusy] = useState<TmControlAction | null>(null);
   const [armed, setArmed] = useState<TmControlAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const refresh = useCallback(async () => { try { setState(await getTmControlState({ data: { orgId } }) as ControlState); } catch { setMessage("Control feedback is unavailable"); } }, [orgId]);
-  useEffect(() => { void refresh(); const timer = window.setInterval(refresh, 5_000); return () => window.clearInterval(timer); }, [refresh]);
+  const refresh = useCallback(async () => {
+    if (document.visibilityState !== "visible") return;
+    try { setState(await getTmControlState({ data: { orgId } }) as ControlState); } catch { setMessage("Control feedback is unavailable"); }
+  }, [orgId]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [refresh]);
   useEffect(() => { if (!armed) return; const timer = window.setTimeout(() => setArmed(null), 4_000); return () => window.clearTimeout(timer); }, [armed]);
   const run = async (control: (typeof CONTROLS)[number]) => {
     if (control.dangerous && armed !== control.action) { setArmed(control.action); setMessage("Press again within four seconds to confirm"); return; }

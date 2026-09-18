@@ -24,6 +24,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   getMobileCheckIn,
   setMobileCheckInStatus,
@@ -49,11 +50,12 @@ export default function CheckInScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [codeError, setCodeError] = useState("");
   const queryKey = ["mobile-checkin", organization?.id];
+  const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
     queryKey,
     queryFn: () => getMobileCheckIn(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 15_000,
+    refetchInterval: pollingInterval,
   });
   const members = useMemo(() => query.data?.members ?? [], [query.data?.members]);
   const selectedMember = selectedId ? members.find((member) => member.id === selectedId) ?? null : null;

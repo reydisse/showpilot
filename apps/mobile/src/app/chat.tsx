@@ -286,7 +286,7 @@ export default function ChatScreen() {
     : "production";
   const focusedMessageId = typeof params.message === "string" ? params.message : null;
   const relay = useChatRelay(organization?.id, roomId);
-  const bootstrap = useMobileBootstrap({ poll: true });
+  const bootstrap = useMobileBootstrap();
   const openingShow = bootstrap.data?.shows[0];
   const canViewRundown = bootstrap.data?.identity.permissions.some((permission) => permission === "rundown:view" || permission === "rundown:control") ?? false;
   const liveRundownQuery = useQuery({

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
-import { getD1 } from "@/lib/d1";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
@@ -47,11 +46,6 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
   }), data))
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);
-    const organization = await getPrisma().organization.findUnique({
-      where: { id: data.orgId },
-      select: { slug: true },
-    });
-    if (!organization) throw new Error("Organization not found");
     const recipients = new Map<string, "dm" | "mention">();
     const dmParts = data.roomId.split(":");
     if (dmParts.length === 3 && dmParts[0] === "dm" && dmParts.slice(1).includes(sender.id)) {
@@ -74,30 +68,30 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     });
     const cleanText = data.text.replace(mentionPattern, "@$2").trim().slice(0, 240) || "Shared an attachment";
     const actionUrl = `chat?room=${encodeURIComponent(data.roomId)}${data.messageId ? `&message=${encodeURIComponent(data.messageId)}` : ""}`;
-    await Promise.all(validMembers.map(async ({ userId }) => {
-      const kind = recipients.get(userId) ?? "mention";
-      const title = kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`;
-      const notificationId = crypto.randomUUID();
-      await getD1().prepare(
-        `INSERT INTO notification
-         (id, orgId, userId, type, severity, title, message, target, source, actionUrl, dismissed, createdAt)
-         VALUES (?, ?, ?, ?, 'info', ?, ?, ?, 'chat', ?, 0, CURRENT_TIMESTAMP)`,
-      ).bind(
-        notificationId, data.orgId, userId,
-        kind === "dm" ? "chat-direct-message" : "chat-mention",
-        title,
-        cleanText, `user:${userId}`, actionUrl,
-      ).run();
-      const { deliverPushToUser } = await import("@/lib/push-delivery.server");
-      await deliverPushToUser(data.orgId, userId, {
-        title,
-        body: cleanText,
-        url: `/${encodeURIComponent(organization.slug)}/${actionUrl}`,
-        tag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
-        notificationId,
+    const validMemberIds = new Set(validMembers.map(({ userId }) => userId));
+    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
+    let notified = 0;
+    for (const kind of ["dm", "mention"] as const) {
+      const recipientIds = [...recipients]
+        .filter(([userId, recipientKind]) => recipientKind === kind && validMemberIds.has(userId))
+        .map(([userId]) => userId);
+      if (recipientIds.length === 0) continue;
+      const result = await notifyOperationalEvent({
+        orgId: data.orgId,
+        actorId: sender.id,
+        recipientIds,
+        category: "chat",
+        type: kind === "dm" ? "chat-direct-message" : "chat-mention",
+        title: kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`,
+        message: cleanText,
+        actionUrl,
+        source: data.messageId ?? `chat:${data.roomId}`,
+        pushTag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
+        ...(data.messageId ? { dedupeKey: `chat-message:${data.messageId}:${kind}` } : {}),
       });
-    }));
-    return { notified: validMembers.length };
+      notified += result.notified;
+    }
+    return { notified };
   });
 
 export const notifyChatReaction = createServerFn({ method: "POST" })
@@ -126,6 +120,7 @@ export const notifyChatReaction = createServerFn({ method: "POST" })
       orgId: data.orgId,
       actorId: sender.id,
       recipientIds: [target.userId],
+      category: "chat",
       type: "chat-reaction",
       title: `${sender.name} reacted ${data.emoji} to your message`,
       message: "Open the conversation to view the reaction.",

@@ -1,5 +1,7 @@
+import type { NotificationCategory } from "@showpilot/shared";
 import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
+import { readRecipientNotificationPreferences } from "@/lib/notification-preferences.server";
 import { normalizeRole } from "@/lib/permissions";
 
 const LEADERSHIP_ROLES = new Set(["owner", "admin", "td", "cd", "pd", "pm", "sm", "tm"]);
@@ -9,6 +11,7 @@ export type OperationalNotification = {
   actorId?: string | null;
   recipientIds?: readonly string[];
   includeLeadership?: boolean;
+  category: NotificationCategory;
   type: string;
   severity?: "info" | "warning" | "critical";
   title: string;
@@ -58,6 +61,13 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
   if (input.actorId) recipients.delete(input.actorId);
   if (recipients.size === 0) return { notified: 0 };
 
+  const recipientIds = [...recipients];
+  const preferences = await readRecipientNotificationPreferences(
+    input.orgId,
+    recipientIds,
+    input.category,
+  );
+
   const org = await getPrisma().organization.findUnique({
     where: { id: input.orgId },
     select: { slug: true },
@@ -68,14 +78,16 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
     : "/";
 
   const results = await Promise.all(
-    [...recipients].map(async (userId) => {
+    recipientIds.map(async (userId) => {
       try {
+        const deviceAlerts = preferences.get(userId) ?? true;
         const notificationId = await notificationIdFor(input, userId);
         await getD1()
           .prepare(
             `INSERT INTO notification
-             (id, orgId, userId, type, severity, title, message, target, source, actionUrl, dismissed, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+             (id, orgId, userId, type, severity, title, message, target, source, actionUrl,
+              category, deviceAlertEnabled, dismissed, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
              ON CONFLICT(id) DO UPDATE SET
                type = excluded.type,
                severity = excluded.severity,
@@ -84,6 +96,8 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
                target = excluded.target,
                source = excluded.source,
                actionUrl = excluded.actionUrl,
+               category = excluded.category,
+               deviceAlertEnabled = excluded.deviceAlertEnabled,
                dismissed = 0,
                readAt = NULL,
                createdAt = CURRENT_TIMESTAMP`,
@@ -99,19 +113,23 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
             `user:${userId}`,
             input.source,
             input.actionUrl,
+            input.category,
+            deviceAlerts ? 1 : 0,
           )
           .run();
-        try {
-          const { deliverPushToUser } = await import("@/lib/push-delivery.server");
-          await deliverPushToUser(input.orgId, userId, {
-            title: input.title,
-            body: input.message,
-            url,
-            tag: input.pushTag,
-            notificationId,
-          });
-        } catch (error) {
-          console.error("[Notifications] Push delivery failed", error);
+        if (deviceAlerts) {
+          try {
+            const { deliverPushToUser } = await import("@/lib/push-delivery.server");
+            await deliverPushToUser(input.orgId, userId, {
+              title: input.title,
+              body: input.message,
+              url,
+              tag: input.pushTag,
+              notificationId,
+            });
+          } catch (error) {
+            console.error("[Notifications] Push delivery failed", error);
+          }
         }
         return true;
       } catch (error) {

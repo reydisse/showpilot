@@ -7,6 +7,7 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { commandMobileGraphic, createMobileGraphic, getMobileGraphics, updateMobileGraphic, type MobileGraphicWrite, type MobileGraphics } from "@/lib/mobile-api";
 import { createThemedStyles } from "@/theme/tokens";
 
@@ -21,7 +22,8 @@ export default function LowerThirdsScreen() {
   const [editing, setEditing] = useState<Graphic | "new" | null>(null);
   const [draft, setDraft] = useState(emptyGraphic);
   const [error, setError] = useState("");
-  const query = useQuery({ queryKey: ["mobile-graphics", orgId], queryFn: () => getMobileGraphics(orgId!), enabled: Boolean(orgId), refetchInterval: 2_000 });
+  const pollingInterval = useScreenPollingInterval(2_000);
+  const query = useQuery({ queryKey: ["mobile-graphics", orgId], queryFn: () => getMobileGraphics(orgId!), enabled: Boolean(orgId), refetchInterval: pollingInterval });
   const mutation = useMutation({
     mutationFn: async (input: { kind: "save"; id?: string; value: MobileGraphicWrite } | { kind: "command"; id?: string; action: "toggle" | "clear" | "remove" }) => input.kind === "save" ? input.id ? updateMobileGraphic({ ...input.value, id: input.id }) : createMobileGraphic(input.value) : commandMobileGraphic({ orgId: orgId!, id: input.id, action: input.action }),
     onSuccess: async () => { setEditing(null); setDraft(emptyGraphic); setError(""); await queryClient.invalidateQueries({ queryKey: ["mobile-graphics", orgId] }); },

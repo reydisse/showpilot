@@ -7,6 +7,7 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { commandMobileDestination, createMobileDestination, getMobileStreaming, updateMobileDestination, type MobileDestinationWrite, type MobileStreaming } from "@/lib/mobile-api";
 import { createThemedStyles } from "@/theme/tokens";
 
@@ -21,7 +22,8 @@ export default function MultiPlatformScreen() {
   const [editing, setEditing] = useState<Destination | "new" | null>(null);
   const [draft, setDraft] = useState(emptyDestination);
   const [error, setError] = useState("");
-  const query = useQuery({ queryKey: ["mobile-streaming", orgId], queryFn: () => getMobileStreaming(orgId!), enabled: Boolean(orgId), refetchInterval: 5_000 });
+  const pollingInterval = useScreenPollingInterval(5_000);
+  const query = useQuery({ queryKey: ["mobile-streaming", orgId], queryFn: () => getMobileStreaming(orgId!), enabled: Boolean(orgId), refetchInterval: pollingInterval });
   const mutation = useMutation({
     mutationFn: async (input: { kind: "save"; id?: string; value: MobileDestinationWrite } | { kind: "command"; id: string; action: "toggle" | "remove"; enabled?: boolean }) => input.kind === "save" ? input.id ? updateMobileDestination({ ...input.value, id: input.id }) : createMobileDestination(input.value) : commandMobileDestination({ orgId: orgId!, id: input.id, action: input.action, enabled: input.enabled }),
     onSuccess: async () => { setEditing(null); setDraft(emptyDestination); setError(""); await queryClient.invalidateQueries({ queryKey: ["mobile-streaming", orgId] }); },

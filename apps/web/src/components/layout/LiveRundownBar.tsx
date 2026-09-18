@@ -123,13 +123,18 @@ export function LiveRundownBar(props: LiveRundownBarProps) {
         .catch(() => {});
     };
     refresh();
-    const interval = window.setInterval(refresh, 15_000);
+    const refreshWhileVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const interval = window.setInterval(refreshWhileVisible, 15_000);
     window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhileVisible);
     window.addEventListener(ACTIVE_RUNDOWN_CHANGED_EVENT, refresh);
     return () => {
       disposed = true;
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhileVisible);
       window.removeEventListener(ACTIVE_RUNDOWN_CHANGED_EVENT, refresh);
     };
   }, [props.orgId]);

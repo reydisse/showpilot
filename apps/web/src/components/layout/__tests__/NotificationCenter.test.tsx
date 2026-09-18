@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationInbox } from "../NotificationCenter";
 
 const mocks = vi.hoisted(() => ({
   getNotifications: vi.fn(),
+  getPreferences: vi.fn(),
+  updatePreference: vi.fn(),
   markAllRead: vi.fn(),
   markRead: vi.fn(),
   navigate: vi.fn(),
@@ -16,8 +18,10 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@/lib/personal-notifications", () => ({
   getPersonalNotifications: mocks.getNotifications,
+  getPersonalNotificationPreferences: mocks.getPreferences,
   markAllPersonalNotificationsRead: mocks.markAllRead,
   markPersonalNotificationRead: mocks.markRead,
+  updatePersonalNotificationPreference: mocks.updatePreference,
 }));
 
 vi.mock("@/lib/desktop-runtime", () => ({
@@ -28,6 +32,11 @@ describe("NotificationInbox", () => {
   afterEach(() => {
     vi.clearAllMocks();
     mocks.isDesktop = false;
+  });
+
+  beforeEach(() => {
+    mocks.getPreferences.mockResolvedValue([]);
+    mocks.updatePreference.mockResolvedValue({ preference: {} });
   });
 
   it("keeps long assignment responses readable and clears unread state", async () => {
@@ -71,6 +80,23 @@ describe("NotificationInbox", () => {
 
     expect(await screen.findByText("Nothing waiting for you.")).not.toBe(undefined);
     expect(screen.getByText(/Assignments, mentions, and operational alerts/)).not.toBe(undefined);
+  });
+
+  it("always keeps the inbox on and exposes one device-alert choice per category", async () => {
+    mocks.getNotifications.mockResolvedValue({ notifications: [], unread: 0 });
+    mocks.getPreferences.mockResolvedValue([{ category: "schedule", deviceAlerts: true }]);
+
+    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Preferences" }));
+    expect(screen.getByText(/Everything stays in your inbox/)).not.toBe(undefined);
+    expect(screen.queryByRole("switch", { name: /in-app/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Schedule device alerts" }));
+
+    await waitFor(() => expect(mocks.updatePreference).toHaveBeenCalledWith({
+      data: { orgId: "org-1", category: "schedule", deviceAlerts: false },
+    }));
   });
 
   it("uses the Desktop controller count event instead of starting another polling interval", async () => {

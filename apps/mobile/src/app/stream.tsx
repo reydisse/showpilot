@@ -4,6 +4,7 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow, OperationsStat } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { getMobileStreaming } from "@/lib/mobile-api";
 import { createThemedStyles } from "@/theme/tokens";
 
@@ -11,7 +12,8 @@ export default function StreamScreen() {
   const styles = useStyles();
   const { organization } = useMobileBootstrap();
   const orgId = organization?.id;
-  const query = useQuery({ queryKey: ["mobile-streaming", orgId], queryFn: () => getMobileStreaming(orgId!), enabled: Boolean(orgId), refetchInterval: 5_000 });
+  const pollingInterval = useScreenPollingInterval(5_000);
+  const query = useQuery({ queryKey: ["mobile-streaming", orgId], queryFn: () => getMobileStreaming(orgId!), enabled: Boolean(orgId), refetchInterval: pollingInterval });
   if (!orgId || query.isPending) return <LoadingView label="Opening stream health…" />;
   const inputs = query.data?.inputs ?? [];
   const destinations = query.data?.destinations ?? [];

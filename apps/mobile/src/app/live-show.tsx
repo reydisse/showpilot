@@ -21,6 +21,7 @@ import {
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenFocus } from "@/hooks/use-screen-polling";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import {
   getMobileShowWorkspace,
@@ -241,11 +242,14 @@ export default function LiveShowScreen() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const { organization, data: bootstrap, isPending: bootstrapPending } = useMobileBootstrap();
   const canView = bootstrap?.identity.permissions.includes("show:view") === true;
+  const isScreenFocused = useScreenFocus();
   const query = useQuery({
     queryKey: ["mobile-show-workspace", organization?.id],
     queryFn: () => getMobileShowWorkspace(organization!.id),
     enabled: Boolean(organization?.id && canView),
-    refetchInterval: (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 5_000,
+    refetchInterval: isScreenFocused
+      ? (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 5_000
+      : false,
   });
   if (!organization) return <Redirect href="/organizations" />;
   if (bootstrapPending || (canView && query.isPending)) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>;

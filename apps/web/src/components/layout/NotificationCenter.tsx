@@ -1,11 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
-import { BellRing, CheckCheck, ExternalLink, Inbox, Info, TriangleAlert } from "lucide-react";
+import type { NotificationCategory, NotificationPreference } from "@showpilot/shared";
+import { BellRing, CheckCheck, ExternalLink, Inbox, Info, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   getPersonalNotifications,
+  getPersonalNotificationPreferences,
   markAllPersonalNotificationsRead,
   markPersonalNotificationRead,
+  updatePersonalNotificationPreference,
   type PersonalNotification,
 } from "@/lib/personal-notifications";
 import { getNotificationDestination } from "@/lib/notification-destination";
@@ -22,6 +25,14 @@ interface NotificationInboxProps {
   onNavigate?: () => void;
 }
 
+const preferenceCopy: Record<NotificationCategory, { label: string; description: string }> = {
+  schedule: { label: "Schedule", description: "Assignments and responses" },
+  incidents: { label: "Incidents", description: "Issues, replies, and changes" },
+  chat: { label: "Chat", description: "Messages, mentions, and reactions" },
+  reports: { label: "Reports", description: "Post-show note requests" },
+  system: { label: "Admin and safety", description: "Workspace and safety reviews" },
+};
+
 export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: NotificationInboxProps) {
   const navigate = useNavigate();
   const [items, setItems] = useState<PersonalNotification[]>([]);
@@ -29,6 +40,10 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
   const [loaded, setLoaded] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
+  const [preferencesLoading, setPreferencesLoading] = useState(true);
+  const [savingPreference, setSavingPreference] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -58,6 +73,22 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
       window.removeEventListener("focus", onFocus);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    let active = true;
+    setPreferencesLoading(true);
+    void getPersonalNotificationPreferences({ data: { orgId } })
+      .then((result) => {
+        if (active) setPreferences(result);
+      })
+      .catch(() => {
+        if (active) setActionError("Notification preferences could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setPreferencesLoading(false);
+      });
+    return () => { active = false; };
+  }, [orgId]);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -110,14 +141,71 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
     }
   };
 
+  const savePreference = async (
+    current: NotificationPreference,
+    enabled: boolean,
+  ) => {
+    const next = { ...current, deviceAlerts: enabled };
+    setSavingPreference(current.category);
+    setPreferences((items) => items.map((item) => item.category === current.category ? next : item));
+    try {
+      await updatePersonalNotificationPreference({ data: { orgId, ...next } });
+      setActionError(null);
+    } catch {
+      setPreferences((items) => items.map((item) => item.category === current.category ? current : item));
+      setActionError("That notification preference could not be saved.");
+    } finally {
+      setSavingPreference(null);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {unread > 0 ? (
-        <div className="flex shrink-0 items-center justify-end border-b border-board-border px-5 py-2 sm:px-6">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-board-border px-5 py-2 sm:px-6">
+        <Button type="button" variant="ghost" size="sm" aria-expanded={showPreferences} onClick={() => setShowPreferences((value) => !value)}>
+          <SlidersHorizontal data-icon="inline-start" />
+          Preferences
+        </Button>
+        {unread > 0 ? (
           <Button type="button" variant="ghost" size="sm" disabled={markingAll} onClick={() => void markAllRead()}>
             <CheckCheck data-icon="inline-start" />
             Mark all read
           </Button>
+        ) : null}
+      </div>
+
+      {showPreferences ? (
+        <div className="modern-scrollbar max-h-80 shrink-0 overflow-y-auto border-b border-board-border bg-board-bg/25 px-5 py-4 sm:px-6">
+          <p className="mb-3 text-[11px] leading-4 text-board-muted">
+            Everything stays in your inbox. Choose which categories may send a device or Desktop alert.
+          </p>
+          <div className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-x-2 border-b border-board-border/70 pb-2">
+            <p className="text-xs font-semibold text-board-text">Alert me about</p>
+            <p className="text-center text-[10px] font-semibold uppercase tracking-wider text-board-muted">Alert</p>
+          </div>
+          {preferencesLoading ? <p className="py-5 text-center text-xs text-board-muted">Loading preferences…</p> : null}
+          {!preferencesLoading ? preferences.map((preference) => {
+            const copy = preferenceCopy[preference.category];
+            return (
+              <div key={preference.category} className="grid min-h-14 grid-cols-[minmax(0,1fr)_5rem] items-center gap-x-2 border-b border-board-border/50 py-2 last:border-b-0">
+                <div className="min-w-0 pr-2">
+                  <p className="text-xs font-medium text-board-text">{copy.label}</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-board-muted">{copy.description}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={preference.deviceAlerts}
+                  aria-label={`${copy.label} device alerts`}
+                  disabled={savingPreference === preference.category}
+                  onClick={() => void savePreference(preference, !preference.deviceAlerts)}
+                  className={`relative mx-auto h-6 w-11 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50 ${preference.deviceAlerts ? "bg-fire-500" : "bg-board-border"}`}
+                >
+                  <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform ${preference.deviceAlerts ? "translate-x-5" : ""}`} />
+                </button>
+              </div>
+            );
+          }) : null}
         </div>
       ) : null}
 

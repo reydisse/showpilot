@@ -30,6 +30,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   createMobileTeamCrewMember,
   getMobileTeamCrew,
@@ -80,11 +81,12 @@ export default function TeamCrewScreen() {
   const [customRoleOpen, setCustomRoleOpen] = useState(false);
   const [preparingPhoto, setPreparingPhoto] = useState(false);
   const queryKey = ["mobile-team-crew", organization?.id];
+  const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
     queryKey,
     queryFn: () => getMobileTeamCrew(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 15_000,
+    refetchInterval: pollingInterval,
   });
   const filteredMembers = useMemo(() => {
     const needle = search.trim().toLowerCase();

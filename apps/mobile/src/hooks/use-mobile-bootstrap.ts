@@ -13,7 +13,10 @@ export function useMobileBootstrap({ enabled = true, poll = false }: MobileBoots
     queryKey: ["mobile-bootstrap", organization?.id],
     queryFn: () => getMobileBootstrap(organization!.id),
     enabled: enabled && Boolean(organization?.id),
-    refetchInterval: poll ? 5_000 : false,
+    // Push notifications carry urgent changes. A slower safety refresh keeps
+    // badges and organization state current without a permanent 5-second
+    // request loop on every authenticated screen.
+    refetchInterval: poll ? 30_000 : false,
   });
   return { organization, ...query };
 }

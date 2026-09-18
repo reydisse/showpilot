@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { NotificationCategory, NotificationPreference } from "@showpilot/shared";
 import Constants from "expo-constants";
 import { Redirect, useFocusEffect } from "expo-router";
 import BellRing from "lucide-react-native/icons/bell-ring";
@@ -13,13 +15,17 @@ import ShieldCheck from "lucide-react-native/icons/shield-check";
 import Smartphone from "lucide-react-native/icons/smartphone";
 import Sun from "lucide-react-native/icons/sun";
 import Trash2 from "lucide-react-native/icons/trash-2";
-import { Alert, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
-import { saveMobilePushToken } from "@/lib/mobile-api";
+import {
+  getMobileNotificationPreferences,
+  saveMobilePushToken,
+  updateMobileNotificationPreference,
+} from "@/lib/mobile-api";
 import {
   enableNativeNotifications,
   getNativeNotificationPermissionState,
@@ -47,6 +53,14 @@ const appearanceOptions: {
   { value: "dark", label: "Dark", description: "Built for control rooms", icon: "dark" },
 ];
 
+const notificationCategoryCopy: Record<NotificationCategory, { label: string; description: string }> = {
+  schedule: { label: "Schedule", description: "Assignments, reminders, confirmations, and declines" },
+  incidents: { label: "Incidents", description: "New issues, assignments, comments, and status changes" },
+  chat: { label: "Chat", description: "Direct messages, mentions, invitations, and reactions" },
+  reports: { label: "Post-show reports", description: "Requests to add production and technical notes" },
+  system: { label: "Admin and safety", description: "Workspace administration and content-safety reviews" },
+};
+
 function notificationStatusCopy(state: NativeNotificationPermissionState | null, pushConfigured: boolean) {
   if (!state) return { label: "Checking", detail: "Reading this device’s notification permission." };
   if (state.status === "granted" && pushConfigured) {
@@ -67,15 +81,24 @@ function notificationStatusCopy(state: NativeNotificationPermissionState | null,
 export default function SettingsScreen() {
   const { colors, preference } = useAppTheme();
   const styles = useStyles();
+  const queryClient = useQueryClient();
   const { data: session, isPending } = authClient.useSession();
   const { data: organization } = authClient.useActiveOrganization();
   const [permission, setPermission] = useState<NativeNotificationPermissionState | null>(null);
   const [updatingNotifications, setUpdatingNotifications] = useState(false);
+  const [savingPreference, setSavingPreference] = useState<string | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "development";
   const pushConfigured = isNativePushConfigured();
   const platformLabel = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web preview";
   const apiLabel = SHOWPILOT_URL.replace(/^https?:\/\//, "");
   const notificationCopy = notificationStatusCopy(permission, pushConfigured);
+  const preferenceQueryKey = ["mobile-notification-preferences", organization?.id] as const;
+  const notificationPreferences = useQuery({
+    queryKey: preferenceQueryKey,
+    queryFn: () => getMobileNotificationPreferences(organization!.id),
+    enabled: Boolean(organization?.id),
+    staleTime: 60_000,
+  });
 
   const refreshPermission = useCallback(async () => {
     setPermission(await getNativeNotificationPermissionState());
@@ -128,6 +151,36 @@ export default function SettingsScreen() {
     }
   }
 
+  async function setNotificationPreference(
+    current: NotificationPreference,
+    enabled: boolean,
+  ) {
+    if (!organization?.id) return;
+    const previous = notificationPreferences.data;
+    const next = { ...current, deviceAlerts: enabled };
+    setSavingPreference(current.category);
+    queryClient.setQueryData<NotificationPreference[]>(
+      preferenceQueryKey,
+      (preferences) => preferences?.map((item) => item.category === current.category ? next : item),
+    );
+    try {
+      const saved = await updateMobileNotificationPreference({
+        orgId: organization.id,
+        category: current.category,
+        deviceAlerts: next.deviceAlerts,
+      });
+      queryClient.setQueryData(preferenceQueryKey, saved);
+    } catch (caught) {
+      queryClient.setQueryData(preferenceQueryKey, previous);
+      Alert.alert(
+        "Preference not saved",
+        caught instanceof Error ? caught.message : "Check your connection and try again.",
+      );
+    } finally {
+      setSavingPreference(null);
+    }
+  }
+
   async function openExternal(path: string) {
     try {
       await Linking.openURL(`${SHOWPILOT_URL}${path}`);
@@ -170,7 +223,7 @@ export default function SettingsScreen() {
         </View>
       </SettingsSection>
 
-      <SettingsSection title="Notifications" description="Device permission is personal. Workspace alert rules remain controlled by your organization’s admins.">
+      <SettingsSection title="Notifications" description="Everything stays in your inbox. Choose which categories may interrupt you with a device alert.">
         <View style={styles.notificationCard}>
           <View style={styles.notificationTop}>
             <View style={styles.sectionIcon}><BellRing size={21} color={colors.amberText} /></View>
@@ -192,6 +245,42 @@ export default function SettingsScreen() {
               onPress={configureNotifications}
             />
           ) : null}
+        </View>
+        <View style={styles.preferenceCard}>
+          <View style={styles.preferenceHeader}>
+            <View style={styles.preferenceHeaderSpacer} />
+            <Text style={styles.preferenceColumnLabel}>Alert</Text>
+          </View>
+          {notificationPreferences.isPending ? (
+            <View style={styles.preferenceLoading}>
+              <ActivityIndicator color={colors.amberText} />
+              <Text style={styles.cardDescription}>Loading your alert choices…</Text>
+            </View>
+          ) : notificationPreferences.isError ? (
+            <Pressable accessibilityRole="button" onPress={() => void notificationPreferences.refetch()} style={styles.preferenceLoading}>
+              <Text style={styles.preferenceError}>Could not load notification choices. Tap to retry.</Text>
+            </Pressable>
+          ) : notificationPreferences.data?.map((item) => {
+            const copy = notificationCategoryCopy[item.category];
+            return (
+              <View key={item.category} style={styles.preferenceRow}>
+                <View style={styles.preferenceCopy}>
+                  <Text style={styles.preferenceTitle}>{copy.label}</Text>
+                  <Text style={styles.preferenceDescription}>{copy.description}</Text>
+                </View>
+                <View style={styles.preferenceSwitch}>
+                  <Switch
+                    accessibilityLabel={`${copy.label} device alerts`}
+                    disabled={savingPreference === item.category}
+                    onValueChange={(value) => void setNotificationPreference(item, value)}
+                    thumbColor={item.deviceAlerts ? colors.amber : colors.textMuted}
+                    trackColor={{ false: colors.border, true: colors.amberSoft }}
+                    value={item.deviceAlerts}
+                  />
+                </View>
+              </View>
+            );
+          })}
         </View>
       </SettingsSection>
 
@@ -292,6 +381,17 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   notificationTop: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   sectionIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amberSoft },
   notificationCopy: { flex: 1, gap: 7 },
+  preferenceCard: { borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, overflow: "hidden" },
+  preferenceHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingHorizontal: spacing.medium },
+  preferenceHeaderSpacer: { flex: 1 },
+  preferenceColumnLabel: { width: 84, color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 0.6, textAlign: "center", textTransform: "uppercase" },
+  preferenceLoading: { minHeight: 72, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, padding: spacing.medium },
+  preferenceError: { color: colors.red, fontFamily, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  preferenceRow: { minHeight: 76, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSoft, paddingLeft: spacing.medium, paddingVertical: 10 },
+  preferenceCopy: { flex: 1, minWidth: 0, gap: 3, paddingRight: 8 },
+  preferenceTitle: { color: colors.text, fontFamily, fontSize: 13, fontWeight: "800" },
+  preferenceDescription: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 16 },
+  preferenceSwitch: { width: 84, alignItems: "center", justifyContent: "center" },
   statusLine: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   cardTitle: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "800" },
   cardDescription: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 19 },

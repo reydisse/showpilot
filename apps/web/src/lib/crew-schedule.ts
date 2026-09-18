@@ -508,6 +508,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
     await notifyOperationalEvent({
       orgId: access.orgId,
       includeLeadership: true,
+      category: "schedule",
       type: `assignment-${data.response}`,
       severity: data.response === "declined" ? "warning" : "info",
       title: `${assignment.crewMember?.name || "Crew member"} ${responseLabel} an assignment`,

@@ -32,6 +32,7 @@ model User {
   contentReportsCreated  ContentReport[]         @relation("ContentReportReporter")
   contentReportsReceived ContentReport[]         @relation("ContentReportAuthor")
   contentReportsReviewed ContentReport[]         @relation("ContentReportReviewer")
+  notificationPreferences NotificationPreference[]
 
   @@unique([email])
   @@map("user")
@@ -88,6 +89,15 @@ model Verification {
   @@map("verification")
 }
 
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rateLimit")
+}
+
 model Organization {
   id            String   @id
   name          String
@@ -122,6 +132,7 @@ model Organization {
   micAssignments         MicAssignment[]
   equipment              Equipment[]
   notifications          Notification[]
+  notificationPreferences NotificationPreference[]
   devices                Device[]
   appSettings            AppSetting[]
   rundowns               Rundown[]
@@ -549,10 +560,29 @@ model Notification {
   userId       String?
   actionUrl    String       @default("")
   readAt       DateTime?
+  category     String       @default("system")
+  deviceAlertEnabled Boolean @default(true)
 
   @@index([orgId, createdAt(sort: Desc)])
   @@index([orgId, userId, readAt])
+  @@index([orgId, userId, deviceAlertEnabled, createdAt(sort: Desc)])
   @@map("notification")
+}
+
+model NotificationPreference {
+  id           String       @id @default(cuid())
+  orgId        String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     String
+  deviceAlerts Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([orgId, userId, category])
+  @@index([userId])
+  @@map("notification_preference")
 }
 
 model Device {

@@ -111,8 +111,15 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   useEffect(() => {
     if (accountView === "notifications" || isDesktopRuntime()) return;
     void refreshUnread();
-    const timer = window.setInterval(refreshUnread, 20_000);
-    return () => window.clearInterval(timer);
+    const refreshWhileVisible = () => {
+      if (document.visibilityState === "visible") void refreshUnread();
+    };
+    const timer = window.setInterval(refreshWhileVisible, 20_000);
+    document.addEventListener("visibilitychange", refreshWhileVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhileVisible);
+    };
   }, [accountView, refreshUnread]);
 
   useEffect(() => {

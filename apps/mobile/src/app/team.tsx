@@ -25,6 +25,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   getMobileTeamAccess,
   grantMobileTeamAccess,
@@ -79,11 +80,12 @@ export default function TeamScreen() {
   const [duration, setDuration] = useState<"this-week" | "until-revoked">("this-week");
   const [reason, setReason] = useState("");
   const queryKey = ["mobile-team-access", organization?.id];
+  const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
     queryKey,
     queryFn: () => getMobileTeamAccess(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 15_000,
+    refetchInterval: pollingInterval,
   });
   const eligibleMembers = useMemo(
     () => query.data?.members.filter((member) => member.userId !== query.data.currentUserId) ?? [],

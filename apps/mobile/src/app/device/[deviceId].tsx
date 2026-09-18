@@ -13,6 +13,7 @@ import { DeviceCockpit } from "@/components/device-cockpit";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { controlMobileDevice, getMobileDeviceControlState, getMobileDevices, type MobileDeviceAction } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
@@ -110,18 +111,19 @@ export default function DeviceControlScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const queryClient = useQueryClient();
+  const pollingInterval = useScreenPollingInterval(5_000);
   const query = useQuery({
     queryKey: ["mobile-devices", organization?.id],
     queryFn: () => getMobileDevices(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 5_000,
+    refetchInterval: pollingInterval,
   });
   const device = useMemo(() => query.data?.devices.find((candidate) => candidate.id === deviceId), [deviceId, query.data]);
   const controlState = useQuery({
     queryKey: ["mobile-device-control", organization?.id, deviceId],
     queryFn: () => getMobileDeviceControlState({ orgId: organization!.id, deviceId }),
     enabled: Boolean(organization?.id && deviceId && device?.enabled),
-    refetchInterval: 5_000,
+    refetchInterval: pollingInterval,
   });
   const connected = controlState.data?.connected ?? device?.connected ?? false;
   const connection = useMutation({

@@ -1785,18 +1785,17 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
     <div>
       <SectionHeader
         title="Notifications"
-        description="Control optional chat alerts and understand how ShowPilot delivers critical updates."
+        description="Set organization guardrails while each member controls which categories can interrupt them."
       />
       <div className="space-y-4">
-        <SettingsGroup title="Alert policy" description="These organization-wide rules keep time-sensitive production updates reliable." icon={Bell}>
-          <SettingToggle row settingKey="notify-app-chat" label="Chat mentions, direct messages, and reactions" description="Show personal in-app alerts for chat activity that directly involves a member." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
-          <NotificationPolicyRow label="Assignments and schedule responses" description="New assignments, reminders, acceptances, and declines remain visible to the people responsible." status="Always on" />
-          <NotificationPolicyRow label="Incidents and access changes" description="Operational incidents, duty grants, and permission changes cannot be muted organization-wide." status="Always on" />
+        <SettingsGroup title="Organization policy" description="Workspace owners can disable chat alerts for everyone. Personal choices still apply to every enabled category." icon={Bell}>
+          <SettingToggle row settingKey="notify-app-chat" label="Allow chat notifications" description="Permit personal alerts for direct messages, mentions, invitations, and reactions." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
+          <NotificationPolicyRow label="Personal categories" description="Members can switch schedule, incident, chat, report, and admin alerts on or off without changing anyone else’s account." status="Per member" />
         </SettingsGroup>
 
-        <SettingsGroup title="Delivery" description="Each member chooses whether their signed-in device may show background alerts." icon={MonitorSmartphone}>
-          <NotificationPolicyRow label="Personal inbox" description="Available from the account menu on web and Desktop, with unread status shared across the workspace." status="Included" />
-          <NotificationPolicyRow label="Device notifications" description="Enable or review permission for this browser or computer from the account menu." status="Per device" />
+        <SettingsGroup title="Delivery" description="Every notification remains available in ShowPilot. Members choose which categories may also interrupt them on a device." icon={MonitorSmartphone}>
+          <NotificationPolicyRow label="Personal inbox" description="All categories always appear in the ShowPilot inbox." status="Always on" />
+          <NotificationPolicyRow label="Device notifications" description="Each category can send a push or Desktop alert when device permission is enabled." status="Member choice" />
           <NotificationPolicyRow label="Assignment email" description="Send or resend a crew member’s assignment email from Schedule when the roster is ready." status="From Schedule" icon={Mail} />
         </SettingsGroup>
       </div>

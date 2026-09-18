@@ -50,6 +50,7 @@ export const addIncidentComment = createServerFn({ method: "POST" })
       actorId: user.id,
       recipientIds: parentAuthorId ? [parentAuthorId] : [],
       includeLeadership: true,
+      category: "incidents",
       type: data.parentId ? "incident-comment-reply" : "incident-comment",
       severity: "warning",
       title: data.parentId ? `${user.name} replied to an issue comment` : `${user.name} commented on an issue`,

@@ -25,6 +25,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { authClient } from "@/lib/auth-client";
 import {
   addMobileChecklistItem,
@@ -98,11 +99,12 @@ export default function ChecklistScreen() {
   }, [bootstrap?.shows, selectedShowId]);
 
   const queryKey = ["mobile-checklist", organization?.id, selectedShowId] as const;
+  const pollingInterval = useScreenPollingInterval(20_000);
   const query = useQuery({
     queryKey,
     queryFn: () => getMobileChecklist(organization!.id, selectedShowId),
     enabled: Boolean(organization?.id && selectedShowId),
-    refetchInterval: 20_000,
+    refetchInterval: pollingInterval,
   });
   const draftQuery = useQuery({
     queryKey: ["mobile-checklist-draft", organization?.id, selectedShowId],

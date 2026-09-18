@@ -163,7 +163,7 @@ mode for `.dev.vars` values):
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0037_songs.sql`). They deliberately do **not** use wrangler's
+`0039_auth_rate_limit.sql`). They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -223,6 +223,12 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) A
 
 # 0037: must return 0.
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT COUNT(*) AS existing_song_objects FROM sqlite_master WHERE name IN ('song','song_orgId_title_idx','song_orgId_ppPresentationUuid_key','song_section','song_section_songId_sortOrder_idx','song_section_orgId_idx','song_cue_map','song_cue_map_songId_idx','song_cue_map_orgId_idx','song_cue','song_cue_cueMapId_sortOrder_idx','song_cue_sectionId_idx','song_cue_orgId_idx')"
+
+# 0038: both result sets must be empty.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('notification_preference','notification_preference_orgId_userId_category_key','notification_preference_userId_idx','notification_orgId_userId_deviceAlertEnabled_createdAt_idx') ORDER BY type,name; SELECT name FROM pragma_table_info('notification') WHERE name IN ('category','deviceAlertEnabled') ORDER BY name;"
+
+# 0039: must return no rows.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('rateLimit','rateLimit_key_key') ORDER BY type,name"
 ```
 
 After applying each file, require its exact postcondition:
@@ -253,6 +259,13 @@ pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT name FROM 
 
 # After 0037: returns four tables and nine indexes.
 pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('song','song_orgId_title_idx','song_orgId_ppPresentationUuid_key','song_section','song_section_songId_sortOrder_idx','song_section_orgId_idx','song_cue_map','song_cue_map_songId_idx','song_cue_map_orgId_idx','song_cue','song_cue_cueMapId_sortOrder_idx','song_cue_sectionId_idx','song_cue_orgId_idx') ORDER BY type, name"
+
+# After 0038: the first query returns one table and three indexes; the second
+# returns category and deviceAlertEnabled.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('notification_preference','notification_preference_orgId_userId_category_key','notification_preference_userId_idx','notification_orgId_userId_deviceAlertEnabled_createdAt_idx') ORDER BY type,name; SELECT name FROM pragma_table_info('notification') WHERE name IN ('category','deviceAlertEnabled') ORDER BY name;"
+
+# After 0039: returns the rateLimit table and its unique key index.
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT type, name FROM sqlite_master WHERE name IN ('rateLimit','rateLimit_key_key') ORDER BY type,name"
 
 # After all files: returns no rows.
 pnpm exec wrangler d1 execute showpilot-db --remote --command='PRAGMA foreign_key_check'
@@ -290,9 +303,10 @@ a fresh local state directory.
 
 ### Current state
 
-The production manifest records every migration through `0037_songs.sql`.
+The production manifest records every migration through `0039_auth_rate_limit.sql`.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
-0036 and 0037 were applied in order on 2026-09-10. Before each rollout, every
+0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
+were applied in order on 2026-09-18. Before each rollout, every
 required preflight returned zero and a D1 Time Travel bookmark was captured.
 Every migration postcondition passed, and `PRAGMA foreign_key_check` returned
 no rows after each rollout.

@@ -81,6 +81,7 @@ export const toggleContentReaction = createServerFn({ method: "POST" })
         orgId: data.orgId,
         actorId: user.id,
         recipientIds: [targetAuthorId],
+        category: "incidents",
         type: "comment-reaction",
         title: `${user.name} reacted ${data.emoji} to your comment`,
         message: "Open the incident discussion to view the reaction.",

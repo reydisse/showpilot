@@ -98,6 +98,7 @@ export const resolveIncident = createServerFn({ method: "POST" })
       orgId: incident.orgId,
       actorId: user.id,
       includeLeadership: true,
+      category: "incidents",
       type: "incident-resolved",
       title: "Operational issue resolved",
       message: `${user.name || user.email} marked the issue as resolved.`,

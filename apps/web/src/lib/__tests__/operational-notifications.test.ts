@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   binds: [] as unknown[][],
   insertError: null as Error | null,
   deliverPushToUser: vi.fn(),
+  deviceAlerts: true,
 }));
 
 vi.mock("../db", () => ({
@@ -39,9 +40,17 @@ vi.mock("../push-delivery.server", () => ({
   deliverPushToUser: mocks.deliverPushToUser,
 }));
 
+vi.mock("../notification-preferences.server", () => ({
+  readRecipientNotificationPreferences: vi.fn(async (
+    _orgId: string,
+    userIds: string[],
+  ) => new Map(userIds.map((userId) => [userId, mocks.deviceAlerts]))),
+}));
+
 const event = {
   orgId: "org-1",
   recipientIds: ["user-1"],
+  category: "schedule" as const,
   type: "assignment",
   title: "New assignment",
   message: "Stage manager · Sunday Service",
@@ -55,6 +64,7 @@ describe("operational notifications", () => {
   beforeEach(() => {
     mocks.binds.length = 0;
     mocks.insertError = null;
+    mocks.deviceAlerts = true;
     mocks.deliverPushToUser.mockReset();
     mocks.deliverPushToUser.mockResolvedValue({ sent: 0, configured: false });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -80,5 +90,14 @@ describe("operational notifications", () => {
 
     await expect(notifyOperationalEvent(event)).resolves.toEqual({ notified: 0 });
     expect(mocks.deliverPushToUser).not.toHaveBeenCalled();
+  });
+
+  it("writes an inbox-only record without sending device push", async () => {
+    mocks.deviceAlerts = false;
+
+    await expect(notifyOperationalEvent(event)).resolves.toEqual({ notified: 1 });
+
+    expect(mocks.deliverPushToUser).not.toHaveBeenCalled();
+    expect(mocks.binds[0]).toEqual(expect.arrayContaining(["schedule", 0]));
   });
 });

@@ -32,6 +32,7 @@ import {
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   createMobileRundown,
   createMobileScheduleAssignment,
@@ -82,6 +83,7 @@ export default function ScheduleScreen() {
   const requestedAssignmentId = typeof params.assignment === "string" && params.assignment.length > 0 && params.assignment.length <= 64 ? params.assignment : undefined;
   const [selectedDate, setSelectedDate] = useState<string | undefined>(requestedDate);
   const [dateInput, setDateInput] = useState(requestedDate ?? "");
+  const pollingInterval = useScreenPollingInterval(15_000);
   useEffect(() => {
     setSelectedDate(requestedDate);
     setDateInput(requestedDate ?? "");
@@ -90,7 +92,7 @@ export default function ScheduleScreen() {
     queryKey: ["mobile-schedule", organization?.id, selectedDate, requestedAssignmentId],
     queryFn: () => getMobileSchedule(organization!.id, { serviceDate: selectedDate, assignmentId: requestedAssignmentId }),
     enabled: Boolean(organization?.id),
-    refetchInterval: 15_000,
+    refetchInterval: pollingInterval,
   });
   const schedule = query.data;
   const focusedShowId = schedule?.assignments.find((assignment) => assignment.id === requestedAssignmentId)?.showId;

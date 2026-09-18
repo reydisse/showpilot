@@ -42,3 +42,5 @@
 0035_reports_and_moderation.sql
 0036_service_call_time.sql
 0037_songs.sql
+0038_notification_preferences.sql
+0039_auth_rate_limit.sql

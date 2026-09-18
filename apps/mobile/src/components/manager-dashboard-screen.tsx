@@ -6,6 +6,7 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow, OperationsStat } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { getMobileDashboard } from "@/lib/mobile-api";
 import { createThemedStyles } from "@/theme/tokens";
 
@@ -13,7 +14,8 @@ export function ManagerDashboardScreen({ kind }: { kind: "pm" | "tm" }) {
   const styles = useStyles();
   const { organization } = useMobileBootstrap();
   const orgId = organization?.id;
-  const query = useQuery({ queryKey: ["mobile-dashboard", kind, orgId], queryFn: () => getMobileDashboard(orgId!, kind), enabled: Boolean(orgId), refetchInterval: 5_000 });
+  const pollingInterval = useScreenPollingInterval(5_000);
+  const query = useQuery({ queryKey: ["mobile-dashboard", kind, orgId], queryFn: () => getMobileDashboard(orgId!, kind), enabled: Boolean(orgId), refetchInterval: pollingInterval });
   if (!orgId || query.isPending) return <LoadingView label={`Opening ${kind === "pm" ? "production" : "technical"} manager…`} />;
   const data = query.data;
   const confirmed = data?.assignments.find((assignment) => assignment.status === "confirmed")?.count ?? 0;

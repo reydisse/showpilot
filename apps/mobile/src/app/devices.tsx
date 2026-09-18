@@ -16,6 +16,7 @@ import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   createMobileDevice,
   getMobileDevices,
@@ -102,7 +103,8 @@ export default function DevicesScreen() {
   const [search, setSearch] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<MobileDevice | null>(null);
-  const query = useQuery({ queryKey: ["mobile-devices", organization?.id], queryFn: () => getMobileDevices(organization!.id), enabled: Boolean(organization?.id), refetchInterval: 10_000 });
+  const pollingInterval = useScreenPollingInterval(10_000);
+  const query = useQuery({ queryKey: ["mobile-devices", organization?.id], queryFn: () => getMobileDevices(organization!.id), enabled: Boolean(organization?.id), refetchInterval: pollingInterval });
   const removeMutation = useMutation({
     mutationFn: (deviceId: string) => removeMobileDevice({ orgId: organization!.id, deviceId }),
     onSuccess: async () => {

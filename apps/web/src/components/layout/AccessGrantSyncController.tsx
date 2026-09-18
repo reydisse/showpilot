@@ -18,7 +18,7 @@ export function AccessGrantSyncController({
     let checking = false;
 
     const check = async () => {
-      if (checking || stopped) return;
+      if (checking || stopped || document.visibilityState !== "visible") return;
       checking = true;
       try {
         const snapshot = await getEffectiveAccessSnapshot({ data: { orgId } });

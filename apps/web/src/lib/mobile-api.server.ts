@@ -1,3 +1,9 @@
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  NOTIFICATION_CATEGORIES,
+  type NotificationCategory,
+  type NotificationPreference,
+} from "@showpilot/shared";
 import { getAuth } from "./auth";
 import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
 import {
@@ -59,6 +65,7 @@ import { deleteStreamDestinationForOrg, setStreamDestinationEnabledForOrg } from
 import { getLiveInputStatusForOrg } from "./stream";
 import { objectionableContentReason } from "./user-content-safety";
 import { mobileRundownStatus } from "./rundown-status";
+import { contentLengthExceeds, readRequestJsonWithinLimit } from "./request-body.server";
 
 export interface MobileApiStatement {
   first<T>(): Promise<T | null>;
@@ -349,12 +356,8 @@ function changedExactlyOneRow(value: unknown): boolean {
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
-  try {
-    const body: unknown = await request.json();
-    return isRecord(body) ? body : null;
-  } catch {
-    return null;
-  }
+  const result = await readRequestJsonWithinLimit(request, 3_250_000);
+  return result.ok && isRecord(result.value) ? result.value : null;
 }
 
 function validId(value: unknown): value is string {
@@ -2377,6 +2380,7 @@ async function respondToAssignment(request: Request, db: MobileApiDatabase): Pro
   await notifyOperationalEvent({
     orgId: access.orgId,
     includeLeadership: true,
+    category: "schedule",
     type: `assignment-${response}`,
     severity: response === "declined" ? "warning" : "info",
     title: `${assignment.crewName || access.identity.name} ${responseLabel} an assignment`,
@@ -2625,6 +2629,7 @@ async function notifyMobileIncidentCommand(input: {
       actorId: input.actorId,
       recipientIds: input.command.kind === "assign" ? [input.command.targetUserId] : [],
       includeLeadership: true,
+      category: "incidents",
       type: copy.type,
       severity: "warning",
       title: copy.title,
@@ -2823,6 +2828,7 @@ async function addMobileIncidentComment(
       actorId: access.identity.userId,
       recipientIds: parentAuthorId ? [parentAuthorId] : [],
       includeLeadership: true,
+      category: "incidents",
       type: parentId ? "incident-comment-reply" : "incident-comment",
       severity: "warning",
       title: parentId
@@ -2898,6 +2904,7 @@ async function setMobileIncidentReaction(
         orgId: access.orgId,
         actorId: access.identity.userId,
         recipientIds: [target.userId],
+        category: "incidents",
         type: "comment-reaction",
         title: `${access.identity.name} reacted ${emoji} to your comment`,
         message: "Open the incident discussion to view the reaction.",
@@ -2940,6 +2947,7 @@ async function updateMobileIncident(
       orgId: access.orgId,
       actorId: access.identity.userId,
       includeLeadership: true,
+      category: "incidents",
       type: "incident-updated",
       severity: severity === "high" ? "critical" : "warning",
       title: "Operational issue updated",
@@ -3873,6 +3881,84 @@ async function notificationRead(request: Request, db: MobileApiDatabase): Promis
   return json({ ok: true });
 }
 
+interface MobileNotificationPreferenceRow {
+  category: string;
+  deviceAlerts: number | boolean;
+}
+
+function isNotificationCategory(value: unknown): value is NotificationCategory {
+  return typeof value === "string"
+    && (NOTIFICATION_CATEGORIES as readonly string[]).includes(value);
+}
+
+async function readMobileNotificationPreferences(
+  db: MobileApiDatabase,
+  orgId: string,
+  userId: string,
+): Promise<NotificationPreference[]> {
+  const result = await db.prepare(
+    `SELECT category, deviceAlerts
+     FROM notification_preference
+     WHERE orgId = ? AND userId = ?`,
+  ).bind(orgId, userId).all<MobileNotificationPreferenceRow>();
+  const saved = new Map(
+    (result.results ?? [])
+      .filter((row): row is MobileNotificationPreferenceRow & { category: NotificationCategory } =>
+        isNotificationCategory(row.category),
+      )
+      .map((row) => [row.category, Boolean(row.deviceAlerts)]),
+  );
+  return DEFAULT_NOTIFICATION_PREFERENCES.map((preference) => ({
+    category: preference.category,
+    deviceAlerts: saved.get(preference.category) ?? preference.deviceAlerts,
+  }));
+}
+
+async function mobileNotificationPreferences(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  let body: Record<string, unknown> | null = null;
+  if (request.method === "POST") {
+    body = await readJson(request);
+    if (!body || !validId(body.orgId)) return json({ error: "A valid orgId is required." }, 400);
+    url.searchParams.set("orgId", body.orgId);
+  }
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+
+  if (request.method === "POST") {
+    if (
+      !body
+      || !isNotificationCategory(body.category)
+      || typeof body.deviceAlerts !== "boolean"
+    ) return json({ error: "Choose a valid notification category and delivery preference." }, 400);
+    await db.prepare(
+      `INSERT INTO notification_preference
+         (id, orgId, userId, category, deviceAlerts, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(orgId, userId, category) DO UPDATE SET
+         deviceAlerts = excluded.deviceAlerts,
+         updatedAt = CURRENT_TIMESTAMP`,
+    ).bind(
+      crypto.randomUUID(),
+      access.orgId,
+      access.identity.userId,
+      body.category,
+      body.deviceAlerts ? 1 : 0,
+    ).run();
+  }
+
+  return json({
+    preferences: await readMobileNotificationPreferences(
+      db,
+      access.orgId,
+      access.identity.userId,
+    ),
+  });
+}
+
 function canonicalDirectMessageParticipants(roomId: string): [string, string] | null {
   const parts = roomId.split(":");
   return parts.length === 3 && parts[0] === "dm" && Boolean(parts[1]) && parts[1] < parts[2]
@@ -3950,6 +4036,7 @@ async function notifyMobileChatMessage(request: Request, url: URL, db: MobileApi
         orgId: access.orgId,
         actorId: access.identity.userId,
         recipientIds,
+        category: "chat",
         type: kind === "dm" ? "chat-direct-message" : "chat-mention",
         title: kind === "dm" ? `New message from ${access.identity.name}` : `${access.identity.name} mentioned you`,
         message: cleanText,
@@ -3993,6 +4080,7 @@ async function notifyMobileChatReaction(request: Request, url: URL, db: MobileAp
       orgId: access.orgId,
       actorId: access.identity.userId,
       recipientIds: [target.userId],
+      category: "chat",
       type: "chat-reaction",
       title: `${access.identity.name} reacted ${String(body.emoji)} to your message`,
       message: "Open the conversation to view the reaction.",
@@ -4080,6 +4168,7 @@ async function createMobilePlanningChatPass(
       orgId: access.orgId,
       actorId: access.identity.userId,
       recipientIds: targetUserIds,
+      category: "chat",
       type: "chat-planning-invite",
       title: `${access.identity.name} shared the Planning Room with you`,
       message: "Open the invite to join the targeted Planning Room conversation.",
@@ -4716,12 +4805,24 @@ async function reportMobileContent(request: Request, url: URL, db: MobileApiData
   const reviewers = await db.prepare(
     "SELECT userId FROM member WHERE organizationId = ? AND role IN ('owner', 'admin', 'td', 'cd', 'pd')",
   ).bind(access.orgId).all<{ userId: string }>();
-  for (const reviewer of reviewers.results ?? []) {
-    if (reviewer.userId === access.identity.userId) continue;
-    await db.prepare(
-      `INSERT INTO notification (id, orgId, userId, type, severity, title, message, target, source, actionUrl, createdAt, dismissed)
-       VALUES (?, ?, ?, 'content-report', 'warning', 'Content report needs review', ?, 'personal', ?, 'team', CURRENT_TIMESTAMP, 0)`,
-    ).bind(crypto.randomUUID(), access.orgId, reviewer.userId, `${access.identity.name} reported ${targetType.replace("-", " ")} for ${reason}.`, reportId).run();
+  try {
+    const { notifyOperationalEvent } = await import("./operational-notifications.server");
+    await notifyOperationalEvent({
+      orgId: access.orgId,
+      actorId: access.identity.userId,
+      recipientIds: (reviewers.results ?? []).map((reviewer) => reviewer.userId),
+      category: "system",
+      type: "content-report",
+      severity: "warning",
+      title: "Content report needs review",
+      message: `${access.identity.name} reported ${targetType.replace("-", " ")} for ${reason}.`,
+      actionUrl: "team",
+      source: reportId,
+      pushTag: `content-report-${reportId}`,
+      dedupeKey: `content-report:${reportId}`,
+    });
+  } catch {
+    // The report remains available to reviewers when notification delivery fails.
   }
   return json({ ok: true, reportId }, 201);
 }
@@ -4747,6 +4848,9 @@ async function blockMobileUser(request: Request, url: URL, db: MobileApiDatabase
 export async function handleMobileApi(request: Request, env: MobileApiEnvironment): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
+  if (contentLengthExceeds(request, 3_250_000)) {
+    return json({ error: "Request payload is too large." }, 413);
+  }
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET") return bootstrap(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST") return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET") return schedule(request, url, env.DB);
@@ -4781,6 +4885,9 @@ export async function handleMobileApi(request: Request, env: MobileApiEnvironmen
   if (url.pathname === "/api/mobile/v1/checklist/suggestions" && request.method === "GET") return checklistSuggestions(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/checklist/suggestions/apply" && request.method === "POST") return applyChecklistSuggestions(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/notifications/read" && request.method === "POST") return notificationRead(request, env.DB);
+  if (url.pathname === "/api/mobile/v1/notification-preferences" && (request.method === "GET" || request.method === "POST")) {
+    return mobileNotificationPreferences(request, url, env.DB);
+  }
   if (url.pathname === "/api/mobile/v1/push-token" && request.method === "POST") return pushToken(request, env.DB);
   if (url.pathname === "/api/mobile/v1/cue-sheets") {
     if (request.method === "GET") return mobileCueSheet(request, url, env.DB);

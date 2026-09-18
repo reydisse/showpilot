@@ -21,7 +21,7 @@ vi.mock("@/lib/desktop-runtime", () => ({
 }));
 
 vi.mock("@/lib/personal-notifications", () => ({
-  getPersonalNotifications: mocks.getNotifications,
+  getPersonalDeviceNotifications: mocks.getNotifications,
 }));
 
 vi.mock("@/lib/session", () => ({

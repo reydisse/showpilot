@@ -27,6 +27,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { SHOWPILOT_URL } from "@/lib/env";
 import {
   cancelMobileTeamInvitation,
@@ -70,11 +71,12 @@ export default function TeamMembersScreen() {
   const [inviteRole, setInviteRole] = useState("member");
   const [editingMember, setEditingMember] = useState<MobileOrganizationMember | null>(null);
   const queryKey = ["mobile-team-members", organization?.id];
+  const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
     queryKey,
     queryFn: () => getMobileTeamMembers(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 15_000,
+    refetchInterval: pollingInterval,
   });
   const memberById = useMemo(
     () => new Map(query.data?.members.map((member) => [member.id, member]) ?? []),

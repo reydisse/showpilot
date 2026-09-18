@@ -195,6 +195,7 @@ export async function createDuePostShowReminders(
     await notifyOperationalEvent({
       orgId: candidate.orgId,
       recipientIds: [candidate.userId],
+      category: "reports",
       type: "post-show-notes",
       title: "Add your post-show notes",
       message: `Capture what worked, what changed, and what needs follow-up for ${candidate.showName || candidate.serviceDate}.`,

@@ -9,6 +9,11 @@ import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
 import { isAllowedApiOrigin } from "./lib/auth-origins";
 import { parseSlackEventEnvelope, verifySlackSignature } from "./lib/slack-events";
+import {
+  contentLengthExceeds,
+  readRequestJsonWithinLimit,
+  readRequestTextWithinLimit,
+} from "./lib/request-body.server";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -233,7 +238,7 @@ export default {
         corsHeaders["Access-Control-Allow-Credentials"] = "true";
         corsHeaders["Vary"] = "Origin";
       } else {
-        corsHeaders["Access-Control-Allow-Origin"] = "*";
+        return new Response("Origin not allowed", { status: 403 });
       }
 
       return new Response(null, {
@@ -259,7 +264,9 @@ export default {
       if (adapter?.value !== "slack" || !signingSecret?.value || !channel?.value) {
         return new Response("Slack events are not configured", { status: 503 });
       }
-      const rawBody = await request.text();
+      const slackBody = await readRequestTextWithinLimit(request, 1_000_000);
+      if (!slackBody.ok) return new Response(slackBody.status === 413 ? "Payload Too Large" : "Bad Request", { status: slackBody.status });
+      const rawBody = slackBody.text;
       const signatureValid = await verifySlackSignature(
         rawBody,
         request.headers.get("x-slack-request-timestamp"),
@@ -343,9 +350,15 @@ export default {
         "cuesheet:edit",
         "cuesheet:add_notes",
       ]);
+      const publicDisplayRead = request.method === "GET"
+        && (subpath === "ws" || subpath === "state")
+        && url.searchParams.get("display") === "1";
       const writeAccess = canControl ? "control" : canEdit ? "edit" : null;
       const isMutation = subpath === "command" || (subpath === "ws" && writeAccess !== null);
       if (subpath === "command" && !writeAccess) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      if (!publicDisplayRead && !canObserveRundown && !writeAccess) {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
@@ -437,6 +450,9 @@ export default {
         if (!canUse(access, "chat:access") && !validGuest) {
           return new Response("Unauthorized", { status: 401 });
         }
+        if (contentLengthExceeds(request, 16 * 1024 * 1024)) {
+          return new Response("Files must be 15 MB or smaller", { status: 413 });
+        }
         const formData = await request.formData();
         const file = formData.get("file");
         if (!(file instanceof File)) return new Response("Choose a file to upload", { status: 400 });
@@ -480,11 +496,12 @@ export default {
       }
       if (subpath === "send" && request.method === "POST" && access.identity) {
         let body: Record<string, unknown>;
-        try {
-          body = await request.json<Record<string, unknown>>();
-        } catch {
+        const parsedBody = await readRequestJsonWithinLimit(request, 256_000);
+        if (!parsedBody.ok) return new Response(parsedBody.status === 413 ? "Payload Too Large" : "Bad Request", { status: parsedBody.status });
+        if (typeof parsedBody.value !== "object" || parsedBody.value === null || Array.isArray(parsedBody.value)) {
           return new Response("Bad Request", { status: 400 });
         }
+        body = parsedBody.value as Record<string, unknown>;
         body.orgId = orgId;
         body.senderId = access.identity.userId;
         body.senderName = access.identity.name;
@@ -505,6 +522,9 @@ export default {
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
 
+      if (contentLengthExceeds(request, 3 * 1024 * 1024)) {
+        return Response.json({ error: "Avatar must be smaller than 2 MB" }, { status: 413 });
+      }
       let formData: FormData;
       try {
         formData = await request.formData();

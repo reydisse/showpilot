@@ -99,6 +99,7 @@ export const createPlanningChatPass = createServerFn({ method: "POST" })
       orgId: data.orgId,
       actorId: session.user.id,
       recipientIds: targetUserIds,
+      category: "chat",
       type: "chat-planning-invite",
       title: `${session.user.name} shared the Planning Room with you`,
       message: "Open the invite to join the targeted Planning Room conversation.",

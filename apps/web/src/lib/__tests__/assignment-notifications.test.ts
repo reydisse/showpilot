@@ -53,6 +53,7 @@ describe("assignment notifications", () => {
     expect(mocks.notifyOperationalEvent).toHaveBeenCalledWith({
       orgId: "org-1",
       recipientIds: ["user-1"],
+      category: "schedule",
       type: "assignment",
       severity: "info",
       title: "New assignment",

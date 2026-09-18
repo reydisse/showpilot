@@ -21,12 +21,24 @@
       "defu": "6.1.5",
       "effect": "3.20.0",
       "esbuild": "0.28.1",
-      "fast-uri": "3.1.5",
+      "fast-uri": "3.1.6",
       "hono": "4.12.34",
+      "baseline-browser-mapping": "2.11.25",
+      "brace-expansion@>=5": "5.0.12",
+      "browserslist": "4.29.0",
+      "decode-uri-component": "0.5.0",
+      "deepmerge-ts": "8.0.2",
+      "image-size": "2.0.4",
+      "js-yaml@3": "3.15.2",
+      "js-yaml@>=4": "4.3.2",
+      "lodash": "4.18.1",
+      "mysql2": "3.24.4",
       "picomatch@<3": "2.3.2",
       "picomatch@>=3": "4.0.4",
       "postcss": "8.5.26",
       "seroval": "1.6.4",
+      "sharp": "0.35.4",
+      "uuid": "11.1.1",
       "vite": "7.3.6",
       "ws": "8.21.3"
     },
@@ -39,7 +51,8 @@
       "sharp"
     ],
     "patchedDependencies": {
-      "atem-connection@3.9.0": "patches/atem-connection@3.9.0.patch"
+      "atem-connection@3.9.0": "patches/atem-connection@3.9.0.patch",
+      "metro@0.83.3": "patches/metro@0.83.3.patch"
     }
   }
 }

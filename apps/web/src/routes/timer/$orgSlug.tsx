@@ -349,6 +349,7 @@ function TimerKioskPage() {
     let reconnectAttempts = 0;
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const query = new URLSearchParams({ serviceDate: relayServiceDate });
+    query.set("display", "1");
     if (relayShowId) query.set("showId", relayShowId);
     const url = `${protocol}://${window.location.host}/api/rundown/${orgSlug}/ws?${query.toString()}`;
 

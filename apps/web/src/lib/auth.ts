@@ -6,6 +6,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
 import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig } from "@/lib/auth-origins";
+import { createD1RateLimitStorage } from "@/lib/auth-rate-limit.server";
 import {
   sendEmail,
   passwordResetEmail,
@@ -102,18 +103,26 @@ export const auth = betterAuth({
 export function getAuth() {
   const prisma = getPrisma();
   const cfEnv = env as unknown as Record<string, unknown>;
+  const database = cfEnv.DB as D1Database;
   const { baseURL, secret } = requireBetterAuthRuntimeConfig(cfEnv);
 
   return betterAuth({
     baseURL,
     secret,
-    // Code-level minimum against credential stuffing / signup abuse.
-    // In-memory storage is per-isolate on Workers; Cloudflare WAF rules
-    // provide the durable layer in production.
+    // Durable D1-backed protection against credential stuffing and signup
+    // abuse. The custom storage uses one atomic SQLite statement because D1
+    // cannot run Prisma's interactive increment transaction.
     rateLimit: {
       enabled: true,
       window: 60,
       max: 10,
+      customStorage: createD1RateLimitStorage(database),
+    },
+    advanced: {
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip"],
+        ipv6Subnet: 64,
+      },
     },
     trustedOrigins: [
       "https://showpilot.tech",

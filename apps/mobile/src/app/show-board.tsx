@@ -24,6 +24,7 @@ import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { SHOWPILOT_URL } from "@/lib/env";
 import { getMobileShowBoard, type MobileCheckInMember } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
@@ -91,11 +92,12 @@ export default function ShowBoardScreen() {
   const [now, setNow] = useState(() => new Date());
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const columns = width >= 1_000 ? 4 : width >= 700 ? 3 : 2;
+  const pollingInterval = useScreenPollingInterval(3_000);
   const query = useQuery({
     queryKey: ["mobile-show-board", organization?.id],
     queryFn: () => getMobileShowBoard(organization!.id),
     enabled: Boolean(organization?.id),
-    refetchInterval: 3_000,
+    refetchInterval: pollingInterval,
   });
   const members = useMemo(() => query.data?.members ?? [], [query.data?.members]);
   const onlineCount = members.filter((member) => member.isOnline).length;

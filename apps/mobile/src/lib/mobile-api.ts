@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  NOTIFICATION_CATEGORIES,
+  type NotificationCategory,
+  type NotificationPreference,
+} from "@showpilot/shared";
 import { fetch as expoFetch, type FetchRequestInit } from "expo/fetch";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
@@ -55,6 +60,15 @@ const notificationSchema = z.object({
   source: z.string(),
   createdAt: z.string(),
   readAt: z.string().nullable(),
+});
+
+const notificationPreferenceSchema = z.object({
+  category: z.enum(NOTIFICATION_CATEGORIES),
+  deviceAlerts: z.boolean(),
+});
+
+const notificationPreferencesSchema = z.object({
+  preferences: z.array(notificationPreferenceSchema),
 });
 
 const chatMemberSchema = z.object({
@@ -1858,6 +1872,27 @@ export async function markAllNotificationsRead(orgId: string) {
     method: "POST",
     body: JSON.stringify({ orgId, all: true }),
   });
+}
+
+export async function getMobileNotificationPreferences(
+  orgId: string,
+): Promise<NotificationPreference[]> {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/notification-preferences?orgId=${encodeURIComponent(orgId)}`,
+  );
+  return notificationPreferencesSchema.parse(await response.json()).preferences;
+}
+
+export async function updateMobileNotificationPreference(input: {
+  orgId: string;
+  category: NotificationCategory;
+  deviceAlerts: boolean;
+}): Promise<NotificationPreference[]> {
+  const response = await authenticatedFetch("/api/mobile/v1/notification-preferences", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return notificationPreferencesSchema.parse(await response.json()).preferences;
 }
 
 export async function saveMobilePushToken(

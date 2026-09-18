@@ -7,6 +7,7 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
 import { commandMobileTimecode, getMobileTimecode } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
@@ -36,11 +37,12 @@ export default function TimecodeScreen() {
   const queryClient = useQueryClient();
   const { organization } = useMobileBootstrap();
   const orgId = organization?.id;
+  const pollingInterval = useScreenPollingInterval(30_000);
   const query = useQuery({
     queryKey: ["mobile-timecode", orgId],
     queryFn: () => getMobileTimecode(orgId!),
     enabled: Boolean(orgId),
-    refetchInterval: 30_000,
+    refetchInterval: pollingInterval,
   });
   const [timecode, setTimecode] = useState("00:00:00:00");
   const [eventLabel, setEventLabel] = useState("");

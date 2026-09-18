@@ -9,7 +9,7 @@ import {
   showDesktopNotification,
 } from "@/lib/desktop-runtime";
 import { getNotificationPath } from "@/lib/notification-destination";
-import { getPersonalNotifications } from "@/lib/personal-notifications";
+import { getPersonalDeviceNotifications } from "@/lib/personal-notifications";
 import { announcePersonalNotificationCount } from "@/lib/notification-events";
 import { getOrgRouteContext } from "@/lib/session";
 
@@ -61,7 +61,7 @@ export function DesktopNotificationController() {
       try {
         context ??= await getOrgRouteContext({ data: slug });
         if (!active || !context) return;
-        const result = await getPersonalNotifications({ data: { orgId: context.org.id } });
+        const result = await getPersonalDeviceNotifications({ data: { orgId: context.org.id } });
         if (!active) return;
         announcePersonalNotificationCount(context.org.id, result.unread);
 

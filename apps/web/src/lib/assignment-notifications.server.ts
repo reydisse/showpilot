@@ -54,6 +54,7 @@ export async function notifyAssignmentRecipient(
   const result = await notifyOperationalEvent({
     orgId: input.orgId,
     recipientIds: [recipient.userId],
+    category: "schedule",
     type: "assignment",
     severity: "info",
     title: input.reminder ? "Assignment reminder" : "New assignment",
