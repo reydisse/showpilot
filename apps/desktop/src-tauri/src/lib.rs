@@ -181,7 +181,7 @@ fn get_cached_service(app: tauri::AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn open_companion_window(
+async fn open_companion_window(
     app: tauri::AppHandle,
     org_slug: String,
     kind: String,

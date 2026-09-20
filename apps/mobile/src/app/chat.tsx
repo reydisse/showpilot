@@ -338,7 +338,6 @@ export default function ChatScreen() {
   const [attachmentHeaders, setAttachmentHeaders] = useState<Record<string, string>>({});
   const [actionTarget, setActionTarget] = useState<MobileChatMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
-  const [openingUnreadMessageId, setOpeningUnreadMessageId] = useState<string | null>(null);
   const [showLatestButton, setShowLatestButton] = useState(false);
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
   const initialScrollDoneRef = useRef(false);
@@ -393,7 +392,6 @@ export default function ChatScreen() {
     focusScrollDoneRef.current = null;
     stickToBottomRef.current = true;
     userHasScrolledRef.current = false;
-    setOpeningUnreadMessageId(null);
     setShowLatestButton(false);
     setReplyingTo(null);
     setEditing(null);
@@ -677,25 +675,14 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!hydrated || !currentUserId || initialScrollDoneRef.current || displayMessages.length === 0) return;
-    const openingReadThrough = readReceipts[currentUserId] ?? null;
     initialScrollDoneRef.current = true;
     if (focusedMessageId) return;
-    const firstUnreadIndex = openingReadThrough === null
-      ? -1
-      : displayMessages.findIndex((message) => message.timestamp > openingReadThrough);
-    if (firstUnreadIndex >= 0) {
-      setOpeningUnreadMessageId(displayMessages[firstUnreadIndex]?.id ?? null);
-      stickToBottomRef.current = false;
-      setShowLatestButton(true);
-      requestAnimationFrame(() => listRef.current?.scrollToIndex({ animated: false, index: firstUnreadIndex, viewPosition: 0.08 }));
-      return;
-    }
     stickToBottomRef.current = true;
     setShowLatestButton(false);
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
     const latest = displayMessages.at(-1)?.timestamp;
     if (latest) markRead(latest);
-  }, [currentUserId, displayMessages, focusedMessageId, hydrated, markRead, readReceipts]);
+  }, [currentUserId, displayMessages, focusedMessageId, hydrated, markRead]);
 
   const scrollToLatest = useCallback(() => {
     stickToBottomRef.current = true;
@@ -709,7 +696,6 @@ export default function ChatScreen() {
   const renderMessage = useCallback<ListRenderItem<MobileChatMessage>>(
     ({ index, item }) => (
       <View>
-        {item.id === openingUnreadMessageId ? <View accessibilityLabel="New messages" style={styles.newMessagesDivider}><View style={styles.newMessagesLine} /><Text style={styles.newMessagesText}>NEW MESSAGES</Text><View style={styles.newMessagesLine} /></View> : null}
         <MessageCard
           attachmentHeaders={attachmentHeaders}
           avatarUrl={item.senderId ? memberImageById.get(item.senderId) : null}
@@ -728,7 +714,7 @@ export default function ChatScreen() {
         />
       </View>
     ),
-    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, openingUnreadMessageId, otherReadAt, roomId, styles, toggleMessageReaction, voteOnMessagePoll],
+    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;

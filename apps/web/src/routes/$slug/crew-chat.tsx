@@ -38,7 +38,7 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, openingReadThrough, markRead } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, markRead } = useChat({
     orgId,
     isVisible: true,
     senderName,
@@ -161,7 +161,6 @@ function CrewChatPage() {
           onUploadAttachment={uploadAttachment}
           gatewayStatus={gatewayStatus}
           hydrated={hydrated}
-          openingReadThrough={openingReadThrough}
           onReadThrough={markRead}
             typingUsers={typingUsers}
             onTypingChange={setTyping}

@@ -37,7 +37,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, openingReadThrough, markRead } = useChat({ orgId, roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
+  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead } = useChat({ orgId, roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
@@ -119,7 +119,6 @@ function ChatPage() {
           onUploadAttachment={uploadAttachment}
           gatewayStatus={gatewayStatus}
           hydrated={hydrated}
-          openingReadThrough={openingReadThrough}
           onReadThrough={markRead}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}

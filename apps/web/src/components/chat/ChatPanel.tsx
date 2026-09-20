@@ -401,7 +401,6 @@ interface ChatPanelProps {
   focusedMessageId?: string;
   gatewayStatus?: ChatGatewayStatus;
   hydrated?: boolean;
-  openingReadThrough?: number | null;
   onReadThrough?: (readAt: number) => void;
 }
 
@@ -432,13 +431,11 @@ export function ChatPanel({
   focusedMessageId,
   gatewayStatus,
   hydrated = true,
-  openingReadThrough = null,
   onReadThrough,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [openingUnreadId, setOpeningUnreadId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [openImage, setOpenImage] = useState<{ name: string; url: string } | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
@@ -529,30 +526,17 @@ export function ChatPanel({
     if (latestTimestamp) onReadThrough?.(latestTimestamp);
   }, [messages, onReadThrough]);
 
-  // Start at the first message received since this person last reached the
-  // bottom. With no prior marker, open at the latest message.
+  // A conversation always opens at the latest message. Focused message links
+  // are the only exception and are handled by the effect above.
   useEffect(() => {
     if (messages.length === 0) {
       initialPositionDoneRef.current = false;
       stickToBottomRef.current = true;
-      setOpeningUnreadId(null);
       return;
     }
     if (!hydrated) return;
     if (focusedMessageId || (initialPositionDoneRef.current && !stickToBottomRef.current)) return;
     const frame = requestAnimationFrame(() => {
-      if (!initialPositionDoneRef.current && openingReadThrough !== null) {
-        const firstUnread = messages.find((message) => message.type !== "system" && message.timestamp > openingReadThrough);
-        const unreadElement = firstUnread ? document.getElementById(`chat-message-${firstUnread.id}`) : null;
-        if (firstUnread && unreadElement) {
-          setOpeningUnreadId(firstUnread.id);
-          unreadElement.scrollIntoView({ block: "start" });
-          initialPositionDoneRef.current = true;
-          stickToBottomRef.current = false;
-          setShowScrollButton(true);
-          return;
-        }
-      }
       messagesEndRef.current?.scrollIntoView({ block: "end" });
       initialPositionDoneRef.current = true;
       stickToBottomRef.current = true;
@@ -560,7 +544,7 @@ export function ChatPanel({
       markLatestRead();
     });
     return () => cancelAnimationFrame(frame);
-  }, [focusedMessageId, hydrated, markLatestRead, messages, openingReadThrough, pinnedIds.size]);
+  }, [focusedMessageId, hydrated, markLatestRead, messages, pinnedIds.size]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -869,13 +853,6 @@ export function ChatPanel({
           );
           return (
             <div key={msg.id}>
-              {msg.id === openingUnreadId && (
-                <div className="my-2 flex items-center gap-3 px-4" role="separator" aria-label="New messages">
-                  <span className="h-px flex-1 bg-fire-500/45" />
-                  <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-fire-300">New messages</span>
-                  <span className="h-px flex-1 bg-fire-500/45" />
-                </div>
-              )}
               {showDay && (
                 <div className="my-2 flex items-center gap-3 px-4" role="separator">
                   <span className="h-px flex-1 bg-board-border/70" />

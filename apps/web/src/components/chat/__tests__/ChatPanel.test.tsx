@@ -114,18 +114,15 @@ describe("ChatPanel conversation flow", () => {
     expect(screen.getByRole("button", { name: "New messages" })).toBeInstanceOf(HTMLElement);
   });
 
-  it("opens at the first message after the saved read marker", async () => {
+  it("opens at the latest message and marks it read", async () => {
     const scrollSpy = vi.mocked(HTMLElement.prototype.scrollIntoView);
     scrollSpy.mockClear();
     const onReadThrough = vi.fn();
 
-    render(<ChatPanel messages={messages} connectionStatus="connected" unreadCount={2} currentUserId="me" onSendMessage={vi.fn()} hydrated openingReadThrough={1} onReadThrough={onReadThrough} />);
+    render(<ChatPanel messages={messages} connectionStatus="connected" unreadCount={2} currentUserId="me" onSendMessage={vi.fn()} hydrated onReadThrough={onReadThrough} />);
 
-    await waitFor(() => expect(document.getElementById("chat-message-reply")?.scrollIntoView).toHaveBeenCalledWith({ block: "start" }));
-    expect(screen.getAllByRole("separator", { name: "New messages" })).toHaveLength(1);
-    expect(onReadThrough).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "New messages" }));
-    expect(onReadThrough).toHaveBeenCalledWith(3);
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalledWith({ block: "end" }));
+    expect(screen.queryByRole("separator", { name: "New messages" })).toBeNull();
+    await waitFor(() => expect(onReadThrough).toHaveBeenCalledWith(3));
   });
 });

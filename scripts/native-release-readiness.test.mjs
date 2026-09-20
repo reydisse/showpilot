@@ -92,3 +92,13 @@ test("rejects landing routes that bypass the release Worker", () => {
     ),
   );
 });
+
+test("rejects synchronous desktop companion-window creation", () => {
+  const current = snapshot();
+  current.products.desktop.source = current.products.desktop.source.replace(
+    "async fn open_companion_window(",
+    "fn open_companion_window(",
+  );
+  const issues = findNativeReleaseIssues(current);
+  assert.ok(issues.some((issue) => issue.includes("Windows WebView deadlocks")));
+});

@@ -10,6 +10,7 @@ const PRODUCT_CONTRACTS = {
     packagePath: "apps/desktop/package.json",
     cargoPath: "apps/desktop/src-tauri/Cargo.toml",
     cargoLockPath: "apps/desktop/src-tauri/Cargo.lock",
+    sourcePath: "apps/desktop/src-tauri/src/lib.rs",
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/desktop-release.yml",
@@ -102,6 +103,7 @@ function productSnapshot(root, product) {
     tauri,
     releaseConfig: readJson(root, contract.releaseConfigPath),
     workflow: readText(root, contract.workflowPath),
+    source: contract.sourcePath ? readText(root, contract.sourcePath) : undefined,
   };
 }
 
@@ -236,6 +238,7 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
   }
 
   const desktop = snapshot.products.desktop.tauri;
+  const desktopSource = snapshot.products.desktop.source ?? "";
   const bridge = snapshot.products.bridge.tauri;
   const workerFirstRoutes = snapshot.landingWrangler.assets?.run_worker_first;
   for (const route of ["/downloads", "/downloads/*", "/updates/*"]) {
@@ -255,6 +258,10 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
   add(
     desktop.build?.frontendDist === "https://showpilot.tech",
     "Desktop production frontend must remain https://showpilot.tech.",
+  );
+  add(
+    desktopSource.includes("async fn open_companion_window("),
+    "Desktop companion windows must be created from an async Tauri command to avoid Windows WebView deadlocks.",
   );
   add(
     desktop.app?.windows?.[0]?.userAgent ===

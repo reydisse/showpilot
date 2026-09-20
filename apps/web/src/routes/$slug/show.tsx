@@ -183,7 +183,7 @@ function ChatPanel({
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, openingReadThrough, markRead } = useChat({
+  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, markRead } = useChat({
     orgId,
     isVisible: true,
     senderName: userName,
@@ -215,7 +215,6 @@ function ChatPanel({
         onUploadAttachment={uploadAttachment}
         gatewayStatus={gatewayStatus}
         hydrated={hydrated}
-        openingReadThrough={openingReadThrough}
         onReadThrough={markRead}
         onVotePoll={votePoll}
         onToggleReaction={toggleReaction}
@@ -244,8 +243,11 @@ function ShowPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshing = false;
 
     const refreshMembers = async () => {
+      if (document.visibilityState !== "visible" || refreshing) return;
+      refreshing = true;
       try {
         const latest = await getCrewMembers({ data: { orgId } });
         if (!cancelled) {
@@ -253,13 +255,20 @@ function ShowPage() {
         }
       } catch {
         // Keep last known state.
+      } finally {
+        refreshing = false;
       }
     };
 
     const interval = setInterval(refreshMembers, 3000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshMembers();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [orgId]);
 
@@ -646,7 +655,7 @@ function ShowPageWithNative({
     let refreshing = false;
 
     const refreshTarget = async () => {
-      if (refreshing) return;
+      if (document.visibilityState !== "visible" || refreshing) return;
       refreshing = true;
       try {
         const opening = await getRundownOpeningDate({ data: { orgId, today } });
@@ -951,11 +960,22 @@ function ShowPageWithOntime({
 
   // Poll OnTime
   useEffect(() => {
+    let polling = false;
     const poll = async () => {
+      if (document.visibilityState !== "visible" || polling) return;
+      polling = true;
       try { setOntime(await getOntimeState({ data: { orgId } })); } catch {}
+      finally { polling = false; }
     };
     const interval = setInterval(poll, 1500);
-    return () => clearInterval(interval);
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+    };
   }, [orgId]);
 
   // Live flash

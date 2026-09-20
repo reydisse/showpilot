@@ -246,8 +246,11 @@ function ShowBoardPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshing = false;
 
     const refreshMembers = async () => {
+      if (document.visibilityState !== "visible" || refreshing) return;
+      refreshing = true;
       try {
         const latest = await getCrewMembers({ data: { orgId } });
         if (!cancelled) {
@@ -255,13 +258,20 @@ function ShowBoardPage() {
         }
       } catch {
         // Keep showing the last known board state.
+      } finally {
+        refreshing = false;
       }
     };
 
     const interval = setInterval(refreshMembers, 3000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshMembers();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [orgId]);
 

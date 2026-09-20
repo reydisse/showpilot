@@ -310,7 +310,10 @@ function TimerKioskPage() {
   // switch between two shows on the same date while this kiosk remains open.
   useEffect(() => {
     let active = true;
+    let refreshing = false;
     const refreshDisplayTarget = async () => {
+      if (document.visibilityState !== "visible" || refreshing) return;
+      refreshing = true;
       try {
         const settings = await getDisplaySettingsBySlug({ data: { orgSlug } });
         if (!active) return;
@@ -327,13 +330,20 @@ function TimerKioskPage() {
         setRelayShowId(settings.activeShowId);
       } catch {
         // Keep the last known display target during a temporary outage.
+      } finally {
+        refreshing = false;
       }
     };
     void refreshDisplayTarget();
     const interval = window.setInterval(refreshDisplayTarget, 5_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshDisplayTarget();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [orgSlug]);
 
@@ -482,6 +492,7 @@ function TimerKioskPage() {
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
+    if (document.visibilityState !== "visible" || wsConnectedRef.current) return;
     try {
       const result = await getRundownStateBySlug({
         data: { orgSlug, serviceDate: serviceDate.current, showId: relayShowId || undefined },
@@ -518,9 +529,16 @@ function TimerKioskPage() {
   }, [poll, resolvedOrgTimezoneDate]);
 
   useEffect(() => {
-    poll();
+    void poll();
     const interval = setInterval(poll, 5000); // WS handles real-time; poll is fallback only
-    return () => clearInterval(interval);
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+    };
   }, [poll]);
 
   useEffect(() => {
