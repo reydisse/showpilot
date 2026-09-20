@@ -1277,6 +1277,7 @@ function FullTimerView({
         >
           {/* Clock */}
           <div
+            suppressHydrationWarning
             style={{
               fontSize: "min(3vw, 3.5vh)",
               fontWeight: 600,
