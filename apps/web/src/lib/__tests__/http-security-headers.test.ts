@@ -12,7 +12,11 @@ describe("HTTP security headers", () => {
     expect(await response.text()).toBe("ok");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Strict-Transport-Security")).toContain("includeSubDomains");
-    expect(response.headers.get("Content-Security-Policy")).toContain("object-src 'none'");
+    const contentSecurityPolicy = response.headers.get("Content-Security-Policy");
+    expect(contentSecurityPolicy).toContain("object-src 'none'");
+    expect(contentSecurityPolicy).toContain("https://fonts.googleapis.com");
+    expect(contentSecurityPolicy).toContain("https://fonts.gstatic.com");
+    expect(contentSecurityPolicy).toContain("https://static.cloudflareinsights.com");
     expect(response.headers.get("Permissions-Policy")).toContain("camera=()");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
