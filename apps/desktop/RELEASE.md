@@ -62,3 +62,12 @@ EXE installer, and MSI installer all have valid Authenticode signatures.
 
 Never send certificate files, private keys, passwords or notarization credentials
 in chat or commit them to the repository.
+
+## Internal Windows test build
+
+Until the Windows signing credentials are configured, maintainers can manually
+run **Build Windows Desktop Test**. It publishes a clearly labeled, unsigned
+GitHub prerelease for internal installation testing only. The workflow does not
+create updater artifacts and the prerelease must never be added to the public
+download manifest or updater feed. Windows Defender SmartScreen may warn when a
+tester opens these installers.
