@@ -77,6 +77,7 @@ export class ProfileDrivenModule extends BaseDeviceModule {
   private draining = false;
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimers: ReturnType<typeof setInterval>[] = [];
+  private pollingFeedbackIds = new Set<string>();
 
   constructor(profile: DeviceProfile, driver: ProtocolDriver, settings: Record<string, unknown>) {
     super();
@@ -210,10 +211,13 @@ export class ProfileDrivenModule extends BaseDeviceModule {
       clearInterval(timer);
     }
     this.pollTimers = [];
+    this.pollingFeedbackIds.clear();
   }
 
   private async pollFeedback(feedback: ProfileFeedback): Promise<void> {
     if (this.connectionStatus() !== "connected") return;
+    if (this.pollingFeedbackIds.has(feedback.id)) return;
+    this.pollingFeedbackIds.add(feedback.id);
 
     try {
       const response = await this.driver.sendCommand(feedback.mapping.pollCommand!);
@@ -225,6 +229,8 @@ export class ProfileDrivenModule extends BaseDeviceModule {
       }
     } catch {
       // Polling failures are silent — don't break the module
+    } finally {
+      this.pollingFeedbackIds.delete(feedback.id);
     }
   }
 

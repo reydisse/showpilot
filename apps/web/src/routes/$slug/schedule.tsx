@@ -221,8 +221,10 @@ function SchedulePage() {
   useEffect(() => {
     if (!selected?.id) return;
     let active = true;
+    let refreshing = false;
     const refresh = async () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || refreshing) return;
+      refreshing = true;
       try {
         const rows = await getServiceAssignments({
           data: { orgId: data.orgId, showId: selected.id },
@@ -236,13 +238,20 @@ function SchedulePage() {
         ]);
       } catch {
         // Keep the last good roster visible through transient network loss.
+      } finally {
+        refreshing = false;
       }
     };
     void refresh();
     const timer = window.setInterval(refresh, 15_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [data.orgId, selected?.id]);
   const selectedAssignments = useMemo(

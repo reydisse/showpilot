@@ -28,8 +28,11 @@ function OverlayPage() {
 
   useEffect(() => {
     let active = true;
+    let polling = false;
 
     const poll = async () => {
+      if (polling) return;
+      polling = true;
       try {
         const result = await getActiveGraphic({ data: { orgId } });
         if (!active) return;
@@ -54,10 +57,12 @@ function OverlayPage() {
         }
       } catch {
         // Silently retry on next poll
+      } finally {
+        polling = false;
       }
     };
 
-    poll();
+    void poll();
     const interval = setInterval(poll, 2000);
     return () => {
       active = false;

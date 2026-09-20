@@ -14,6 +14,7 @@ import {
   readRequestJsonWithinLimit,
   readRequestTextWithinLimit,
 } from "./lib/request-body.server";
+import { withSecurityHeaders } from "./lib/http-security-headers";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -210,7 +211,7 @@ const COMMIT_SHA =
   ((import.meta as unknown as { env?: Record<string, string | undefined> }).env
     ?.VITE_COMMIT_SHA as string | undefined) ?? "dev";
 
-export default {
+const appServer = {
   async fetch(request: Request, env: unknown, _ctx: unknown) {
     const url = new URL(request.url);
     const e = env as Env;
@@ -589,5 +590,14 @@ export default {
       checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
       createDuePostShowReminders(e.DB),
     ]);
+  },
+};
+
+export default {
+  async fetch(request: Request, env: unknown, ctx: unknown) {
+    return withSecurityHeaders(request, await appServer.fetch(request, env, ctx));
+  },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    await appServer.scheduled(controller, env);
   },
 };

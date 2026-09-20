@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { NotificationCategory, NotificationPreference } from "@showpilot/shared";
 import { BellRing, CheckCheck, ExternalLink, Inbox, Info, SlidersHorizontal, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   getPersonalNotifications,
@@ -44,8 +44,11 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
   const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
   const [preferencesLoading, setPreferencesLoading] = useState(true);
   const [savingPreference, setSavingPreference] = useState<string | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     try {
       const result = await getPersonalNotifications({ data: { orgId } });
       setItems(result.notifications);
@@ -56,6 +59,7 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
       setActionError("Notifications could not be refreshed. Check your connection and try again.");
     } finally {
       setLoaded(true);
+      refreshInFlightRef.current = false;
     }
   }, [orgId, onUnreadChange]);
 

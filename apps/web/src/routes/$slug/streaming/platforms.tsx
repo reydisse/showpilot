@@ -97,19 +97,29 @@ function PlatformsPage() {
       return;
     }
 
+    let polling = false;
     const poll = async () => {
+      if (document.visibilityState !== "visible" || polling) return;
+      polling = true;
       try {
         const statuses = await getOutputStatuses({ data: { orgId } });
         setOutputStatuses(statuses);
       } catch {
         // Silently continue
+      } finally {
+        polling = false;
       }
     };
 
-    poll(); // Immediate first poll
+    void poll(); // Immediate first poll
     pollRef.current = setInterval(poll, 5000); // Then every 5s
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", pollWhenVisible);
 
     return () => {
+      document.removeEventListener("visibilitychange", pollWhenVisible);
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;

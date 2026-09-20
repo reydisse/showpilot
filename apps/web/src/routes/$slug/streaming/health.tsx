@@ -73,26 +73,43 @@ function StreamHealthPage() {
   // Poll statuses
   useEffect(() => {
     if (inputs.length === 0) return;
+    let active = true;
+    let polling = false;
 
     const pollStatuses = async () => {
+      if (document.visibilityState !== "visible" || polling) return;
+      polling = true;
       setPolling(true);
-      const results = await Promise.all(inputs.map(async (input) => {
-        try {
-          return await getLiveInputStatus({
-            data: { orgId, inputId: input.id },
-          });
-        } catch {
-          return { inputId: input.id, status: "unknown", providerStatus: "request_failed", checkedAt: new Date().toISOString(), error: "Could not check this input" };
-        }
-      }));
-      setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])))
-      setLastCheckedAt(new Date().toISOString());
-      setPolling(false);
+      try {
+        const results = await Promise.all(inputs.map(async (input) => {
+          try {
+            return await getLiveInputStatus({
+              data: { orgId, inputId: input.id },
+            });
+          } catch {
+            return { inputId: input.id, status: "unknown", providerStatus: "request_failed", checkedAt: new Date().toISOString(), error: "Could not check this input" };
+          }
+        }));
+        if (!active) return;
+        setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])))
+        setLastCheckedAt(new Date().toISOString());
+      } finally {
+        polling = false;
+        if (active) setPolling(false);
+      }
     };
 
-    pollStatuses();
+    void pollStatuses();
     const interval = setInterval(pollStatuses, 10000);
-    return () => clearInterval(interval);
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void pollStatuses();
+    };
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+    };
   }, [inputs, orgId]);
 
   const handleCreate = async (e: React.FormEvent) => {

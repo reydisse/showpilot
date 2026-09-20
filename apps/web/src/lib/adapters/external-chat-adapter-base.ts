@@ -30,6 +30,7 @@ export class ExternalChatAdapterBase implements ChatAdapter {
   protected messages: ChatMessage[] = [];
   protected seenIds = new Set<string>();
   protected pollTimer: ReturnType<typeof setInterval> | null = null;
+  protected pollInFlight = false;
   protected lastPollTimestamp: string | undefined;
   protected consecutiveErrors = 0;
   protected sendOnly: boolean;
@@ -171,6 +172,8 @@ export class ExternalChatAdapterBase implements ChatAdapter {
     if (this.pollTimer || this.sendOnly) return;
 
     this.pollTimer = setInterval(async () => {
+      if (this.pollInFlight || (typeof document !== "undefined" && document.visibilityState !== "visible")) return;
+      this.pollInFlight = true;
       try {
         const result = await getExternalChatHistory({
           data: {
@@ -200,6 +203,8 @@ export class ExternalChatAdapterBase implements ChatAdapter {
         }
       } catch {
         this.consecutiveErrors++;
+      } finally {
+        this.pollInFlight = false;
       }
 
       // After too many consecutive errors, stop polling and show error
@@ -215,5 +220,6 @@ export class ExternalChatAdapterBase implements ChatAdapter {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.pollInFlight = false;
   }
 }

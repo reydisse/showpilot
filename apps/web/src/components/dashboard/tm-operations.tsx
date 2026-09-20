@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Captions, ChevronLeft, ChevronRight, CircleStop, Clock3, ExternalLink, MonitorOff, MonitorUp, Play, RadioTower, RotateCcw, TimerReset, Wifi, WifiOff } from "lucide-react";
 import { getLiveInputStatus } from "@/lib/stream";
 import { getTmControlState, runTmControl, type TmControlAction } from "@/lib/tm-operations";
@@ -38,17 +38,31 @@ function StreamHealthPanel({ orgId, slug, inputs, destinations, compact }: { org
   useEffect(() => {
     if (!inputs.length) return;
     let active = true;
+    let polling = false;
     const poll = async () => {
-      if (document.visibilityState !== "visible") return;
-      const results = await Promise.all(inputs.map(async (input) => {
-        try { return [input.id, (await getLiveInputStatus({ data: { orgId, inputId: input.id } }))?.status ?? input.status] as const; }
-        catch { return [input.id, input.status] as const; }
-      }));
-      if (active) { setStatuses(Object.fromEntries(results)); setUpdatedAt(Date.now()); }
+      if (document.visibilityState !== "visible" || polling) return;
+      polling = true;
+      try {
+        const results = await Promise.all(inputs.map(async (input) => {
+          try { return [input.id, (await getLiveInputStatus({ data: { orgId, inputId: input.id } }))?.status ?? input.status] as const; }
+          catch { return [input.id, input.status] as const; }
+        }));
+        if (active) { setStatuses(Object.fromEntries(results)); setUpdatedAt(Date.now()); }
+      } finally {
+        polling = false;
+      }
     };
     void poll();
     const timer = window.setInterval(poll, 10_000);
-    return () => { active = false; window.clearInterval(timer); };
+    const pollWhenVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", pollWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollWhenVisible);
+    };
   }, [inputs, orgId]);
   const live = inputs.filter((input) => statuses[input.id] === "streaming").length;
   const enabled = destinations.filter((destination) => destination.enabled);
@@ -96,9 +110,12 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
   const [busy, setBusy] = useState<TmControlAction | null>(null);
   const [armed, setArmed] = useState<TmControlAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const refreshInFlightRef = useRef(false);
   const refresh = useCallback(async () => {
-    if (document.visibilityState !== "visible") return;
+    if (document.visibilityState !== "visible" || refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
     try { setState(await getTmControlState({ data: { orgId } }) as ControlState); } catch { setMessage("Control feedback is unavailable"); }
+    finally { refreshInFlightRef.current = false; }
   }, [orgId]);
   useEffect(() => {
     void refresh();

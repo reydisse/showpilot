@@ -67,6 +67,7 @@ export class ProPresenterClient {
 
   // Polling state
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private pollInFlight = false;
   private pollFn: ((host: string, port: number) => Promise<PPSlideData | null>) | null = null;
   private pollPort: number | null = null;
 
@@ -223,7 +224,8 @@ export class ProPresenterClient {
     console.log("[PP] Starting REST poll every 1.5s");
 
     const doPoll = async () => {
-      if (this.destroyed || !this.pollFn) return;
+      if (this.destroyed || !this.pollFn || this.pollInFlight) return;
+      this.pollInFlight = true;
       try {
         const slide = await this.pollFn(this.options.host, this.pollPort ?? this.options.port);
         if (slide && slide.text) {
@@ -254,6 +256,8 @@ export class ProPresenterClient {
         }
       } catch (err) {
         this.lastPollResult = `Error: ${err}`;
+      } finally {
+        this.pollInFlight = false;
       }
       this.emitDebug();
     };
@@ -268,6 +272,7 @@ export class ProPresenterClient {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.pollInFlight = false;
   }
 
   private handleMessage(data: Record<string, unknown>): void {

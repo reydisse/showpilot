@@ -115,16 +115,22 @@ export function LiveRundownBar(props: LiveRundownBarProps) {
 
   useEffect(() => {
     let disposed = false;
-    const refresh = () => {
-      void getActiveRundownTarget({ data: { orgId: props.orgId } })
-        .then((next) => {
-          if (!disposed) setTarget(next);
-        })
-        .catch(() => {});
+    let refreshing = false;
+    const refresh = async () => {
+      if (disposed || refreshing) return;
+      refreshing = true;
+      try {
+        const next = await getActiveRundownTarget({ data: { orgId: props.orgId } });
+        if (!disposed) setTarget(next);
+      } catch {
+        // Keep the last confirmed live target during a transient outage.
+      } finally {
+        refreshing = false;
+      }
     };
-    refresh();
+    void refresh();
     const refreshWhileVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void refresh();
     };
     const interval = window.setInterval(refreshWhileVisible, 15_000);
     window.addEventListener("focus", refresh);
