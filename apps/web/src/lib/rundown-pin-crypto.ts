@@ -24,6 +24,12 @@ function decodeBase64Url(value: string): Uint8Array | null {
   }
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function derivePin(pin: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -36,7 +42,7 @@ async function derivePin(pin: string, salt: Uint8Array, iterations: number): Pro
     {
       name: "PBKDF2",
       hash: "SHA-256",
-      salt,
+      salt: toArrayBuffer(salt),
       iterations,
     },
     key,
