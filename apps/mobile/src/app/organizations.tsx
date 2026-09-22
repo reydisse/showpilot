@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Building2 from "lucide-react-native/icons/building-2";
 import Check from "lucide-react-native/icons/check";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
@@ -13,6 +14,7 @@ import { AppField } from "@/components/app-field";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { exitMobileAccount } from "@/lib/account-exit";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 function normalizeWorkspaceSlug(value: string): string {
@@ -34,6 +36,7 @@ function validWorkspaceSlug(value: string): boolean {
 export default function OrganizationsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const queryClient = useQueryClient();
   const { data: session, isPending: sessionPending, refetch: refetchSession } = authClient.useSession();
   const { data: organizations, isPending, isRefetching, error: organizationsError, refetch: refetchOrganizations } = authClient.useListOrganizations();
   const { data: activeOrganization } = authClient.useActiveOrganization();
@@ -113,8 +116,7 @@ export default function OrganizationsScreen() {
     setSelectionError("");
     setSigningOut(true);
     try {
-      const result = await authClient.signOut();
-      if (result.error) throw new Error(result.error.message || "Sign out could not be completed.");
+      await exitMobileAccount(queryClient, activeOrganization?.id);
       router.replace("/sign-in");
     } catch (caught) {
       setSelectionError(caught instanceof Error ? caught.message : "Sign out could not be completed.");

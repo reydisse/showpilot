@@ -3,10 +3,10 @@ import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import type { RundownItem } from "@/lib/mobile-api";
 import { formatTimer } from "@/lib/rundown-state";
+import { rundownItemNumbers, spreadsheetSafeCsvCell } from "@showpilot/shared";
 
 function csvCell(value: unknown) {
-  const text = value === null || value === undefined ? "" : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
+  return spreadsheetSafeCsvCell(value);
 }
 
 function html(value: unknown) {
@@ -24,6 +24,7 @@ function safeFileName(value: string) {
 }
 
 function rundownCsv(items: RundownItem[]) {
+  const itemNumbers = rundownItemNumbers(items);
   const headings = [
     "#",
     "Title",
@@ -39,8 +40,8 @@ function rundownCsv(items: RundownItem[]) {
     "Actual end",
     "Status",
   ];
-  const rows = items.map((item, index) => [
-    index + 1,
+  const rows = items.map((item) => [
+    itemNumbers.get(item.id) ?? "",
     item.title,
     item.type,
     formatTimer(item.duration),
@@ -87,8 +88,9 @@ export async function shareRundownPdf(input: {
   items: RundownItem[];
 }) {
   await ensureSharing();
-  const rows = input.items.map((item, index) => `<tr class="${item.type === "header" ? "header" : ""}">
-    <td>${index + 1}</td>
+  const itemNumbers = rundownItemNumbers(input.items);
+  const rows = input.items.map((item) => `<tr class="${item.type === "header" ? "header" : ""}">
+    <td>${html(itemNumbers.get(item.id) ?? "")}</td>
     <td><strong>${html(item.title)}</strong>${item.notes ? `<div class="notes">${html(item.notes)}</div>` : ""}</td>
     <td>${html(item.type)}</td>
     <td>${html(formatTimer(item.duration))}</td>

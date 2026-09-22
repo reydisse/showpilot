@@ -1,6 +1,7 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -38,6 +39,8 @@ async function exportReport(report: Report, notes: ReportNote[]) {
 export default function ReportsScreen() {
   const styles = useStyles();
   const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{ date?: string; show?: string }>();
+  const openedTargetRef = useRef("");
   const { organization } = useMobileBootstrap();
   const orgId = organization?.id;
   const [search, setSearch] = useState("");
@@ -57,18 +60,32 @@ export default function ReportsScreen() {
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "The notes could not be saved."),
   });
-  if (!orgId || query.isPending) return <LoadingView label="Opening reports…" />;
   const data = query.data;
   const reports = query.data?.reports.filter((report) => `${report.name} ${report.serviceDate} ${report.location}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [];
   const selectedNotes = selected ? data?.notes.filter((note) => note.showId === selected.id) ?? [] : [];
-  const chooseReport = (report: Report) => {
-    const ownNote = data?.notes.find((note) => note.showId === report.id && note.userId === data.viewer.userId);
+  const chooseReport = useCallback((report: Report) => {
+    const ownNote = data?.notes.find((note) => note.showId === report.id && note.userId === data?.viewer.userId);
     setSelected(report);
     setLane(ownNote?.role ?? data?.viewer.writableNoteLanes[0] ?? "pm");
     setDraft(ownNote ? { summary: ownNote.summary, wins: ownNote.wins, issues: ownNote.issues, followUps: ownNote.followUps } : emptyDraft);
     setSaved("");
     setError("");
-  };
+  }, [data]);
+  useEffect(() => {
+    const target = typeof params.show === "string"
+      ? `show:${params.show}`
+      : typeof params.date === "string"
+        ? `date:${params.date}`
+        : "";
+    if (!target || target === openedTargetRef.current || !data) return;
+    const report = typeof params.show === "string"
+      ? data.reports.find((candidate) => candidate.id === params.show)
+      : data.reports.find((candidate) => candidate.serviceDate === params.date);
+    if (!report) return;
+    openedTargetRef.current = target;
+    chooseReport(report);
+  }, [chooseReport, data, params.date, params.show]);
+  if (!orgId || query.isPending) return <LoadingView label="Opening reports…" />;
   const share = async () => {
     if (!selected || exporting) return;
     setExporting(true); setError("");

@@ -94,7 +94,14 @@ describe("ProPresenter commands", () => {
 
     const response = await bridge.sendCommand(JSON.stringify({ action: "query-presentations" }));
 
-    expect(JSON.parse(response as string)).toHaveLength(750);
+    expect(JSON.parse(response as string)).toEqual({
+      presentations: expect.arrayContaining([
+        expect.objectContaining({ uuid: "song-0" }),
+        expect.objectContaining({ uuid: "song-749" }),
+      ]),
+      libraries: { total: 1, read: 1, failed: [] },
+    });
+    expect(JSON.parse(response as string).presentations).toHaveLength(750);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     bridge.disconnect();
   });
@@ -106,7 +113,7 @@ describe("ProPresenter commands", () => {
         presentation: {
           id: { uuid: "song-1", name: "Amazing Grace", index: 0 },
           groups: [
-            { name: "Verse 1", slides: [{ enabled: true, text: "Amazing grace", notes: "Lead", label: "" }] },
+            { name: "Verse 1", slides: [{ id: { uuid: "slide-1" }, enabled: true, text: "Amazing grace", notes: "Lead", label: "" }] },
             { name: "Chorus", slides: [{ enabled: true, text: "My chains are gone", notes: "", label: "Big" }] },
           ],
         },
@@ -124,10 +131,47 @@ describe("ProPresenter commands", () => {
       uuid: "song-1",
       name: "Amazing Grace",
       slides: [
-        { index: 0, text: "Amazing grace", label: "Verse 1", notes: "Lead" },
-        { index: 1, text: "My chains are gone", label: "Big", notes: "" },
+        { index: 0, sourceId: "slide-1", text: "Amazing grace", label: "Verse 1", notes: "Lead" },
+        { index: 1, sourceId: "", text: "My chains are gone", label: "Big", notes: "" },
       ],
     });
+    bridge.disconnect();
+  });
+
+  it("reports partial library failures and can retry only failed libraries", async () => {
+    let failedOnce = true;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/v1/libraries")) return Promise.resolve(Response.json([
+        { id: { uuid: "library-a", name: "Songs A" } },
+        { id: { uuid: "library-b", name: "Songs B" } },
+      ]));
+      if (url.endsWith("/v1/library/library-a")) return Promise.resolve(Response.json({ items: [{ uuid: "song-a", name: "Song A" }] }));
+      if (url.endsWith("/v1/library/library-b") && failedOnce) {
+        failedOnce = false;
+        return Promise.resolve(new Response(null, { status: 503 }));
+      }
+      if (url.endsWith("/v1/library/library-b")) return Promise.resolve(Response.json({ items: [{ uuid: "song-b", name: "Song B" }] }));
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const bridge = createBridge(() => {});
+
+    const initial = JSON.parse(await bridge.sendCommand(JSON.stringify({ action: "query-presentations" })) as string);
+    expect(initial).toMatchObject({
+      presentations: [{ uuid: "song-a", name: "Song A" }],
+      libraries: { total: 2, read: 1, failed: [{ id: "library-b", name: "Songs B" }] },
+    });
+
+    const retry = JSON.parse(await bridge.sendCommand(JSON.stringify({
+      action: "query-presentations",
+      libraryIds: ["library-b"],
+    })) as string);
+    expect(retry).toEqual({
+      presentations: [{ uuid: "song-b", name: "Song B" }],
+      libraries: { total: 1, read: 1, failed: [] },
+    });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/v1/library/library-a"))).toHaveLength(1);
     bridge.disconnect();
   });
 

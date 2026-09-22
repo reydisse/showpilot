@@ -6,6 +6,7 @@ import {
   type EffectiveAccess,
 } from "@/lib/effective-access";
 import type { Permission } from "@/lib/permissions";
+import { permissionsRequireRundownPin, verifyRundownPin } from "@/lib/rundown-pin.server";
 
 export interface RequestOrgAccess {
   user: { id: string; name: string; email: string };
@@ -38,6 +39,23 @@ export async function assertOrgPermission(
   const permissions = Array.isArray(required) ? required : [required];
   if (!accessHasAnyPermission(requestAccess.access, permissions)) {
     throw new Error("Forbidden");
+  }
+  return requestAccess;
+}
+
+export async function assertRundownPermission(
+  orgId: string,
+  required: Permission | readonly Permission[],
+): Promise<RequestOrgAccess> {
+  const requestAccess = await assertOrgPermission(orgId, required);
+  if (!permissionsRequireRundownPin(requestAccess.access.role, required)) {
+    return requestAccess;
+  }
+
+  const headers = getRequestHeaders();
+  const request = new Request("https://showpilot.local/rundown-authorization", { headers });
+  if (!(await verifyRundownPin(request, getD1(), orgId))) {
+    throw new Error("Rundown PIN required");
   }
   return requestAccess;
 }

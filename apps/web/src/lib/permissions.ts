@@ -26,7 +26,6 @@ export type Permission =
   | "rundown:view"
   | "rundown:edit"
   | "rundown:control"
-  | "rundown:pin_required"
   | "schedule:view"
   | "schedule:manage"
   | "cuesheet:view"
@@ -72,7 +71,6 @@ export const ALL_PERMISSIONS = [
   "rundown:view",
   "rundown:edit",
   "rundown:control",
-  "rundown:pin_required",
   "schedule:view",
   "schedule:manage",
   "cuesheet:view",
@@ -152,7 +150,6 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "show:view",
     "showboard:view",
     "rundown:view",
-    "rundown:pin_required",
     "cuesheet:view",
     "cuesheet:add_notes",
     "chat:access",
@@ -286,7 +283,7 @@ export function hasAnyEffectivePermission(
 export function roleRequiresRundownPin(
   role: string | null | undefined,
 ): boolean {
-  return hasPermission(role, "rundown:pin_required");
+  return normalizeRole(role) === "tm";
 }
 
 export function isLowerThirdPermission(permission: Permission): boolean {

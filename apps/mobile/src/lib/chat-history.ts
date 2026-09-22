@@ -1,3 +1,5 @@
+import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
+
 export interface MobileChatMessage {
   id: string;
   senderId?: string;
@@ -10,7 +12,7 @@ export interface MobileChatMessage {
   replyTo?: { messageId: string; senderName: string; text: string };
   attachments?: { id: string; name: string; url: string; mimeType: string; size: number }[];
   poll?: { question: string; options: { id: string; text: string; voterIds: string[] }[] };
-  reactions?: { emoji: MobileChatReactionEmoji; userIds: string[] }[];
+  reactions?: { emoji: string; userIds: string[] }[];
   editedAt?: number;
   deletedAt?: number;
   external?: { platform: "mattermost" | "slack" | "discord" | "teams"; id: string };
@@ -21,16 +23,8 @@ export interface MobileChatMessage {
   };
 }
 
-export const mobileChatReactionEmojis = [
-  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
-  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
-  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
-] as const;
-export type MobileChatReactionEmoji = (typeof mobileChatReactionEmojis)[number];
-
-function isMobileChatReactionEmoji(value: unknown): value is MobileChatReactionEmoji {
-  return mobileChatReactionEmojis.some((emoji) => emoji === value);
-}
+export const mobileChatReactionEmojis = QUICK_REACTION_EMOJIS;
+export type MobileChatReactionEmoji = string;
 
 export interface ChatHistoryCursor {
   timestamp: number;
@@ -86,7 +80,7 @@ function parseReactions(value: unknown): MobileChatMessage["reactions"] {
   if (!Array.isArray(value)) return undefined;
   const reactions = value.flatMap((candidate) => {
     if (!isRecord(candidate)
-      || !isMobileChatReactionEmoji(candidate.emoji)
+      || !isEmojiReaction(candidate.emoji)
       || !Array.isArray(candidate.userIds)) return [];
     return [{
       emoji: candidate.emoji,

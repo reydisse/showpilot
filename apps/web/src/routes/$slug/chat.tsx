@@ -37,7 +37,7 @@ function ChatPage() {
   const dmMember = members.find((member) => dmUserIds.includes(member.userId) && member.userId !== userId);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : "Production Chat";
   const roomSubtitle = roomId === "planning" ? "Seven-day planning history" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead } = useChat({ orgId, roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
+  const { messages, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({ orgId, roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
@@ -112,14 +112,22 @@ function ChatPage() {
     <div className="relative grid h-full min-h-0 overflow-hidden bg-board-card lg:grid-cols-[minmax(0,1fr)_17rem]">
       <div className="min-h-0 border-board-border lg:border-r">
         <ChatPanel
+          key={`${orgId}:${roomId}`}
           messages={messages}
           connectionStatus={connectionStatus}
           unreadCount={unreadCount}
           onSendMessage={sendMessage}
           onUploadAttachment={uploadAttachment}
+          onDiscardAttachment={discardAttachment}
           gatewayStatus={gatewayStatus}
           hydrated={hydrated}
           onReadThrough={markRead}
+          hasOlderMessages={hasOlderMessages}
+          loadingOlderMessages={loadingOlderMessages}
+          olderMessagesError={olderMessagesError}
+          onLoadOlderMessages={loadOlderMessages}
+          onRetryQueuedMessage={retryQueuedMessage}
+          onCancelQueuedMessage={cancelQueuedMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
           onVotePoll={votePoll}

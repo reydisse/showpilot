@@ -191,6 +191,15 @@ describe("ProfileDrivenModule", () => {
       expect(setInput.params).toHaveLength(1);
       expect(setInput.params[0].type).toBe("select");
     });
+
+    it("rejects Extron SIS error responses", async () => {
+      const extronProfile = { ...testProfile, manufacturer: "Extron" };
+      driver = createMockDriver({ sendCommand: vi.fn().mockResolvedValue("E13\r\n") });
+      module = new ProfileDrivenModule(extronProfile, driver, {});
+      await module.connect();
+
+      await expect(module.executeAction("power_on", {})).rejects.toThrow("SIS error E13");
+    });
   });
 
   // ─── Command Interpolation ──────────────────────────────

@@ -132,7 +132,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "schedule:manage");
+    const { user } = await assertOrgPermission(data.orgId, "schedule:manage");
     const prisma = getPrisma();
     const [target, previous, source, existing] = await Promise.all([
       prisma.rundown.findFirst({
@@ -168,6 +168,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
       role: row.role,
       department: row.department,
       crewMemberId: row.crewMemberId,
+      assignedByUserId: user.id,
       callTime: row.callTime,
       // Never inherit a confirmation. Last week's yes is not this
       // week's yes, and pretending otherwise is how a PM ends up

@@ -7,6 +7,7 @@ import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
 import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig } from "@/lib/auth-origins";
 import { createD1RateLimitStorage } from "@/lib/auth-rate-limit.server";
+import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 import {
   sendEmail,
   passwordResetEmail,
@@ -23,7 +24,23 @@ const orgConfig = {
   allowUserToCreateOrganization: (user: { emailVerified?: boolean }) =>
     user.emailVerified === true,
   creatorRole: "owner" as const,
-  membershipLimit: 100,
+  membershipLimit: async (_user: unknown, organization: { id: string }) => {
+    const { getPlanMemberLimitForOrg } = await import("@/lib/plan-limits");
+    return getPlanMemberLimitForOrg(organization.id);
+  },
+  invitationLimit: async (data: { organization: { id: string } }) => {
+    const { getPlanMemberLimitForOrg } = await import("@/lib/plan-limits");
+    const prisma = getPrisma();
+    const [limit, memberCount] = await Promise.all([
+      getPlanMemberLimitForOrg(data.organization.id),
+      prisma.member.count({ where: { organizationId: data.organization.id } }),
+    ]);
+    return Math.max(0, limit - memberCount);
+  },
+  // Organization deletion is intentionally exposed only through the guarded
+  // ShowPilot workflow, which requires a recent session, typed-name
+  // confirmation, subscription cancellation, and owned-storage cleanup.
+  disableOrganizationDeletion: true,
   ac: authAccessControl,
   roles: authRoles,
   dynamicAccessControl: {
@@ -72,6 +89,7 @@ const orgConfig = {
 
 const emailPasswordConfig = {
   enabled: true,
+  minPasswordLength: PASSWORD_MIN_LENGTH,
   sendResetPassword: async (data: {
     user: { email: string };
     url: string;

@@ -79,19 +79,6 @@ export interface MicAssignment {
   updatedAt: string;
 }
 
-export type EquipmentStatus =
-  | "operational"
-  | "needs-repair"
-  | "out-of-service"
-  | "in-repair";
-export type EquipmentCategory =
-  | "audio"
-  | "video"
-  | "lighting"
-  | "streaming"
-  | "comms"
-  | "other";
-
 export interface Equipment {
   id: string;
   name: string;
@@ -105,3 +92,4 @@ export interface Equipment {
   createdAt: string;
   updatedAt: string;
 }
+import type { EquipmentCategory, EquipmentStatus } from "../equipment";

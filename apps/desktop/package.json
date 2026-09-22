@@ -7,6 +7,7 @@
     "tauri": "tauri",
     "bridge:prepare": "pnpm --filter @showpilot/bridge build",
     "bridge:build": "node scripts/build-bridge.mjs",
+    "test:offline": "node --test scripts/offline-shell.test.mjs && node --check offline/offline.js",
     "desktop:dev": "pnpm bridge:build && tauri dev",
     "desktop:build": "tauri build"
   },

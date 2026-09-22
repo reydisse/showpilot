@@ -5,7 +5,7 @@ import { getSharedBridgeProxy } from "../../bridge-proxy";
 /**
  * VISCA-over-IP protocol driver — bridge-required.
  * Covers PTZ cameras: Sony, Panasonic, PTZOptics, Marshall, BirdDog.
- * UDP port 52381 (standard VISCA-over-IP).
+ * Supports raw vendor VISCA/UDP and Sony-framed VISCA-over-IP.
  */
 export class ViscaDriver implements ProtocolDriver {
   readonly protocolId = "visca-ip";
@@ -14,6 +14,15 @@ export class ViscaDriver implements ProtocolDriver {
   readonly baseConfigFields: AdapterField[] = [
     { key: "host", label: "Camera IP", placeholder: "192.168.1.180", required: true },
     { key: "port", label: "Port", placeholder: "52381", type: "number" },
+    {
+      key: "viscaMode",
+      label: "VISCA UDP format",
+      type: "select",
+      options: [
+        { value: "sony-ip", label: "Sony framed (port 52381)" },
+        { value: "raw", label: "Raw vendor VISCA (often port 1259)" },
+      ],
+    },
     { key: "cameraAddress", label: "Camera Address (1-7)", placeholder: "1", type: "number" },
   ];
 
@@ -24,7 +33,8 @@ export class ViscaDriver implements ProtocolDriver {
   async connect(settings: Record<string, unknown>): Promise<void> {
     const orgId = String(settings.orgId || "");
     const host = String(settings.host || "");
-    const port = Number(settings.port || 52381);
+    const mode = settings.viscaMode === "raw" ? "raw" : "sony-ip";
+    const port = Number(settings.port || (mode === "raw" ? 1259 : 52381));
     if (!orgId || !host || !Number.isFinite(port) || port <= 0) {
       throw new Error("Bridge, host, and port are required");
     }

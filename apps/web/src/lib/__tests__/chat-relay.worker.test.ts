@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(async () => {
@@ -29,10 +29,10 @@ function nextFrame(socket: WebSocket, expectedType?: string): Promise<Record<str
   });
 }
 
-async function openChat(orgId: string, roomId = "production", expectEmpty = true) {
+async function openChat(orgId: string, roomId = "production", expectEmpty = true, userId = "user-1") {
   const stub = env.CHAT_RELAY.getByName(`${orgId}:${roomId}`);
   const response = await stub.fetch(new Request(
-    `https://chat.test/ws?orgId=${orgId}&room=${roomId}&userId=user-1&name=Ava&role=Producer`,
+    `https://chat.test/ws?orgId=${orgId}&room=${roomId}&userId=${encodeURIComponent(userId)}&name=Ava&role=Producer`,
     { headers: { Upgrade: "websocket" } },
   ));
   expect(response.status).toBe(101);
@@ -46,6 +46,116 @@ async function openChat(orgId: string, roomId = "production", expectEmpty = true
 }
 
 describe("ChatRelay threads", () => {
+  it("accepts only server-owned attachments uploaded by the sending member", async () => {
+    const orgId = "attachment-owner-org";
+    const fileId = "file-owned-by-user-2";
+    const fileName = "stage.png";
+    const key = `orgs/${orgId}/chat/${fileId}/${fileName}`;
+    const url = `/api/chat-file/${orgId}/${fileId}/${fileName}`;
+    await env.STORAGE.put(key, new Uint8Array([1, 2, 3]), {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { uploadedBy: "user-2", roomId: "production" },
+    });
+
+    const { stub, socket } = await openChat(orgId);
+    const received = nextFrame(socket, "message");
+    socket.send(JSON.stringify({
+      type: "message",
+      text: "Forged attachment reference",
+      clientMessageId: crypto.randomUUID(),
+      attachments: [{ id: fileId, name: fileName, url, mimeType: "image/png", size: 3 }],
+    }));
+    const forgedFrame = await received;
+    expect(forgedFrame.message).not.toHaveProperty("attachments");
+
+    const cleanup = await stub.fetch(new Request("https://chat.test/internal/delete-user-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": "worker-test-secret" },
+      body: JSON.stringify({ userId: "user-1" }),
+    }));
+    await expect(cleanup.json()).resolves.toMatchObject({ filesDeleted: 0 });
+    expect(await env.STORAGE.head(key)).not.toBeNull();
+    socket.close();
+  });
+
+  it("deletes an owned attachment only after its final live message reference is removed", async () => {
+    const orgId = "attachment-reference-org";
+    const fileId = "shared-file";
+    const fileName = "notes.txt";
+    const key = `orgs/${orgId}/chat/${fileId}/${fileName}`;
+    const url = `/api/chat-file/${orgId}/${fileId}/${fileName}`;
+    await env.STORAGE.put(key, "line check", {
+      httpMetadata: { contentType: "text/plain" },
+      customMetadata: { uploadedBy: "user-1", roomId: "production" },
+    });
+    const { socket } = await openChat(orgId);
+    const messageIds = [crypto.randomUUID(), crypto.randomUUID()];
+    for (const messageId of messageIds) {
+      const received = nextFrame(socket, "message");
+      socket.send(JSON.stringify({
+        type: "message",
+        text: "Attached notes",
+        clientMessageId: messageId,
+        attachments: [{ id: "client-value-is-not-authority", name: "fake.txt", url, mimeType: "text/csv", size: 99 }],
+      }));
+      await expect(received).resolves.toMatchObject({
+        message: { attachments: [{ id: fileId, name: fileName, url, mimeType: "text/plain", size: 10 }] },
+      });
+    }
+
+    for (const [index, messageId] of messageIds.entries()) {
+      const result = nextFrame(socket, "mutation-result");
+      socket.send(JSON.stringify({ type: "delete", messageId, requestId: `delete-${index}` }));
+      await expect(result).resolves.toMatchObject({ ok: true });
+      expect(Boolean(await env.STORAGE.head(key))).toBe(index === 0);
+    }
+    socket.close();
+  });
+
+  it("does not assign member ownership to a guest even if the internal URL contains a user ID", async () => {
+    const member = await openChat("guest-ownership-org");
+    const messageId = crypto.randomUUID();
+    const sent = nextFrame(member.socket, "message");
+    member.socket.send(JSON.stringify({ type: "message", text: "Member original", clientMessageId: messageId }));
+    await sent;
+    const response = await member.stub.fetch(new Request(`https://chat.test/ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket" } }));
+    if (!response.webSocket) throw new Error("Missing guest socket");
+    const guest = response.webSocket;
+    const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
+    const denied = nextFrame(guest, "mutation-result");
+    guest.send(JSON.stringify({ type: "edit", messageId, requestId: "guest-edit", text: "Forged edit" }));
+    await expect(denied).resolves.toMatchObject({ ok: false });
+    const allowed = nextFrame(member.socket, "mutation-result");
+    member.socket.send(JSON.stringify({ type: "edit", messageId, requestId: "member-edit", text: "Member updated" }));
+    await expect(allowed).resolves.toMatchObject({ ok: true });
+    guest.close(); member.socket.close();
+  });
+
+  it("rejects a guest connection without a current expiry", async () => {
+    const stub = env.CHAT_RELAY.getByName("expired-guest-org:production");
+    for (const expiry of ["", "NaN", "0", String(Date.now() - 1)]) {
+      const response = await stub.fetch(new Request(`https://chat.test/ws?orgId=expired-guest-org&role=Guest&guestExpiresAt=${expiry}`, { headers: { Upgrade: "websocket" } }));
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it("closes an idle expired guest without closing the member connection", async () => {
+    const member = await openChat("guest-expiry-org");
+    const expiresAt = Date.now() + 150;
+    const response = await member.stub.fetch(new Request(`https://chat.test/ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket" } }));
+    if (!response.webSocket) throw new Error("Missing guest socket");
+    const guest = response.webSocket;
+    const closed = new Promise<number>(resolve => guest.addEventListener("close", event => resolve(event.code), { once: true }));
+    const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now() + 20)));
+    await runDurableObjectAlarm(member.stub);
+    await expect(closed).resolves.toBe(1008);
+    const memberMessage = nextFrame(member.socket, "message");
+    member.socket.send(JSON.stringify({ type: "message", text: "Member remains connected" }));
+    await expect(memberMessage).resolves.toMatchObject({ message: { text: "Member remains connected" } });
+    member.socket.close();
+  });
+
   it("hydrates read progress in shared rooms so clients can resume at the first missed message", async () => {
     const firstConnection = await openChat("shared-read-org", "production");
     const receiptFrame = nextFrame(firstConnection.socket, "read-receipt");

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
+import { chatOutboxIdentity } from "@/lib/chat-outbox";
 
 interface UseChatOptions {
   orgId: string;
@@ -20,6 +21,7 @@ interface UseChatReturn {
   messages: ChatMessage[];
   sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => void;
   uploadAttachment: (file: File) => Promise<ChatAttachment>;
+  discardAttachment: (attachment: ChatAttachment) => Promise<void>;
   editMessage: (messageId: string, text: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   votePoll: (messageId: string, optionId: string) => Promise<void>;
@@ -34,10 +36,16 @@ interface UseChatReturn {
   openingReadThrough: number | null;
   markRead: (readAt: number) => void;
   gatewayStatus: ChatGatewayStatus;
+  hasOlderMessages: boolean;
+  loadingOlderMessages: boolean;
+  olderMessagesError: string | null;
+  loadOlderMessages: () => Promise<void>;
+  retryQueuedMessage: (messageId: string) => void;
+  cancelQueuedMessage: (messageId: string) => void;
 }
 
-function createAdapter(orgId: string, guest?: { token: string; name: string }, roomId = "production"): ChatAdapter {
-  return new NativeChatAdapter(orgId, guest, roomId);
+function createAdapter(orgId: string, guest: { token: string; name: string } | undefined, roomId: string, identity: string, currentUserId?: string): ChatAdapter {
+  return new NativeChatAdapter(orgId, guest, roomId, identity, currentUserId);
 }
 
 /**
@@ -56,6 +64,9 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   const [hydrated, setHydrated] = useState(false);
   const [openingReadThrough, setOpeningReadThrough] = useState<number | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState<ChatGatewayStatus>({ platform: null, status: "disabled" });
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState<string | null>(null);
   const adapterRef = useRef<ChatAdapter | null>(null);
   const isVisibleRef = useRef(isVisible);
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -82,8 +93,10 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     setOpeningReadThrough(null);
     setGatewayStatus({ platform: null, status: "connecting" });
     setConnectionStatus("disconnected");
+    setHasOlderMessages(false);
+    setOlderMessagesError(null);
 
-    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId);
+    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId, chatOutboxIdentity(currentUserId, guestToken), currentUserId);
     adapterRef.current = adapter;
 
     // Subscribe to messages
@@ -96,7 +109,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
           next[existingIndex] = message;
           return next;
         }
-        return [...prev, message];
+        return [...prev, message].sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
       });
 
       // Increment unread if panel is not visible
@@ -133,8 +146,13 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     const unsubHydrated = adapter.onHydrated?.(({ readReceipts: initialReceipts }) => {
       setOpeningReadThrough(currentUserId ? initialReceipts[currentUserId] ?? null : null);
       setHydrated(true);
+      setHasOlderMessages(true);
     });
     const unsubGatewayStatus = adapter.onGatewayStatus?.(setGatewayStatus);
+    const unsubOutbox = adapter.onOutboxChange?.((pending) => {
+      setMessages((current) => [...current.filter((message) => !message.delivery), ...pending]
+        .sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id)));
+    });
 
     // Connect
     adapter.connect().catch(() => {
@@ -148,6 +166,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
       unsubReadReceipt?.();
       unsubHydrated?.();
       unsubGatewayStatus?.();
+      unsubOutbox?.();
       for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
       typingTimersRef.current.clear();
       adapter.disconnect();
@@ -212,6 +231,16 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     return response.json() as Promise<ChatAttachment>;
   }, [guestToken, orgId, roomId]);
 
+  const discardAttachment = useCallback(async (attachment: ChatAttachment): Promise<void> => {
+    const target = new URL(attachment.url, window.location.origin);
+    if (guestToken) target.searchParams.set("guestToken", guestToken);
+    const response = await fetch(target, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || "Attachment could not be removed");
+    }
+  }, [guestToken]);
+
   const resetUnread = useCallback(() => {
     setUnreadCount(0);
   }, []);
@@ -224,10 +253,35 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     adapterRef.current?.markRead?.(readAt);
   }, []);
 
+  const loadOlderMessages = useCallback(async () => {
+    const adapter = adapterRef.current;
+    if (!adapter?.loadOlder || loadingOlderMessages || !hasOlderMessages) return;
+    setLoadingOlderMessages(true);
+    setOlderMessagesError(null);
+    try {
+      const page = await adapter.loadOlder(100);
+      setMessages((current) => {
+        const pending = current.filter((message) => message.delivery);
+        const settled = current.filter((message) => !message.delivery);
+        const byId = new Map([...page.messages, ...settled].map((message) => [message.id, message]));
+        return [...byId.values(), ...pending].sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
+      });
+      setHasOlderMessages(page.nextCursor !== null);
+    } catch (error) {
+      setOlderMessagesError(error instanceof Error ? error.message : "Older messages could not be loaded.");
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [hasOlderMessages, loadingOlderMessages]);
+
+  const retryQueuedMessage = useCallback((messageId: string) => adapterRef.current?.retryOutbox?.(messageId), []);
+  const cancelQueuedMessage = useCallback((messageId: string) => adapterRef.current?.cancelOutbox?.(messageId), []);
+
   return {
     messages,
     sendMessage,
     uploadAttachment,
+    discardAttachment,
     editMessage,
     deleteMessage,
     votePoll,
@@ -242,5 +296,11 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     openingReadThrough,
     markRead,
     gatewayStatus,
+    hasOlderMessages,
+    loadingOlderMessages,
+    olderMessagesError,
+    loadOlderMessages,
+    retryQueuedMessage,
+    cancelQueuedMessage,
   };
 }

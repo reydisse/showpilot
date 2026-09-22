@@ -1,7 +1,6 @@
 import {
   hasPermission,
   isLowerThirdPermission,
-  roleRequiresRundownPin,
   type Permission,
   type Role,
 } from "@/lib/permissions";
@@ -9,6 +8,11 @@ import {
   accessHasAnyPermission,
   resolveEffectiveAccess,
 } from "@/lib/effective-access";
+import {
+  permissionsRequireRundownPin,
+  rundownPinChallenge,
+  verifyRundownPin,
+} from "@/lib/rundown-pin.server";
 
 interface D1Statement {
   bind(...params: unknown[]): {
@@ -45,31 +49,7 @@ interface CloudEnabledRow {
   cloud_enabled: number | null;
 }
 
-interface SettingRow {
-  value: string | null;
-}
-
-const RUNDOWN_PIN_SETTING_KEY = "rundown-pin";
-const RUNDOWN_PIN_HEADER = "x-showpilot-rundown-pin";
-const RUNDOWN_PIN_COOKIE_PREFIX = "sp_rundown_pin_";
-
-export function getRundownPinCookieName(orgId: string): string {
-  return `${RUNDOWN_PIN_COOKIE_PREFIX}${orgId}`;
-}
-
-function getCookieValue(request: Request, name: string): string | null {
-  const cookieHeader = request.headers.get("cookie");
-  if (!cookieHeader) return null;
-
-  const cookies = cookieHeader.split(";");
-  for (const cookie of cookies) {
-    const [rawKey, ...rawValue] = cookie.trim().split("=");
-    if (rawKey !== name) continue;
-    return decodeURIComponent(rawValue.join("="));
-  }
-
-  return null;
-}
+export { getRundownPinCookieName } from "@/lib/rundown-pin.server";
 
 function forbidden(required: Permission | readonly Permission[]): Response {
   return Response.json(
@@ -96,17 +76,6 @@ function featureDisabled(required: Permission | readonly Permission[]): Response
   );
 }
 
-function pinChallenge(): Response {
-  return Response.json(
-    {
-      error: "pin_required",
-      required: "rundown:pin_required",
-      challenge: "rundown_pin",
-    },
-    { status: 401 },
-  );
-}
-
 async function isCloudEnabled(db: D1Database, orgId: string): Promise<boolean> {
   let row: CloudEnabledRow | null = null;
   try {
@@ -121,26 +90,6 @@ async function isCloudEnabled(db: D1Database, orgId: string): Promise<boolean> {
   }
 
   return row?.cloud_enabled === 1;
-}
-
-async function verifyRundownPin(request: Request, db: D1Database, orgId: string): Promise<boolean> {
-  const configuredPin = await db
-    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
-    .bind(orgId, RUNDOWN_PIN_SETTING_KEY)
-    .first<SettingRow>();
-
-  const requiredPin = configuredPin?.value?.trim();
-  if (!requiredPin) {
-    return true;
-  }
-
-  const presentedPin = request.headers.get(RUNDOWN_PIN_HEADER)?.trim();
-  if (presentedPin === requiredPin) {
-    return true;
-  }
-
-  const cookiePin = getCookieValue(request, getRundownPinCookieName(orgId))?.trim();
-  return cookiePin === requiredPin;
 }
 
 async function assertPermission(
@@ -176,12 +125,11 @@ async function assertPermission(
   }
 
   if (
-    permissions.some((permission) => permission === "rundown:view" || permission === "rundown:edit") &&
-    roleRequiresRundownPin(role) &&
+    permissionsRequireRundownPin(role, permissions) &&
     hasPermission(role, "rundown:view") &&
     !(await verifyRundownPin(context.request, context.env.DB, context.session.orgId))
   ) {
-    return pinChallenge();
+    return rundownPinChallenge();
   }
 
   return role;

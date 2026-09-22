@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { nextPlayableItem } from "@/lib/rundown-transport";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Play,
@@ -54,13 +55,26 @@ import {
   deleteSavedRundown,
   listRundownDates,
 } from "@/lib/rundown";
-import type { SavedRundownMeta, SavedRundown, PPSlidePayload } from "@/lib/rundown";
+import type {
+  SavedRundownMeta,
+  SavedRundown,
+  PPSlidePayload,
+} from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
 import { rundownItemNumbers } from "@/types/rundown";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { computeCascadedTimes, itemOverrunMs } from "@/lib/rundown-timing";
-import { exportRundownCsv, exportRundownPdf, type ExportReport } from "@/lib/rundown-export";
-import { formatTimeInput, formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
+import {
+  exportRundownCsv,
+  exportRundownPdf,
+  type ExportReport,
+} from "@/lib/rundown-export";
+import {
+  formatTimeInput,
+  formatWallTime,
+  getTodayDateString,
+  serviceTimeToIso,
+} from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
@@ -80,13 +94,23 @@ import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
-import { NewShowModal, type NewShowInput } from "@/components/rundown/NewShowModal";
+import {
+  NewShowModal,
+  type NewShowInput,
+} from "@/components/rundown/NewShowModal";
 import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { ACTIVE_RUNDOWN_CHANGED_EVENT } from "@/components/layout/LiveRundownBar";
 import { decodeStageMessage, encodeStageMessage } from "@/lib/stage-message";
 
-type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
+type ItemType =
+  | "segment"
+  | "song"
+  | "prayer"
+  | "announcement"
+  | "offering"
+  | "custom"
+  | "header";
 type ItemStatus = "upcoming" | "live" | "complete";
 
 interface RundownItem {
@@ -106,14 +130,45 @@ interface RundownItem {
   expectedEnd?: string | null;
 }
 
-const TYPE_CONFIG: Record<ItemType, { label: string; icon: React.ElementType; color: string }> = {
-  header: { label: "Section", icon: Layers, color: "bg-board-border text-board-muted border-board-border" },
-  segment: { label: "Segment", icon: Layers, color: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
-  song: { label: "Song", icon: Music, color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
-  prayer: { label: "Prayer", icon: Heart, color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
-  announcement: { label: "Announce", icon: Megaphone, color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25" },
-  offering: { label: "Offering", icon: Gift, color: "bg-green-500/15 text-green-400 border-green-500/25" },
-  custom: { label: "Custom", icon: Layers, color: "bg-board-border text-board-muted border-board-border" },
+const TYPE_CONFIG: Record<
+  ItemType,
+  { label: string; icon: React.ElementType; color: string }
+> = {
+  header: {
+    label: "Section",
+    icon: Layers,
+    color: "bg-board-border text-board-muted border-board-border",
+  },
+  segment: {
+    label: "Segment",
+    icon: Layers,
+    color: "bg-blue-500/15 text-blue-400 border-blue-500/25",
+  },
+  song: {
+    label: "Song",
+    icon: Music,
+    color: "bg-purple-500/15 text-purple-400 border-purple-500/25",
+  },
+  prayer: {
+    label: "Prayer",
+    icon: Heart,
+    color: "bg-pink-500/15 text-pink-400 border-pink-500/25",
+  },
+  announcement: {
+    label: "Announce",
+    icon: Megaphone,
+    color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+  },
+  offering: {
+    label: "Offering",
+    icon: Gift,
+    color: "bg-green-500/15 text-green-400 border-green-500/25",
+  },
+  custom: {
+    label: "Custom",
+    icon: Layers,
+    color: "bg-board-border text-board-muted border-board-border",
+  },
 };
 
 function formatDuration(ms: number): string {
@@ -124,7 +179,8 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   const prefix = negative ? "-" : "";
-  if (hours > 0) return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  if (hours > 0)
+    return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
@@ -133,8 +189,10 @@ function parseDurationInput(str: string): number {
   const trimmed = str.trim();
   if (!trimmed) return 300000;
   const parts = trimmed.split(":").map(Number);
-  if (parts.length === 3 && parts.every((n) => !isNaN(n))) return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
-  if (parts.length === 2 && parts.every((n) => !isNaN(n))) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 3 && parts.every((n) => !isNaN(n)))
+    return (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
+  if (parts.length === 2 && parts.every((n) => !isNaN(n)))
+    return (parts[0] * 60 + parts[1]) * 1000;
   if (parts.length === 1 && !isNaN(parts[0])) return parts[0] * 60 * 1000;
   return 300000;
 }
@@ -144,7 +202,8 @@ function parseAdjustInput(str: string): number {
   const trimmed = str.trim();
   if (!trimmed) return 0;
   const parts = trimmed.split(":").map(Number);
-  if (parts.length === 2 && parts.every((n) => !isNaN(n))) return (parts[0] * 60 + parts[1]) * 1000;
+  if (parts.length === 2 && parts.every((n) => !isNaN(n)))
+    return (parts[0] * 60 + parts[1]) * 1000;
   if (parts.length === 1 && !isNaN(parts[0])) return parts[0] * 1000;
   return 0;
 }
@@ -157,7 +216,11 @@ function shiftDate(dateStr: string, days: number): string {
 
 function formatDisplayDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function formatOffset(deltaMs: number): string {
@@ -173,7 +236,9 @@ function formatOffset(deltaMs: number): string {
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
-  validateSearch: (search: Record<string, unknown>): {
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
     show?: string;
     date?: string;
   } => ({
@@ -187,7 +252,12 @@ export const Route = createFileRoute("/$slug/rundown")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "rundown:view", context.slug, context.orgId);
+    await withPermission(
+      context.role,
+      "rundown:view",
+      context.slug,
+      context.orgId,
+    );
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const orgTimeZone = settings["org-timezone"] || "UTC";
     const resolvedSettings: Record<string, string> = {
@@ -200,7 +270,12 @@ export const Route = createFileRoute("/$slug/rundown")({
     // opened empty six days a week — and once the cue sheet started
     // following the editor, that emptiness spread to it as well.
     const opening = await getRundownOpeningDate({
-      data: { orgId: context.orgId, today, serviceDate: deps.serviceDate, showId: deps.showId },
+      data: {
+        orgId: context.orgId,
+        today,
+        serviceDate: deps.serviceDate,
+        showId: deps.showId,
+      },
     });
     const openOn = opening.serviceDate;
     const openShowId = opening.showId;
@@ -217,62 +292,109 @@ export const Route = createFileRoute("/$slug/rundown")({
       today,
       openOn,
       initialState: state,
+      activeTarget: {
+        serviceDate: opening.activeServiceDate,
+        showId: opening.activeShowId,
+      },
       settings: resolvedSettings,
       role: context.role,
       grantedPermissions: context.grantedPermissions,
       shows: opening.shows,
+      initialNow: Date.now(),
     };
   },
   component: RundownPage,
 });
 
 function RundownPage() {
-  const { orgId, slug, openOn, initialState, settings, role, grantedPermissions, shows } = Route.useLoaderData();
+  const {
+    orgId,
+    slug,
+    openOn,
+    initialState,
+    activeTarget,
+    settings,
+    role,
+    grantedPermissions,
+    shows,
+    initialNow,
+  } = Route.useLoaderData();
   const navigate = useNavigate({ from: Route.fullPath });
-  const canEditRundown = hasEffectivePermission(role, grantedPermissions, "rundown:edit");
-  const canControlRundown = hasEffectivePermission(role, grantedPermissions, "rundown:control");
-  const canCreateShow = hasEffectivePermission(role, grantedPermissions, "schedule:manage");
-  const [target, setTarget] = useState<{ serviceDate: string; showId?: string }>(() => ({
+  const canEditRundown = hasEffectivePermission(
+    role,
+    grantedPermissions,
+    "rundown:edit",
+  );
+  const canControlRundown = hasEffectivePermission(
+    role,
+    grantedPermissions,
+    "rundown:control",
+  );
+  const canCreateShow = hasEffectivePermission(
+    role,
+    grantedPermissions,
+    "schedule:manage",
+  );
+  const [target, setTarget] = useState<{
+    serviceDate: string;
+    showId?: string;
+  }>(() => ({
     serviceDate: openOn,
     showId: initialState.meta?.showId,
   }));
   const { serviceDate, showId } = target;
-  const publishedTargetRef = useRef<string | null>(null);
   const activePublishInFlightRef = useRef(false);
   const [activePublishPending, setActivePublishPending] = useState(false);
-  const targetKey = `${serviceDate}:${showId ?? ""}`;
-  const publishTarget = useCallback(async (date: string, targetShowId?: string) => {
-    activePublishInFlightRef.current = true;
-    setActivePublishPending(true);
-    const key = `${date}:${targetShowId ?? ""}`;
-    try {
-      await setActiveServiceDate({ data: { orgId, serviceDate: date, showId: targetShowId } });
-      publishedTargetRef.current = key;
-      window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT));
-    } finally {
-      activePublishInFlightRef.current = false;
-      setActivePublishPending(false);
-    }
-  }, [orgId]);
-  const showCreationRef = useRef<{ date: string; promise: Promise<string> } | null>(null);
+  const [liveTarget, setLiveTarget] = useState(activeTarget);
+  const [showTakeLiveConfirmation, setShowTakeLiveConfirmation] =
+    useState(false);
+  const publishTarget = useCallback(
+    async (date: string, targetShowId?: string) => {
+      activePublishInFlightRef.current = true;
+      setActivePublishPending(true);
+      try {
+        await setActiveServiceDate({
+          data: { orgId, serviceDate: date, showId: targetShowId },
+        });
+        setLiveTarget({ serviceDate: date, showId: targetShowId ?? null });
+        window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT));
+      } finally {
+        activePublishInFlightRef.current = false;
+        setActivePublishPending(false);
+      }
+    },
+    [orgId],
+  );
+  const showCreationRef = useRef<{
+    date: string;
+    promise: Promise<string>;
+  } | null>(null);
   const ensureShowId = useCallback(async () => {
     if (showId) return showId;
-    if (showCreationRef.current?.date === serviceDate) return showCreationRef.current.promise;
+    if (showCreationRef.current?.date === serviceDate)
+      return showCreationRef.current.promise;
     const promise = saveRundownMeta({ data: { orgId, serviceDate } })
       .then((result) => result.showId)
       .catch((error) => {
-        if (showCreationRef.current?.date === serviceDate) showCreationRef.current = null;
+        if (showCreationRef.current?.date === serviceDate)
+          showCreationRef.current = null;
         throw error;
       });
     showCreationRef.current = { date: serviceDate, promise };
     return promise;
   }, [orgId, serviceDate, showId]);
-  const adoptShowId = useCallback(async (nextShowId: string) => {
-    await publishTarget(serviceDate, nextShowId);
-    setTarget({ serviceDate, showId: nextShowId });
-    await navigate({ search: { show: nextShowId, date: serviceDate }, replace: true });
-  }, [navigate, publishTarget, serviceDate]);
-  const defaultCountdownMinutes = Number(settings["default-countdown-minutes"] || "5") || 5;
+  const adoptShowId = useCallback(
+    async (nextShowId: string) => {
+      setTarget({ serviceDate, showId: nextShowId });
+      await navigate({
+        search: { show: nextShowId, date: serviceDate },
+        replace: true,
+      });
+    },
+    [navigate, serviceDate],
+  );
+  const defaultCountdownMinutes =
+    Number(settings["default-countdown-minutes"] || "5") || 5;
   const defaultItemDuration = `${defaultCountdownMinutes}:00`;
   const defaultTimerModeSetting = settings["default-timer-mode"] || "countdown";
   const overtimeBehavior = settings["overtime-behavior"] || "flash";
@@ -303,31 +425,17 @@ function RundownPage() {
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
-  const relayMatchesTarget = syncedServiceDate === serviceDate
-    && (!showId || syncedShowId === showId);
+  const relayMatchesTarget =
+    syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
 
   // Local state — source of truth for rendering
-  const [items, setItems] = useState<RundownItem[]>(initialState.items as RundownItem[]);
+  const [items, setItems] = useState<RundownItem[]>(
+    initialState.items as RundownItem[],
+  );
   /** Non-null when the last auto-save failed. Shown, not logged. */
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
 
-  // The rundown target is an atomic date/show pair. Publishing only complete
-  // pairs prevents a selection transition from activating the previous show
-  // under the newly selected date.
-  useEffect(() => {
-    if (!canEditRundown || publishedTargetRef.current === targetKey) return;
-    let current = true;
-    publishTarget(serviceDate, showId)
-      .catch((error: unknown) => {
-        if (current) {
-          setSelectionError(error instanceof Error ? error.message : "Could not publish the active show");
-        }
-      });
-    return () => {
-      current = false;
-    };
-  }, [canEditRundown, publishTarget, serviceDate, showId, targetKey]);
   const [timer, setTimer] = useState<{
     playback: "stop" | "play" | "pause";
     currentItemId: string | null;
@@ -342,21 +450,32 @@ function RundownPage() {
     mode: initialState.timer.mode,
   });
   const [scheduledStartTime, setScheduledStartTime] = useState<string>(
-    formatTimeInput(initialState.meta?.scheduledStartTime, settings["org-timezone"])
+    formatTimeInput(
+      initialState.meta?.scheduledStartTime,
+      settings["org-timezone"],
+    ),
   );
   const [scheduledCallTime, setScheduledCallTime] = useState<string>(
-    formatTimeInput(initialState.meta?.scheduledCallTime, settings["org-timezone"])
+    formatTimeInput(
+      initialState.meta?.scheduledCallTime,
+      settings["org-timezone"],
+    ),
   );
-  const [serviceName, setServiceName] = useState<string>(initialState.meta?.name ?? "");
+  const [serviceName, setServiceName] = useState<string>(
+    initialState.meta?.name ?? "",
+  );
   const saveNameTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMetaFieldsRef = useRef(new Set<"name" | "time" | "call">());
   const [metaSavePending, setMetaSavePending] = useState(false);
 
-  const setMetaFieldPending = useCallback((field: "name" | "time" | "call", pending: boolean) => {
-    if (pending) pendingMetaFieldsRef.current.add(field);
-    else pendingMetaFieldsRef.current.delete(field);
-    setMetaSavePending(pendingMetaFieldsRef.current.size > 0);
-  }, []);
+  const setMetaFieldPending = useCallback(
+    (field: "name" | "time" | "call", pending: boolean) => {
+      if (pending) pendingMetaFieldsRef.current.add(field);
+      else pendingMetaFieldsRef.current.delete(field);
+      setMetaSavePending(pendingMetaFieldsRef.current.size > 0);
+    },
+    [],
+  );
 
   // Immutable D1 snapshot for reconciling a Durable Object that survived
   // a deploy with rows from a different service under this date label.
@@ -380,36 +499,55 @@ function RundownPage() {
     if (!syncHydrated) return; // Wait for actual DO response
     if (hasSeededRef.current) return; // Only seed once per date
     const databaseItems = databaseItemsRef.current;
-    const sameRoom = syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
+    const sameRoom =
+      syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
     // The relay wins whenever it already has state. A joining operator's D1
     // loader can be a fraction behind a live edit; forcing that snapshot into
     // the room is exactly how a second operator used to roll the show back.
     if (sameRoom && !syncedInitialized) {
       hasSeededRef.current = true;
-      seedState(databaseItems, {
-        playback: timer.playback,
-        currentItemId: timer.currentItemId,
-        elapsed: timer.elapsed,
-        startedAt: timer.startedAt,
-        pausedAt: null,
-        mode: timer.mode,
-      }, false, {
-        serviceName,
-        scheduledStartTime: serviceTimeToIso(
-          serviceDate,
-          scheduledStartTime,
-          settings["org-timezone"],
-        ),
-        scheduledCallTime: serviceTimeToIso(
-          serviceDate,
-          scheduledCallTime,
-          settings["org-timezone"],
-        ),
-      });
+      seedState(
+        databaseItems,
+        {
+          playback: timer.playback,
+          currentItemId: timer.currentItemId,
+          elapsed: timer.elapsed,
+          startedAt: timer.startedAt,
+          pausedAt: null,
+          mode: timer.mode,
+        },
+        false,
+        {
+          serviceName,
+          scheduledStartTime: serviceTimeToIso(
+            serviceDate,
+            scheduledStartTime,
+            settings["org-timezone"],
+          ),
+          scheduledCallTime: serviceTimeToIso(
+            serviceDate,
+            scheduledCallTime,
+            settings["org-timezone"],
+          ),
+        },
+      );
     } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
     }
-  }, [scheduledCallTime, scheduledStartTime, seedState, serviceDate, serviceName, settings, showId, syncHydrated, syncedInitialized, syncedServiceDate, syncedShowId, timer]);
+  }, [
+    scheduledCallTime,
+    scheduledStartTime,
+    seedState,
+    serviceDate,
+    serviceName,
+    settings,
+    showId,
+    syncHydrated,
+    syncedInitialized,
+    syncedServiceDate,
+    syncedShowId,
+    timer,
+  ]);
 
   // Shared with the dashboard header — see components/ui/scroll-edges.
 
@@ -430,7 +568,13 @@ function RundownPage() {
           : "",
       );
     }
-  }, [relayMatchesTarget, settings, syncedScheduledCallTime, syncedScheduledStartTime, syncedServiceName]);
+  }, [
+    relayMatchesTarget,
+    settings,
+    syncedScheduledCallTime,
+    syncedScheduledStartTime,
+    syncedServiceName,
+  ]);
 
   // The web app remains the source of truth. Desktop keeps a bounded local
   // snapshot after edits so the native engine can grow an offline bootstrap
@@ -469,89 +613,166 @@ function RundownPage() {
         }
         void ensureShowId()
           .then(async (targetShowId) => {
-            await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, name: value } });
+            await saveRundownMeta({
+              data: { orgId, showId: targetShowId, serviceDate, name: value },
+            });
             if (!showId) await adoptShowId(targetShowId);
           })
-          .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service title did not save"))
+          .catch((error: unknown) =>
+            setSaveError(
+              error instanceof Error
+                ? error.message
+                : "Service title did not save",
+            ),
+          )
           .finally(() => setMetaFieldPending("name", false));
       }, 800);
     },
-    [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, showId],
+    [
+      adoptShowId,
+      ensureShowId,
+      orgId,
+      sendCommand,
+      serviceDate,
+      setMetaFieldPending,
+      showId,
+    ],
   );
 
-  const handleScheduledStartChange = useCallback((timeStr: string) => {
-    setScheduledStartTime(timeStr);
-    setSaveError(null);
-    setMetaFieldPending("time", true);
-    const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
-    if (showId) {
-      sendCommand("update-meta", { scheduledStartTime: isoTime });
-      setMetaFieldPending("time", false);
-      return;
-    }
-    void ensureShowId()
-      .then(async (targetShowId) => {
-        await saveRundownMeta({ data: { orgId, showId: targetShowId, serviceDate, scheduledStartTime: isoTime } });
-        if (!showId) await adoptShowId(targetShowId);
-      })
-      .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Service time did not save"))
-      .finally(() => setMetaFieldPending("time", false));
-  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
+  const handleScheduledStartChange = useCallback(
+    (timeStr: string) => {
+      setScheduledStartTime(timeStr);
+      setSaveError(null);
+      setMetaFieldPending("time", true);
+      const isoTime = serviceTimeToIso(
+        serviceDate,
+        timeStr,
+        settings["org-timezone"],
+      );
+      if (showId) {
+        sendCommand("update-meta", { scheduledStartTime: isoTime });
+        setMetaFieldPending("time", false);
+        return;
+      }
+      void ensureShowId()
+        .then(async (targetShowId) => {
+          await saveRundownMeta({
+            data: {
+              orgId,
+              showId: targetShowId,
+              serviceDate,
+              scheduledStartTime: isoTime,
+            },
+          });
+          if (!showId) await adoptShowId(targetShowId);
+        })
+        .catch((error: unknown) =>
+          setSaveError(
+            error instanceof Error
+              ? error.message
+              : "Service time did not save",
+          ),
+        )
+        .finally(() => setMetaFieldPending("time", false));
+    },
+    [
+      adoptShowId,
+      ensureShowId,
+      orgId,
+      sendCommand,
+      serviceDate,
+      setMetaFieldPending,
+      settings,
+      showId,
+    ],
+  );
 
-  const handleScheduledCallChange = useCallback((timeStr: string) => {
-    setScheduledCallTime(timeStr);
-    setSaveError(null);
-    setMetaFieldPending("call", true);
-    const isoTime = serviceTimeToIso(serviceDate, timeStr, settings["org-timezone"]);
-    if (showId) {
-      setMetaFieldPending("call", false);
-      sendCommand("update-meta", { scheduledCallTime: isoTime });
-      return;
-    }
-    void ensureShowId()
-      .then(async (targetShowId) => {
-        await saveRundownMeta({
-          data: {
-            orgId,
-            showId: targetShowId,
-            serviceDate,
-            scheduledCallTime: isoTime,
-          },
-        });
-        if (!showId) await adoptShowId(targetShowId);
-      })
-      .catch((error: unknown) => setSaveError(error instanceof Error ? error.message : "Crew call did not save"))
-      .finally(() => setMetaFieldPending("call", false));
-  }, [adoptShowId, ensureShowId, orgId, sendCommand, serviceDate, setMetaFieldPending, settings, showId]);
+  const handleScheduledCallChange = useCallback(
+    (timeStr: string) => {
+      setScheduledCallTime(timeStr);
+      setSaveError(null);
+      setMetaFieldPending("call", true);
+      const isoTime = serviceTimeToIso(
+        serviceDate,
+        timeStr,
+        settings["org-timezone"],
+      );
+      if (showId) {
+        setMetaFieldPending("call", false);
+        sendCommand("update-meta", { scheduledCallTime: isoTime });
+        return;
+      }
+      void ensureShowId()
+        .then(async (targetShowId) => {
+          await saveRundownMeta({
+            data: {
+              orgId,
+              showId: targetShowId,
+              serviceDate,
+              scheduledCallTime: isoTime,
+            },
+          });
+          if (!showId) await adoptShowId(targetShowId);
+        })
+        .catch((error: unknown) =>
+          setSaveError(
+            error instanceof Error ? error.message : "Crew call did not save",
+          ),
+        )
+        .finally(() => setMetaFieldPending("call", false));
+    },
+    [
+      adoptShowId,
+      ensureShowId,
+      orgId,
+      sendCommand,
+      serviceDate,
+      setMetaFieldPending,
+      settings,
+      showId,
+    ],
+  );
 
-  useEffect(() => () => {
-    if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
-    pendingMetaFieldsRef.current.clear();
-    setMetaSavePending(false);
-  }, [serviceDate]);
+  useEffect(
+    () => () => {
+      if (saveNameTimeoutRef.current) clearTimeout(saveNameTimeoutRef.current);
+      pendingMetaFieldsRef.current.clear();
+      setMetaSavePending(false);
+    },
+    [serviceDate],
+  );
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const handleExport = useCallback(async (format: "csv" | "pdf") => {
-    setExporting(true);
-    setExportError(null);
-    try {
-      const report = await exportShowReport({ data: { orgId, serviceDate, showId } });
-      const exportReport: ExportReport = {
-        ...report,
-        rundown: { items: report.rundown.items, stageMessage: report.rundown.stageMessage, name: report.rundown.name, scheduledStartTime: report.rundown.scheduledStartTime },
-      };
-      if (format === "csv") {
-        exportRundownCsv(exportReport);
-      } else {
-        await exportRundownPdf(exportReport);
+  const handleExport = useCallback(
+    async (format: "csv" | "pdf") => {
+      setExporting(true);
+      setExportError(null);
+      try {
+        const report = await exportShowReport({
+          data: { orgId, serviceDate, showId },
+        });
+        const exportReport: ExportReport = {
+          ...report,
+          rundown: {
+            items: report.rundown.items,
+            stageMessage: report.rundown.stageMessage,
+            name: report.rundown.name,
+            scheduledStartTime: report.rundown.scheduledStartTime,
+          },
+        };
+        if (format === "csv") {
+          exportRundownCsv(exportReport);
+        } else {
+          await exportRundownPdf(exportReport);
+        }
+      } catch (err) {
+        setExportError(err instanceof Error ? err.message : "Export failed");
       }
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : "Export failed");
-    }
-    setExporting(false);
-  }, [orgId, serviceDate, showId]);
-
+      setExporting(false);
+    },
+    [orgId, serviceDate, showId],
+  );
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<RundownItem | null>(null);
@@ -559,16 +780,19 @@ function RundownPage() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(initialNow);
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
   const selectionInFlightRef = useRef(false);
 
   const waitForCurrentRundownWrites = useCallback(async () => {
-    await waitForRundownWrites(() => pendingMetaFieldsRef.current.size > 0
-        || hasPendingCommands()
-        || activePublishInFlightRef.current);
+    await waitForRundownWrites(
+      () =>
+        pendingMetaFieldsRef.current.size > 0 ||
+        hasPendingCommands() ||
+        activePublishInFlightRef.current,
+    );
   }, [hasPendingCommands]);
 
   // Sync: accept DO state as source of truth, but ONLY after hydration.
@@ -589,7 +813,13 @@ function RundownPage() {
       startedAt: syncedTimer.startedAt,
       mode: syncedTimer.mode,
     });
-  }, [relayMatchesTarget, syncHydrated, syncedInitialized, syncedItems, syncedTimer]);
+  }, [
+    relayMatchesTarget,
+    syncHydrated,
+    syncedInitialized,
+    syncedItems,
+    syncedTimer,
+  ]);
 
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customAdjust, setCustomAdjust] = useState("1:00");
@@ -602,9 +832,13 @@ function RundownPage() {
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
   const [ppOutputPending, setPpOutputPending] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
-  const [ppCmdPending, setPpCmdPending] = useState<"next" | "previous" | "clear" | null>(null);
+  const [ppCmdPending, setPpCmdPending] = useState<
+    "next" | "previous" | "clear" | null
+  >(null);
   const [ppCmdNotice, setPpCmdNotice] = useState("");
-  const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(null);
+  const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(
+    null,
+  );
   const rafRef = useRef<number>(0);
   const prevItemIdRef = useRef<string | null>(null);
   const timerRef = useRef(timer);
@@ -619,39 +853,44 @@ function RundownPage() {
   // Load PP settings from org config
   useEffect(() => {
     if (!canControlRundown) return;
-    getProPresenterRuntimeSettings({ data: { orgId } }).then((settings) => {
-      const host = settings["propresenter-host"] || "";
-      const port = parseInt(settings["propresenter-port"] || "50001", 10);
-      const pwd = settings["propresenter-password"] || "";
-      const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
-      const cues = settings["propresenter-send-cues"] === "true";
-      setPpHost(host);
-      setPpPort(port);
-      setPpPassword(pwd);
-      setPpApiPort(apiPort);
-      setPpCuesEnabled(cues);
-    }).catch(() => {});
+    getProPresenterRuntimeSettings({ data: { orgId } })
+      .then((settings) => {
+        const host = settings["propresenter-host"] || "";
+        const port = parseInt(settings["propresenter-port"] || "50001", 10);
+        const pwd = settings["propresenter-password"] || "";
+        const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
+        const cues = settings["propresenter-send-cues"] === "true";
+        setPpHost(host);
+        setPpPort(port);
+        setPpPassword(pwd);
+        setPpApiPort(apiPort);
+        setPpCuesEnabled(cues);
+      })
+      .catch(() => {});
   }, [canControlRundown, orgId]);
 
   // PP slide preview — direct ProPresenter connection updates local preview only.
-  const handlePPSlideChange = useCallback((slide: import("@/lib/propresenter-client").PPSlideData | null) => {
-    if (!slide || !slide.text) {
-      setPpCurrentSlide(null);
-      return;
-    }
-    const trimmedText = slide.text.trim();
-    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return;
-    if (/^[\d:.\-\s]+$/.test(trimmedText)) return;
-    if (trimmedText.length < 3) return;
-    const payload: PPSlidePayload = {
-      text: slide.text,
-      notes: slide.notes,
-      presentationName: slide.presentationName,
-      isScripture: slide.isScripture,
-      updatedAt: Date.now(),
-    };
-    setPpCurrentSlide(payload);
-  }, []);
+  const handlePPSlideChange = useCallback(
+    (slide: import("@/lib/propresenter-client").PPSlideData | null) => {
+      if (!slide || !slide.text) {
+        setPpCurrentSlide(null);
+        return;
+      }
+      const trimmedText = slide.text.trim();
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmedText)) return;
+      if (/^[\d:.\-\s]+$/.test(trimmedText)) return;
+      if (trimmedText.length < 3) return;
+      const payload: PPSlidePayload = {
+        text: slide.text,
+        notes: slide.notes,
+        presentationName: slide.presentationName,
+        isScripture: slide.isScripture,
+        updatedAt: Date.now(),
+      };
+      setPpCurrentSlide(payload);
+    },
+    [],
+  );
 
   // ProPresenter direct connection (works on local network / dev only)
   const pp = useProPresenter({
@@ -664,39 +903,58 @@ function RundownPage() {
     onSlideChange: handlePPSlideChange,
   });
 
-  const handleProPresenterCommand = useCallback(async (command: "next" | "previous" | "clear") => {
-    if (ppCmdPending) return;
-    setPpCmdPending(command);
-    setPpCmdError("");
-    setPpCmdNotice("");
-    try {
-      const result = await sendProPresenterCommand({ data: { orgId, command } });
-      if (!result.ok) {
-        setPpCmdError(result.error || "ProPresenter did not accept the command");
-        return;
+  const handleProPresenterCommand = useCallback(
+    async (command: "next" | "previous" | "clear") => {
+      if (ppCmdPending) return;
+      setPpCmdPending(command);
+      setPpCmdError("");
+      setPpCmdNotice("");
+      try {
+        const result = await sendProPresenterCommand({
+          data: { orgId, command },
+        });
+        if (!result.ok) {
+          setPpCmdError(
+            result.error || "ProPresenter did not accept the command",
+          );
+          return;
+        }
+        setPpCmdNotice(
+          command === "previous"
+            ? "Previous slide sent"
+            : command === "next"
+              ? "Next slide sent"
+              : "Slide layer cleared",
+        );
+      } catch (error) {
+        setPpCmdError(
+          error instanceof Error
+            ? error.message
+            : "ProPresenter command failed",
+        );
+      } finally {
+        setPpCmdPending(null);
       }
-      setPpCmdNotice(command === "previous" ? "Previous slide sent" : command === "next" ? "Next slide sent" : "Slide layer cleared");
-    } catch (error) {
-      setPpCmdError(error instanceof Error ? error.message : "ProPresenter command failed");
-    } finally {
-      setPpCmdPending(null);
-    }
-  }, [orgId, ppCmdPending]);
+    },
+    [orgId, ppCmdPending],
+  );
 
   // Prefer the freshest slide so a stale bridge payload cannot mask a newer
   // direct update during long-running ProPresenter sessions.
   const bridgeSlideUpdatedAt = syncedPpSlide?.updatedAt ?? 0;
   const directSlideUpdatedAt = ppCurrentSlide?.updatedAt ?? 0;
-  const ppSource = bridgeSlideUpdatedAt >= directSlideUpdatedAt && bridgeSlideUpdatedAt > 0
-    ? "bridge"
-    : directSlideUpdatedAt > 0
-      ? "direct"
-      : null;
-  const activePpSlide: PPSlidePayload | null = ppSource === "bridge"
-    ? syncedPpSlide
-    : ppSource === "direct"
-      ? ppCurrentSlide
-      : null;
+  const ppSource =
+    bridgeSlideUpdatedAt >= directSlideUpdatedAt && bridgeSlideUpdatedAt > 0
+      ? "bridge"
+      : directSlideUpdatedAt > 0
+        ? "direct"
+        : null;
+  const activePpSlide: PPSlidePayload | null =
+    ppSource === "bridge"
+      ? syncedPpSlide
+      : ppSource === "direct"
+        ? ppCurrentSlide
+        : null;
 
   // PP is "connected" if gateway bridge is sending slides OR direct connection works
   const ppIsConnected = ppSource !== null || pp.status === "connected";
@@ -719,7 +977,11 @@ function RundownPage() {
     try {
       await setProPresenterStageDisplay({ data: { orgId, enabled: next } });
     } catch (error) {
-      setPpCmdError(error instanceof Error ? error.message : "Could not update the kiosk output");
+      setPpCmdError(
+        error instanceof Error
+          ? error.message
+          : "Could not update the kiosk output",
+      );
     } finally {
       setPpOutputPending(false);
     }
@@ -735,11 +997,10 @@ function RundownPage() {
     setSelectionError(null);
     try {
       await waitForCurrentRundownWrites();
-      const state = await getRundownState({ data: { orgId, serviceDate: date, showId: targetShowId } });
+      const state = await getRundownState({
+        data: { orgId, serviceDate: date, showId: targetShowId },
+      });
       const nextShowId = state.meta?.showId;
-      if (canEditRundown) {
-        await publishTarget(date, nextShowId);
-      }
       databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
       setServiceName(state.meta?.name ?? "");
@@ -752,12 +1013,18 @@ function RundownPage() {
       });
       setScheduledStartTime(
         state.meta?.scheduledStartTime
-          ? formatTimeInput(state.meta.scheduledStartTime, settings["org-timezone"])
-          : ""
+          ? formatTimeInput(
+              state.meta.scheduledStartTime,
+              settings["org-timezone"],
+            )
+          : "",
       );
       setScheduledCallTime(
         state.meta?.scheduledCallTime
-          ? formatTimeInput(state.meta.scheduledCallTime, settings["org-timezone"])
+          ? formatTimeInput(
+              state.meta.scheduledCallTime,
+              settings["org-timezone"],
+            )
           : "",
       );
       showCreationRef.current = null;
@@ -771,7 +1038,9 @@ function RundownPage() {
       // The date-aware sync effect seeds the relay after the new socket has
       // hydrated. Sending here would target the previous date's socket.
     } catch (error) {
-      setSelectionError(error instanceof Error ? error.message : "Could not open that rundown");
+      setSelectionError(
+        error instanceof Error ? error.message : "Could not open that rundown",
+      );
     } finally {
       selectionInFlightRef.current = false;
       setLoading(false);
@@ -815,35 +1084,46 @@ function RundownPage() {
   itemsRef.current = items;
   progressResetRef.current = progressReset;
 
-  const sendRundownCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
-    if (relayNeedsPriming) {
-      hasSeededRef.current = true;
-      sendCommand("seed", {
-        items: itemsRef.current,
-        timer: {
-          playback: timerRef.current.playback,
-          currentItemId: timerRef.current.currentItemId,
-          elapsed: timerRef.current.elapsed,
-          startedAt: timerRef.current.startedAt,
-          pausedAt: timerRef.current.playback === "pause" ? Date.now() : null,
-          mode: timerRef.current.mode,
-        },
-        serviceName,
-        scheduledStartTime: serviceTimeToIso(
-          serviceDate,
-          scheduledStartTime,
-          settings["org-timezone"],
-        ),
-        scheduledCallTime: serviceTimeToIso(
-          serviceDate,
-          scheduledCallTime,
-          settings["org-timezone"],
-        ),
-      });
-    }
+  const sendRundownCommand = useCallback(
+    (action: string, payload?: Record<string, unknown>) => {
+      if (relayNeedsPriming) {
+        hasSeededRef.current = true;
+        sendCommand("seed", {
+          items: itemsRef.current,
+          timer: {
+            playback: timerRef.current.playback,
+            currentItemId: timerRef.current.currentItemId,
+            elapsed: timerRef.current.elapsed,
+            startedAt: timerRef.current.startedAt,
+            pausedAt: timerRef.current.playback === "pause" ? Date.now() : null,
+            mode: timerRef.current.mode,
+          },
+          serviceName,
+          scheduledStartTime: serviceTimeToIso(
+            serviceDate,
+            scheduledStartTime,
+            settings["org-timezone"],
+          ),
+          scheduledCallTime: serviceTimeToIso(
+            serviceDate,
+            scheduledCallTime,
+            settings["org-timezone"],
+          ),
+        });
+      }
 
-    sendCommand(action, payload);
-  }, [relayNeedsPriming, scheduledCallTime, scheduledStartTime, sendCommand, serviceDate, serviceName, settings]);
+      sendCommand(action, payload);
+    },
+    [
+      relayNeedsPriming,
+      scheduledCallTime,
+      scheduledStartTime,
+      sendCommand,
+      serviceDate,
+      serviceName,
+      settings,
+    ],
+  );
 
   // The text changes at second boundaries; sampling at 10 Hz keeps it precise
   // without rerendering this dense operator page on every animation frame.
@@ -861,7 +1141,9 @@ function RundownPage() {
 
       // Direct DOM update for progress bars — sole owner of width
       const t = timerRef.current;
-      const ci = t.currentItemId ? itemsRef.current.find((i) => i.id === t.currentItemId) : null;
+      const ci = t.currentItemId
+        ? itemsRef.current.find((i) => i.id === t.currentItemId)
+        : null;
       const bars = [
         document.getElementById("rundown-progress-fill"),
         document.getElementById("rundown-item-progress"),
@@ -874,9 +1156,10 @@ function RundownPage() {
         } else {
           bar.style.transition = "none";
           if (ci && ci.duration > 0) {
-            const el = t.playback === "play" && t.startedAt
-              ? t.elapsed + (n - t.startedAt)
-              : t.elapsed;
+            const el =
+              t.playback === "play" && t.startedAt
+                ? t.elapsed + (n - t.startedAt)
+                : t.elapsed;
             const pct = Math.min(100, (el / ci.duration) * 100);
             bar.style.width = `${pct}%`;
           }
@@ -886,14 +1169,18 @@ function RundownPage() {
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-    return () => { running = false; cancelAnimationFrame(rafRef.current); };
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
   // Compute elapsed inline from `now` — drives both countdown and progress bar
   const currentItem = items.find((i) => i.id === timer.currentItemId);
-  const elapsed = timer.playback === "play" && timer.startedAt
-    ? timer.elapsed + (now - timer.startedAt)
-    : timer.elapsed;
+  const elapsed =
+    timer.playback === "play" && timer.startedAt
+      ? timer.elapsed + (now - timer.startedAt)
+      : timer.elapsed;
   const remaining = currentItem ? currentItem.duration - elapsed : 0;
   const isOvertime = remaining < 0 && overtimeBehavior !== "stop";
   const isWarning = !isOvertime && remaining <= 120000; // ≤2 minutes
@@ -910,28 +1197,45 @@ function RundownPage() {
     prevItemIdRef.current = timer.currentItemId;
   }, [timer.currentItemId]);
 
-  const handleStart = useCallback((itemId: string) => {
-    if (!canControlRundown) return;
-    const target = items.find((item) => item.id === itemId);
-    if (!target || target.type === "header") return;
-    // Optimistic local update
-    setItems((prev) =>
-      prev.map((i) =>
-        i.status === "live" ? { ...i, status: "complete" as ItemStatus } :
-        i.id === itemId ? { ...i, status: "live" as ItemStatus } : i
-      )
-    );
-    const startNow = Date.now();
-     setTimer({ playback: "play", currentItemId: itemId, elapsed: 0, startedAt: startNow, mode: timer.mode });
-    // Sync to DO + persist to DB
-    sendRundownCommand("timer-start", { itemId });
-  }, [canControlRundown, items, sendRundownCommand, timer.mode]);
+  const handleStart = useCallback(
+    (itemId: string) => {
+      if (!canControlRundown) return;
+      const target = items.find((item) => item.id === itemId);
+      if (!target || target.type === "header") return;
+      // Optimistic local update
+      setItems((prev) =>
+        prev.map((i) =>
+          i.status === "live"
+            ? { ...i, status: "complete" as ItemStatus }
+            : i.id === itemId
+              ? { ...i, status: "live" as ItemStatus }
+              : i,
+        ),
+      );
+      const startNow = Date.now();
+      setTimer({
+        playback: "play",
+        currentItemId: itemId,
+        elapsed: 0,
+        startedAt: startNow,
+        mode: timer.mode,
+      });
+      // Sync to DO + persist to DB
+      sendRundownCommand("timer-start", { itemId });
+    },
+    [canControlRundown, items, sendRundownCommand, timer.mode],
+  );
 
   const handlePause = useCallback(() => {
     if (!canControlRundown) return;
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
-       setTimer({ ...timer, playback: "pause", elapsed: newElapsed, startedAt: null });
+      setTimer({
+        ...timer,
+        playback: "pause",
+        elapsed: newElapsed,
+        startedAt: null,
+      });
       sendRundownCommand("timer-pause");
     }
   }, [canControlRundown, timer, sendRundownCommand]);
@@ -940,7 +1244,7 @@ function RundownPage() {
     if (!canControlRundown) return;
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
-       setTimer({ ...timer, playback: "play", startedAt: resumeNow });
+      setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendRundownCommand("timer-resume");
     }
   }, [canControlRundown, timer, sendRundownCommand]);
@@ -949,10 +1253,18 @@ function RundownPage() {
     if (!canControlRundown) return;
     setItems((prev) =>
       prev.map((i) =>
-        i.id === timer.currentItemId ? { ...i, status: "complete" as ItemStatus } : i
-      )
+        i.id === timer.currentItemId
+          ? { ...i, status: "complete" as ItemStatus }
+          : i,
+      ),
     );
-     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
+    setTimer({
+      playback: "stop",
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      mode: timer.mode,
+    });
     sendRundownCommand("timer-stop");
   }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand]);
 
@@ -963,27 +1275,43 @@ function RundownPage() {
     if (currentIdx >= 0) {
       setItems((prev) =>
         prev.map((i, idx) =>
-          idx === currentIdx ? { ...i, status: "complete" as ItemStatus } : i
-        )
+          idx === currentIdx ? { ...i, status: "complete" as ItemStatus } : i,
+        ),
       );
     }
-    const nextItem = items.find(
-      (item, i) => i > currentIdx && item.status !== "complete" && item.type !== "header",
-    );
+    const nextItem = nextPlayableItem(items, timer.currentItemId);
     if (nextItem) {
       setItems((prev) =>
         prev.map((i) =>
-          i.id === nextItem.id ? { ...i, status: "live" as ItemStatus } : i
-        )
+          i.id === nextItem.id ? { ...i, status: "live" as ItemStatus } : i,
+        ),
       );
       const startNow = Date.now();
-       setTimer({ playback: "play", currentItemId: nextItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
+      setTimer({
+        playback: "play",
+        currentItemId: nextItem.id,
+        elapsed: 0,
+        startedAt: startNow,
+        mode: timer.mode,
+      });
     } else {
-      setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
+      setTimer({
+        playback: "stop",
+        currentItemId: null,
+        elapsed: 0,
+        startedAt: null,
+        mode: timer.mode,
+      });
     }
     // Single DO command — DO handles the advance logic
     sendRundownCommand("timer-next");
-  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand]);
+  }, [
+    canControlRundown,
+    items,
+    timer.currentItemId,
+    timer.mode,
+    sendRundownCommand,
+  ]);
 
   const handlePrev = useCallback(() => {
     if (!canControlRundown) return;
@@ -996,25 +1324,48 @@ function RundownPage() {
       // Local optimistic update — reset current to upcoming, start previous
       setItems((prev) =>
         prev.map((i, idx) =>
-          idx === currentIdx ? { ...i, status: "upcoming" as ItemStatus } :
-          i.id === prevItem.id ? { ...i, status: "live" as ItemStatus } : i
-        )
+          idx === currentIdx
+            ? { ...i, status: "upcoming" as ItemStatus }
+            : i.id === prevItem.id
+              ? { ...i, status: "live" as ItemStatus }
+              : i,
+        ),
       );
       const startNow = Date.now();
-       setTimer({ playback: "play", currentItemId: prevItem.id, elapsed: 0, startedAt: startNow, mode: timer.mode });
+      setTimer({
+        playback: "play",
+        currentItemId: prevItem.id,
+        elapsed: 0,
+        startedAt: startNow,
+        mode: timer.mode,
+      });
       sendRundownCommand("timer-prev");
     }
-  }, [canControlRundown, items, timer.currentItemId, timer.mode, sendRundownCommand]);
+  }, [
+    canControlRundown,
+    items,
+    timer.currentItemId,
+    timer.mode,
+    sendRundownCommand,
+  ]);
 
   const handleReset = useCallback(() => {
     if (!canEditRundown) return;
-    setItems((prev) => prev.map((i) => ({
-      ...i,
-      status: "upcoming" as ItemStatus,
-      actualStart: null,
-      actualEnd: null,
-    })));
-     setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
+    setItems((prev) =>
+      prev.map((i) => ({
+        ...i,
+        status: "upcoming" as ItemStatus,
+        actualStart: null,
+        actualEnd: null,
+      })),
+    );
+    setTimer({
+      playback: "stop",
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      mode: timer.mode,
+    });
     sendRundownCommand("reset");
   }, [canEditRundown, sendRundownCommand, timer.mode]);
 
@@ -1022,7 +1373,13 @@ function RundownPage() {
 
   const handleClearAll = useCallback(() => {
     if (!canEditRundown) return;
-    const clearedTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode };
+    const clearedTimer = {
+      playback: "stop" as const,
+      currentItemId: null,
+      elapsed: 0,
+      startedAt: null,
+      mode: timer.mode,
+    };
     setItems([]);
     setTimer(clearedTimer);
     // The relay arbitrates and persists this destructive change so a stale
@@ -1033,31 +1390,42 @@ function RundownPage() {
   // Add or subtract time from the running timer (like OnTime's +/- buttons)
   // Positive deltaMs = add time (reduce elapsed, giving more remaining)
   // Negative deltaMs = subtract time (increase elapsed, giving less remaining)
-  const handleAdjustTime = useCallback((deltaMs: number) => {
-    if (!canControlRundown) return;
-    if (timer.playback === "stop") return;
+  const handleAdjustTime = useCallback(
+    (deltaMs: number) => {
+      if (!canControlRundown) return;
+      if (timer.playback === "stop") return;
 
-    if (timer.playback === "play" && timer.startedAt) {
-      const currentElapsed = timer.elapsed + (Date.now() - timer.startedAt);
-      const newElapsed = currentElapsed - deltaMs; // Allow negative = extra time added
-      const adjustNow = Date.now();
-      setTimer({ ...timer, elapsed: newElapsed, startedAt: adjustNow });
-    } else if (timer.playback === "pause") {
-      const newElapsed = timer.elapsed - deltaMs;
-      setTimer({ ...timer, elapsed: newElapsed });
-    }
-    // Sync to DO → broadcasts to all clients and kiosk
-    sendRundownCommand("timer-adjust", { deltaMs });
-  }, [canControlRundown, timer, sendRundownCommand]);
+      if (timer.playback === "play" && timer.startedAt) {
+        const currentElapsed = timer.elapsed + (Date.now() - timer.startedAt);
+        const newElapsed = currentElapsed - deltaMs; // Allow negative = extra time added
+        const adjustNow = Date.now();
+        setTimer({ ...timer, elapsed: newElapsed, startedAt: adjustNow });
+      } else if (timer.playback === "pause") {
+        const newElapsed = timer.elapsed - deltaMs;
+        setTimer({ ...timer, elapsed: newElapsed });
+      }
+      // Sync to DO → broadcasts to all clients and kiosk
+      sendRundownCommand("timer-adjust", { deltaMs });
+    },
+    [canControlRundown, timer, sendRundownCommand],
+  );
 
-  const handleAddItem = async (title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
+  const handleAddItem = async (
+    title: string,
+    type: ItemType,
+    durationStr: string,
+    assignee: string,
+    notes: string,
+  ) => {
     if (!canEditRundown) return;
     setSaveError(null);
     const item: RundownItem = {
       id: createBrowserId(),
-      title, type,
+      title,
+      type,
       duration: parseDurationInput(durationStr),
-      notes, assignee,
+      notes,
+      assignee,
       cue: "",
       status: "upcoming",
       sortOrder: items.length,
@@ -1067,15 +1435,22 @@ function RundownPage() {
       const nextItems = [...items, item];
       try {
         const targetShowId = await ensureShowId();
-        await saveRundownItems({ data: { orgId, showId: targetShowId, serviceDate, items: nextItems } });
+        await saveRundownItems({
+          data: { orgId, showId: targetShowId, serviceDate, items: nextItems },
+        });
         databaseItemsRef.current = nextItems;
         await adoptShowId(targetShowId);
       } catch (error) {
-        setSaveError(error instanceof Error ? error.message : "This item did not save");
+        setSaveError(
+          error instanceof Error ? error.message : "This item did not save",
+        );
         return;
       }
     } else {
-      sendRundownCommand("add-item", item as unknown as Record<string, unknown>);
+      sendRundownCommand(
+        "add-item",
+        item as unknown as Record<string, unknown>,
+      );
       setItems((prev) => [...prev, item]);
     }
     setShowAddForm(false);
@@ -1096,24 +1471,35 @@ function RundownPage() {
     if (newIdx < 0 || newIdx >= items.length) return;
     const reordered = [...items];
     [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
-    const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
+    const normalized = reordered.map((item, sortOrder) => ({
+      ...item,
+      sortOrder,
+    }));
     setItems(normalized);
     sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
   };
 
-  const reorderItemsById = useCallback((sourceItemId: string, targetItemId: string) => {
-    if (!canEditRundown || sourceItemId === targetItemId) return;
+  const reorderItemsById = useCallback(
+    (sourceItemId: string, targetItemId: string) => {
+      if (!canEditRundown || sourceItemId === targetItemId) return;
 
-    const fromIndex = items.findIndex((item) => item.id === sourceItemId);
-    const toIndex = items.findIndex((item) => item.id === targetItemId);
-    if (fromIndex < 0 || toIndex < 0) return;
-    const reordered = [...items];
-    const [moved] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, moved);
-    const normalized = reordered.map((item, sortOrder) => ({ ...item, sortOrder }));
-    setItems(normalized);
-    sendRundownCommand("reorder", { order: normalized.map((item) => item.id) });
-  }, [canEditRundown, items, sendRundownCommand]);
+      const fromIndex = items.findIndex((item) => item.id === sourceItemId);
+      const toIndex = items.findIndex((item) => item.id === targetItemId);
+      if (fromIndex < 0 || toIndex < 0) return;
+      const reordered = [...items];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+      const normalized = reordered.map((item, sortOrder) => ({
+        ...item,
+        sortOrder,
+      }));
+      setItems(normalized);
+      sendRundownCommand("reorder", {
+        order: normalized.map((item) => item.id),
+      });
+    },
+    [canEditRundown, items, sendRundownCommand],
+  );
 
   const {
     draggedItemId,
@@ -1130,66 +1516,137 @@ function RundownPage() {
     onReorder: reorderItemsById,
   });
 
-  const handleEditItem = (id: string, title: string, type: ItemType, durationStr: string, assignee: string, notes: string) => {
+  const handleEditItem = (
+    id: string,
+    title: string,
+    type: ItemType,
+    durationStr: string,
+    assignee: string,
+    notes: string,
+  ) => {
     if (!canEditRundown) return;
-    const updates = { title, type, duration: parseDurationInput(durationStr), assignee, notes };
-      sendRundownCommand("update-item", { id, updates });
-      setItems((prev) =>
-        prev.map((i) =>
-          i.id === id ? { ...i, ...updates } : i
-        )
-      );
-      setEditingItem(null);
+    const updates = {
+      title,
+      type,
+      duration: parseDurationInput(durationStr),
+      assignee,
+      notes,
+    };
+    sendRundownCommand("update-item", { id, updates });
+    setItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, ...updates } : i)),
+    );
+    setEditingItem(null);
   };
 
   // Load items into current date (from a previous date or saved template)
-  const handleLoadItems = useCallback(async (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => {
-    if (!canEditRundown) return;
-    const fresh = loaded.items.map((item, idx) => ({
-      ...item,
-      id: createBrowserId(),
-      status: "upcoming" as ItemStatus,
-      sortOrder: idx,
-    }));
-    const resetTimer = { playback: "stop" as const, currentItemId: null, elapsed: 0, startedAt: null, pausedAt: null, mode: defaultTimerMode as "count-down" | "count-up" | "clock" };
-    let targetShowId = showId;
-    setItems(fresh);
-    setTimer(resetTimer);
-    const scheduled = loaded.scheduledStartTime === undefined
-      ? undefined
-      : serviceTimeToIso(serviceDate, loaded.scheduledStartTime, settings["org-timezone"]);
-    if (showId) {
-      // Seed DO with loaded items so all devices get them.
-      sendCommand("seed", {
-        items: fresh,
-        timer: resetTimer,
-        force: true,
-        ...(loaded.serviceName === undefined ? {} : { serviceName: loaded.serviceName }),
-        ...(scheduled === undefined ? {} : { scheduledStartTime: scheduled }),
-      });
-    } else {
-      targetShowId = await ensureShowId();
-      await saveRundownItems({ data: { orgId, showId: targetShowId, serviceDate, items: fresh } });
-      databaseItemsRef.current = fresh;
-    }
-    if (loaded.serviceName !== undefined) {
-      setServiceName(loaded.serviceName);
-    }
-    if (loaded.scheduledStartTime !== undefined) {
-      setScheduledStartTime(loaded.scheduledStartTime);
-    }
-    if (!showId && (loaded.serviceName !== undefined || loaded.scheduledStartTime !== undefined)) {
-      await saveRundownMeta({ data: { orgId, showId: targetShowId!, serviceDate, name: loaded.serviceName ?? "", scheduledStartTime: scheduled } });
-    }
-    if (!showId && targetShowId) await adoptShowId(targetShowId);
-    setShowLoadModal(false);
-  }, [adoptShowId, canEditRundown, defaultTimerMode, ensureShowId, orgId, sendCommand, serviceDate, settings, showId]);
+  const handleLoadItems = useCallback(
+    async (loaded: {
+      items: RundownItem[];
+      serviceName?: string;
+      scheduledStartTime?: string;
+    }) => {
+      if (!canEditRundown) return;
+      const fresh = loaded.items.map((item, idx) => ({
+        ...item,
+        id: createBrowserId(),
+        status: "upcoming" as ItemStatus,
+        sortOrder: idx,
+      }));
+      const resetTimer = {
+        playback: "stop" as const,
+        currentItemId: null,
+        elapsed: 0,
+        startedAt: null,
+        pausedAt: null,
+        mode: defaultTimerMode as "count-down" | "count-up" | "clock",
+      };
+      let targetShowId = showId;
+      setItems(fresh);
+      setTimer(resetTimer);
+      const scheduled =
+        loaded.scheduledStartTime === undefined
+          ? undefined
+          : serviceTimeToIso(
+              serviceDate,
+              loaded.scheduledStartTime,
+              settings["org-timezone"],
+            );
+      if (showId) {
+        // Seed DO with loaded items so all devices get them.
+        sendCommand("seed", {
+          items: fresh,
+          timer: resetTimer,
+          force: true,
+          ...(loaded.serviceName === undefined
+            ? {}
+            : { serviceName: loaded.serviceName }),
+          ...(scheduled === undefined ? {} : { scheduledStartTime: scheduled }),
+        });
+      } else {
+        targetShowId = await ensureShowId();
+        await saveRundownItems({
+          data: { orgId, showId: targetShowId, serviceDate, items: fresh },
+        });
+        databaseItemsRef.current = fresh;
+      }
+      if (loaded.serviceName !== undefined) {
+        setServiceName(loaded.serviceName);
+      }
+      if (loaded.scheduledStartTime !== undefined) {
+        setScheduledStartTime(loaded.scheduledStartTime);
+      }
+      if (
+        !showId &&
+        (loaded.serviceName !== undefined ||
+          loaded.scheduledStartTime !== undefined)
+      ) {
+        await saveRundownMeta({
+          data: {
+            orgId,
+            showId: targetShowId!,
+            serviceDate,
+            name: loaded.serviceName ?? "",
+            scheduledStartTime: scheduled,
+          },
+        });
+      }
+      if (!showId && targetShowId) await adoptShowId(targetShowId);
+      setShowLoadModal(false);
+    },
+    [
+      adoptShowId,
+      canEditRundown,
+      defaultTimerMode,
+      ensureShowId,
+      orgId,
+      sendCommand,
+      serviceDate,
+      settings,
+      showId,
+    ],
+  );
 
-  const handleSaveTemplate = useCallback(async (name: string, templateServiceName: string, templateStartTime: string) => {
-    if (!canEditRundown) return;
-    await saveRundownTemplate({ data: { orgId, name, serviceName: templateServiceName, scheduledStartTime: templateStartTime, items } });
-    setShowSaveModal(false);
-  }, [canEditRundown, orgId, items]);
+  const handleSaveTemplate = useCallback(
+    async (
+      name: string,
+      templateServiceName: string,
+      templateStartTime: string,
+    ) => {
+      if (!canEditRundown) return;
+      await saveRundownTemplate({
+        data: {
+          orgId,
+          name,
+          serviceName: templateServiceName,
+          scheduledStartTime: templateStartTime,
+          items,
+        },
+      });
+      setShowSaveModal(false);
+    },
+    [canEditRundown, orgId, items],
+  );
 
   const handleSendMessage = () => {
     if (!canEditRundown) return;
@@ -1212,13 +1669,19 @@ function RundownPage() {
   useEffect(() => {
     if (!canControlRundown) return;
     const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
+      if (
+        (e.target as HTMLElement).tagName === "INPUT" ||
+        (e.target as HTMLElement).tagName === "TEXTAREA"
+      )
+        return;
       if (e.key === " ") {
         e.preventDefault();
         if (timer.playback === "play") handlePause();
         else if (timer.playback === "pause") handleResume();
         else if (items.length > 0) {
-          const first = items.find((i) => i.status !== "complete" && i.type !== "header");
+          const first = items.find(
+            (i) => i.status !== "complete" && i.type !== "header",
+          );
           if (first) handleStart(first.id);
         }
       }
@@ -1230,12 +1693,20 @@ function RundownPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canControlRundown, timer, items, handlePause, handleResume, handleStart, handleNext, handlePrev, handleStop, handleAdjustTime]);
+  }, [
+    canControlRundown,
+    timer,
+    items,
+    handlePause,
+    handleResume,
+    handleStart,
+    handleNext,
+    handlePrev,
+    handleStop,
+    handleAdjustTime,
+  ]);
 
-  const nextItem = items.find((i) => {
-    const currentIdx = items.findIndex((item) => item.id === timer.currentItemId);
-    return items.indexOf(i) > currentIdx && i.status !== "complete" && i.type !== "header";
-  });
+  const nextItem = nextPlayableItem(items, timer.currentItemId);
 
   const totalDuration = items.reduce((sum, i) => sum + i.duration, 0);
   const completedDuration = items
@@ -1243,32 +1714,71 @@ function RundownPage() {
     .reduce((sum, i) => sum + i.duration, 0);
 
   const remainingDuration = totalDuration - completedDuration;
-  const selectionBusy = loading || metaSavePending || syncSaving || activePublishPending;
+  const selectionBusy =
+    loading || metaSavePending || syncSaving || activePublishPending;
 
-  const timerUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/timer/${slug}`
-    : `/timer/${slug}`;
+  const timerUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/timer/${slug}`
+      : `/timer/${slug}`;
 
   const rundownMeta = scheduledStartTime
     ? {
         serviceDate,
-        scheduledStartTime: serviceTimeToIso(serviceDate, scheduledStartTime, settings["org-timezone"])!,
+        scheduledStartTime: serviceTimeToIso(
+          serviceDate,
+          scheduledStartTime,
+          settings["org-timezone"],
+        )!,
         status: "stopped" as const,
       }
     : undefined;
   const timedItems = computeCascadedTimes(items, rundownMeta);
   const itemNumbers = rundownItemNumbers(items);
-  const selectedShowName = serviceName || shows.find((show) => show.id === showId)?.name || "Untitled show";
-  const selectedShowStart = scheduledStartTime ? formatWallTime(scheduledStartTime) : "";
+  const selectedShowName =
+    serviceName ||
+    shows.find((show) => show.id === showId)?.name ||
+    "Untitled show";
+  const selectedShowIsLive =
+    liveTarget.serviceDate === serviceDate &&
+    liveTarget.showId === (showId ?? null);
+  const takeSelectedShowLive = useCallback(async () => {
+    if (!showId || activePublishPending) return;
+    setSelectionError(null);
+    try {
+      await publishTarget(serviceDate, showId);
+    } catch (error) {
+      setSelectionError(
+        error instanceof Error
+          ? error.message
+          : "Could not route this show to venue outputs",
+      );
+    }
+  }, [activePublishPending, publishTarget, serviceDate, showId]);
+  const selectedShowStart = scheduledStartTime
+    ? formatWallTime(scheduledStartTime)
+    : "";
   const phaseSettings = readPhaseSettings(settings);
   const effectiveCallTimeMs = getServiceTiming({
-    scheduledStartTime: serviceTimeToIso(serviceDate, scheduledStartTime, settings["org-timezone"]),
-    scheduledCallTime: serviceTimeToIso(serviceDate, scheduledCallTime, settings["org-timezone"]),
+    scheduledStartTime: serviceTimeToIso(
+      serviceDate,
+      scheduledStartTime,
+      settings["org-timezone"],
+    ),
+    scheduledCallTime: serviceTimeToIso(
+      serviceDate,
+      scheduledCallTime,
+      settings["org-timezone"],
+    ),
     callLeadMinutes: phaseSettings.callLeadMinutes,
   }).callTimeMs;
-  const selectedShowCall = effectiveCallTimeMs === null
-    ? ""
-    : formatTimeInput(new Date(effectiveCallTimeMs), settings["org-timezone"]);
+  const selectedShowCall =
+    effectiveCallTimeMs === null
+      ? ""
+      : formatTimeInput(
+          new Date(effectiveCallTimeMs),
+          settings["org-timezone"],
+        );
   const activeStageMessage = decodeStageMessage(syncedStageMessage);
 
   return (
@@ -1276,16 +1786,38 @@ function RundownPage() {
       <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
         <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">Rundown</p>
-            <h1 className="truncate font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">{selectedShowName}</h1>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+              Rundown
+            </p>
+            <h1 className="truncate font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">
+              {selectedShowName}
+            </h1>
             <p className="mt-0.5 hidden truncate text-xs text-board-muted sm:block">
               {formatDisplayDate(serviceDate)}
               {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
-              {selectedShowCall ? ` · ${formatWallTime(selectedShowCall)} call` : ""}
+              {selectedShowCall
+                ? ` · ${formatWallTime(selectedShowCall)} call`
+                : ""}
               {` · ${items.length} items · ${formatDuration(totalDuration)}`}
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
+            {selectedShowIsLive ? (
+              <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-green-500/25 bg-green-500/10 px-3 text-xs font-semibold text-green-300">
+                <span className="h-2 w-2 rounded-full bg-green-400" />
+                Live output
+              </span>
+            ) : canEditRundown && showId ? (
+              <button
+                type="button"
+                onClick={() => setShowTakeLiveConfirmation(true)}
+                disabled={selectionBusy}
+                className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-fire-500/35 bg-fire-500/10 px-3 text-xs font-semibold text-fire-300 transition-colors hover:bg-fire-500/20 disabled:opacity-50"
+              >
+                <Tv className="h-4 w-4" />
+                Take live
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setShowOptionsModal(true)}
@@ -1295,7 +1827,11 @@ function RundownPage() {
             >
               <CalendarDays className="h-4 w-4 text-board-muted" />
               <span className="hidden sm:inline">Show options</span>
-              {selectionBusy ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-fire-400" /> : <ChevronDown className="h-3.5 w-3.5 text-board-muted" />}
+              {selectionBusy ? (
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-fire-400" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-board-muted" />
+              )}
             </button>
             {canEditRundown ? (
               <>
@@ -1310,14 +1846,20 @@ function RundownPage() {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
-                    <DropdownMenuItem onSelect={() => {
-                      navigator.clipboard.writeText(timerUrl);
-                      setCopiedUrl(true);
-                      setTimeout(() => setCopiedUrl(false), 2000);
-                    }}>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        navigator.clipboard.writeText(timerUrl);
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 2000);
+                      }}
+                    >
                       <Monitor className="w-3.5 h-3.5" />
                       {copiedUrl ? "Kiosk link copied" : "Copy kiosk link"}
-                      {copiedUrl ? <Check className="ml-auto w-3.5 h-3.5 text-green-400" /> : <Copy className="ml-auto w-3.5 h-3.5" />}
+                      {copiedUrl ? (
+                        <Check className="ml-auto w-3.5 h-3.5 text-green-400" />
+                      ) : (
+                        <Copy className="ml-auto w-3.5 h-3.5" />
+                      )}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => setShowLoadModal(true)}>
@@ -1333,13 +1875,19 @@ function RundownPage() {
                     </DropdownMenuItem>
 
                     <DropdownMenuSub>
-                      <DropdownMenuSubTrigger disabled={exporting || items.length === 0}>
+                      <DropdownMenuSubTrigger
+                        disabled={exporting || items.length === 0}
+                      >
                         <Download className="w-3.5 h-3.5" />
                         {exporting ? "Exporting…" : "Export report"}
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
-                        <DropdownMenuItem onSelect={() => handleExport("csv")}>CSV</DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => handleExport("pdf")}>PDF</DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleExport("csv")}>
+                          CSV
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleExport("pdf")}>
+                          PDF
+                        </DropdownMenuItem>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
 
@@ -1364,7 +1912,10 @@ function RundownPage() {
                   onClick={() => setShowAddForm(true)}
                   aria-label="Add item"
                   className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0 sm:px-2.5 sm:pr-3.5"
-                  style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+                  }}
                 >
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
                     <Plus className="w-3.5 h-3.5" />
@@ -1383,7 +1934,9 @@ function RundownPage() {
           <p className="basis-full truncate text-[11px] text-board-muted sm:hidden">
             {formatDisplayDate(serviceDate)}
             {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
-            {selectedShowCall ? ` · ${formatWallTime(selectedShowCall)} call` : ""}
+            {selectedShowCall
+              ? ` · ${formatWallTime(selectedShowCall)} call`
+              : ""}
             {` · ${items.length} items · ${formatDuration(totalDuration)}`}
           </p>
         </div>
@@ -1395,287 +1948,352 @@ function RundownPage() {
           className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
         >
           <span className="font-medium shrink-0">
-            {selectionError ? "Show unchanged." : saveError ? "Not saved." : "Live conflict."}
+            {selectionError
+              ? "Show unchanged."
+              : saveError
+                ? "Not saved."
+                : "Live conflict."}
           </span>
-          <span className="min-w-0">{selectionError || saveError || syncError}</span>
+          <span className="min-w-0">
+            {selectionError || saveError || syncError}
+          </span>
         </div>
       )}
 
       {/* Page body — flex-col container, never scrolls itself */}
-      <div className="rundown-page-body flex-1 overflow-hidden flex flex-col" style={{ containerType: "inline-size" }}>
+      <div
+        className="rundown-page-body flex-1 overflow-hidden flex flex-col"
+        style={{ containerType: "inline-size" }}
+      >
+        {/* Export error */}
+        {exportError && (
+          <div className="shrink-0 bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center gap-3">
+            <X className="w-4 h-4 text-red-400 shrink-0" />
+            <p className="text-sm text-red-400 flex-1">
+              Export failed: {exportError}
+            </p>
+            <button
+              type="button"
+              onClick={() => setExportError(null)}
+              aria-label="Dismiss export error"
+              title="Dismiss export error"
+              className="p-1 rounded text-red-400 hover:text-red-200 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
-      {/* Export error */}
-      {exportError && (
-        <div className="shrink-0 bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center gap-3">
-          <X className="w-4 h-4 text-red-400 shrink-0" />
-          <p className="text-sm text-red-400 flex-1">Export failed: {exportError}</p>
-          <button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" title="Dismiss export error" className="p-1 rounded text-red-400 hover:text-red-200 transition-colors">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+        {/* Message bar */}
+        {activeStageMessage.text && (
+          <div className="shrink-0 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center gap-3">
+            <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-sm font-medium text-amber-300 flex-1">
+              {activeStageMessage.text}
+            </p>
+            <button
+              type="button"
+              onClick={handleClearMessage}
+              aria-label="Clear operator message"
+              title="Clear operator message"
+              className="p-1 rounded text-amber-400 hover:text-amber-200 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
-      {/* Message bar */}
-      {activeStageMessage.text && (
-        <div className="shrink-0 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center gap-3">
-          <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
-          <p className="text-sm font-medium text-amber-300 flex-1">{activeStageMessage.text}</p>
-          <button
-            type="button"
-            onClick={handleClearMessage}
-            aria-label="Clear operator message"
-            title="Clear operator message"
-            className="p-1 rounded text-amber-400 hover:text-amber-200 transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center text-board-muted text-sm">
-          Loading rundown...
-        </div>
-      ) : (
-        <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
-          {/* Left: Timer + Controls + Message */}
-          <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
-            {/* Timer */}
-            <div className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}>
-              <div className="flex items-center gap-2 mb-2">
-                {timer.playback === "play" ? (
-                  <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                ) : timer.playback === "pause" ? (
-                  <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                ) : (
-                  <Square className="w-3.5 h-3.5 text-board-muted" />
-                )}
-                <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                  {timer.playback === "stop" ? "Stopped" : timer.playback === "play" ? "Playing" : "Paused"}
-                </span>
-                {isOvertime && (
-                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
-                )}
-              </div>
-
-              <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
-                {currentItem
-                  ? timer.mode === "clock"
-                    ? new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-                    : timer.mode === "count-down"
-                    ? remaining < 0
-                      ? overtimeBehavior === "stop"
-                        ? "00:00"
-                        : formatDuration(remaining)
-                      : formatDuration(remaining)
-                    : formatDuration(elapsed)
-                  : "--:--"}
-              </p>
-
-              {/* Progress bar — resets smoothly on item change */}
-              {currentItem && (
-                <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-                  <div
-                    id="rundown-progress-fill"
-                    className={`h-full rounded-full ${isOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
-                    style={{ width: "0%" }}
-                  />
-                </div>
-              )}
-
-              {currentItem && (
-                <div className="mt-3 pt-3 border-t border-board-border/40">
-                  <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
-                  <p className="text-xs text-board-muted mt-0.5">
-                    Duration: {formatDuration(currentItem.duration)}
-                    {currentItem.assignee && ` · ${currentItem.assignee}`}
-                  </p>
-                </div>
-              )}
-
-              {nextItem && (
-                <p className="text-xs text-board-muted mt-2">
-                  Next: <span className="text-board-text/70">{nextItem.title}</span>
-                  <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
-                </p>
-              )}
-            </div>
-
-            {/* Timer controls */}
-            {canControlRundown && (
-              <div className="flex gap-2">
-                {timer.playback === "play" ? (
-                  <button onClick={handlePause} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors">
-                    <Pause className="w-4 h-4" /> Pause
-                  </button>
-                ) : timer.playback === "pause" ? (
-                  <button onClick={handleResume} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors">
-                    <Play className="w-4 h-4" /> Resume
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      const first = items.find((i) => i.status !== "complete" && i.type !== "header");
-                      if (first) handleStart(first.id);
-                    }}
-                    disabled={items.length === 0}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                  >
-                    <Play className="w-4 h-4" /> Start
-                  </button>
-                )}
-
-                <button
-                  onClick={handlePrev}
-                  disabled={timer.playback === "stop"}
-                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                  title="Previous item"
-                  aria-label="Previous rundown item"
-                >
-                  <SkipBack className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleNext}
-                  disabled={timer.playback === "stop"}
-                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                  title="Next item"
-                  aria-label="Next rundown item"
-                >
-                  <SkipForward className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleStop}
-                  disabled={timer.playback === "stop"}
-                  className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
-                  aria-label="Stop rundown"
-                >
-                  <Square className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Add / Subtract time (OnTime-style) */}
-            {canControlRundown && <div className="rounded-xl border border-board-border bg-board-card p-3">
-              <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
-                Adjust Time
-              </p>
-              {/* Preset buttons */}
-              <div className="flex gap-1.5 mb-2">
-                <button
-                  onClick={() => handleAdjustTime(-60_000)}
-                  disabled={timer.playback === "stop"}
-                  aria-label="Subtract 1 minute from current item"
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                >
-                  <Minus className="w-3 h-3" /> 1m
-                </button>
-                <button
-                  onClick={() => handleAdjustTime(-15_000)}
-                  disabled={timer.playback === "stop"}
-                  aria-label="Subtract 15 seconds from current item"
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                >
-                  <Minus className="w-3 h-3" /> 15s
-                </button>
-                <button
-                  onClick={() => handleAdjustTime(15_000)}
-                  disabled={timer.playback === "stop"}
-                  aria-label="Add 15 seconds to current item"
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                >
-                  <Plus className="w-3 h-3" /> 15s
-                </button>
-                <button
-                  onClick={() => handleAdjustTime(60_000)}
-                  disabled={timer.playback === "stop"}
-                  aria-label="Add 1 minute to current item"
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                >
-                  <Plus className="w-3 h-3" /> 1m
-                </button>
-              </div>
-              {/* Custom time input */}
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => handleAdjustTime(-parseAdjustInput(customAdjust))}
-                  disabled={timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
-                  className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40"
-                  title="Subtract custom time"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  type="text"
-                  value={customAdjust}
-                  onChange={(e) => setCustomAdjust(e.target.value)}
-                  placeholder="secs or m:ss"
-                  aria-label="Custom time adjustment"
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
-                />
-                <button
-                  onClick={() => handleAdjustTime(parseAdjustInput(customAdjust))}
-                  disabled={timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
-                  className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors disabled:opacity-40"
-                  title="Add custom time"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>}
-
-            {/* Send message to stage */}
-            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
-                  Stage Message
-                </p>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={messagePriority}
-                    onChange={(e) => setMessagePriority(e.target.checked)}
-                    className="w-3 h-3 rounded border-board-border accent-amber-500"
-                  />
-                  <span className={`text-[10px] font-medium uppercase tracking-wider ${messagePriority ? "text-amber-400" : "text-board-muted/50"}`}>
-                    Priority
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center text-board-muted text-sm">
+            Loading rundown...
+          </div>
+        ) : (
+          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
+            {/* Left: Timer + Controls + Message */}
+            <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
+              {/* Timer */}
+              <div
+                className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  {timer.playback === "play" ? (
+                    <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
+                  ) : timer.playback === "pause" ? (
+                    <Pause className="w-3.5 h-3.5 text-yellow-400" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-board-muted" />
+                  )}
+                  <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                    {timer.playback === "stop"
+                      ? "Stopped"
+                      : timer.playback === "play"
+                        ? "Playing"
+                        : "Paused"}
                   </span>
-                </label>
-              </div>
-              {messagePriority && (
-                <p className="text-[10px] text-amber-400/60 mb-2">
-                  Message shown large, timer shown small on kiosk
-                </p>
-              )}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="Message to stage display..."
-                  className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!message.trim()}
-                  className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${messagePriority ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/35" : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"}`}
-                  aria-label="Send stage message"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </div>}
+                  {isOvertime && (
+                    <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
+                      Overtime
+                    </span>
+                  )}
+                </div>
 
-            {/* ProPresenter Slide Feed */}
-            {(ppHost || syncedPpSlide) && (
-              <div className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Tv className="w-3.5 h-3.5 text-purple-400" />
-                    <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
-                      ProPresenter
+                <p
+                  className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}
+                >
+                  {currentItem
+                    ? timer.mode === "clock"
+                      ? new Date().toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })
+                      : timer.mode === "count-down"
+                        ? remaining < 0
+                          ? overtimeBehavior === "stop"
+                            ? "00:00"
+                            : formatDuration(remaining)
+                          : formatDuration(remaining)
+                        : formatDuration(elapsed)
+                    : "--:--"}
+                </p>
+
+                {/* Progress bar — resets smoothly on item change */}
+                {currentItem && (
+                  <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
+                    <div
+                      id="rundown-progress-fill"
+                      className={`h-full rounded-full ${isOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
+                      style={{ width: "0%" }}
+                    />
+                  </div>
+                )}
+
+                {currentItem && (
+                  <div className="mt-3 pt-3 border-t border-board-border/40">
+                    <p className="text-sm font-medium text-board-text truncate">
+                      {currentItem.title}
+                    </p>
+                    <p className="text-xs text-board-muted mt-0.5">
+                      Duration: {formatDuration(currentItem.duration)}
+                      {currentItem.assignee && ` · ${currentItem.assignee}`}
                     </p>
                   </div>
+                )}
+
+                {nextItem && (
+                  <p className="text-xs text-board-muted mt-2">
+                    Next:{" "}
+                    <span className="text-board-text/70">{nextItem.title}</span>
+                    <span className="text-board-muted/50 ml-1">
+                      ({formatDuration(nextItem.duration)})
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* Timer controls */}
+              {canControlRundown && (
+                <div className="flex gap-2">
+                  {timer.playback === "play" ? (
+                    <button
+                      onClick={handlePause}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors"
+                    >
+                      <Pause className="w-4 h-4" /> Pause
+                    </button>
+                  ) : timer.playback === "pause" ? (
+                    <button
+                      onClick={handleResume}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors"
+                    >
+                      <Play className="w-4 h-4" /> Resume
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        const first = items.find(
+                          (i) => i.status !== "complete" && i.type !== "header",
+                        );
+                        if (first) handleStart(first.id);
+                      }}
+                      disabled={items.length === 0}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
+                    >
+                      <Play className="w-4 h-4" /> Start
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handlePrev}
+                    disabled={timer.playback === "stop"}
+                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    title="Previous item"
+                    aria-label="Previous rundown item"
+                  >
+                    <SkipBack className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleNext}
+                    disabled={timer.playback === "stop"}
+                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    title="Next item"
+                    aria-label="Next rundown item"
+                  >
+                    <SkipForward className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleStop}
+                    disabled={timer.playback === "stop"}
+                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                    aria-label="Stop rundown"
+                  >
+                    <Square className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {/* Add / Subtract time (OnTime-style) */}
+              {canControlRundown && (
+                <div className="rounded-xl border border-board-border bg-board-card p-3">
+                  <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
+                    Adjust Time
+                  </p>
+                  {/* Preset buttons */}
+                  <div className="flex gap-1.5 mb-2">
+                    <button
+                      onClick={() => handleAdjustTime(-60_000)}
+                      disabled={timer.playback === "stop"}
+                      aria-label="Subtract 1 minute from current item"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    >
+                      <Minus className="w-3 h-3" /> 1m
+                    </button>
+                    <button
+                      onClick={() => handleAdjustTime(-15_000)}
+                      disabled={timer.playback === "stop"}
+                      aria-label="Subtract 15 seconds from current item"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    >
+                      <Minus className="w-3 h-3" /> 15s
+                    </button>
+                    <button
+                      onClick={() => handleAdjustTime(15_000)}
+                      disabled={timer.playback === "stop"}
+                      aria-label="Add 15 seconds to current item"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    >
+                      <Plus className="w-3 h-3" /> 15s
+                    </button>
+                    <button
+                      onClick={() => handleAdjustTime(60_000)}
+                      disabled={timer.playback === "stop"}
+                      aria-label="Add 1 minute to current item"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                    >
+                      <Plus className="w-3 h-3" /> 1m
+                    </button>
+                  </div>
+                  {/* Custom time input */}
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() =>
+                        handleAdjustTime(-parseAdjustInput(customAdjust))
+                      }
+                      disabled={
+                        timer.playback === "stop" ||
+                        parseAdjustInput(customAdjust) === 0
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40"
+                      title="Subtract custom time"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      type="text"
+                      value={customAdjust}
+                      onChange={(e) => setCustomAdjust(e.target.value)}
+                      placeholder="secs or m:ss"
+                      aria-label="Custom time adjustment"
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+                    />
+                    <button
+                      onClick={() =>
+                        handleAdjustTime(parseAdjustInput(customAdjust))
+                      }
+                      disabled={
+                        timer.playback === "stop" ||
+                        parseAdjustInput(customAdjust) === 0
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors disabled:opacity-40"
+                      title="Add custom time"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Send message to stage */}
+              {canEditRundown && (
+                <div className="rounded-xl border border-board-border bg-board-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
+                      Stage Message
+                    </p>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={messagePriority}
+                        onChange={(e) => setMessagePriority(e.target.checked)}
+                        className="w-3 h-3 rounded border-board-border accent-amber-500"
+                      />
+                      <span
+                        className={`text-[10px] font-medium uppercase tracking-wider ${messagePriority ? "text-amber-400" : "text-board-muted/50"}`}
+                      >
+                        Priority
+                      </span>
+                    </label>
+                  </div>
+                  {messagePriority && (
+                    <p className="text-[10px] text-amber-400/60 mb-2">
+                      Message shown large, timer shown small on kiosk
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleSendMessage()
+                      }
+                      placeholder="Message to stage display..."
+                      className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!message.trim()}
+                      className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${messagePriority ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/35" : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"}`}
+                      aria-label="Send stage message"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ProPresenter Slide Feed */}
+              {(ppHost || syncedPpSlide) && (
+                <div
+                  className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Tv className="w-3.5 h-3.5 text-purple-400" />
+                      <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
+                        ProPresenter
+                      </p>
+                    </div>
                     {canEditRundown && (
                       <>
                         <button
@@ -1683,10 +2301,14 @@ function RundownPage() {
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
                             ppEnabled
                               ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
-                            : "bg-board-bg text-board-muted hover:bg-board-border"
-                        }`}
+                              : "bg-board-bg text-board-muted hover:bg-board-border"
+                          }`}
                         >
-                          {ppEnabled ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                          {ppEnabled ? (
+                            <Wifi className="w-3 h-3" />
+                          ) : (
+                            <WifiOff className="w-3 h-3" />
+                          )}
                           {ppEnabled ? "Streaming" : "Off"}
                         </button>
                         <button
@@ -1698,491 +2320,726 @@ function RundownPage() {
                               ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
                               : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
                           }`}
-                          title={ppOnKiosk ? "Hide ProPresenter on kiosk" : "Show ProPresenter on kiosk"}
+                          title={
+                            ppOnKiosk
+                              ? "Hide ProPresenter on kiosk"
+                              : "Show ProPresenter on kiosk"
+                          }
                         >
-                          {ppOnKiosk ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                          {ppOutputPending ? "Updating…" : ppOnKiosk ? "On Kiosk" : "Kiosk Off"}
+                          {ppOnKiosk ? (
+                            <Eye className="w-3 h-3" />
+                          ) : (
+                            <EyeOff className="w-3 h-3" />
+                          )}
+                          {ppOutputPending
+                            ? "Updating…"
+                            : ppOnKiosk
+                              ? "On Kiosk"
+                              : "Kiosk Off"}
                         </button>
                       </>
                     )}
                   </div>
 
-                {ppEnabled && (
-                  <>
-                    {/* Connection status */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-2 h-2 rounded-full ${
-                        ppIsConnected ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]" :
-                        pp.status === "connecting" ? "bg-amber-500 animate-pulse" :
-                        pp.status === "error" ? "bg-red-500" : "bg-gray-500"
-                      }`} />
-                      <span className="text-[10px] text-board-muted">
-                        {ppSource === "bridge" ? "Connected via Gateway Bridge" :
-                         ppSource === "direct" ? `Connected to ${ppHost}` :
-                         pp.status === "connecting" ? "Connecting..." :
-                         pp.status === "error" ? "Cannot reach PP directly — use Gateway Bridge" : "Waiting for Gateway Bridge..."}
-                      </span>
-                    </div>
+                  {ppEnabled && (
+                    <>
+                      {/* Connection status */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            ppIsConnected
+                              ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]"
+                              : pp.status === "connecting"
+                                ? "bg-amber-500 animate-pulse"
+                                : pp.status === "error"
+                                  ? "bg-red-500"
+                                  : "bg-gray-500"
+                          }`}
+                        />
+                        <span className="text-[10px] text-board-muted">
+                          {ppSource === "bridge"
+                            ? "Connected via Gateway Bridge"
+                            : ppSource === "direct"
+                              ? `Connected to ${ppHost}`
+                              : pp.status === "connecting"
+                                ? "Connecting..."
+                                : pp.status === "error"
+                                  ? "Cannot reach PP directly — use Gateway Bridge"
+                                  : "Waiting for Gateway Bridge..."}
+                        </span>
+                      </div>
 
-                    {/* PP Control Buttons */}
-                    {canEditRundown && (
-                      ppCuesEnabled && ppApiPort ? (
-                        <div className="mb-2">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => void handleProPresenterCommand("previous")}
-                              disabled={ppCmdPending !== null}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
-                              title="Previous slide"
-                            >
-                              <SkipBack className="w-3 h-3" />
-                              Prev
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleProPresenterCommand("next")}
-                              disabled={ppCmdPending !== null}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
-                              title="Next slide"
-                            >
-                              Next
-                              <SkipForward className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleProPresenterCommand("clear")}
-                              disabled={ppCmdPending !== null}
-                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
-                              title="Clear slide layer"
-                            >
-                              <X className="w-3 h-3" />
-                              Clear
-                            </button>
+                      {/* PP Control Buttons */}
+                      {canEditRundown &&
+                        (ppCuesEnabled && ppApiPort ? (
+                          <div className="mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleProPresenterCommand("previous")
+                                }
+                                disabled={ppCmdPending !== null}
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
+                                title="Previous slide"
+                              >
+                                <SkipBack className="w-3 h-3" />
+                                Prev
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleProPresenterCommand("next")
+                                }
+                                disabled={ppCmdPending !== null}
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
+                                title="Next slide"
+                              >
+                                Next
+                                <SkipForward className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleProPresenterCommand("clear")
+                                }
+                                disabled={ppCmdPending !== null}
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
+                                title="Clear slide layer"
+                              >
+                                <X className="w-3 h-3" />
+                                Clear
+                              </button>
+                            </div>
+                            {ppCmdError && (
+                              <p
+                                role="alert"
+                                className="text-[9px] text-red-400/80 mt-1 font-mono"
+                                title={ppCmdError}
+                              >
+                                {ppCmdError}
+                              </p>
+                            )}
+                            {ppCmdNotice && !ppCmdError && (
+                              <p
+                                role="status"
+                                aria-live="polite"
+                                className="text-[9px] text-green-400/80 mt-1"
+                              >
+                                {ppCmdNotice}
+                              </p>
+                            )}
                           </div>
-                          {ppCmdError && (
-                            <p role="alert" className="text-[9px] text-red-400/80 mt-1 font-mono" title={ppCmdError}>
-                              {ppCmdError}
+                        ) : (
+                          <p className="text-[9px] text-board-muted/40 mb-2">
+                            {!ppCuesEnabled
+                              ? 'Enable "Send cues" in Settings → ProPresenter to control slides'
+                              : "Set API Port in Settings → ProPresenter to control slides"}
+                          </p>
+                        ))}
+
+                      {/* Current slide preview */}
+                      {activePpSlide && activePpSlide.text ? (
+                        <div
+                          className={`rounded-lg p-3 ${activePpSlide.isScripture ? "bg-purple-500/10 border border-purple-500/20" : "bg-blue-500/10 border border-blue-500/20"}`}
+                        >
+                          {activePpSlide.presentationName && (
+                            <p
+                              className={`text-[10px] font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400/70" : "text-blue-400/70"}`}
+                            >
+                              {activePpSlide.presentationName}
                             </p>
                           )}
-                          {ppCmdNotice && !ppCmdError && (
-                            <p role="status" aria-live="polite" className="text-[9px] text-green-400/80 mt-1">
-                              {ppCmdNotice}
-                            </p>
-                          )}
+                          <p
+                            className={`text-sm leading-snug ${activePpSlide.isScripture ? "text-purple-200 italic" : "text-blue-100"}`}
+                          >
+                            {activePpSlide.text.length > 120
+                              ? activePpSlide.text.slice(0, 120) + "..."
+                              : activePpSlide.text}
+                          </p>
+                          <p className="text-[9px] text-board-muted/50 mt-1.5">
+                            {ppSource === "bridge"
+                              ? "Gateway Bridge preview"
+                              : "Direct ProPresenter preview"}
+                          </p>
                         </div>
                       ) : (
-                        <p className="text-[9px] text-board-muted/40 mb-2">
-                          {!ppCuesEnabled ? "Enable \"Send cues\" in Settings → ProPresenter to control slides" : "Set API Port in Settings → ProPresenter to control slides"}
-                        </p>
-                      )
-                    )}
-
-                    {/* Current slide preview */}
-                    {activePpSlide && activePpSlide.text ? (
-                      <div className={`rounded-lg p-3 ${activePpSlide.isScripture ? "bg-purple-500/10 border border-purple-500/20" : "bg-blue-500/10 border border-blue-500/20"}`}>
-                        {activePpSlide.presentationName && (
-                          <p className={`text-[10px] font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400/70" : "text-blue-400/70"}`}>
-                            {activePpSlide.presentationName}
+                        <div>
+                          <p className="text-[10px] text-board-muted/40 italic">
+                            Waiting for slide content from ProPresenter...
                           </p>
-                        )}
-                        <p className={`text-sm leading-snug ${activePpSlide.isScripture ? "text-purple-200 italic" : "text-blue-100"}`}>
-                          {activePpSlide.text.length > 120 ? activePpSlide.text.slice(0, 120) + "..." : activePpSlide.text}
-                        </p>
-                        <p className="text-[9px] text-board-muted/50 mt-1.5">
-                          {ppSource === "bridge" ? "Gateway Bridge preview" : "Direct ProPresenter preview"}
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-[10px] text-board-muted/40 italic">
-                          Waiting for slide content from ProPresenter...
-                        </p>
-                        {/* Debug info — helps troubleshoot why slides aren't appearing */}
-                        {pp.debugInfo && (
-                          <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">
-                            <p className="text-[9px] font-medium text-board-muted/60 uppercase tracking-wider">Debug</p>
-                            <div className="text-[9px] text-board-muted/50 font-mono space-y-0.5">
-                              <p>WS: {pp.debugInfo.wsConnected ? "open" : "closed"} | msgs: {pp.debugInfo.wsMessagesReceived}</p>
-                              {pp.debugInfo.lastWsMessage && (
-                                <p className="truncate max-w-full" title={pp.debugInfo.lastWsMessage}>
-                                  Last WS: {pp.debugInfo.lastWsMessage.slice(0, 80)}
-                                </p>
-                              )}
-                              <p>Poll: {pp.debugInfo.pollingActive ? "active" : "inactive"} | ok: {pp.debugInfo.pollSuccessCount}</p>
-                              {pp.debugInfo.lastPollResult && (
-                                <p className="truncate max-w-full" title={pp.debugInfo.lastPollResult}>
-                                  Poll: {pp.debugInfo.lastPollResult.slice(0, 80)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {!ppEnabled && (
-                  <p className="text-[10px] text-board-muted/40">
-                    Stream lyrics & scripture from ProPresenter to stage display
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Shortcuts */}
-            {canEditRundown && <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
-              <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">Shortcuts</p>
-              <div className="space-y-1 text-xs text-board-muted">
-                <div className="flex justify-between"><span>Play / Pause</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">Space</kbd></div>
-                <div className="flex justify-between"><span>Next item</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">N</kbd></div>
-                <div className="flex justify-between"><span>Previous item</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">P</kbd></div>
-                <div className="flex justify-between"><span>Stop</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">S</kbd></div>
-                <div className="flex justify-between"><span>Add 1 minute</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">+</kbd></div>
-                <div className="flex justify-between"><span>Subtract 1 minute</span><kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">-</kbd></div>
-              </div>
-            </div>}
-          </div>
-
-          {/* Right: Runsheet */}
-          <div className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar">
-            <div className="min-w-[760px] flex flex-col min-h-full">
-              {/* Runsheet header — sticky within its own scroll container */}
-              <div className="flex items-center justify-between mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
-                <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-                  Runsheet
-                </h2>
-                <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted whitespace-nowrap">
-                  <span>{items.length} items</span>
-                  {completedDuration > 0 && (
-                    <span>{formatDuration(completedDuration)} / {formatDuration(totalDuration)}</span>
-                  )}
-                  <span>{formatDuration(remainingDuration)} remaining</span>
-                </div>
-              </div>
-
-              {items.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                  <Clock className="w-10 h-10 text-board-muted/20" />
-                  <p className="text-sm text-board-muted">No items in the rundown</p>
-                  <p className="text-xs text-board-muted/50">
-                    {canEditRundown ? 'Click "Add Item" or "Load" to get started' : "No rundown items are available for this date"}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                  {timedItems.map((item, idx) => {
-                  const isCurrent = item.id === timer.currentItemId;
-                  const config = TYPE_CONFIG[item.type];
-                  const Icon = config.icon;
-                  const isItemOvertime = isCurrent && elapsed > item.duration;
-                  const isDraggingItem = draggedItemId === item.id;
-                  const isDropTarget = dropTargetItemId === item.id && draggedItemId !== item.id;
-
-                  // A section band is structure, not running order: no
-                  // duration, no clock, no play button. It reorders and
-                  // deletes like anything else so the blocks can be moved
-                  // as the service is planned.
-                  if (item.type === "header") {
-                    return (
-                      <div
-                        key={item.id}
-                        data-rundown-item-id={item.id}
-                        onDragOver={(event) => handleItemDragOver(event, item.id)}
-                        onDrop={(event) => handleItemDrop(event, item.id)}
-                        className={`group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
-                          isDraggingItem ? "opacity-60" : ""
-                        } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
-                      >
-                        {canEditRundown && (
-                          <div
-                            draggable
-                            onDragStart={(event) => handleItemDragStart(event, item.id)}
-                            onDragEnd={handleItemDragEnd}
-                            onTouchStart={() => handleItemTouchStart(item.id)}
-                            onTouchMove={handleItemTouchMove}
-                            onTouchEnd={handleItemTouchEnd}
-                            onTouchCancel={handleItemDragEnd}
-                            className="shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
-                            title="Drag to reorder"
-                          >
-                            <GripVertical className="w-3.5 h-3.5" />
-                          </div>
-                        )}
-                        <p className="flex-1 min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
-                          {item.title || "Section"}
-                        </p>
-                        {canEditRundown && (
-                          <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
-                            <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  // Extract the bg color class for the binder bar
-                  const binderColor = isCurrent
-                    ? "bg-fire-500"
-                    : item.status === "complete"
-                      ? "bg-green-500/40"
-                      : config.color.split(" ")[0].replace("/15", "/60");
-
-                  return (
-                    <div
-                      key={item.id}
-                      data-rundown-item-id={item.id}
-                      onDragOver={(event) => handleItemDragOver(event, item.id)}
-                      onDrop={(event) => handleItemDrop(event, item.id)}
-                      className={`group flex border transition-[colors,opacity,box-shadow] ${
-                        isDraggingItem
-                          ? "opacity-60 border-fire-500/30"
-                          : isDropTarget
-                            ? "border-fire-500/50 shadow-[0_0_0_1px_rgba(255,193,7,0.28)]"
-                            : "border-transparent"
-                      } ${
-                        isCurrent
-                          ? "bg-fire-500/8"
-                          : item.status === "complete"
-                            ? "bg-board-card/15 opacity-50"
-                            : "bg-board-card/30 hover:bg-board-card/50"
-                      }`}
-                    >
-                      {/* Left binder bar (OnTime-style) */}
-                      <div
-                        className={`w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
-                          isCurrent ? "text-white" : "text-white/70"
-                        }`}
-                      >
-                        <span className="text-[10px] font-bold tabular-nums">{itemNumbers.get(item.id) ?? idx + 1}</span>
-                        {item.status === "live" && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                        )}
-                      </div>
-
-                      {/* Content area */}
-                      <div className="flex-1 min-w-0 flex flex-col">
-                        {/* Main row */}
-                        <div className="flex items-center gap-3 px-3 py-2">
-                          {canEditRundown && (
-                            <div
-                              draggable
-                              onDragStart={(event) => handleItemDragStart(event, item.id)}
-                              onDragEnd={handleItemDragEnd}
-                              onTouchStart={() => handleItemTouchStart(item.id)}
-                              onTouchMove={handleItemTouchMove}
-                              onTouchEnd={handleItemTouchEnd}
-                              onTouchCancel={handleItemDragEnd}
-                              className={`shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
-                                isDraggingItem
-                                  ? "text-fire-400 bg-fire-500/10"
-                                  : "text-board-muted/40 hover:text-board-text hover:bg-board-border/30"
-                              } transition-colors`}
-                              title="Drag to reorder"
-                            >
-                              <GripVertical className="w-3.5 h-3.5" />
-                            </div>
-                          )}
-
-                          {/* Duration */}
-                          <span className={`shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}>
-                            {formatDuration(item.duration)}
-                          </span>
-
-                          {/* Divider */}
-                          <div className={`w-px h-7 shrink-0 ${isCurrent ? "bg-fire-500/30" : "bg-board-border/30"}`} />
-
-                          {/* Title section */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <Icon className={`w-3.5 h-3.5 shrink-0 ${
-                                isCurrent ? "text-fire-400" : config.color.split(" ")[1]
-                              }`} />
-                              <p className={`text-sm font-medium truncate ${
-                                isCurrent ? "text-fire-400" :
-                                item.status === "complete" ? "text-board-muted line-through" : "text-board-text"
-                              }`}>
-                                {item.title || "Untitled"}
+                          {/* Debug info — helps troubleshoot why slides aren't appearing */}
+                          {pp.debugInfo && (
+                            <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">
+                              <p className="text-[9px] font-medium text-board-muted/60 uppercase tracking-wider">
+                                Debug
                               </p>
-                            </div>
-                            {/* Assignee / notes inline */}
-                            {(item.assignee || item.notes) && (
-                              <p className="text-[10px] text-board-muted/40 truncate mt-0.5 pl-6">
-                                {item.assignee}{item.assignee && item.notes ? " · " : ""}{item.notes}
-                              </p>
-                            )}
-                            {/* Time display: scheduled start and actual times */}
-                            {(item.scheduledStart || item.actualStart) && (
-                              <div className="flex items-center gap-2 mt-0.5 pl-6">
-                                {item.scheduledStart && (
-                                  <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
-                                    {formatTimeInput(item.scheduledStart, settings["org-timezone"])} sched
-                                  </span>
+                              <div className="text-[9px] text-board-muted/50 font-mono space-y-0.5">
+                                <p>
+                                  WS:{" "}
+                                  {pp.debugInfo.wsConnected ? "open" : "closed"}{" "}
+                                  | msgs: {pp.debugInfo.wsMessagesReceived}
+                                </p>
+                                {pp.debugInfo.lastWsMessage && (
+                                  <p
+                                    className="truncate max-w-full"
+                                    title={pp.debugInfo.lastWsMessage}
+                                  >
+                                    Last WS:{" "}
+                                    {pp.debugInfo.lastWsMessage.slice(0, 80)}
+                                  </p>
                                 )}
-                                {item.actualStart && (
-                                  <span className={`text-[10px] tabular-nums font-mono ${
-                                    item.status === "complete"
-                                      ? (() => {
-                                          const overrun = itemOverrunMs(item);
-                                          return overrun !== null && overrun > 30000
-                                            ? "text-red-400/70"
-                                            : "text-green-400/70";
-                                        })()
-                                      : "text-fire-400/70"
-                                  }`}>
-                                    {formatTimeInput(item.actualStart, settings["org-timezone"])}
-                                    {item.actualEnd && ` – ${formatTimeInput(item.actualEnd, settings["org-timezone"])}`}
-                                    {item.status === "complete" && (() => {
-                                      const overrun = itemOverrunMs(item);
-                                      if (overrun === null) return null;
-                                      const sign = overrun > 0 ? "+" : "";
-                                      return ` (${sign}${Math.round(overrun / 1000)}s)`;
-                                    })()}
-                                  </span>
+                                <p>
+                                  Poll:{" "}
+                                  {pp.debugInfo.pollingActive
+                                    ? "active"
+                                    : "inactive"}{" "}
+                                  | ok: {pp.debugInfo.pollSuccessCount}
+                                </p>
+                                {pp.debugInfo.lastPollResult && (
+                                  <p
+                                    className="truncate max-w-full"
+                                    title={pp.debugInfo.lastPollResult}
+                                  >
+                                    Poll:{" "}
+                                    {pp.debugInfo.lastPollResult.slice(0, 80)}
+                                  </p>
                                 )}
                               </div>
-                            )}
-                          </div>
-
-                          {/* Offset chip (OnTime-style) */}
-                          {isCurrent && elapsed > 0 && (
-                            <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                              isItemOvertime
-                                ? "bg-red-500/20 text-red-400 animate-pulse"
-                                : "bg-green-500/15 text-green-400/80"
-                            }`}>
-                              {formatOffset(elapsed - item.duration)}
-                            </span>
+                            </div>
                           )}
-
-                            {/* Playback actions (always visible on touch/tables, hover for larger screens) */}
-                            {canEditRundown && (
-                              <div
-                                className={`flex items-center gap-0.5 shrink-0 ${
-                                  isCurrent
-                                    ? "opacity-100"
-                                    : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"
-                                } transition-opacity`}
-                              >
-                                {!isCurrent && item.status !== "complete" && (
-                                  <button onClick={() => handleStart(item.id)} className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Start">
-                                    <Play className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                                <button onClick={() => setEditingItem(item)} className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors" title="Edit">
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => handleMoveItem(item.id, "up")} disabled={idx === 0} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move up">
-                                  <ChevronUp className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => handleMoveItem(item.id, "down")} disabled={idx === items.length - 1} className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20" title="Move down">
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </button>
-                                {!isCurrent && (
-                                  <button onClick={() => handleRemoveItem(item.id)} className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Delete">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
                         </div>
+                      )}
+                    </>
+                  )}
 
-                        {/* Progress bar for current item */}
-                        {isCurrent && (
-                          <div className="h-0.5 w-full bg-board-border/20">
-                            <div
-                              id="rundown-item-progress"
-                              className={`h-full ${isItemOvertime && overtimeBehavior !== "stop" ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
-                              style={{ width: "0%" }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                  {!ppEnabled && (
+                    <p className="text-[10px] text-board-muted/40">
+                      Stream lyrics & scripture from ProPresenter to stage
+                      display
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Shortcuts */}
+              {canEditRundown && (
+                <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
+                  <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
+                    Shortcuts
+                  </p>
+                  <div className="space-y-1 text-xs text-board-muted">
+                    <div className="flex justify-between">
+                      <span>Play / Pause</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        Space
+                      </kbd>
                     </div>
-                  );
-                  })}
+                    <div className="flex justify-between">
+                      <span>Next item</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        N
+                      </kbd>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Previous item</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        P
+                      </kbd>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Stop</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        S
+                      </kbd>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Add 1 minute</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        +
+                      </kbd>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Subtract 1 minute</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
+                        -
+                      </kbd>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
 
-      {canEditRundown && showAddForm && <AddItemModal defaultDuration={defaultItemDuration} onAdd={handleAddItem} onClose={() => setShowAddForm(false)} />}
-      {canEditRundown && editingItem && (
-        <EditItemModal
-          item={editingItem}
-          onSave={(title, type, duration, assignee, notes) => handleEditItem(editingItem.id, title, type, duration, assignee, notes)}
-          onClose={() => setEditingItem(null)}
+            {/* Right: Runsheet */}
+            <div className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar">
+              <div className="min-w-[760px] flex flex-col min-h-full">
+                {/* Runsheet header — sticky within its own scroll container */}
+                <div className="flex items-center justify-between mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
+                  <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                    Runsheet
+                  </h2>
+                  <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted whitespace-nowrap">
+                    <span>{items.length} items</span>
+                    {completedDuration > 0 && (
+                      <span>
+                        {formatDuration(completedDuration)} /{" "}
+                        {formatDuration(totalDuration)}
+                      </span>
+                    )}
+                    <span>{formatDuration(remainingDuration)} remaining</span>
+                  </div>
+                </div>
+
+                {items.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                    <Clock className="w-10 h-10 text-board-muted/20" />
+                    <p className="text-sm text-board-muted">
+                      No items in the rundown
+                    </p>
+                    <p className="text-xs text-board-muted/50">
+                      {canEditRundown
+                        ? 'Click "Add Item" or "Load" to get started'
+                        : "No rundown items are available for this date"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
+                    {timedItems.map((item, idx) => {
+                      const isCurrent = item.id === timer.currentItemId;
+                      const config = TYPE_CONFIG[item.type];
+                      const Icon = config.icon;
+                      const isItemOvertime =
+                        isCurrent && elapsed > item.duration;
+                      const isDraggingItem = draggedItemId === item.id;
+                      const isDropTarget =
+                        dropTargetItemId === item.id &&
+                        draggedItemId !== item.id;
+
+                      // A section band is structure, not running order: no
+                      // duration, no clock, no play button. It reorders and
+                      // deletes like anything else so the blocks can be moved
+                      // as the service is planned.
+                      if (item.type === "header") {
+                        return (
+                          <div
+                            key={item.id}
+                            data-rundown-item-id={item.id}
+                            onDragOver={(event) =>
+                              handleItemDragOver(event, item.id)
+                            }
+                            onDrop={(event) => handleItemDrop(event, item.id)}
+                            className={`group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
+                              isDraggingItem ? "opacity-60" : ""
+                            } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
+                          >
+                            {canEditRundown && (
+                              <div
+                                draggable
+                                onDragStart={(event) =>
+                                  handleItemDragStart(event, item.id)
+                                }
+                                onDragEnd={handleItemDragEnd}
+                                onTouchStart={() =>
+                                  handleItemTouchStart(item.id)
+                                }
+                                onTouchMove={handleItemTouchMove}
+                                onTouchEnd={handleItemTouchEnd}
+                                onTouchCancel={handleItemDragEnd}
+                                className="shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
+                                title="Drag to reorder"
+                              >
+                                <GripVertical className="w-3.5 h-3.5" />
+                              </div>
+                            )}
+                            <p className="flex-1 min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
+                              {item.title || "Section"}
+                            </p>
+                            {canEditRundown && (
+                              <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
+                                <button
+                                  onClick={() => setEditingItem(item)}
+                                  className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleMoveItem(item.id, "up")}
+                                  disabled={idx === 0}
+                                  className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
+                                  title="Move up"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    handleMoveItem(item.id, "down")
+                                  }
+                                  disabled={idx === items.length - 1}
+                                  className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
+                                  title="Move down"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleRemoveItem(item.id)}
+                                  className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Extract the bg color class for the binder bar
+                      const binderColor = isCurrent
+                        ? "bg-fire-500"
+                        : item.status === "complete"
+                          ? "bg-green-500/40"
+                          : config.color.split(" ")[0].replace("/15", "/60");
+
+                      return (
+                        <div
+                          key={item.id}
+                          data-rundown-item-id={item.id}
+                          onDragOver={(event) =>
+                            handleItemDragOver(event, item.id)
+                          }
+                          onDrop={(event) => handleItemDrop(event, item.id)}
+                          className={`group flex border transition-[colors,opacity,box-shadow] ${
+                            isDraggingItem
+                              ? "opacity-60 border-fire-500/30"
+                              : isDropTarget
+                                ? "border-fire-500/50 shadow-[0_0_0_1px_rgba(255,193,7,0.28)]"
+                                : "border-transparent"
+                          } ${
+                            isCurrent
+                              ? "bg-fire-500/8"
+                              : item.status === "complete"
+                                ? "bg-board-card/15 opacity-50"
+                                : "bg-board-card/30 hover:bg-board-card/50"
+                          }`}
+                        >
+                          {/* Left binder bar (OnTime-style) */}
+                          <div
+                            className={`w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
+                              isCurrent ? "text-white" : "text-white/70"
+                            }`}
+                          >
+                            <span className="text-[10px] font-bold tabular-nums">
+                              {itemNumbers.get(item.id) ?? idx + 1}
+                            </span>
+                            {item.status === "live" && (
+                              <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                            )}
+                          </div>
+
+                          {/* Content area */}
+                          <div className="flex-1 min-w-0 flex flex-col">
+                            {/* Main row */}
+                            <div className="flex items-center gap-3 px-3 py-2">
+                              {canEditRundown && (
+                                <div
+                                  draggable
+                                  onDragStart={(event) =>
+                                    handleItemDragStart(event, item.id)
+                                  }
+                                  onDragEnd={handleItemDragEnd}
+                                  onTouchStart={() =>
+                                    handleItemTouchStart(item.id)
+                                  }
+                                  onTouchMove={handleItemTouchMove}
+                                  onTouchEnd={handleItemTouchEnd}
+                                  onTouchCancel={handleItemDragEnd}
+                                  className={`shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
+                                    isDraggingItem
+                                      ? "text-fire-400 bg-fire-500/10"
+                                      : "text-board-muted/40 hover:text-board-text hover:bg-board-border/30"
+                                  } transition-colors`}
+                                  title="Drag to reorder"
+                                >
+                                  <GripVertical className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+
+                              {/* Duration */}
+                              <span
+                                className={`shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}
+                              >
+                                {formatDuration(item.duration)}
+                              </span>
+
+                              {/* Divider */}
+                              <div
+                                className={`w-px h-7 shrink-0 ${isCurrent ? "bg-fire-500/30" : "bg-board-border/30"}`}
+                              />
+
+                              {/* Title section */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <Icon
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      isCurrent
+                                        ? "text-fire-400"
+                                        : config.color.split(" ")[1]
+                                    }`}
+                                  />
+                                  <p
+                                    className={`text-sm font-medium truncate ${
+                                      isCurrent
+                                        ? "text-fire-400"
+                                        : item.status === "complete"
+                                          ? "text-board-muted line-through"
+                                          : "text-board-text"
+                                    }`}
+                                  >
+                                    {item.title || "Untitled"}
+                                  </p>
+                                </div>
+                                {/* Assignee / notes inline */}
+                                {(item.assignee || item.notes) && (
+                                  <p className="text-[10px] text-board-muted/40 truncate mt-0.5 pl-6">
+                                    {item.assignee}
+                                    {item.assignee && item.notes ? " · " : ""}
+                                    {item.notes}
+                                  </p>
+                                )}
+                                {/* Time display: scheduled start and actual times */}
+                                {(item.scheduledStart || item.actualStart) && (
+                                  <div className="flex items-center gap-2 mt-0.5 pl-6">
+                                    {item.scheduledStart && (
+                                      <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
+                                        {formatTimeInput(
+                                          item.scheduledStart,
+                                          settings["org-timezone"],
+                                        )}{" "}
+                                        sched
+                                      </span>
+                                    )}
+                                    {item.actualStart && (
+                                      <span
+                                        className={`text-[10px] tabular-nums font-mono ${
+                                          item.status === "complete"
+                                            ? (() => {
+                                                const overrun =
+                                                  itemOverrunMs(item);
+                                                return overrun !== null &&
+                                                  overrun > 30000
+                                                  ? "text-red-400/70"
+                                                  : "text-green-400/70";
+                                              })()
+                                            : "text-fire-400/70"
+                                        }`}
+                                      >
+                                        {formatTimeInput(
+                                          item.actualStart,
+                                          settings["org-timezone"],
+                                        )}
+                                        {item.actualEnd &&
+                                          ` – ${formatTimeInput(item.actualEnd, settings["org-timezone"])}`}
+                                        {item.status === "complete" &&
+                                          (() => {
+                                            const overrun = itemOverrunMs(item);
+                                            if (overrun === null) return null;
+                                            const sign = overrun > 0 ? "+" : "";
+                                            return ` (${sign}${Math.round(overrun / 1000)}s)`;
+                                          })()}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Offset chip (OnTime-style) */}
+                              {isCurrent && elapsed > 0 && (
+                                <span
+                                  className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                    isItemOvertime
+                                      ? "bg-red-500/20 text-red-400 animate-pulse"
+                                      : "bg-green-500/15 text-green-400/80"
+                                  }`}
+                                >
+                                  {formatOffset(elapsed - item.duration)}
+                                </span>
+                              )}
+
+                              {/* Playback actions (always visible on touch/tables, hover for larger screens) */}
+                              {canEditRundown && (
+                                <div
+                                  className={`flex items-center gap-0.5 shrink-0 ${
+                                    isCurrent
+                                      ? "opacity-100"
+                                      : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"
+                                  } transition-opacity`}
+                                >
+                                  {!isCurrent && item.status !== "complete" && (
+                                    <button
+                                      onClick={() => handleStart(item.id)}
+                                      className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors"
+                                      title="Start"
+                                    >
+                                      <Play className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setEditingItem(item)}
+                                    className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleMoveItem(item.id, "up")
+                                    }
+                                    disabled={idx === 0}
+                                    className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
+                                    title="Move up"
+                                  >
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleMoveItem(item.id, "down")
+                                    }
+                                    disabled={idx === items.length - 1}
+                                    className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
+                                    title="Move down"
+                                  >
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  </button>
+                                  {!isCurrent && (
+                                    <button
+                                      onClick={() => handleRemoveItem(item.id)}
+                                      className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Progress bar for current item */}
+                            {isCurrent && (
+                              <div className="h-0.5 w-full bg-board-border/20">
+                                <div
+                                  id="rundown-item-progress"
+                                  className={`h-full ${isItemOvertime && overtimeBehavior !== "stop" ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
+                                  style={{ width: "0%" }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {canEditRundown && showAddForm && (
+          <AddItemModal
+            defaultDuration={defaultItemDuration}
+            onAdd={handleAddItem}
+            onClose={() => setShowAddForm(false)}
+          />
+        )}
+        {canEditRundown && editingItem && (
+          <EditItemModal
+            item={editingItem}
+            onSave={(title, type, duration, assignee, notes) =>
+              handleEditItem(
+                editingItem.id,
+                title,
+                type,
+                duration,
+                assignee,
+                notes,
+              )
+            }
+            onClose={() => setEditingItem(null)}
+          />
+        )}
+        {canEditRundown && showLoadModal && (
+          <LoadRundownModal
+            orgId={orgId}
+            timeZone={settings["org-timezone"]}
+            onLoad={handleLoadItems}
+            onClose={() => setShowLoadModal(false)}
+          />
+        )}
+        {canEditRundown && showSaveModal && (
+          <SaveRundownModal
+            onSave={handleSaveTemplate}
+            initialServiceName={serviceName}
+            initialStartTime={scheduledStartTime}
+            onClose={() => setShowSaveModal(false)}
+          />
+        )}
+        {showOptionsModal ? (
+          <ShowOptionsModal
+            busy={selectionBusy}
+            canCreate={canCreateShow}
+            canEdit={canEditRundown}
+            onClose={() => setShowOptionsModal(false)}
+            onCreate={() => {
+              setShowOptionsModal(false);
+              setShowCreateModal(true);
+            }}
+            onDateChange={(date) => void loadDate(date)}
+            onCallTimeChange={handleScheduledCallChange}
+            onNameChange={handleServiceNameChange}
+            onSelectShow={(show) => void loadDate(show.serviceDate, show.id)}
+            onShiftDate={handleDateChange}
+            onStartTimeChange={handleScheduledStartChange}
+            onToday={() =>
+              void loadDate(getTodayDateString(settings["org-timezone"]))
+            }
+            selectedDate={serviceDate}
+            selectedShowId={showId}
+            serviceName={serviceName}
+            callTime={scheduledCallTime}
+            shows={shows}
+            startTime={scheduledStartTime}
+            timeZone={settings["org-timezone"]}
+          />
+        ) : null}
+        {canCreateShow && showCreateModal ? (
+          <NewShowModal
+            currentDate={serviceDate}
+            currentStartTime={scheduledStartTime}
+            canCopyCurrent={Boolean(showId)}
+            onCreate={handleCreateShow}
+            onClose={() => setShowCreateModal(false)}
+          />
+        ) : null}
+        <ConfirmDialog
+          open={showTakeLiveConfirmation}
+          onOpenChange={setShowTakeLiveConfirmation}
+          title={`Take ${selectedShowName} live?`}
+          description="Timer, lyrics, kiosk, Show Flow, and other venue outputs will switch to this show. Browsing alone never changes them."
+          confirmLabel="Take live"
+          variant="warning"
+          loading={activePublishPending}
+          onConfirm={() => void takeSelectedShowLive()}
         />
-      )}
-      {canEditRundown && showLoadModal && (
-        <LoadRundownModal orgId={orgId} timeZone={settings["org-timezone"]} onLoad={handleLoadItems} onClose={() => setShowLoadModal(false)} />
-      )}
-      {canEditRundown && showSaveModal && (
-        <SaveRundownModal
-          onSave={handleSaveTemplate}
-          initialServiceName={serviceName}
-          initialStartTime={scheduledStartTime}
-          onClose={() => setShowSaveModal(false)}
+        <ConfirmDialog
+          open={showClearConfirmation}
+          onOpenChange={setShowClearConfirmation}
+          title="Clear this rundown?"
+          description="This removes every rundown item and stops the timer for all connected operators. This action cannot be undone."
+          confirmLabel="Clear rundown"
+          variant="danger"
+          onConfirm={handleClearAll}
         />
-      )}
-      {showOptionsModal ? (
-        <ShowOptionsModal
-          busy={selectionBusy}
-          canCreate={canCreateShow}
-          canEdit={canEditRundown}
-          onClose={() => setShowOptionsModal(false)}
-          onCreate={() => {
-            setShowOptionsModal(false);
-            setShowCreateModal(true);
-          }}
-          onDateChange={(date) => void loadDate(date)}
-          onCallTimeChange={handleScheduledCallChange}
-          onNameChange={handleServiceNameChange}
-          onSelectShow={(show) => void loadDate(show.serviceDate, show.id)}
-          onShiftDate={handleDateChange}
-          onStartTimeChange={handleScheduledStartChange}
-          onToday={() => void loadDate(getTodayDateString(settings["org-timezone"]))}
-          selectedDate={serviceDate}
-          selectedShowId={showId}
-          serviceName={serviceName}
-          callTime={scheduledCallTime}
-          shows={shows}
-          startTime={scheduledStartTime}
-          timeZone={settings["org-timezone"]}
-        />
-      ) : null}
-      {canCreateShow && showCreateModal ? (
-        <NewShowModal
-          currentDate={serviceDate}
-          currentStartTime={scheduledStartTime}
-          canCopyCurrent={Boolean(showId)}
-          onCreate={handleCreateShow}
-          onClose={() => setShowCreateModal(false)}
-        />
-      ) : null}
-      <ConfirmDialog
-        open={showClearConfirmation}
-        onOpenChange={setShowClearConfirmation}
-        title="Clear this rundown?"
-        description="This removes every rundown item and stops the timer for all connected operators. This action cannot be undone."
-        confirmLabel="Clear rundown"
-        variant="danger"
-        onConfirm={handleClearAll}
-      />
       </div>
     </div>
   );
@@ -2194,7 +3051,13 @@ function AddItemModal({
   onClose,
 }: {
   defaultDuration: string;
-  onAdd: (title: string, type: ItemType, duration: string, assignee: string, notes: string) => void;
+  onAdd: (
+    title: string,
+    type: ItemType,
+    duration: string,
+    assignee: string,
+    notes: string,
+  ) => void;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -2219,52 +3082,104 @@ function AddItemModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-5">{type === "header" ? "Add section" : "Add rundown item"}</h2>
+        <h2 className="text-lg font-semibold text-board-text mb-5">
+          {type === "header" ? "Add section" : "Add rundown item"}
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">Type</label>
+            <label className="block text-sm text-board-muted mb-1.5">
+              Type
+            </label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
                 const config = TYPE_CONFIG[t];
                 const Icon = config.icon;
                 return (
-                  <button key={t} type="button" onClick={() => setType(t)}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}>
-                    <Icon className="w-3 h-3" />{config.label}
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setType(t)}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {config.label}
                   </button>
                 );
               })}
             </div>
           </div>
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"} autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
+            <label className="block text-sm text-board-muted mb-1.5">
+              Title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={
+                type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"
+              }
+              autoFocus
+              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+            />
           </div>
           {type !== "header" && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-board-muted mb-1.5">Duration (mm:ss)</label>
-              <input type="text" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5:00"
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-board-muted mb-1.5">
+                  Duration (mm:ss)
+                </label>
+                <input
+                  type="text"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  placeholder="5:00"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-board-muted mb-1.5">
+                  Assignee
+                </label>
+                <input
+                  type="text"
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                  placeholder="e.g. Pastor James"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm text-board-muted mb-1.5">Assignee</label>
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="e.g. Pastor James"
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
-            </div>
-          </div>
           )}
           {type !== "header" && (
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Production notes..."  rows={2}
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none" />
-          </div>
+            <div>
+              <label className="block text-sm text-board-muted mb-1.5">
+                Notes
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Production notes..."
+                rows={2}
+                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
+              />
+            </div>
           )}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors">Cancel</button>
-            <button type="submit" disabled={!title.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors">Add</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim()}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+            >
+              Add
+            </button>
           </div>
         </form>
       </div>
@@ -2285,12 +3200,20 @@ function EditItemModal({
   onClose,
 }: {
   item: RundownItem;
-  onSave: (title: string, type: ItemType, duration: string, assignee: string, notes: string) => void;
+  onSave: (
+    title: string,
+    type: ItemType,
+    duration: string,
+    assignee: string,
+    notes: string,
+  ) => void;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(item.title);
   const [type, setType] = useState<ItemType>(item.type);
-  const [duration, setDuration] = useState(formatDurationForInput(item.duration));
+  const [duration, setDuration] = useState(
+    formatDurationForInput(item.duration),
+  );
   const [assignee, setAssignee] = useState(item.assignee);
   const [notes, setNotes] = useState(item.notes);
 
@@ -2310,52 +3233,104 @@ function EditItemModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-5">Edit Item</h2>
+        <h2 className="text-lg font-semibold text-board-text mb-5">
+          Edit Item
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">Type</label>
+            <label className="block text-sm text-board-muted mb-1.5">
+              Type
+            </label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
                 const config = TYPE_CONFIG[t];
                 const Icon = config.icon;
                 return (
-                  <button key={t} type="button" onClick={() => setType(t)}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}>
-                    <Icon className="w-3 h-3" />{config.label}
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setType(t)}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {config.label}
                   </button>
                 );
               })}
             </div>
           </div>
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"} autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
+            <label className="block text-sm text-board-muted mb-1.5">
+              Title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={
+                type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"
+              }
+              autoFocus
+              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+            />
           </div>
           {type !== "header" && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-board-muted mb-1.5">Duration (mm:ss)</label>
-              <input type="text" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5:00"
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-board-muted mb-1.5">
+                  Duration (mm:ss)
+                </label>
+                <input
+                  type="text"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  placeholder="5:00"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-board-muted mb-1.5">
+                  Assignee
+                </label>
+                <input
+                  type="text"
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                  placeholder="e.g. Pastor James"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm text-board-muted mb-1.5">Assignee</label>
-              <input type="text" value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="e.g. Pastor James"
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm" />
-            </div>
-          </div>
           )}
           {type !== "header" && (
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Production notes..." rows={2}
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none" />
-          </div>
+            <div>
+              <label className="block text-sm text-board-muted mb-1.5">
+                Notes
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Production notes..."
+                rows={2}
+                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
+              />
+            </div>
           )}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors">Cancel</button>
-            <button type="submit" disabled={!title.trim()} className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors">Save</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim()}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+            >
+              Save
+            </button>
           </div>
         </form>
       </div>
@@ -2373,11 +3348,23 @@ function LoadRundownModal({
 }: {
   orgId: string;
   timeZone?: string;
-  onLoad: (loaded: { items: RundownItem[]; serviceName?: string; scheduledStartTime?: string }) => void | Promise<void>;
+  onLoad: (loaded: {
+    items: RundownItem[];
+    serviceName?: string;
+    scheduledStartTime?: string;
+  }) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"dates" | "saved">("dates");
-  const [dates, setDates] = useState<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }[]>([]);
+  const [dates, setDates] = useState<
+    {
+      showId: string;
+      date: string;
+      name: string;
+      scheduledStartTime: string | null;
+      itemCount: number;
+    }[]
+  >([]);
   const [saved, setSaved] = useState<SavedRundownMeta[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingItems, setLoadingItems] = useState(false);
@@ -2387,17 +3374,29 @@ function LoadRundownModal({
     Promise.all([
       listRundownDates({ data: { orgId } }),
       listSavedRundowns({ data: { orgId } }),
-    ]).then(([d, s]) => {
-      setDates(d);
-      setSaved(s);
-    }).catch(() => {}).finally(() => setLoadingList(false));
+    ])
+      .then(([d, s]) => {
+        setDates(d);
+        setSaved(s);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingList(false));
   }, [orgId]);
 
   const handleLoadFromDate = async (date: string, showId: string) => {
     setLoadingItems(true);
     try {
-      const state = await getRundownState({ data: { orgId, serviceDate: date, showId } });
-      await onLoad({ items: state.items as RundownItem[], serviceName: state.meta?.name ?? "", scheduledStartTime: formatTimeInput(state.meta?.scheduledStartTime, timeZone) });
+      const state = await getRundownState({
+        data: { orgId, serviceDate: date, showId },
+      });
+      await onLoad({
+        items: state.items as RundownItem[],
+        serviceName: state.meta?.name ?? "",
+        scheduledStartTime: formatTimeInput(
+          state.meta?.scheduledStartTime,
+          timeZone,
+        ),
+      });
     } catch {
       // keep modal open
     }
@@ -2423,15 +3422,28 @@ function LoadRundownModal({
   const formatDate = (dateStr: string) => {
     const [y, m, d] = dateStr.split("-");
     const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-board-card border border-board-border rounded-2xl w-full max-w-lg mx-4 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h2 className="text-lg font-semibold text-board-text">Load Rundown</h2>
-          <button type="button" onClick={onClose} aria-label="Close load rundown" title="Close load rundown" className="p-1 rounded text-board-muted hover:text-board-text transition-colors">
+          <h2 className="text-lg font-semibold text-board-text">
+            Load Rundown
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close load rundown"
+            title="Close load rundown"
+            className="p-1 rounded text-board-muted hover:text-board-text transition-colors"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -2441,7 +3453,9 @@ function LoadRundownModal({
           <button
             onClick={() => setTab("dates")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              tab === "dates" ? "bg-fire-500/15 text-fire-500 border border-fire-500/25" : "text-board-muted border border-board-border hover:border-board-muted/50"
+              tab === "dates"
+                ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
+                : "text-board-muted border border-board-border hover:border-board-muted/50"
             }`}
           >
             <Calendar className="w-3 h-3" />
@@ -2450,7 +3464,9 @@ function LoadRundownModal({
           <button
             onClick={() => setTab("saved")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              tab === "saved" ? "bg-fire-500/15 text-fire-500 border border-fire-500/25" : "text-board-muted border border-board-border hover:border-board-muted/50"
+              tab === "saved"
+                ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
+                : "text-board-muted border border-board-border hover:border-board-muted/50"
             }`}
           >
             <FileText className="w-3 h-3" />
@@ -2460,10 +3476,14 @@ function LoadRundownModal({
 
         <div className="px-6 pb-5 max-h-[400px] overflow-auto">
           {loadingList ? (
-            <p className="text-sm text-board-muted py-8 text-center">Loading...</p>
+            <p className="text-sm text-board-muted py-8 text-center">
+              Loading...
+            </p>
           ) : tab === "dates" ? (
             dates.length === 0 ? (
-              <p className="text-sm text-board-muted py-8 text-center">No previous rundowns found</p>
+              <p className="text-sm text-board-muted py-8 text-center">
+                No previous rundowns found
+              </p>
             ) : (
               <div className="space-y-1.5">
                 {dates.map((d) => (
@@ -2474,45 +3494,60 @@ function LoadRundownModal({
                     className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors text-left disabled:opacity-50"
                   >
                     <div>
-                      <p className="text-sm font-medium text-board-text">{d.name || formatDate(d.date)}</p>
-                      <p className="text-[10px] text-board-muted mt-0.5">{formatDate(d.date)}{d.scheduledStartTime ? ` · ${formatTimeInput(d.scheduledStartTime, timeZone)}` : ""} · {d.itemCount} items</p>
+                      <p className="text-sm font-medium text-board-text">
+                        {d.name || formatDate(d.date)}
+                      </p>
+                      <p className="text-[10px] text-board-muted mt-0.5">
+                        {formatDate(d.date)}
+                        {d.scheduledStartTime
+                          ? ` · ${formatTimeInput(d.scheduledStartTime, timeZone)}`
+                          : ""}{" "}
+                        · {d.itemCount} items
+                      </p>
                     </div>
                     <FolderOpen className="w-4 h-4 text-board-muted" />
                   </button>
                 ))}
               </div>
             )
+          ) : saved.length === 0 ? (
+            <p className="text-sm text-board-muted py-8 text-center">
+              No saved templates yet. Use "Save" to create one.
+            </p>
           ) : (
-            saved.length === 0 ? (
-              <p className="text-sm text-board-muted py-8 text-center">No saved templates yet. Use "Save" to create one.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {saved.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center gap-2 px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors"
+            <div className="space-y-1.5">
+              {saved.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center gap-2 px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors"
+                >
+                  <button
+                    onClick={() => handleLoadFromSaved(s.id)}
+                    disabled={loadingItems}
+                    className="flex-1 text-left disabled:opacity-50"
                   >
-                    <button
-                      onClick={() => handleLoadFromSaved(s.id)}
-                      disabled={loadingItems}
-                      className="flex-1 text-left disabled:opacity-50"
-                    >
-                      <p className="text-sm font-medium text-board-text">{s.name}</p>
-                      <p className="text-[10px] text-board-muted mt-0.5">
-                        {s.itemCount} items{s.serviceName ? ` · ${s.serviceName}` : ""}{s.scheduledStartTime ? ` · ${s.scheduledStartTime}` : ""} · saved {new Date(s.createdAt).toLocaleDateString()}
-                      </p>
-                    </button>
-                    <button
-                      onClick={() => handleDeleteSaved(s.id)}
-                      className="p-1.5 rounded text-board-muted hover:text-red-400 transition-colors shrink-0"
-                      title="Delete template"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )
+                    <p className="text-sm font-medium text-board-text">
+                      {s.name}
+                    </p>
+                    <p className="text-[10px] text-board-muted mt-0.5">
+                      {s.itemCount} items
+                      {s.serviceName ? ` · ${s.serviceName}` : ""}
+                      {s.scheduledStartTime
+                        ? ` · ${s.scheduledStartTime}`
+                        : ""}{" "}
+                      · saved {new Date(s.createdAt).toLocaleDateString()}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSaved(s.id)}
+                    className="p-1.5 rounded text-board-muted hover:text-red-400 transition-colors shrink-0"
+                    title="Delete template"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -2528,14 +3563,19 @@ function SaveRundownModal({
   initialServiceName,
   initialStartTime,
 }: {
-  onSave: (name: string, serviceName: string, scheduledStartTime: string) => Promise<void>;
+  onSave: (
+    name: string,
+    serviceName: string,
+    scheduledStartTime: string,
+  ) => Promise<void>;
   onClose: () => void;
   initialServiceName: string;
   initialStartTime: string;
 }) {
   const [name, setName] = useState("");
   const [serviceName, setServiceName] = useState(initialServiceName);
-  const [scheduledStartTime, setScheduledStartTime] = useState(initialStartTime);
+  const [scheduledStartTime, setScheduledStartTime] =
+    useState(initialStartTime);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -2549,10 +3589,14 @@ function SaveRundownModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-4">Save Rundown Template</h2>
+        <h2 className="text-lg font-semibold text-board-text mb-4">
+          Save Rundown Template
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">Template Name</label>
+            <label className="block text-sm text-board-muted mb-1.5">
+              Template Name
+            </label>
             <input
               type="text"
               value={name}
@@ -2563,7 +3607,9 @@ function SaveRundownModal({
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm text-board-muted">Service title</label>
+            <label className="mb-1.5 block text-sm text-board-muted">
+              Service title
+            </label>
             <input
               type="text"
               value={serviceName}
@@ -2573,7 +3619,9 @@ function SaveRundownModal({
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm text-board-muted">Service start time</label>
+            <label className="mb-1.5 block text-sm text-board-muted">
+              Service start time
+            </label>
             <input
               type="time"
               value={scheduledStartTime}
@@ -2582,13 +3630,22 @@ function SaveRundownModal({
             />
           </div>
           <p className="text-[10px] text-board-muted">
-            Saves the current rundown items as a reusable template. All items will be reset to "upcoming" status.
+            Saves the current rundown items as a reusable template. All items
+            will be reset to "upcoming" status.
           </p>
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
+            >
               Cancel
             </button>
-            <button type="submit" disabled={!name.trim() || saving} className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors">
+            <button
+              type="submit"
+              disabled={!name.trim() || saving}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+            >
               {saving ? "Saving..." : "Save"}
             </button>
           </div>

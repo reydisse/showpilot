@@ -1,6 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { isEmojiReaction } from "@showpilot/shared";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Plus,
   AlertTriangle,
@@ -145,13 +152,20 @@ export const Route = createFileRoute("/$slug/production/incidents")({
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const today = getTodayDateString(settings["org-timezone"]);
     const opening = await getRundownOpeningDate({
-      data: { orgId: context.orgId, today, serviceDate: deps.date, showId: deps.show },
+      data: {
+        orgId: context.orgId,
+        today,
+        serviceDate: deps.date,
+        showId: deps.show,
+      },
     });
     const serviceDate = opening.serviceDate;
     const showId = opening.showId;
     const [incidents, comments, recentHistory] = await Promise.all([
       getIncidents({ data: { orgId: context.orgId, serviceDate, showId } }),
-      getIncidentComments({ data: { orgId: context.orgId, serviceDate, showId } }),
+      getIncidentComments({
+        data: { orgId: context.orgId, serviceDate, showId },
+      }),
       getIncidentHistory({
         data: {
           orgId: context.orgId,
@@ -169,7 +183,7 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       orgId: context.orgId,
       role: context.role,
       grantedPermissions: context.grantedPermissions,
-      orgTimezone: settings["org-timezone"],
+      orgTimezone: settings["org-timezone"] || "UTC",
       initialServiceDate: serviceDate,
       initialShowId: showId ?? null,
       shows: opening.shows,
@@ -211,7 +225,9 @@ function IncidentsPage() {
     {},
   );
   const [commentBusy, setCommentBusy] = useState<string | null>(null);
-  const [replyTargets, setReplyTargets] = useState<Record<string, string | null>>({});
+  const [replyTargets, setReplyTargets] = useState<
+    Record<string, string | null>
+  >({});
   const [reactions, setReactions] = useState<ContentReaction[]>([]);
   const [form, setForm] = useState({
     category: "Audio",
@@ -220,10 +236,11 @@ function IncidentsPage() {
     reportedBy: "",
   });
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const canReportIncidents = hasAnyEffectivePermission(role, grantedPermissions, [
-    "incidents:report",
-    "incidents:access",
-  ]);
+  const canReportIncidents = hasAnyEffectivePermission(
+    role,
+    grantedPermissions,
+    ["incidents:report", "incidents:access"],
+  );
   const canManageIncidents = hasEffectivePermission(
     role,
     grantedPermissions,
@@ -246,8 +263,20 @@ function IncidentsPage() {
       setLoadingIncidents(true);
       try {
         const [latest, latestComments] = await Promise.all([
-          getIncidents({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } }),
-          getIncidentComments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } }),
+          getIncidents({
+            data: {
+              orgId,
+              serviceDate: date,
+              showId: targetShowId ?? undefined,
+            },
+          }),
+          getIncidentComments({
+            data: {
+              orgId,
+              serviceDate: date,
+              showId: targetShowId ?? undefined,
+            },
+          }),
         ]);
         setIncidents(latest.map(normalizeIncident));
         setComments(latestComments);
@@ -293,7 +322,9 @@ function IncidentsPage() {
       setReactions([]);
       return;
     }
-    void getContentReactions({ data: { orgId, targetType: "incident-comment", targetIds } })
+    void getContentReactions({
+      data: { orgId, targetType: "incident-comment", targetIds },
+    })
       .then(setReactions)
       .catch(() => setReactions([]));
   }, [comments, orgId]);
@@ -356,7 +387,12 @@ function IncidentsPage() {
     setCommentBusy(incidentId);
     try {
       const comment = await addIncidentComment({
-        data: { orgId, incidentId, parentId: replyTargets[incidentId] ?? null, body },
+        data: {
+          orgId,
+          incidentId,
+          parentId: replyTargets[incidentId] ?? null,
+          body,
+        },
       });
       setComments((current) => [...current, comment]);
       setCommentDrafts((current) => ({ ...current, [incidentId]: "" }));
@@ -373,10 +409,24 @@ function IncidentsPage() {
     }
   };
 
-  const reactToComment = async (commentId: string, emoji: (typeof REACTION_EMOJIS)[number]) => {
-    await toggleContentReaction({ data: { orgId, targetType: "incident-comment", targetId: commentId, emoji } });
+  const reactToComment = async (
+    commentId: string,
+    emoji: string,
+  ) => {
+    await toggleContentReaction({
+      data: {
+        orgId,
+        targetType: "incident-comment",
+        targetId: commentId,
+        emoji,
+      },
+    });
     const targetIds = comments.map((comment) => comment.id);
-    setReactions(await getContentReactions({ data: { orgId, targetType: "incident-comment", targetIds } }));
+    setReactions(
+      await getContentReactions({
+        data: { orgId, targetType: "incident-comment", targetIds },
+      }),
+    );
   };
 
   return (
@@ -521,7 +571,11 @@ function IncidentsPage() {
                         )}
                         {incident.timestamp && (
                           <span className="text-[10px] text-board-muted">
-                            {formatTime(new Date(incident.timestamp))}
+                            {formatTime(
+                              new Date(incident.timestamp),
+                              "12hr",
+                              orgTimezone,
+                            )}
                           </span>
                         )}
                         <span
@@ -586,21 +640,44 @@ function IncidentsPage() {
                   {openComments.has(incident.id) && (
                     <div className="mt-3 space-y-3">
                       {comments
-                        .filter((comment) => comment.incidentId === incident.id && !comment.parentId)
+                        .filter(
+                          (comment) =>
+                            comment.incidentId === incident.id &&
+                            !comment.parentId,
+                        )
                         .map((comment) => (
                           <CommentThread
                             key={comment.id}
                             comment={comment}
-                            comments={comments.filter((item) => item.incidentId === incident.id)}
+                            comments={comments.filter(
+                              (item) => item.incidentId === incident.id,
+                            )}
                             reactions={reactions}
-                            onReply={(commentId) => setReplyTargets((current) => ({ ...current, [incident.id]: commentId }))}
+                            timeZone={orgTimezone}
+                            onReply={(commentId) =>
+                              setReplyTargets((current) => ({
+                                ...current,
+                                [incident.id]: commentId,
+                              }))
+                            }
                             onReact={reactToComment}
                           />
                         ))}
                       {replyTargets[incident.id] ? (
                         <div className="flex items-center justify-between rounded-lg border border-fire-500/20 bg-fire-500/[0.04] px-3 py-2 text-[10px] text-board-muted">
                           <span>Replying in thread</span>
-                          <button type="button" onClick={() => setReplyTargets((current) => ({ ...current, [incident.id]: null }))} className="text-fire-400">Cancel reply</button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReplyTargets((current) => ({
+                                ...current,
+                                [incident.id]: null,
+                              }))
+                            }
+                            className="text-fire-400"
+                          >
+                            Cancel reply
+                          </button>
                         </div>
                       ) : null}
                       <div className="flex items-end gap-2">
@@ -885,43 +962,125 @@ function CommentThread({
   reactions,
   onReply,
   onReact,
+  timeZone,
 }: {
   comment: IncidentComment;
   comments: IncidentComment[];
   reactions: ContentReaction[];
+  timeZone: string;
   onReply: (commentId: string) => void;
-  onReact: (commentId: string, emoji: (typeof REACTION_EMOJIS)[number]) => Promise<void>;
+  onReact: (
+    commentId: string,
+    emoji: string,
+  ) => Promise<void>;
 }) {
-  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
+    null,
+  );
+  const [customReaction, setCustomReaction] = useState("");
   const renderComment = (item: IncidentComment, depth = 0): ReactNode => {
-    const itemReactions = reactions.filter((reaction) => reaction.targetId === item.id);
-    const children = comments.filter((candidate) => candidate.parentId === item.id);
+    const itemReactions = reactions.filter(
+      (reaction) => reaction.targetId === item.id,
+    );
+    const children = comments.filter(
+      (candidate) => candidate.parentId === item.id,
+    );
+    const parent = item.parentId
+      ? comments.find((candidate) => candidate.id === item.parentId)
+      : null;
     return (
-      <div key={item.id} className={depth ? "ml-4 border-l-2 border-board-border pl-3 sm:ml-6" : ""}>
-        <div className="rounded-lg bg-board-bg/55 px-3 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold text-board-text">{item.authorName}</span>
-            <span className="text-[9px] text-board-muted">{formatTime(new Date(item.createdAt))}</span>
-          </div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">{item.body}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-          {REACTION_EMOJIS.filter((emoji) => itemReactions.some((reaction) => reaction.emoji === emoji)).map((emoji) => {
-            const count = itemReactions.filter((reaction) => reaction.emoji === emoji).length;
-            return (
-              <button key={emoji} type="button" onClick={() => void onReact(item.id, emoji)} aria-label={`React ${emoji}`} className="rounded-full border border-board-border px-1.5 py-0.5 text-[10px] text-board-muted hover:border-fire-500/30 hover:text-board-text">
-                {emoji}{count ? ` ${count}` : ""}
+      <Fragment key={item.id}>
+        <div
+          className={
+            depth ? "ml-3 border-l-2 border-board-border pl-3 sm:ml-4" : ""
+          }
+        >
+          <div className="rounded-lg bg-board-bg/55 px-3 py-2">
+            {parent ? (
+              <div className="mb-2 rounded-md border-l-2 border-fire-500/50 bg-board-card/60 px-2 py-1.5 text-[10px] text-board-muted">
+                <span className="font-semibold text-fire-300">
+                  Replying to {parent.authorName}
+                </span>
+                <p className="mt-0.5 truncate">{parent.body}</p>
+              </div>
+            ) : null}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold text-board-text">
+                {item.authorName}
+              </span>
+              <span className="text-[9px] text-board-muted">
+                {formatTime(new Date(item.createdAt), "12hr", timeZone)}
+              </span>
+            </div>
+            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">
+              {item.body}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {[...new Set(itemReactions.map((reaction) => reaction.emoji))].map((emoji) => {
+                const count = itemReactions.filter(
+                  (reaction) => reaction.emoji === emoji,
+                ).length;
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => void onReact(item.id, emoji)}
+                    aria-label={`React ${emoji}`}
+                    className="rounded-full border border-board-border px-1.5 py-0.5 text-[10px] text-board-muted hover:border-fire-500/30 hover:text-board-text"
+                  >
+                    {emoji}
+                    {count ? ` ${count}` : ""}
+                  </button>
+                );
+              })}
+              <span className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setReactionPickerFor((current) =>
+                      current === item.id ? null : item.id,
+                    )
+                  }
+                  aria-label="Add reaction"
+                  className="rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"
+                >
+                  <SmilePlus className="h-3.5 w-3.5" />
+                </button>
+                {reactionPickerFor === item.id ? (
+                  <span className="absolute left-0 top-full z-20 mt-1 block w-64 rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
+                    <span className="grid max-h-40 grid-cols-6 gap-1 overflow-y-auto">{REACTION_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => {
+                          setReactionPickerFor(null);
+                          void onReact(item.id, emoji);
+                        }}
+                        className="rounded-md p-1.5 text-base hover:bg-board-border/60"
+                        aria-label={`React ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}</span>
+                    <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setReactionPickerFor(null); setCustomReaction(""); void onReact(item.id, customReaction); }}>
+                      <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
+                      <button type="submit" disabled={!isEmojiReaction(customReaction)} className="rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
+                    </form>
+                  </span>
+                ) : null}
+              </span>
+              <button
+                type="button"
+                onClick={() => onReply(item.id)}
+                className="ml-1 text-[10px] font-medium text-board-muted hover:text-fire-400"
+              >
+                Reply
               </button>
-            );
-          })}
-          <span className="relative">
-            <button type="button" onClick={() => setReactionPickerFor((current) => current === item.id ? null : item.id)} aria-label="Add reaction" className="rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"><SmilePlus className="h-3.5 w-3.5" /></button>
-            {reactionPickerFor === item.id ? <span className="absolute left-0 top-full z-20 mt-1 grid max-h-48 w-64 grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{REACTION_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerFor(null); void onReact(item.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</span> : null}
-          </span>
-            <button type="button" onClick={() => onReply(item.id)} className="ml-1 text-[10px] font-medium text-board-muted hover:text-fire-400">Reply</button>
+            </div>
           </div>
         </div>
-        {children.length ? <div className="mt-2 flex flex-col gap-2">{children.map((child) => renderComment(child, depth + 1))}</div> : null}
-      </div>
+        {children.map((child) => renderComment(child, depth + 1))}
+      </Fragment>
     );
   };
   return <div className="flex flex-col gap-2">{renderComment(comment)}</div>;

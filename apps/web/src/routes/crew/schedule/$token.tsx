@@ -105,6 +105,7 @@ function CrewSchedulePortal() {
         data: {
           token,
           assignmentId: selected.id,
+          reviewedVersion: selected.responseVersion,
           response,
           reason: response === "declined" ? reason : "",
         },

@@ -58,19 +58,35 @@ function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
     return {
       async first<T>() {
         calls.push({ sql, params, operation: "first" });
-        if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
+        if (sql.startsWith("SELECT id FROM organization WHERE id = ?"))
+          return { id: "org-1" } as T;
         if (sql.includes("SELECT id, serviceDate, name, scheduledStartTime")) {
           if (params[0] === "show-previous") {
-            return { id: "show-previous", serviceDate: "2026-08-23", name: "Previous Service", scheduledStartTime: "2026-08-23T08:15:00.000Z", location: "Auditorium" } as T;
+            return {
+              id: "show-previous",
+              serviceDate: "2026-08-23",
+              name: "Previous Service",
+              scheduledStartTime: "2026-08-23T08:15:00.000Z",
+              location: "Auditorium",
+            } as T;
           }
-          return { id: "show-1", serviceDate: "2026-08-30", name: "Live Service", scheduledStartTime: "2026-08-30T09:00:00.000Z" } as T;
+          return {
+            id: "show-1",
+            serviceDate: "2026-08-30",
+            name: "Live Service",
+            scheduledStartTime: "2026-08-30T09:00:00.000Z",
+          } as T;
         }
         if (sql.includes("SELECT id, serviceDate FROM rundown")) {
           return { id: "show-1", serviceDate: "2026-08-30" } as T;
         }
-        if (sql.startsWith("SELECT id FROM rundown")) return { id: "show-1" } as T;
+        if (sql.startsWith("SELECT id FROM rundown"))
+          return { id: "show-1" } as T;
         if (sql.includes("key = 'org-timezone'")) return { value: "UTC" } as T;
-        if (sql.includes("key = ? LIMIT 1") && params[1] === "rundown-saved:template-1") {
+        if (
+          sql.includes("key = ? LIMIT 1") &&
+          params[1] === "rundown-saved:template-1"
+        ) {
           return { value: storedTemplate() } as T;
         }
         return null;
@@ -78,25 +94,30 @@ function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
       async all<T>() {
         calls.push({ sql, params, operation: "all" });
         if (sql.includes("FROM rundown_item")) {
-          return { results: [{
-            itemId: "item-1",
-            title: "Opening",
-            type: "segment",
-            duration: 120_000,
-            notes: "",
-            assignee: "Host",
-            cue: "",
-            status: "live",
-            sortOrder: 0,
-            hardStop: 0,
-            lowerThirdId: null,
-            scheduledStart: null,
-            expectedEnd: null,
-            actualStart: "2026-08-30T09:00:00.000Z",
-            actualEnd: null,
-          }] as T[] };
+          return {
+            results: [
+              {
+                itemId: "item-1",
+                title: "Opening",
+                type: "segment",
+                duration: 120_000,
+                notes: "",
+                assignee: "Host",
+                cue: "",
+                status: "live",
+                sortOrder: 0,
+                hardStop: 0,
+                lowerThirdId: null,
+                scheduledStart: null,
+                expectedEnd: null,
+                actualStart: "2026-08-30T09:00:00.000Z",
+                actualEnd: null,
+              },
+            ] as T[],
+          };
         }
-        if (sql.includes("key LIKE 'rundown-saved:%'")) return { results: [] as T[] };
+        if (sql.includes("key LIKE 'rundown-saved:%'"))
+          return { results: [] as T[] };
         return { results: [] as T[] };
       },
       async run() {
@@ -115,28 +136,44 @@ function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
   };
 }
 
-function relayNamespace(fetchImplementation: (request: Request) => Promise<Response>) {
+function relayNamespace(
+  fetchImplementation: (request: Request) => Promise<Response>,
+) {
   return {
     idFromName: vi.fn(() => ({ toString: () => "show-room" })),
     get: vi.fn(() => ({ fetch: vi.fn(fetchImplementation) })),
   } as unknown as DurableObjectNamespace;
 }
 
-async function post(path: string, body: Record<string, unknown>, env: MobileApiEnvironment) {
-  const response = await handleMobileApi(new Request(`https://showpilot.tech${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }), env);
-  if (!response) throw new Error("Mobile API did not handle rundown template route");
+async function post(
+  path: string,
+  body: Record<string, unknown>,
+  env: MobileApiEnvironment,
+) {
+  const response = await handleMobileApi(
+    new Request(`https://showpilot.tech${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
+  if (!response)
+    throw new Error("Mobile API did not handle rundown template route");
   return response;
 }
 
 describe("mobile rundown templates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getSession.mockResolvedValue({ user: { id: "editor-1", name: "Editor", email: "editor@example.com" } });
-    mocks.resolveAccess.mockResolvedValue({ role: "sm", permissions: ["rundown:edit"], today: "2026-08-27" });
+    mocks.getSession.mockResolvedValue({
+      user: { id: "editor-1", name: "Editor", email: "editor@example.com" },
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "sm",
+      permissions: ["rundown:edit"],
+      today: "2026-08-27",
+    });
   });
 
   it("saves the durable rundown snapshot with service metadata and reset timing", async () => {
@@ -148,7 +185,11 @@ describe("mobile rundown templates", () => {
     );
 
     expect(response.status).toBe(201);
-    const templateWrite = calls.find((call) => call.operation === "run" && call.params[2] === "rundown-saved:template-save-1");
+    const templateWrite = calls.find(
+      (call) =>
+        call.operation === "run" &&
+        call.params[2] === "rundown-saved:template-save-1",
+    );
     expect(templateWrite).toBeDefined();
     const saved = JSON.parse(String(templateWrite?.params[3]));
     expect(saved).toMatchObject({
@@ -157,7 +198,14 @@ describe("mobile rundown templates", () => {
       serviceName: "Live Service",
       scheduledStartTime: "09:00",
     });
-    expect(saved.items[0]).toMatchObject({ status: "upcoming", actualStart: null, actualEnd: null });
+    expect(saved.items[0]).toMatchObject({
+      status: "upcoming",
+      actualStart: null,
+      actualEnd: null,
+    });
+    expect(
+      calls.some((call) => call.params.includes("rundown-saved-index")),
+    ).toBe(false);
   });
 
   it("loads through the revision-protected relay with fresh item IDs and metadata", async () => {
@@ -176,23 +224,37 @@ describe("mobile rundown templates", () => {
     expect(response.status).toBe(200);
     expect(relayRequest).not.toBeNull();
     expect(new URL(relayRequest!.url).searchParams.get("access")).toBe("edit");
-    const command = await relayRequest!.json() as Record<string, unknown>;
-    expect(command).toMatchObject({ action: "seed", id: "template-load-1", expectedRevision: 7 });
+    const command = (await relayRequest!.json()) as Record<string, unknown>;
+    expect(command).toMatchObject({
+      action: "seed",
+      id: "template-load-1",
+      expectedRevision: 7,
+    });
     expect(command.payload).toMatchObject({
       force: true,
       serviceName: "Sunday Morning",
       scheduledStartTime: "2026-08-30T09:30:00.000Z",
-      items: [expect.objectContaining({ id: "template-load-1-item-0", status: "upcoming" })],
+      items: [
+        expect.objectContaining({
+          id: "template-load-1-item-0",
+          status: "upcoming",
+        }),
+      ],
     });
   });
 
   it("does not apply a template over a newer operator revision", async () => {
     const calls: QueryCall[] = [];
-    const relay = relayNamespace(async () => Response.json({
-      ok: false,
-      reason: "revision-conflict",
-      revision: 9,
-    }, { status: 409 }));
+    const relay = relayNamespace(async () =>
+      Response.json(
+        {
+          ok: false,
+          reason: "revision-conflict",
+          revision: 9,
+        },
+        { status: 409 },
+      ),
+    );
     const response = await post(
       "/api/mobile/v1/rundowns/show-1/templates/template-1/load?orgId=org-1",
       { requestId: "template-load-2", expectedRevision: 7 },
@@ -203,6 +265,29 @@ describe("mobile rundown templates", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "Another operator changed the rundown first.",
     });
+  });
+
+  it("does not let control-only operators delete saved templates", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      role: "pm",
+      permissions: ["rundown:control"],
+      today: "2026-08-27",
+    });
+    const calls: QueryCall[] = [];
+    const response = await post(
+      "/api/mobile/v1/rundowns/show-1/templates/template-1/remove?orgId=org-1",
+      {},
+      { DB: fakeDatabase(calls) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(
+      calls.some(
+        (call) =>
+          call.operation === "run" &&
+          call.sql.startsWith("DELETE FROM app_setting"),
+      ),
+    ).toBe(false);
   });
 
   it("updates show metadata through the same revision-protected relay", async () => {
@@ -225,7 +310,7 @@ describe("mobile rundown templates", () => {
     );
 
     expect(response.status).toBe(200);
-    const command = await relayRequest!.json() as Record<string, unknown>;
+    const command = (await relayRequest!.json()) as Record<string, unknown>;
     expect(command).toMatchObject({
       action: "update-meta",
       id: "show-meta-1",
@@ -252,7 +337,7 @@ describe("mobile rundown templates", () => {
     );
 
     expect(response.status).toBe(200);
-    const command = await relayRequest!.json() as Record<string, unknown>;
+    const command = (await relayRequest!.json()) as Record<string, unknown>;
     expect(command).toMatchObject({
       action: "seed",
       id: "previous-load-1",
@@ -262,13 +347,15 @@ describe("mobile rundown templates", () => {
         serviceName: "Previous Service",
         scheduledStartTime: "2026-08-30T08:15:00.000Z",
         location: "Auditorium",
-        items: [expect.objectContaining({
-          id: "previous-load-1-item-0",
-          status: "upcoming",
-          scheduledStart: null,
-          actualStart: null,
-          actualEnd: null,
-        })],
+        items: [
+          expect.objectContaining({
+            id: "previous-load-1-item-0",
+            status: "upcoming",
+            scheduledStart: null,
+            actualStart: null,
+            actualEnd: null,
+          }),
+        ],
       },
     });
   });

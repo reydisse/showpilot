@@ -270,6 +270,46 @@ describe("mobile incident workflow", () => {
     expect(update?.params.slice(-2)).toEqual(["incident-1", "org-1"]);
   });
 
+  it("preserves critical hardware semantics in a mobile edit", async () => {
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/incidents/incident-1/update?orgId=org-1",
+      { category: "Hardware", severity: "Critical", description: "Replaced the cable; failure remains." },
+    );
+    expect(response.status).toBe(200);
+    const update = calls.find((call) => call.sql.includes("SET category"));
+    expect(update?.params).toEqual([
+      "hardware", "critical", "Replaced the cable; failure remains.", "incident-1", "org-1",
+    ]);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ severity: "critical" }));
+  });
+
+  it("creates a general mobile incident when showId is omitted and notifies reviewers", async () => {
+    const calls: QueryCall[] = [];
+    const response = await post(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/incidents?orgId=org-1",
+      {
+        category: "network",
+        severity: "critical",
+        description: "Venue network switch is offline.",
+        serviceDate: "2026-08-27",
+      },
+    );
+    expect(response.status).toBe(201);
+    const insert = calls.find((call) => call.sql.startsWith("INSERT INTO incident"));
+    expect(insert?.params.slice(0, 6)).toEqual([
+      expect.any(String), "org-1", null, "network", "critical", "Venue network switch is offline.",
+    ]);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: "operator-1",
+      type: "incident-created",
+      severity: "critical",
+      title: "New critical network issue",
+    }));
+  });
+
   it("deletes an incident only by id and organization id", async () => {
     const calls: QueryCall[] = [];
     const response = await post(

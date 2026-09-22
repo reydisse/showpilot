@@ -170,7 +170,11 @@ function PlatformsPage() {
     setStopping(true);
     setActionError(null);
     try {
-      await disconnectAllDestinations({ data: { orgId } });
+      const results = await disconnectAllDestinations({ data: { orgId } });
+      const failed = results.filter((result) => !result.success);
+      if (failed.length > 0) {
+        setActionError(`${failed.length} destination(s) could not be stopped: ${failed.map((result) => result.error).join("; ")}`);
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to stop streams");
     }
@@ -330,7 +334,8 @@ function PlatformsPage() {
               const isConnected = !!dest.cfOutputId;
               const outputStatus = outputStatuses[dest.id];
               const isLive = outputStatus?.status === "connected";
-              const isConnecting = isConnected && !isLive && !outputStatus?.error;
+              const isConnecting = outputStatus?.status === "connecting" || outputStatus?.status === "reconnecting";
+              const isProviderEnabled = outputStatus?.status === "enabled";
 
               return (
                 <div
@@ -376,10 +381,15 @@ function PlatformsPage() {
                               <XCircle className="w-3 h-3" />
                               {outputStatus.error}
                             </>
+                          ) : isProviderEnabled ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" />
+                              Sending · verify on {platformCfg.label}
+                            </>
                           ) : (
                             <>
                               <CheckCircle2 className="w-3 h-3" />
-                              Relay created
+                              Relay ready
                             </>
                           )}
                         </span>

@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildSongAutomationEvents } from "@/lib/song-cues";
+import { replaceAutomationEventGroup } from "@/lib/timecode";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("buildSongAutomationEvents", () => {
   it("builds native and ProPresenter events from one repeated-section cue map", () => {
@@ -16,7 +19,7 @@ describe("buildSongAutomationEvents", () => {
       offsetFrames: 15,
     });
     expect(events.map((event) => event.action)).toEqual([
-      "lyrics-goto", "pp-trigger-slide", "lyrics-goto", "pp-trigger-slide", "lyrics-clear",
+      "lyrics-goto", "pp-trigger-slide", "lyrics-goto", "pp-trigger-slide",
     ]);
     expect(events[0].triggerFrame).toBe(315);
     expect(events[0].toleranceFrames).toBe(5);
@@ -32,5 +35,43 @@ describe("buildSongAutomationEvents", () => {
       target: "propresenter",
     });
     expect(events).toEqual([]);
+  });
+
+  it("replaces a previously loaded cue map instead of duplicating it", () => {
+    const events = buildSongAutomationEvents({
+      song: { id: "song-1", title: "Repeatable Song" },
+      cueMapId: "map-1",
+      cues: [{ id: "cue-1", triggerFrame: 30, section: { id: "verse", label: "Verse", lyrics: "Sing" }, ppSlideIndex: null }],
+      format: { frameRate: 30, dropFrame: "ndf" },
+      target: "native",
+    });
+    const sourceKey = events[0]?.sourceKey;
+    expect(sourceKey).toBe("song:song-1:map:map-1:target:native:offset:0");
+    if (!sourceKey) throw new Error("Expected a song event source key");
+
+    const once = replaceAutomationEventGroup([], sourceKey, events);
+    const twice = replaceAutomationEventGroup(once, sourceKey, events);
+    expect(twice).toHaveLength(events.length);
+    expect(twice.map((event) => event.action)).toEqual(["lyrics-goto"]);
+  });
+
+  it("holds the final lyric by default and only clears both outputs when explicitly scheduled", () => {
+    const base = {
+      song: { id: "song-1", title: "Hold Me" },
+      cueMapId: "map-1",
+      cues: [{ id: "cue-1", triggerFrame: 300, section: { id: "chorus", label: "Chorus", lyrics: "Hold" }, ppSlideIndex: 2 }],
+      format: { frameRate: 30, dropFrame: "ndf" } as const,
+      target: "both" as const,
+      ppPresentationUuid: "presentation-1",
+    };
+    expect(buildSongAutomationEvents(base).map((event) => event.action)).toEqual([
+      "lyrics-goto", "pp-trigger-slide",
+    ]);
+    const withClear = buildSongAutomationEvents({ ...base, clearAfterFrames: 90 });
+    expect(withClear.map((event) => event.action)).toEqual([
+      "lyrics-goto", "pp-trigger-slide", "lyrics-clear", "pp-trigger-clear",
+    ]);
+    expect(withClear[2].triggerFrame).toBe(390);
+    expect(withClear[2].payload.generationKey).toBe(withClear[0].sourceKey);
   });
 });

@@ -173,9 +173,9 @@ const serverPermissionContracts = [
   ["src/lib/content-reactions.ts", "toggleContentReaction", /assertAccess\(data\.orgId, data\.targetType\)/],
   ["src/lib/report.ts", "getShowReportIndex", /assertOrgPermission\(data\.orgId, "show:view"\)/],
   ["src/lib/report.ts", "exportShowReport", /assertOrgPermission\(data\.orgId, "show:view"\)/],
-  ["src/lib/rundown.ts", "getRundownState", /assertEffectiveOrgPermission\(data\.orgId, "rundown:view"\)/],
-  ["src/lib/rundown.ts", "getRundownOpeningDate", /assertEffectiveOrgPermission\(data\.orgId, "rundown:view"\)/],
-  ["src/lib/rundown.ts", "pollProPresenterSlide", /assertEffectiveOrgPermission\(data\.orgId, \["lowerthird:trigger", "rundown:control"\]\)/],
+  ["src/lib/rundown.ts", "getRundownState", /assertRundownPermission\(data\.orgId, "rundown:view"\)/],
+  ["src/lib/rundown.ts", "getRundownOpeningDate", /assertRundownPermission\(data\.orgId, "rundown:view"\)/],
+  ["src/lib/rundown.ts", "pollProPresenterSlide", /assertRundownPermission\(data\.orgId, \[\s*"lowerthird:trigger",\s*"rundown:control",?\s*\]\)/],
   ["src/lib/rundown.ts", "sendProPresenterCommand", /assertRundownControlAccess\(data\.orgId\)/],
   ["src/lib/rundown.ts", "testProPresenterConnection", /assertEffectiveOrgPermission\(data\.orgId, "settings:integrations"\)/],
 ];

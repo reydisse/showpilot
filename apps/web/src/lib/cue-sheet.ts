@@ -31,6 +31,7 @@ import {
 } from "@/lib/cue-sheet-derive";
 import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import type { RundownItem } from "@/types/rundown";
+import { markDefaultCueColumnsInitialized, seedDefaultCueColumnsOnce } from "@/lib/cue-column-seed";
 
 export { resolveCueSheetDate, toCueRows };
 export type { CueColumnRow, CueRow };
@@ -60,16 +61,6 @@ const MAX_NOTE_LENGTH = 2000;
  * the departments ShowPilot already understands rather than one church's
  * column names — anything else is renamed or deleted in seconds.
  */
-const DEFAULT_COLUMNS: { label: string; color: CueColumnColor }[] = [
-  // Show Caller first, and deliberately so. The SC calls the service —
-  // every other department is reacting to what they say, so their column
-  // is the one read down the page while the show runs.
-  { label: "Show Caller", color: "red" },
-  { label: "Production", color: "amber" },
-  { label: "Pro Ops", color: "green" },
-  { label: "LX", color: "blue" },
-  { label: "Sound", color: "purple" },
-];
 
 /**
  * Columns added to the defaults after an org already seeded.
@@ -167,21 +158,17 @@ async function ensureColumns(orgId: string): Promise<CueColumnRow[]> {
   const now = new Date().toISOString();
 
   if (existing.length === 0) {
-    await db.batch(
-      DEFAULT_COLUMNS.map((column, index) =>
-        db
-          .prepare(
-            `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(crypto.randomUUID(), orgId, column.label, column.color, index, 160, now, now),
-      ),
-    );
+    await seedDefaultCueColumnsOnce(db, orgId, now);
     // A fresh seed already contains everything in the backfill, so record
     // it as done rather than adding a second Show Caller next load.
     await markBackfillDone(orgId);
     return readColumns(orgId);
   }
+
+  // Existing organizations count as initialized. If they later intentionally
+  // delete every column, the empty sheet stays empty instead of silently
+  // recreating defaults.
+  await markDefaultCueColumnsInitialized(db, orgId);
 
   const prisma = getPrisma();
   const marker = await prisma.appSetting.findUnique({
@@ -219,6 +206,7 @@ async function ensureColumns(orgId: string): Promise<CueColumnRow[]> {
   await markBackfillDone(orgId);
   return missing.length > 0 ? readColumns(orgId) : existing;
 }
+
 
 async function markBackfillDone(orgId: string): Promise<void> {
   const prisma = getPrisma();

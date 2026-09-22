@@ -28,6 +28,7 @@ const input = {
   customerId: "cus_123",
   orgId: "org_123",
   orgSlug: "grace",
+  plan: "pro" as const,
   priceId: "price_abc",
   baseUrl: "https://showpilot.tech",
 };
@@ -56,5 +57,6 @@ describe("buildCheckoutSessionParams — session mode selection", () => {
       expect(embedded[key]).toEqual(hosted[key]);
     }
     expect(embedded.subscription_data?.metadata?.orgId).toBe("org_123");
+    expect(embedded.metadata).toEqual({ orgId: "org_123", plan: "pro", uiMode: "embedded" });
   });
 });

@@ -62,18 +62,43 @@ export class TcpConnection {
     }
 
     return new Promise((resolve, reject) => {
+      const socket = this.socket!;
+      const lineFramed = /[\r\n]$/.test(command);
+      let response = "";
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        socket.removeListener("data", onData);
+        socket.removeListener("error", onError);
+        socket.removeListener("close", onClose);
+      };
+      const fail = (error: Error, invalidate = false) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (invalidate) this.disconnect();
+        reject(error);
+      };
       const timer = setTimeout(() => {
-        reject(new Error("Response timeout"));
+        // Once a request has timed out, an eventual reply cannot be safely
+        // correlated with the next command. Drop the ambiguous connection.
+        fail(new Error("Response timeout"), true);
       }, this.responseTimeout);
 
       const onData = (data: Buffer) => {
-        clearTimeout(timer);
-        this.socket?.removeListener("data", onData);
-        resolve(data.toString());
+        response += data.toString();
+        if (lineFramed && !/[\r\n]/.test(response)) return;
+        settled = true;
+        cleanup();
+        resolve(response);
       };
+      const onError = (error: Error) => fail(error);
+      const onClose = () => fail(new Error("Connection closed before the device replied"));
 
-      this.socket!.on("data", onData);
-      this.socket!.write(command);
+      socket.on("data", onData);
+      socket.on("error", onError);
+      socket.on("close", onClose);
+      socket.write(command);
     });
   }
 }

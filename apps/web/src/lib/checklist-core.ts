@@ -16,7 +16,7 @@ export interface ChecklistTemplateIdentity {
 }
 
 export type ChecklistTemplateWrite =
-  | { kind: "existing"; id: string }
+  | { kind: "existing"; id: string; category: DepartmentKey }
   | { kind: "new"; id: string; label: string; category: DepartmentKey };
 
 /**

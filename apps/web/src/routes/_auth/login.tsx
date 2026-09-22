@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 
 export const Route = createFileRoute("/_auth/login")({
   // ?signup=1 opens the page in sign-up mode — the landing page's CTAs land
@@ -130,10 +131,10 @@ function LoginPage() {
                 id="password"
                 type={showPassword ? "text" : "password"}
                 required
-                minLength={6}
+                minLength={isSignUp ? PASSWORD_MIN_LENGTH : undefined}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
+                placeholder={isSignUp ? `At least ${PASSWORD_MIN_LENGTH} characters` : "Your password"}
                 className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-12 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
               <button

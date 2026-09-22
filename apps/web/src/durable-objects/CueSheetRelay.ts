@@ -13,6 +13,10 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+import {
+  hasLivePermissionAuthority,
+  type LiveSessionAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
 
 /** A cell changed. Scoped by service date so other dates ignore it. */
 export interface CueNoteEvent {
@@ -46,24 +50,37 @@ export interface IncidentEvent {
 }
 
 export type CueSheetEvent = CueNoteEvent | CueColumnsEvent | IncidentEvent;
+type CueRelayScope = "columns" | "notes" | "incidents";
 
-export class CueSheetRelay extends DurableObject {
+export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH_SECRET?: string }> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      await this.ctx.storage.deleteAll();
+      return Response.json({ ok: true });
+    }
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
+      server.serializeAttachment?.({
+        scopes: this.readScopes(url),
+        authClaim: this.readAuthorityClaim(url),
+      });
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/broadcast" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") {
+      const event = (await request.json()) as CueSheetEvent;
+      if (!this.scopeAllows(this.readScopes(url), event)) {
         return new Response("Unauthorized", { status: 401 });
       }
-      const event = (await request.json()) as CueSheetEvent;
       this.broadcast(JSON.stringify(event));
       return Response.json({ ok: true });
     }
@@ -78,9 +95,27 @@ export class CueSheetRelay extends DurableObject {
    */
   async webSocketMessage(sender: WebSocket, data: string | ArrayBuffer) {
     try {
-      const attachment = sender.deserializeAttachment?.() as { canWrite?: boolean } | null;
-      if (!attachment?.canWrite) return;
+      const attachment = sender.deserializeAttachment?.() as {
+        scopes?: CueRelayScope[];
+        authClaim?: LiveSessionAuthorityClaim | null;
+      } | null;
       const parsed = JSON.parse(data as string) as CueSheetEvent;
+      if (!attachment?.scopes || !this.scopeAllows(attachment.scopes, parsed)) return;
+      if (
+        attachment.authClaim
+        && !(await hasLivePermissionAuthority(
+          this.env.DB,
+          attachment.authClaim,
+          parsed.type === "columns"
+            ? "cuesheet:edit"
+            : parsed.type === "note"
+              ? ["cuesheet:edit", "cuesheet:add_notes"]
+              : ["incidents:report", "incidents:access"],
+        ))
+      ) {
+        sender.close(4403, "Cue sheet access changed");
+        return;
+      }
       if (parsed.type !== "note" && parsed.type !== "columns" && parsed.type !== "incident") return;
       // Don't echo to the sender: it already applied the change locally,
       // and bouncing it back would fight their cursor mid-word.
@@ -93,6 +128,25 @@ export class CueSheetRelay extends DurableObject {
   webSocketClose() {}
 
   webSocketError() {}
+
+  private readAuthorityClaim(url: URL): LiveSessionAuthorityClaim | null {
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    const orgId = url.searchParams.get("orgId")?.trim();
+    return userId && sessionId && orgId ? { userId, sessionId, orgId } : null;
+  }
+
+  private readScopes(url: URL): CueRelayScope[] {
+    const values = new Set(url.searchParams.get("access")?.split(",") ?? []);
+    return (["columns", "notes", "incidents"] as const).filter((scope) => values.has(scope));
+  }
+
+  private scopeAllows(scopes: readonly CueRelayScope[], event: CueSheetEvent): boolean {
+    if (event.type === "columns") return scopes.includes("columns");
+    if (event.type === "note") return scopes.includes("notes");
+    if (event.type === "incident") return scopes.includes("incidents");
+    return false;
+  }
 
   private broadcast(data: string, except?: WebSocket) {
     // getWebSockets survives Durable Object hibernation; an in-memory Set

@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { isEmojiReaction } from "@showpilot/shared";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
@@ -100,7 +101,7 @@ export const notifyChatReaction = createServerFn({ method: "POST" })
     roomId: roomIdSchema,
     messageId: idSchema,
     targetUserId: idSchema,
-    emoji: z.enum(["👍", "❤️", "🎉", "👀", "🙏"]),
+    emoji: z.string().refine(isEmojiReaction, "Choose an emoji"),
   }), data))
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);

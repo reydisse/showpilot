@@ -102,3 +102,10 @@ test("rejects synchronous desktop companion-window creation", () => {
   const issues = findNativeReleaseIssues(current);
   assert.ok(issues.some((issue) => issue.includes("Windows WebView deadlocks")));
 });
+
+test("rejects desktop builds that bypass the bundled offline shell", () => {
+  const current = snapshot();
+  current.products.desktop.tauri.build.frontendDist = "https://showpilot.tech";
+  const issues = findNativeReleaseIssues(current);
+  assert.ok(issues.some((issue) => issue.includes("bundled offline shell")));
+});

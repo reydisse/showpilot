@@ -1,9 +1,11 @@
 import { RundownRelay } from "../durable-objects/RundownRelay";
+import { TimecodeRelay } from "../durable-objects/TimecodeRelay";
 
 export { BridgeRelay } from "../durable-objects/BridgeRelay";
 export { ChatRelay } from "../durable-objects/ChatRelay";
 
 export class TestRundownRelay extends RundownRelay {}
+export class TestTimecodeRelay extends TimecodeRelay {}
 
 export default {
   fetch(): Response {

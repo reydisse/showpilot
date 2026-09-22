@@ -32,6 +32,7 @@ import {
   applyMobileChecklistDraft,
   getMobileChecklist,
   getMobileChecklistDraft,
+  getMobileChecklistShows,
   removeMobileChecklistEntry,
   toggleMobileChecklistEntry,
   updateMobileChecklistCategory,
@@ -94,10 +95,6 @@ export default function ChecklistScreen() {
   const [draftOpen, setDraftOpen] = useState(false);
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!selectedShowId && bootstrap?.shows[0]?.id) setSelectedShowId(bootstrap.shows[0].id);
-  }, [bootstrap?.shows, selectedShowId]);
-
   const queryKey = ["mobile-checklist", organization?.id, selectedShowId] as const;
   const pollingInterval = useScreenPollingInterval(20_000);
   const query = useQuery({
@@ -106,6 +103,16 @@ export default function ChecklistScreen() {
     enabled: Boolean(organization?.id && selectedShowId),
     refetchInterval: pollingInterval,
   });
+  const showsQuery = useQuery({
+    queryKey: ["mobile-checklist-shows", organization?.id],
+    queryFn: () => getMobileChecklistShows(organization!.id),
+    enabled: Boolean(organization?.id),
+  });
+  useEffect(() => {
+    if (selectedShowId) return;
+    const nextShowId = bootstrap?.shows[0]?.id ?? showsQuery.data?.[0]?.id;
+    if (nextShowId) setSelectedShowId(nextShowId);
+  }, [bootstrap?.shows, selectedShowId, showsQuery.data]);
   const draftQuery = useQuery({
     queryKey: ["mobile-checklist-draft", organization?.id, selectedShowId],
     queryFn: () => getMobileChecklistDraft(organization!.id, selectedShowId),
@@ -139,7 +146,7 @@ export default function ChecklistScreen() {
     onError: (error) => Alert.alert("Item not added", error.message),
   });
   const toggleMutation = useMutation({
-    mutationFn: (input: { entryId: string; checked: boolean }) => toggleMobileChecklistEntry({
+    mutationFn: (input: { entryId: string; checked: boolean; expectedRevision: number }) => toggleMobileChecklistEntry({
       orgId: organization!.id,
       ...input,
     }),
@@ -153,6 +160,7 @@ export default function ChecklistScreen() {
           checked,
           checkedBy: checked ? bootstrap?.identity.name ?? null : null,
           checkedAt: checked ? new Date().toISOString() : null,
+          revision: entry.revision + (entry.checked === checked ? 0 : 1),
         } : entry),
       } : current);
       return { previous };
@@ -170,7 +178,7 @@ export default function ChecklistScreen() {
     onError: (error) => Alert.alert("Item not removed", error.message),
   });
   const categoryMutation = useMutation({
-    mutationFn: (input: { templateId: string; category: ChecklistDepartment }) =>
+    mutationFn: (input: { entryId: string; category: ChecklistDepartment }) =>
       updateMobileChecklistCategory({ orgId: organization!.id, ...input }),
     onSuccess: async () => {
       setCategoryEntry(null);
@@ -211,10 +219,10 @@ export default function ChecklistScreen() {
   }, [entries]);
   const completeCount = entries.filter((entry) => entry.checked).length;
   const progress = entries.length ? Math.round((completeCount / entries.length) * 100) : 0;
-  const shows = query.data?.shows ?? bootstrap?.shows ?? [];
+  const shows = query.data?.shows ?? showsQuery.data ?? bootstrap?.shows ?? [];
   const selectedIndex = shows.findIndex((show) => show.id === selectedShowId);
 
-  if (organizationPending || bootstrapPending) return <LoadingView label="Opening checklist…" />;
+  if (organizationPending || bootstrapPending || (!selectedShowId && showsQuery.isPending)) return <LoadingView label="Opening checklist…" />;
   if (!organization) return <Redirect href="/organizations" />;
 
   if (!selectedShowId) {
@@ -222,8 +230,8 @@ export default function ChecklistScreen() {
       <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="PRE-SHOW" title="Checklist">
         <View style={styles.emptyPanel}>
           <ListChecks color={colors.textFaint} size={30} />
-          <Text style={styles.emptyTitle}>No planned show</Text>
-          <Text style={styles.emptyText}>Create a show first, then its checklist will be available here.</Text>
+          <Text style={styles.emptyTitle}>{showsQuery.error ? "Checklist history unavailable" : "No shows yet"}</Text>
+          <Text style={styles.emptyText}>{showsQuery.error ? "The show list could not be loaded. Try again." : "Create a show first, then its checklist will be available here."}</Text>
         </View>
       </Page>
     );
@@ -372,7 +380,7 @@ export default function ChecklistScreen() {
                 accessibilityState={{ checked: entry.checked, disabled: !canManage }}
                 disabled={!canManage || (toggleMutation.isPending && toggleMutation.variables?.entryId === entry.id)}
                 hitSlop={8}
-                onPress={() => toggleMutation.mutate({ entryId: entry.id, checked: !entry.checked })}
+                onPress={() => toggleMutation.mutate({ entryId: entry.id, checked: !entry.checked, expectedRevision: entry.revision })}
                 style={({ pressed }) => [styles.checkButton, pressed && styles.pressed]}
               >
                 {entry.checked ? <CheckCircle2 color={colors.green} size={23} /> : <Circle color={colors.textFaint} size={23} />}
@@ -431,7 +439,7 @@ export default function ChecklistScreen() {
                   accessibilityState={{ checked: categoryEntry?.category === department }}
                   disabled={categoryMutation.isPending}
                   key={department}
-                  onPress={() => categoryEntry && categoryMutation.mutate({ templateId: categoryEntry.templateId, category: department })}
+                  onPress={() => categoryEntry && categoryMutation.mutate({ entryId: categoryEntry.id, category: department })}
                   style={[styles.departmentOption, categoryEntry?.category === department && styles.departmentOptionActive]}
                 >
                   <Text style={styles.departmentOptionText}>{departmentLabels[department]}</Text>

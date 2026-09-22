@@ -8,6 +8,8 @@ import {
   Play,
   Globe,
   CheckCircle2,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { timecodeToString } from "@/lib/timecode";
@@ -123,7 +125,7 @@ export function AutomationTimeline({
               <div
                 key={event.id}
                 className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                  event.fired
+                  event.fired && event.executionStatus !== "failed"
                     ? "opacity-40"
                     : isNext
                       ? "bg-fire-500/5"
@@ -137,7 +139,11 @@ export function AutomationTimeline({
 
                 {/* Status indicator */}
                 <div className="w-5 shrink-0">
-                  {event.fired ? (
+                  {event.executionStatus === "failed" ? (
+                    <AlertCircle className="h-4 w-4 text-red-400" />
+                  ) : event.executionStatus === "dispatching" ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-fire-500" />
+                  ) : event.fired ? (
                     <CheckCircle2 className="w-4 h-4 text-green-500" />
                   ) : isNext ? (
                     <div className="w-3 h-3 rounded-full bg-fire-500 animate-pulse mx-0.5" />
@@ -155,8 +161,13 @@ export function AutomationTimeline({
                 </div>
 
                 {/* Label */}
-                <span className="text-sm text-board-text truncate flex-1">
-                  {event.label}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-board-text">{event.label}</span>
+                  {event.executionStatus === "failed" && event.executionError ? (
+                    <span className="mt-0.5 block truncate text-[10px] text-red-400" title={event.executionError}>
+                      {event.executionError}
+                    </span>
+                  ) : null}
                 </span>
 
                 {/* Delete */}

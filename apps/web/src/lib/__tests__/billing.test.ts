@@ -4,14 +4,20 @@ import {
   PlanLimitError,
   getEffectivePlan,
   planFromPriceId,
+  subscriptionGrantsPaidAccess,
 } from "../plan-limits";
+import {
+  checkoutIdempotencyKey,
+  isBlockingSubscriptionStatus,
+  reusableCheckoutSession,
+} from "../checkout";
 
 const NOW = new Date("2026-06-10T12:00:00Z");
 const PAST = new Date("2026-01-01T00:00:00Z");
 const FUTURE = new Date("2026-12-01T00:00:00Z");
 
-function org(overrides: Partial<{ plan: string; trialEndsAt: Date | null; betaTester: boolean }> = {}) {
-  return { plan: "free", trialEndsAt: null, betaTester: false, ...overrides };
+function org(overrides: Partial<{ plan: string; trialEndsAt: Date | null; betaTester: boolean; subscriptionStatus: string | null }> = {}) {
+  return { plan: "free", trialEndsAt: null, betaTester: false, subscriptionStatus: null, ...overrides };
 }
 
 describe("getEffectivePlan precedence", () => {
@@ -52,6 +58,58 @@ describe("getEffectivePlan precedence", () => {
 
   it("unknown stored plan coerces to free", () => {
     expect(getEffectivePlan(org({ plan: "enterprise" }), null, NOW)).toBe("free");
+  });
+
+  it.each([
+    ["active", "pro"],
+    ["trialing", "pro"],
+    ["past_due", "pro"],
+    ["unpaid", "free"],
+    ["incomplete", "free"],
+    ["incomplete_expired", "free"],
+    ["paused", "free"],
+    ["canceled", "free"],
+  ])("applies the paid entitlement policy for %s", (subscriptionStatus, expected) => {
+    expect(getEffectivePlan(org({ plan: "pro", subscriptionStatus }), PAST, NOW)).toBe(expected);
+  });
+
+  it("does not let Stripe status remove an active ShowPilot trial", () => {
+    expect(getEffectivePlan(org({ plan: "pro", subscriptionStatus: "unpaid", trialEndsAt: FUTURE }), PAST, NOW)).toBe("pro");
+  });
+});
+
+describe("checkout concurrency guards", () => {
+  it("treats every non-terminal subscription as an existing billing operation", () => {
+    expect(isBlockingSubscriptionStatus("active")).toBe(true);
+    expect(isBlockingSubscriptionStatus("incomplete")).toBe(true);
+    expect(isBlockingSubscriptionStatus("canceled")).toBe(false);
+    expect(isBlockingSubscriptionStatus("incomplete_expired")).toBe(false);
+  });
+
+  it("reuses only the same organization's matching open checkout", () => {
+    const matching = {
+      id: "cs_match",
+      status: "open",
+      mode: "subscription",
+      metadata: { orgId: "org-1", plan: "pro", uiMode: "hosted" },
+    };
+    const sessions = [
+      { ...matching, id: "cs_other", metadata: { ...matching.metadata, plan: "starter" } },
+      matching,
+    ];
+    expect(reusableCheckoutSession(sessions as never, { orgId: "org-1", plan: "pro", uiMode: "hosted" })?.id).toBe("cs_match");
+  });
+
+  it("uses one deterministic operation key for same-day retries", () => {
+    const first = checkoutIdempotencyKey("org-1", "pro", "hosted", NOW);
+    expect(checkoutIdempotencyKey("org-1", "pro", "hosted", NOW)).toBe(first);
+    expect(checkoutIdempotencyKey("org-1", "starter", "hosted", NOW)).not.toBe(first);
+  });
+
+  it("documents the paid status allowlist", () => {
+    expect(subscriptionGrantsPaidAccess(null)).toBe(true);
+    expect(subscriptionGrantsPaidAccess("past_due")).toBe(true);
+    expect(subscriptionGrantsPaidAccess("unpaid")).toBe(false);
   });
 });
 

@@ -5,7 +5,21 @@ export function notificationHref(actionUrl: string): Href | null {
   const route = notificationRoute(actionUrl);
   if (!route) return null;
   if (route.screen === "devices") return "/devices";
-  if (route.screen === "incidents") return "/incidents";
+  if (route.screen === "incidents") return {
+    pathname: "/incidents",
+    params: {
+      ...(route.date ? { date: route.date } : {}),
+      ...(route.showId ? { show: route.showId } : {}),
+      ...(route.incidentId ? { incident: route.incidentId } : {}),
+    },
+  };
+  if (route.screen === "reports") return {
+    pathname: "/reports",
+    params: {
+      ...(route.date ? { date: route.date } : {}),
+      ...(route.showId ? { show: route.showId } : {}),
+    },
+  };
   if (route.screen === "operations") return "/operations";
   if (route.screen === "checklist") {
     return route.showId
@@ -23,7 +37,10 @@ export function notificationHref(actionUrl: string): Href | null {
       },
     };
   }
-  if (route.screen === "chat") return { pathname: "/chat", params: { room: route.room } };
+  if (route.screen === "chat") return {
+    pathname: "/chat",
+    params: { room: route.room, ...(route.messageId ? { message: route.messageId } : {}) },
+  };
   return { pathname: "/show/[showId]", params: { showId: route.showId } };
 }
 

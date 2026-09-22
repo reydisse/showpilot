@@ -58,7 +58,7 @@ describe("assignment notifications", () => {
       severity: "info",
       title: "New assignment",
       message: "Stage manager · Sunday Service · 2026-09-30 · Call 3:30 PM",
-      actionUrl: "schedule?date=2026-09-30&assignment=assignment-1",
+      actionUrl: "assignments?assignment=assignment-1",
       source: "assignment-1",
       pushTag: "assignment-assignment-1",
       dedupeKey: "assignment-assignment-1",

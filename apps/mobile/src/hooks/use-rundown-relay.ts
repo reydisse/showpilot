@@ -232,7 +232,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       connecting = true;
       let socket: WebSocket;
       try {
-        socket = await createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId));
+        socket = await createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId), orgId);
       } catch (error) {
         connecting = false;
         if (!disposed) {

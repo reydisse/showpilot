@@ -107,6 +107,18 @@ export function stop(items: RundownItem[], timer: NativeTimerState): TransportSt
 }
 
 /**
+ * The same next row is used by transport and every confidence display.
+ * Match RundownRelay: section headings and completed rows are not up next.
+ */
+export function nextPlayableItem<T extends Pick<RundownItem, "id" | "status" | "type">>(
+  items: T[],
+  currentItemId: string | null,
+): T | null {
+  const currentIndex = items.findIndex((item) => item.id === currentItemId);
+  return items.find((item, index) => index > currentIndex && item.status !== "complete" && !isHeaderItem(item)) ?? null;
+}
+
+/**
  * Advance to the next item. If there is no next item the show stops. Mirrors
  * useRundown's behaviour exactly (no-current → starts the first item).
  */
@@ -115,14 +127,9 @@ export function next(
   timer: NativeTimerState,
   now: number = Date.now(),
 ): TransportState {
-  const currentIndex = items.findIndex((i) => i.id === timer.currentItemId);
-  // Section bands are structure, not running order. Stepping onto one
-  // would put a heading live and stop the clock on a real segment, so
-  // skip over any that sit between here and the next item.
-  let nextIdx = currentIndex + 1;
-  while (nextIdx < items.length && isHeaderItem(items[nextIdx])) nextIdx++;
-  if (nextIdx < items.length) {
-    return start(items, timer, items[nextIdx].id, now);
+  const nextItem = nextPlayableItem(items, timer.currentItemId);
+  if (nextItem) {
+    return start(items, timer, nextItem.id, now);
   }
   return stop(items, timer);
 }

@@ -1,8 +1,9 @@
 # ShowPilot Desktop
 
-ShowPilot Desktop is the native host for the complete ShowPilot web app. It
-does not maintain a second dashboard or a second navigation model: development
-loads the local web app and release builds load `https://showpilot.tech`.
+ShowPilot Desktop is the native host for the complete ShowPilot web app. Development
+loads the local web app. Release builds start from a bundled bootstrap, open
+`https://showpilot.tech` when reachable, and otherwise open the last bounded
+rundown snapshot in an explicitly local-only rehearsal engine.
 Desktop-only features are exposed through a small, validated Tauri command
 boundary.
 
@@ -40,7 +41,9 @@ non-local URLs; release companion windows always use `https://showpilot.tech`.
   returns the platform and application-data location.
 - `cache_service` validates, size-limits and atomically writes an active-show
   snapshot to the ShowPilot application-data directory.
-- `get_cached_service` reads that snapshot for the future offline bootstrap.
+- `get_cached_service` supplies the bundled cold-start fallback. The fallback
+  can navigate the cached rundown and run a local rehearsal timer, and clearly
+  states that it does not update cloud state, teammates, lyrics, kiosks or venue devices.
 - `open_companion_window` opens validated dedicated Timer, Show Board and
   Check-in windows; live output windows stay on top.
 - The embedded, architecture-matched ShowPilot device engine provides the same

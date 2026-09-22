@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMobileApi, type MobileApiDatabase } from "../mobile-api.server";
+import { assignmentResponseVersion } from "../assignment-response-version";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -26,17 +27,18 @@ interface AssignmentFixture {
   showId: string | null;
   crewMemberId: string;
   role: string;
+  callTime: string;
   serviceDate: string;
   status: string;
   crewName: string;
   crewEmail: string;
   scheduledStartTime: string | null;
   plannedDurationMs: number;
+  assignedByUserId: string | null;
 }
 
 interface ScheduleAssignmentFixture extends AssignmentFixture {
   department: string;
-  callTime: string;
   notes: string;
   responseNote: string;
 }
@@ -130,17 +132,19 @@ function assignment(overrides: Partial<AssignmentFixture> = {}): AssignmentFixtu
     showId: null,
     crewMemberId: "crew-1",
     role: "Stage manager",
+    callTime: "",
     serviceDate: futureDate(),
     status: "assigned",
     crewName: "Test Person",
     crewEmail: "test@example.com",
     scheduledStartTime: null,
     plannedDurationMs: 0,
+    assignedByUserId: "scheduler-1",
     ...overrides,
   };
 }
 
-async function respond(db: MobileApiDatabase) {
+async function respond(db: MobileApiDatabase, reviewed: AssignmentFixture = assignment()) {
   const response = await handleMobileApi(
     new Request("https://showpilot.tech/api/mobile/v1/schedule/respond", {
       method: "POST",
@@ -148,6 +152,13 @@ async function respond(db: MobileApiDatabase) {
       body: JSON.stringify({
         orgId: "org-1",
         assignmentId: "assignment-1",
+        reviewedVersion: assignmentResponseVersion({
+          showId: reviewed.showId,
+          serviceDate: reviewed.serviceDate,
+          role: reviewed.role,
+          callTime: reviewed.callTime,
+          scheduledStartTime: reviewed.scheduledStartTime,
+        }),
         response: "confirmed",
       }),
     }),
@@ -176,10 +187,11 @@ describe("mobile assignment responses", () => {
 
   it("rejects an unanswered assignment after its service date has ended", async () => {
     const calls: StatementCall[] = [];
+    const ended = assignment({ serviceDate: "2020-01-01" });
     const response = await respond(fakeDatabase({
-      assignment: assignment({ serviceDate: "2020-01-01" }),
+      assignment: ended,
       calls,
-    }));
+    }), ended);
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
@@ -209,12 +221,36 @@ describe("mobile assignment responses", () => {
     expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
   });
 
-  it("records one open response and notifies leadership", async () => {
+  it("rejects a response after the reviewed duties change", async () => {
+    const calls: StatementCall[] = [];
+    const reviewed = assignment({ role: "Audio operator", callTime: "09:00" });
+    const current = assignment({ role: "Camera operator", callTime: "08:00" });
+    const response = await respond(
+      fakeDatabase({ assignment: current, calls }),
+      reviewed,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "This assignment changed. Review the updated details before responding.",
+    });
+    expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
+    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
+  });
+
+  it("records one open response and notifies only the assigning scheduler", async () => {
     const response = await respond(fakeDatabase({ assignment: assignment(), updateChanges: 1 }));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
     expect(mocks.notifyOperationalEvent).toHaveBeenCalledOnce();
+    expect(mocks.notifyOperationalEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: "user-1",
+      recipientIds: ["scheduler-1"],
+    }));
+    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ includeLeadership: true }),
+    );
   });
 
   it("does not expose another crew member's assignment", async () => {

@@ -1,4 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  hasLivePermissionAuthority,
+  type LiveSessionAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
 
 export type LowerThirdType = "person" | "scripture" | "freetext" | "style";
 export type LowerThirdState = "idle" | "live" | "clearing";
@@ -18,7 +22,7 @@ export interface LowerThirdPayload {
   triggeredAt?: number;
 }
 
-export class LowerThirdsRelay extends DurableObject {
+export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH_SECRET?: string }> {
   private current: LowerThirdPayload | null = null;
   private queue: LowerThirdPayload | null = null;
   private hydration: Promise<void> | null = null;
@@ -48,14 +52,28 @@ export class LowerThirdsRelay extends DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
-    await this.hydrateFromStorage();
     const url = new URL(request.url);
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      await this.ctx.storage.deleteAll();
+      this.current = null;
+      this.queue = null;
+      this.hydration = Promise.resolve();
+      return Response.json({ ok: true });
+    }
+    await this.hydrateFromStorage();
 
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      server.serializeAttachment?.({ canWrite: url.searchParams.get("access") === "write" });
+      server.serializeAttachment?.({
+        canWrite: url.searchParams.get("access") === "write",
+        authClaim: this.readAuthorityClaim(url),
+      });
 
       // Hydrate late connectors
       if (this.current) {
@@ -137,8 +155,18 @@ export class LowerThirdsRelay extends DurableObject {
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     await this.hydrateFromStorage();
     try {
-      const attachment = ws.deserializeAttachment?.() as { canWrite?: boolean } | null;
+      const attachment = ws.deserializeAttachment?.() as {
+        canWrite?: boolean;
+        authClaim?: LiveSessionAuthorityClaim | null;
+      } | null;
       if (!attachment?.canWrite) return;
+      if (
+        attachment.authClaim
+        && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "lowerthird:trigger"))
+      ) {
+        ws.close(4403, "Graphics access changed");
+        return;
+      }
       const parsed = JSON.parse(data as string) as {
         action: string;
         payload?: Partial<LowerThirdPayload>;
@@ -182,6 +210,13 @@ export class LowerThirdsRelay extends DurableObject {
   webSocketClose() {}
 
   webSocketError() {}
+
+  private readAuthorityClaim(url: URL): LiveSessionAuthorityClaim | null {
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    const orgId = url.searchParams.get("orgId")?.trim();
+    return userId && sessionId && orgId ? { userId, sessionId, orgId } : null;
+  }
 
   private broadcast(data: string) {
     // Cloudflare retains accepted sockets across Durable Object hibernation;

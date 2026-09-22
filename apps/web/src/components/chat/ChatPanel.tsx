@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import {
   MessageSquare,
   Send,
@@ -54,11 +55,7 @@ const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode 
   { value: "cue", label: "Cue", icon: <Radio className="w-3 h-3" /> },
   { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
 ];
-const MESSAGE_REACTIONS = [
-  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
-  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
-  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
-] as const;
+const MESSAGE_REACTIONS = QUICK_REACTION_EMOJIS;
 
 function MessageTypeSelector({
   value,
@@ -166,6 +163,8 @@ function ChatMessageRow({
   onToggleReaction,
   isFocused = false,
   onOpenImage,
+  onRetryQueued,
+  onCancelQueued,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -181,8 +180,11 @@ function ChatMessageRow({
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
   isFocused?: boolean;
   onOpenImage?: (image: { name: string; url: string }) => void;
+  onRetryQueued?: (messageId: string) => void;
+  onCancelQueued?: (messageId: string) => void;
 }) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [customReaction, setCustomReaction] = useState("");
   const isEvent = message.type === "cue" || message.type === "alert";
   const attachmentUrl = (url: string) => attachmentAccessToken
     ? `${url}${url.includes("?") ? "&" : "?"}guestToken=${encodeURIComponent(attachmentAccessToken)}`
@@ -335,15 +337,22 @@ function ChatMessageRow({
         </div>
         {message.externalDelivery?.status === "pending" ? <p className={cn("mt-1 px-2 text-[9px] text-board-muted", isOwn && "text-right")}>Sending to {message.externalDelivery.platform}…</p> : null}
         {message.externalDelivery?.status === "failed" ? <p className={cn("mt-1 px-2 text-[9px] text-red-300", isOwn && "text-right")}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</p> : null}
-        {!message.deletedAt && <div className={cn(
-          "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
-          isOwn && "self-end",
+        {message.delivery ? <div className={cn("mt-1 flex items-center gap-2 px-2 text-[9px]", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="font-semibold text-fire-300 hover:underline">Retry</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="hover:text-board-text hover:underline">Cancel</button> : null}</div> : null}
+        {!message.deletedAt && !message.delivery && <div className={cn(
+          "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:absolute [@media(hover:hover)]:bottom-5 [@media(hover:hover)]:mt-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
+          isOwn ? "self-end [@media(hover:hover)]:right-1" : "[@media(hover:hover)]:right-1",
         )}>
         {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
         {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
-        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 grid max-h-48 w-[min(16rem,calc(100vw-2rem))] grid-cols-6 gap-1 overflow-y-auto rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>}
+        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 w-[min(17rem,calc(100vw-2rem))] rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
+          <div className="grid max-h-40 grid-cols-6 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
+          <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onToggleReaction?.(message.id, customReaction); }}>
+            <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
+            <button type="submit" disabled={!isEmojiReaction(customReaction)} className="rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
+          </form>
+        </div>}
         </div>}
       </div>
     </div>
@@ -380,6 +389,7 @@ interface ChatPanelProps {
   unreadCount: number;
   onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void;
   onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
+  onDiscardAttachment?: (attachment: ChatAttachment) => Promise<void>;
   onEditMessage?: (messageId: string, text: string) => Promise<void>;
   onDeleteMessage?: (messageId: string) => Promise<void>;
   mentionMembers?: ChatMemberSummary[];
@@ -402,6 +412,12 @@ interface ChatPanelProps {
   gatewayStatus?: ChatGatewayStatus;
   hydrated?: boolean;
   onReadThrough?: (readAt: number) => void;
+  hasOlderMessages?: boolean;
+  loadingOlderMessages?: boolean;
+  olderMessagesError?: string | null;
+  onLoadOlderMessages?: () => Promise<void>;
+  onRetryQueuedMessage?: (messageId: string) => void;
+  onCancelQueuedMessage?: (messageId: string) => void;
 }
 
 export function ChatPanel({
@@ -419,6 +435,7 @@ export function ChatPanel({
   allowOperationalMessages = true,
   headerActions,
   onUploadAttachment,
+  onDiscardAttachment,
   attachmentAccessToken,
   onEditMessage,
   onDeleteMessage,
@@ -432,6 +449,12 @@ export function ChatPanel({
   gatewayStatus,
   hydrated = true,
   onReadThrough,
+  hasOlderMessages = false,
+  loadingOlderMessages = false,
+  olderMessagesError,
+  onLoadOlderMessages,
+  onRetryQueuedMessage,
+  onCancelQueuedMessage,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("text");
@@ -452,18 +475,44 @@ export function ChatPanel({
   const messagesContentRef = useRef<HTMLDivElement>(null);
   const initialPositionDoneRef = useRef(false);
   const stickToBottomRef = useRef(true);
+  const scrollLayoutRef = useRef({ width: 0, height: 0, contentHeight: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const seenAlertIdsRef = useRef<Set<string>>(new Set());
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedAtRef = useRef(Date.now());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAttachmentsRef = useRef<ChatAttachment[]>([]);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   useEffect(() => {
+    pendingAttachmentsRef.current = pendingAttachments;
+  }, [pendingAttachments]);
+
+  useEffect(() => () => {
+    for (const attachment of pendingAttachmentsRef.current) {
+      void onDiscardAttachment?.(attachment).catch(() => undefined);
+    }
+  }, [onDiscardAttachment]);
+
+  useEffect(() => {
     if (!focusedMessageId) return;
-    document.getElementById(`chat-message-${focusedMessageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusedMessageId, messages]);
+    const target = document.getElementById(`chat-message-${focusedMessageId}`);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    else if (hasOlderMessages && !loadingOlderMessages) void onLoadOlderMessages?.();
+  }, [focusedMessageId, hasOlderMessages, loadingOlderMessages, messages, onLoadOlderMessages]);
+
+  const loadOlder = async () => {
+    if (!onLoadOlderMessages || loadingOlderMessages) return;
+    const container = scrollContainerRef.current;
+    const priorHeight = container?.scrollHeight ?? 0;
+    const priorTop = container?.scrollTop ?? 0;
+    await onLoadOlderMessages();
+    requestAnimationFrame(() => {
+      if (!container) return;
+      container.scrollTop = priorTop + (container.scrollHeight - priorHeight);
+    });
+  };
 
   // Track pinned alerts (pinned for 10 seconds)
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -537,6 +586,7 @@ export function ChatPanel({
     if (!hydrated) return;
     if (focusedMessageId || (initialPositionDoneRef.current && !stickToBottomRef.current)) return;
     const frame = requestAnimationFrame(() => {
+      if (!scrollContainerRef.current?.clientHeight) return;
       messagesEndRef.current?.scrollIntoView({ block: "end" });
       initialPositionDoneRef.current = true;
       stickToBottomRef.current = true;
@@ -551,8 +601,19 @@ export function ChatPanel({
     const content = messagesContentRef.current;
     if (!container || !content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (!focusedMessageId && stickToBottomRef.current) {
+      const wasHidden = scrollLayoutRef.current.height === 0;
+      scrollLayoutRef.current = {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        contentHeight: container.scrollHeight,
+      };
+      if (container.clientHeight === 0) return;
+      // Show Flow keeps its chat mounted while switching tabs. Opening that
+      // hidden panel is a new opening, not a request to restore an old offset.
+      if (wasHidden) stickToBottomRef.current = true;
+      if (hydrated && !focusedMessageId && stickToBottomRef.current) {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
+        initialPositionDoneRef.current = true;
         setShowScrollButton(false);
         markLatestRead();
       }
@@ -560,12 +621,18 @@ export function ChatPanel({
     observer.observe(container);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [focusedMessageId, markLatestRead]);
+  }, [focusedMessageId, hydrated, markLatestRead]);
 
   // Detect if user has scrolled up
   const handleScroll = () => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    const layout = scrollLayoutRef.current;
+    // Browser scroll anchoring can fire before ResizeObserver after wrapping,
+    // image loading or panel resizing. It must not count as scrolling away.
+    if (container.clientWidth !== layout.width
+      || container.clientHeight !== layout.height
+      || container.scrollHeight !== layout.contentHeight) return;
     const isAtBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 60;
     stickToBottomRef.current = isAtBottom;
@@ -600,6 +667,7 @@ export function ChatPanel({
   };
 
   const handleSend = () => {
+    if (uploadingCount > 0) return;
     if (!inputText.trim() && pendingAttachments.length === 0) return;
     onTypingChange?.(false);
     if (editingMessage) {
@@ -622,6 +690,7 @@ export function ChatPanel({
     });
     setInputText("");
     setReplyingTo(null);
+    pendingAttachmentsRef.current = [];
     setPendingAttachments([]);
     setMessageType("text");
 
@@ -652,6 +721,10 @@ export function ChatPanel({
   const beginEdit = (message: ChatMessage) => {
     setEditingMessage(message);
     setReplyingTo(null);
+    for (const attachment of pendingAttachmentsRef.current) {
+      void onDiscardAttachment?.(attachment).catch(() => undefined);
+    }
+    pendingAttachmentsRef.current = [];
     setPendingAttachments([]);
     setInputText(message.text);
     textareaRef.current?.focus();
@@ -831,6 +904,12 @@ export function ChatPanel({
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2 modern-scrollbar"
       >
         <div ref={messagesContentRef}>
+          {(hasOlderMessages || loadingOlderMessages || olderMessagesError) && (
+            <div className="flex flex-col items-center gap-1 px-4 py-2">
+              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="rounded-full border border-board-border bg-board-card px-3 py-1 text-[10px] font-semibold text-board-muted hover:text-board-text disabled:opacity-50">{loadingOlderMessages ? "Loading older messages…" : "Load older messages"}</button>}
+              {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{olderMessagesError}</p>}
+            </div>
+          )}
           {displayMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-board-muted">
               <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
@@ -860,7 +939,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} />
+              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage} />
             </div>
           );
           })}
@@ -911,7 +990,10 @@ export function ChatPanel({
                 <div key={attachment.id} className="flex min-w-0 max-w-52 shrink-0 items-center gap-2 rounded-lg border border-board-border bg-board-card px-2.5 py-2">
                   {attachment.mimeType.startsWith("image/") ? <ImageIcon className="h-4 w-4 shrink-0 text-sky-300" /> : <FileText className="h-4 w-4 shrink-0 text-fire-300" />}
                   <span className="min-w-0 flex-1 truncate text-[10px] text-board-text">{attachment.name}</span>
-                  <button type="button" onClick={() => setPendingAttachments((items) => items.filter((item) => item.id !== attachment.id))} className="text-board-muted hover:text-board-text" aria-label={`Remove ${attachment.name}`}><X className="h-3 w-3" /></button>
+                  <button type="button" onClick={() => {
+                    setPendingAttachments((items) => items.filter((item) => item.id !== attachment.id));
+                    void onDiscardAttachment?.(attachment).catch((error) => setUploadError(error instanceof Error ? error.message : "Attachment could not be removed"));
+                  }} className="text-board-muted hover:text-board-text" aria-label={`Remove ${attachment.name}`}><X className="h-3 w-3" /></button>
                 </div>
               ))}
               {Array.from({ length: uploadingCount }, (_, index) => <div key={`uploading-${index}`} className="flex h-9 w-24 shrink-0 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-card text-[10px] text-board-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading</div>)}

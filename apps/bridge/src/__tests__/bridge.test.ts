@@ -3,6 +3,7 @@ import {
   bridgeWebSocketOptions,
   connectedBridgeTargets,
   isSupportedConnectProtocol,
+  shouldReconnectBridge,
 } from "../bridge.js";
 
 describe("bridge WebSocket authentication", () => {
@@ -44,5 +45,10 @@ describe("bridge WebSocket authentication", () => {
       ["10.0.0.3:9910"],
       ["10.0.0.4:80"],
     )).toEqual(["10.0.0.2:4455", "10.0.0.3:9910", "10.0.0.4:80"]);
+  });
+
+  it("does not automatically reclaim control after another installation takes over", () => {
+    expect(shouldReconnectBridge(4410)).toBe(false);
+    expect(shouldReconnectBridge(1006)).toBe(true);
   });
 });

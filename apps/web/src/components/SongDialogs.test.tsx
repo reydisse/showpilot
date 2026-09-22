@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { DeleteSongModal, SongCreateModal } from "./SongDialogs";
 
 describe("SongCreateModal", () => {
+  it("dismisses with Escape through the shared modal behavior", async () => {
+    const onClose = vi.fn();
+    render(<SongCreateModal onClose={onClose} onCreate={vi.fn()} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
   it("creates a complete manual song with multiple lyric sections", async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<SongCreateModal onClose={vi.fn()} onCreate={onCreate} />);

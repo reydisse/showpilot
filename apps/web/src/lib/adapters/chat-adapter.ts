@@ -58,6 +58,8 @@ export interface ChatMessage {
     status: "pending" | "sent" | "failed";
     error?: string;
   };
+  delivery?: "waiting" | "sending" | "failed";
+  deliveryError?: string;
 }
 
 export interface ChatTypingState {
@@ -98,6 +100,10 @@ export interface ChatAdapter {
   deleteMessage?(messageId: string): Promise<void>;
   votePoll?(messageId: string, optionId: string): Promise<void>;
   toggleReaction?(messageId: string, emoji: string): Promise<void>;
+  loadOlder?(limit?: number): Promise<{ messages: ChatMessage[]; nextCursor: { timestamp: number; id: string } | null }>;
+  onOutboxChange?(callback: (messages: ChatMessage[]) => void): () => void;
+  retryOutbox?(messageId: string): void;
+  cancelOutbox?(messageId: string): void;
 
   /** Broadcast ephemeral typing presence for native chat rooms. */
   setTyping?(typing: boolean): void;

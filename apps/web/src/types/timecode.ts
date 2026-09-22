@@ -48,6 +48,12 @@ export interface TimecodeState {
   lyrics: LyricsDisplayState | null;
 }
 
+/** Fields approved for the intentionally public confidence display. */
+export type TimecodeDisplayState = Pick<
+  TimecodeState,
+  "display" | "running" | "serverTime" | "lyrics"
+>;
+
 export interface LyricsDisplayState {
   songId: string;
   songTitle: string;
@@ -57,6 +63,8 @@ export interface LyricsDisplayState {
   nextLabel: string;
   updatedAt: number;
   manual: boolean;
+  /** Identifies the automation load that owns a later scoped clear. */
+  generationKey?: string;
 }
 
 // ─── Automation Events ──────────────────────────────────────
@@ -101,6 +109,12 @@ export interface AutomationEvent {
   rundownItemId?: string;
   /** Category for UI grouping */
   category?: string;
+  /** Stable ownership key for atomic replace/upsert operations. */
+  sourceKey?: string;
+  /** Server-owned execution state for the most recent scheduled firing. */
+  executionStatus?: "scheduled" | "dispatching" | "acknowledged" | "failed";
+  executionError?: string;
+  executedAt?: number;
 }
 
 export interface AutomationTimeline {
@@ -128,7 +142,8 @@ export interface TimecodeSettings {
 
 export type TimecodeWsMessage =
   | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[] }
-  | { type: "tc-update"; state: TimecodeState }
+  | { type: "hydrate"; state: TimecodeDisplayState }
+  | { type: "tc-update"; state: TimecodeState | TimecodeDisplayState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
   | { type: "events-update"; events: AutomationEvent[] }
   | { type: "lyrics-update"; lyrics: LyricsDisplayState }
@@ -144,6 +159,7 @@ export type TimecodeCommand =
   | "set-format"
   | "set-timecode"
   | "add-event"
+  | "replace-event-group"
   | "update-event"
   | "remove-event"
   | "reset-events"

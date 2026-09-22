@@ -310,9 +310,11 @@ model ChecklistEntry {
   showId       String?
   show         Rundown?          @relation(fields: [showId], references: [id], onDelete: Cascade)
   serviceDate  String
+  category     String            @default("general")
   checked      Boolean           @default(false)
   checkedBy    String?
   checkedAt    DateTime?
+  revision     Int               @default(0)
 
   @@unique([orgId, showId, templateId])
   @@index([orgId, serviceDate])
@@ -481,6 +483,7 @@ model ServiceAssignment {
   serviceDate  String
   crewMemberId String?
   crewMember   CrewMember?  @relation(fields: [crewMemberId], references: [id], onDelete: SetNull)
+  assignedByUserId String?
   role         String
   department   String       @default("Production")
   status       String       @default("assigned") // assigned | confirmed | declined
@@ -496,6 +499,7 @@ model ServiceAssignment {
   @@index([orgId, serviceDate])
   @@index([orgId, showId])
   @@index([crewMemberId])
+  @@index([assignedByUserId])
   @@map("service_assignment")
 }
 
@@ -538,6 +542,7 @@ model Equipment {
   notes        String       @default("")
   lastServiced DateTime?
   nextService  DateTime?
+  revision     Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -704,6 +709,7 @@ model SongSection {
   lyrics           String       @default("")
   sortOrder        Int          @default(0)
   sourceSlideIndex Int?
+  sourceSlideId    String       @default("")
   cues             SongCue[]
 
   @@index([songId, sortOrder])
@@ -764,7 +770,7 @@ model ShowReportNote {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  @@unique([orgId, showId, userId])
+  @@unique([orgId, showId, userId, role])
   @@index([orgId, showId, updatedAt])
   @@map("show_report_note")
 }

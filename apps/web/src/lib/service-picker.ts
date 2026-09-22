@@ -21,7 +21,10 @@ function formatServiceDate(serviceDate: string): string {
   });
 }
 
-function formatServiceTime(value: string | Date, timeZone?: string): string | null {
+function formatServiceTime(
+  value: string | Date,
+  timeZone?: string,
+): string | null {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
 
@@ -29,12 +32,13 @@ function formatServiceTime(value: string | Date, timeZone?: string): string | nu
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
-      ...(timeZone ? { timeZone } : {}),
+      timeZone: timeZone || "UTC",
     });
   } catch {
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
+      timeZone: "UTC",
     });
   }
 }

@@ -7,7 +7,7 @@
   "icon": "Camera",
   "description": "PTZOptics Move 4K NDI PTZ camera. Pan/tilt, zoom, focus, presets via VISCA-over-IP.",
   "protocol": "visca-ip",
-  "protocolDefaults": { "port": 52381, "cameraAddress": 1 },
+  "protocolDefaults": { "port": 1259, "cameraAddress": 1, "viscaMode": "raw" },
   "actions": [
     { "id": "recall_preset", "label": "Recall Preset", "category": "presets",
       "params": [{ "id": "preset", "label": "Preset (0-254)", "type": "number", "min": 0, "max": 254, "step": 1 }],

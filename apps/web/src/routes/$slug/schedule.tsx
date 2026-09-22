@@ -1526,6 +1526,7 @@ function ServiceDetailsModal({
                 startTime: time,
                 callTime,
                 location,
+                expectedUpdatedAt: new Date(service.updatedAt).toISOString(),
               },
             });
             onSaved();

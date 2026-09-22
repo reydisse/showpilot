@@ -256,8 +256,8 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
     "Desktop and Bridge must trust the same updater signing key.",
   );
   add(
-    desktop.build?.frontendDist === "https://showpilot.tech",
-    "Desktop production frontend must remain https://showpilot.tech.",
+    desktop.build?.frontendDist === "../offline",
+    "Desktop production builds must boot from the bundled offline shell.",
   );
   add(
     desktopSource.includes("async fn open_companion_window("),

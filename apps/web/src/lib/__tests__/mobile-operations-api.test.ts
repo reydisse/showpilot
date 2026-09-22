@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { handleMobileApi, type MobileApiDatabase, type MobileApiStatement } from "../mobile-api.server";
+import {
+  handleMobileApi,
+  type MobileApiDatabase,
+  type MobileApiStatement,
+} from "../mobile-api.server";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -35,38 +39,97 @@ interface QueryCall {
 
 function fakeDatabase(input: {
   calls: QueryCall[];
-  destination?: { rtmpUrl: string; streamKey: string; cfOutputId: string } | null;
-  activeShow?: { id: string; serviceDate: string; name: string; status: string } | null;
+  destination?: {
+    rtmpUrl: string;
+    streamKey: string;
+    cfOutputId: string;
+  } | null;
+  activeShow?: {
+    id: string;
+    serviceDate: string;
+    name: string;
+    status: string;
+  } | null;
+  audioShow?: { id: string; serviceDate: string } | null;
   reportShow?: { id: string } | null;
   reportNote?: Record<string, unknown> | null;
+  currentAsset?: Record<string, unknown> | null;
   changes?: number;
 }): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
     return {
       async first<T>() {
         input.calls.push({ sql, params, operation: "first" });
-        if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
-        if (sql.startsWith("SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination")) {
+        if (sql.startsWith("SELECT id FROM organization WHERE id = ?"))
+          return { id: "org-1" } as T;
+        if (
+          sql.startsWith(
+            "SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination",
+          )
+        ) {
           return (input.destination ?? null) as T | null;
         }
-        if (sql.includes("LEFT JOIN app_setting active") && sql.includes("active.value = r.id")) {
+        if (
+          sql.startsWith(
+            "SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ?",
+          )
+        ) {
+          return (input.audioShow ?? null) as T | null;
+        }
+        if (
+          sql.includes("LEFT JOIN app_setting active") &&
+          sql.includes("active.value = r.id")
+        ) {
           return (input.activeShow ?? null) as T | null;
         }
-        if (sql.startsWith("SELECT id FROM rundown WHERE id = ? AND orgId = ?")) {
+        if (
+          sql.startsWith("SELECT id FROM rundown WHERE id = ? AND orgId = ?")
+        ) {
           return (input.reportShow ?? null) as T | null;
         }
-        if (sql.includes("FROM show_report_note") && sql.includes("userId = ?")) {
+        if (
+          sql.includes("FROM show_report_note") &&
+          sql.includes("userId = ?")
+        ) {
           return (input.reportNote ?? null) as T | null;
+        }
+        if (sql.includes("FROM equipment WHERE id = ? AND orgId = ?")) {
+          return (input.currentAsset ?? null) as T | null;
         }
         return null;
       },
       async all<T>() {
         input.calls.push({ sql, params, operation: "all" });
         if (sql.startsWith("SELECT id, name, status, rtmpUrl")) {
-          return { results: [{ id: "input-1", name: "Main", status: "connected", rtmpUrl: "rtmps://input", srtUrl: "srt://input", createdAt: "2026-08-27" }] as T[] };
+          return {
+            results: [
+              {
+                id: "input-1",
+                name: "Main",
+                status: "connected",
+                rtmpUrl: "rtmps://input",
+                srtUrl: "srt://input",
+                createdAt: "2026-08-27",
+              },
+            ] as T[],
+          };
         }
         if (sql.includes("CASE WHEN streamKey = ''")) {
-          return { results: [{ id: "dest-1", name: "YouTube", platform: "youtube", rtmpUrl: "rtmps://youtube", enabled: 1, cfOutputId: "cf-1", liveInputId: "input-1", createdAt: "2026-08-27", hasStreamKey: 1 }] as T[] };
+          return {
+            results: [
+              {
+                id: "dest-1",
+                name: "YouTube",
+                platform: "youtube",
+                rtmpUrl: "rtmps://youtube",
+                enabled: 1,
+                cfOutputId: "cf-1",
+                liveInputId: "input-1",
+                createdAt: "2026-08-27",
+                hasStreamKey: 1,
+              },
+            ] as T[],
+          };
         }
         return { results: [] as T[] };
       },
@@ -86,12 +149,20 @@ function fakeDatabase(input: {
   };
 }
 
-async function request(db: MobileApiDatabase, path: string, method: "GET" | "POST", body?: Record<string, unknown>) {
-  const response = await handleMobileApi(new Request(`https://showpilot.tech${path}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  }), { DB: db });
+async function request(
+  db: MobileApiDatabase,
+  path: string,
+  method: "GET" | "POST",
+  body?: Record<string, unknown>,
+) {
+  const response = await handleMobileApi(
+    new Request(`https://showpilot.tech${path}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+    { DB: db },
+  );
   if (!response) throw new Error("Mobile API did not handle operations route");
   return response;
 }
@@ -99,48 +170,98 @@ async function request(db: MobileApiDatabase, path: string, method: "GET" | "POS
 describe("mobile operations API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getSession.mockResolvedValue({ user: { id: "operator-1", name: "Ada", email: "ada@example.com" } });
-    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["stream_health:manage", "assets:manage"], today: "2026-08-27" });
+    mocks.getSession.mockResolvedValue({
+      user: { id: "operator-1", name: "Ada", email: "ada@example.com" },
+    });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "admin",
+      permissions: ["stream_health:manage", "assets:manage"],
+      today: "2026-08-27",
+    });
     mocks.setDestinationEnabled.mockResolvedValue(undefined);
     mocks.deleteDestination.mockResolvedValue(undefined);
-    mocks.getLiveInputStatus.mockResolvedValue({ inputId: "input-1", status: "streaming", providerStatus: "connected", checkedAt: "2026-08-27T12:00:00.000Z" });
+    mocks.getLiveInputStatus.mockResolvedValue({
+      inputId: "input-1",
+      status: "streaming",
+      providerStatus: "connected",
+      checkedAt: "2026-08-27T12:00:00.000Z",
+    });
   });
 
   it("returns streaming health without exposing provider stream keys", async () => {
     const calls: QueryCall[] = [];
-    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/streaming?orgId=org-1", "GET");
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/streaming?orgId=org-1",
+      "GET",
+    );
     expect(response.status).toBe(200);
-    const body = await response.json() as { destinations: Array<Record<string, unknown>> };
-    expect(body.destinations[0]).toMatchObject({ enabled: true, connected: true, hasStreamKey: true });
+    const body = (await response.json()) as {
+      destinations: Array<Record<string, unknown>>;
+    };
+    expect(body.destinations[0]).toMatchObject({
+      enabled: true,
+      connected: true,
+      hasStreamKey: true,
+    });
     expect(mocks.getLiveInputStatus).toHaveBeenCalledWith("org-1", "input-1");
     expect(body.destinations[0]).not.toHaveProperty("streamKey");
-    expect(calls.find((call) => call.sql.includes("CASE WHEN streamKey"))?.params).toEqual(["org-1"]);
+    expect(
+      calls.find((call) => call.sql.includes("CASE WHEN streamKey"))?.params,
+    ).toEqual(["org-1"]);
   });
 
   it("creates destinations disconnected until an operator enables the provider output", async () => {
     const calls: QueryCall[] = [];
-    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/streaming/destinations?orgId=org-1", "POST", {
-      name: "YouTube",
-      platform: "YouTube",
-      rtmpUrl: "rtmps://a.rtmp.youtube.com/live2",
-      streamKey: "write-only-secret",
-    });
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/streaming/destinations?orgId=org-1",
+      "POST",
+      {
+        name: "YouTube",
+        platform: "YouTube",
+        rtmpUrl: "rtmps://a.rtmp.youtube.com/live2",
+        streamKey: "write-only-secret",
+      },
+    );
     expect(response.status).toBe(200);
-    const insert = calls.find((call) => call.sql.startsWith("INSERT INTO stream_destination"));
+    const insert = calls.find((call) =>
+      call.sql.startsWith("INSERT INTO stream_destination"),
+    );
     expect(insert?.sql).toContain("VALUES (?, ?, ?, ?, ?, ?, 0, '', ''");
-    expect(insert?.params.slice(1)).toEqual(["org-1", "YouTube", "youtube", "rtmps://a.rtmp.youtube.com/live2", "write-only-secret"]);
+    expect(insert?.params.slice(1)).toEqual([
+      "org-1",
+      "YouTube",
+      "youtube",
+      "rtmps://a.rtmp.youtube.com/live2",
+      "write-only-secret",
+    ]);
   });
 
   it("rejects credential edits while a provider output is connected", async () => {
     const calls: QueryCall[] = [];
     const response = await request(
-      fakeDatabase({ calls, destination: { rtmpUrl: "rtmps://old.example/live", streamKey: "saved", cfOutputId: "cf-output-1" } }),
+      fakeDatabase({
+        calls,
+        destination: {
+          rtmpUrl: "rtmps://old.example/live",
+          streamKey: "saved",
+          cfOutputId: "cf-output-1",
+        },
+      }),
       "/api/mobile/v1/streaming/destinations/dest-1?orgId=org-1",
       "POST",
-      { name: "YouTube", platform: "youtube", rtmpUrl: "rtmps://new.example/live", streamKey: "" },
+      {
+        name: "YouTube",
+        platform: "youtube",
+        rtmpUrl: "rtmps://new.example/live",
+        streamKey: "",
+      },
     );
     expect(response.status).toBe(409);
-    expect(calls.some((call) => call.sql.startsWith("UPDATE stream_destination"))).toBe(false);
+    expect(
+      calls.some((call) => call.sql.startsWith("UPDATE stream_destination")),
+    ).toBe(false);
   });
 
   it("uses the tenant-scoped provider helper when toggling an output", async () => {
@@ -151,62 +272,226 @@ describe("mobile operations API", () => {
       { action: "toggle", enabled: true },
     );
     expect(response.status).toBe(200);
-    expect(mocks.setDestinationEnabled).toHaveBeenCalledWith("org-1", "dest-1", true);
+    expect(mocks.setDestinationEnabled).toHaveBeenCalledWith(
+      "org-1",
+      "dest-1",
+      true,
+    );
   });
 
   it("rejects invalid asset enums before writing", async () => {
     const calls: QueryCall[] = [];
-    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/assets?orgId=org-1", "POST", {
-      name: "Mystery box",
-      category: "invented-category",
-      status: "available",
-      location: "Store",
-      serialNumber: "",
-      notes: "",
-    });
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/assets?orgId=org-1",
+      "POST",
+      {
+        name: "Mystery box",
+        category: "invented-category",
+        status: "available",
+        location: "Store",
+        serialNumber: "",
+        notes: "",
+      },
+    );
     expect(response.status).toBe(400);
-    expect(calls.some((call) => call.sql.startsWith("INSERT INTO equipment"))).toBe(false);
+    expect(
+      calls.some((call) => call.sql.startsWith("INSERT INTO equipment")),
+    ).toBe(false);
+  });
+
+  it("updates every canonical asset category and status with a revision precondition", async () => {
+    const cases = [
+      ["comms", "needs-repair"],
+      ["network", "in-repair"],
+      ["power", "out-of-service"],
+      ["cables", "maintenance"],
+    ] as const;
+    for (const [category, status] of cases) {
+      const calls: QueryCall[] = [];
+      const response = await request(
+        fakeDatabase({ calls }),
+        "/api/mobile/v1/assets/asset-1?orgId=org-1",
+        "POST",
+        {
+          name: "Venue asset",
+          category,
+          status,
+          location: "Repair bench",
+          serialNumber: "SP-1",
+          notes: "Awaiting parts",
+          expectedRevision: 4,
+        },
+      );
+      expect(response.status).toBe(200);
+      const update = calls.find(
+        (call) =>
+          call.operation === "run" && call.sql.startsWith("UPDATE equipment"),
+      );
+      expect(update?.sql).toContain("revision = revision + 1");
+      expect(update?.sql).toContain("AND revision = ?");
+      expect(update?.params.slice(-3)).toEqual(["asset-1", "org-1", 4]);
+    }
+  });
+
+  it("rejects a stale asset edit and returns the current fault without overwriting it", async () => {
+    const calls: QueryCall[] = [];
+    const current = {
+      id: "asset-1",
+      name: "Projector",
+      category: "video",
+      status: "broken",
+      location: "Repair bench",
+      serialNumber: "SP-1",
+      notes: "Power supply failed",
+      revision: 5,
+    };
+    const response = await request(
+      fakeDatabase({ calls, changes: 0, currentAsset: current }),
+      "/api/mobile/v1/assets/asset-1?orgId=org-1",
+      "POST",
+      {
+        name: "Projector",
+        category: "video",
+        status: "operational",
+        location: "Local store",
+        serialNumber: "SP-1",
+        notes: "Old draft note",
+        expectedRevision: 4,
+      },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      conflict: true,
+      current: { status: "broken", location: "Repair bench", revision: 5 },
+    });
+    const update = calls.find(
+      (call) =>
+        call.operation === "run" && call.sql.startsWith("UPDATE equipment"),
+    );
+    expect(update?.params.slice(-1)).toEqual([4]);
   });
 
   it("rejects unsafe audio ranges before looking up a show or writing", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "tech-manager", permissions: ["dashboard:tm"], today: "2026-08-27" });
-    const calls: QueryCall[] = [];
-    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/audio?orgId=org-1", "POST", {
-      showId: "show-1",
-      channel: 1,
-      label: "Lead vocal",
-      micType: "wireless-handheld",
-      micModel: "",
-      notes: "",
-      gainDb: 500,
-      phantom: false,
-      muted: false,
-      group: "vocals",
-      mixerConsole: "",
-      mixerChannel: 1.5,
-      mixerChannelType: "input",
+    mocks.resolveAccess.mockResolvedValue({
+      role: "tech-manager",
+      permissions: ["dashboard:tm"],
+      today: "2026-08-27",
     });
+    const calls: QueryCall[] = [];
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/audio?orgId=org-1",
+      "POST",
+      {
+        showId: "show-1",
+        channel: 1,
+        label: "Lead vocal",
+        micType: "wireless-handheld",
+        micModel: "",
+        notes: "",
+        gainDb: 500,
+        phantom: false,
+        muted: false,
+        group: "vocals",
+        mixerConsole: "",
+        mixerChannel: 1.5,
+        mixerChannelType: "input",
+      },
+    );
     expect(response.status).toBe(400);
-    expect(calls.some((call) => call.sql.includes("FROM rundown WHERE id"))).toBe(false);
-    expect(calls.some((call) => call.sql.startsWith("INSERT INTO mic_assignment"))).toBe(false);
+    expect(
+      calls.some((call) => call.sql.includes("FROM rundown WHERE id")),
+    ).toBe(false);
+    expect(
+      calls.some((call) => call.sql.startsWith("INSERT INTO mic_assignment")),
+    ).toBe(false);
+  });
+
+  it("does not move an audio input into another show through a stale edit", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      role: "tech-manager",
+      permissions: ["dashboard:tm"],
+      today: "2026-08-27",
+    });
+    const calls: QueryCall[] = [];
+    const response = await request(
+      fakeDatabase({
+        calls,
+        audioShow: { id: "show-evening", serviceDate: "2026-08-27" },
+        changes: 0,
+      }),
+      "/api/mobile/v1/audio/input-morning?orgId=org-1",
+      "POST",
+      {
+        showId: "show-evening",
+        channel: 1,
+        label: "Lead vocal",
+        micType: "wireless-handheld",
+        micModel: "",
+        notes: "",
+        gainDb: null,
+        phantom: false,
+        muted: false,
+        group: "vocals",
+        mixerConsole: "",
+        mixerChannel: null,
+        mixerChannelType: "input",
+      },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "This input belongs to another show. Reopen that show before saving it.",
+    });
+    const update = calls.find(
+      (call) =>
+        call.operation === "run" &&
+        call.sql.startsWith("UPDATE mic_assignment"),
+    );
+    expect(update?.sql).toContain("AND showId = ?");
+    expect(update?.params.slice(-3)).toEqual([
+      "input-morning",
+      "org-1",
+      "show-evening",
+    ]);
   });
 
   it("denies mutations without the operation permission", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["assets:view"], today: "2026-08-27" });
-    const response = await request(fakeDatabase({ calls: [] }), "/api/mobile/v1/assets?orgId=org-1", "POST", {
-      name: "Camera",
-      category: "video",
-      status: "available",
-      location: "Store",
-      serialNumber: "SP-1",
-      notes: "",
+    mocks.resolveAccess.mockResolvedValue({
+      role: "member",
+      permissions: ["assets:view"],
+      today: "2026-08-27",
     });
+    const response = await request(
+      fakeDatabase({ calls: [] }),
+      "/api/mobile/v1/assets?orgId=org-1",
+      "POST",
+      {
+        name: "Camera",
+        category: "video",
+        status: "available",
+        location: "Store",
+        serialNumber: "SP-1",
+        notes: "",
+      },
+    );
     expect(response.status).toBe(403);
   });
 
   it("returns a schema-complete empty cue sheet when no show exists", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["cuesheet:view"], today: "2026-08-27" });
-    const response = await request(fakeDatabase({ calls: [] }), "/api/mobile/v1/cue-sheets?orgId=org-1", "GET");
+    mocks.resolveAccess.mockResolvedValue({
+      role: "member",
+      permissions: ["cuesheet:view"],
+      today: "2026-08-27",
+    });
+    const response = await request(
+      fakeDatabase({ calls: [] }),
+      "/api/mobile/v1/cue-sheets?orgId=org-1",
+      "GET",
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       show: null,
@@ -219,7 +504,11 @@ describe("mobile operations API", () => {
   });
 
   it("opens the exact active show when multiple shows share a date", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["cuesheet:view"], today: "2026-08-27" });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "member",
+      permissions: ["cuesheet:view"],
+      today: "2026-08-27",
+    });
     const calls: QueryCall[] = [];
     const response = await request(
       fakeDatabase({
@@ -240,16 +529,25 @@ describe("mobile operations API", () => {
       show: { id: "show-evening", name: "Evening Service" },
     });
     const selection = calls.find(
-      (call) => call.operation === "first" && call.sql.includes("active.value = r.id"),
+      (call) =>
+        call.operation === "first" && call.sql.includes("active.value = r.id"),
     );
     expect(selection?.sql).toContain("LEFT JOIN app_setting active");
     expect(selection?.params).toEqual(["org-1", "2026-08-27", "2026-08-27"]);
   });
 
   it("lets every show viewer open the shared reports and notes inbox", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["show:view"], today: "2026-08-27" });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "member",
+      permissions: ["show:view"],
+      today: "2026-08-27",
+    });
     const calls: QueryCall[] = [];
-    const response = await request(fakeDatabase({ calls }), "/api/mobile/v1/reports?orgId=org-1", "GET");
+    const response = await request(
+      fakeDatabase({ calls }),
+      "/api/mobile/v1/reports?orgId=org-1",
+      "GET",
+    );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -258,11 +556,33 @@ describe("mobile operations API", () => {
       notes: [],
       viewer: { userId: "operator-1", writableNoteLanes: [] },
     });
-    expect(calls.filter((call) => call.operation === "all" && call.params[0] === "org-1")).toHaveLength(2);
+    expect(
+      calls.filter(
+        (call) => call.operation === "all" && call.params[0] === "org-1",
+      ),
+    ).toHaveLength(2);
+    const reportQuery = calls.find(
+      (call) =>
+        call.operation === "all" && call.sql.includes("WITH selected AS"),
+    );
+    expect(reportQuery?.sql).toContain("item_counts AS");
+    expect(reportQuery?.sql).toContain("incident_counts AS");
+    expect(reportQuery?.sql).not.toContain("COUNT(DISTINCT");
+    expect(reportQuery?.params).toEqual([
+      "org-1",
+      "org-1",
+      "org-1",
+      "org-1",
+      "org-1",
+    ]);
   });
 
   it("saves a manager note to the selected show from mobile", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "pm", permissions: ["show:view", "dashboard:pm"], today: "2026-08-27" });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "pm",
+      permissions: ["show:view", "dashboard:pm"],
+      today: "2026-08-27",
+    });
     const calls: QueryCall[] = [];
     const note = {
       id: "note-1",
@@ -281,17 +601,37 @@ describe("mobile operations API", () => {
       fakeDatabase({ calls, reportShow: { id: "show-1" }, reportNote: note }),
       "/api/mobile/v1/reports/show-1/notes?orgId=org-1",
       "POST",
-      { role: "pm", summary: "Smooth show", wins: "Fast changeover", issues: "", followUps: "" },
+      {
+        role: "pm",
+        summary: "Smooth show",
+        wins: "Fast changeover",
+        issues: "",
+        followUps: "",
+      },
     );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ note });
-    const insert = calls.find((call) => call.operation === "run" && call.sql.includes("INSERT INTO show_report_note"));
-    expect(insert?.params.slice(1, 6)).toEqual(["org-1", "show-1", "operator-1", "Ada", "pm"]);
+    const insert = calls.find(
+      (call) =>
+        call.operation === "run" &&
+        call.sql.includes("INSERT INTO show_report_note"),
+    );
+    expect(insert?.params.slice(1, 6)).toEqual([
+      "org-1",
+      "show-1",
+      "operator-1",
+      "Ada",
+      "pm",
+    ]);
   });
 
   it("keeps report note editing limited to the requested manager lane", async () => {
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["show:view"], today: "2026-08-27" });
+    mocks.resolveAccess.mockResolvedValue({
+      role: "member",
+      permissions: ["show:view"],
+      today: "2026-08-27",
+    });
     const calls: QueryCall[] = [];
     const response = await request(
       fakeDatabase({ calls }),
@@ -301,6 +641,8 @@ describe("mobile operations API", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(calls.some((call) => call.sql.includes("INSERT INTO show_report_note"))).toBe(false);
+    expect(
+      calls.some((call) => call.sql.includes("INSERT INTO show_report_note")),
+    ).toBe(false);
   });
 });

@@ -22,14 +22,20 @@ describe("template definitions", () => {
         continue;
       }
       const minutes = Math.round(templateRuntimeSec(template) / 60);
-      expect(templateBadge(template)).toBe(`~${minutes} MIN · ${template.items.length} ITEMS`);
+      expect(templateBadge(template)).toBe(
+        `~${minutes} MIN · ${template.items.length} ITEMS`,
+      );
     }
   });
 
   it("matches the approved runtimes", () => {
     expect(templateBadge(sunday)).toBe("~92 MIN · 9 ITEMS");
-    expect(templateBadge(getOnboardingTemplate("youth")!)).toBe("~72 MIN · 6 ITEMS");
-    expect(templateBadge(getOnboardingTemplate("special")!)).toBe("~73 MIN · 7 ITEMS");
+    expect(templateBadge(getOnboardingTemplate("youth")!)).toBe(
+      "~72 MIN · 6 ITEMS",
+    );
+    expect(templateBadge(getOnboardingTemplate("special")!)).toBe(
+      "~73 MIN · 7 ITEMS",
+    );
   });
 
   it("builds rundown items with ms durations and stable ordering", () => {
@@ -55,7 +61,12 @@ function makeFakeStore() {
   const state = {
     marker: null as string | null,
     persisted: [] as RundownItem[][],
-    checklistRows: [] as { label: string; category: string; sortOrder: number }[][],
+    checklistRows: [] as {
+      id: string;
+      label: string;
+      category: string;
+      sortOrder: number;
+    }[][],
     cueRows: [] as unknown[][],
     existing: [] as RundownItem[],
   };
@@ -64,6 +75,8 @@ function makeFakeStore() {
     setSeedMarker: async (value) => {
       state.marker = value;
     },
+    itemId: (_templateId, index) => `item-${index}`,
+    checklistId: (index) => `checklist-${index}`,
     persistRundownItems: async (items) => {
       state.persisted.push(items);
       state.existing = items;
@@ -123,5 +136,82 @@ describe("runTemplateSeed", () => {
 
     expect(rerun.alreadySeeded).toBe(true);
     expect(state.persisted).toHaveLength(1);
+  });
+
+  it("converges after an interruption without replacing item identities or duplicating checklist rows", async () => {
+    let marker: string | null = null;
+    let failCueOnce = true;
+    const items = new Map<string, RundownItem>();
+    const checklist = new Map<string, { id: string; label: string }>();
+    const cues = new Map<string, unknown>();
+    const store: TemplateSeedStore = {
+      getSeedMarker: async () => marker,
+      setSeedMarker: async (value) => {
+        marker = value;
+      },
+      itemId: (_templateId, index) => `stable-item-${index}`,
+      checklistId: (index) => `stable-checklist-${index}`,
+      persistRundownItems: async (rows) => {
+        for (const row of rows) items.set(row.id, row);
+      },
+      createChecklistTemplates: async (rows) => {
+        for (const row of rows) checklist.set(row.id, row);
+      },
+      createCueRows: async (rows) => {
+        if (failCueOnce) {
+          failCueOnce = false;
+          throw new Error("simulated interruption");
+        }
+        for (const row of rows) cues.set(row.rundownItem, row);
+      },
+      getExistingItems: async () => [...items.values()],
+    };
+
+    await expect(runTemplateSeed(store, sunday)).rejects.toThrow(
+      "simulated interruption",
+    );
+    const firstIds = [...items.keys()];
+    expect(checklist).toHaveLength(5);
+    expect(marker).toBeNull();
+
+    await expect(runTemplateSeed(store, sunday)).resolves.toMatchObject({
+      alreadySeeded: false,
+    });
+    expect([...items.keys()]).toEqual(firstIds);
+    expect(items).toHaveLength(9);
+    expect(checklist).toHaveLength(5);
+    expect(cues).toHaveLength(2);
+    expect(marker).toBe("sunday");
+  });
+
+  it("uses identical row identities for simultaneous first runs", async () => {
+    let marker: string | null = null;
+    const itemIds = new Set<string>();
+    const checklistIds = new Set<string>();
+    const store: TemplateSeedStore = {
+      getSeedMarker: async () => marker,
+      setSeedMarker: async (value) => {
+        marker = value;
+      },
+      itemId: (_templateId, index) => `concurrent-item-${index}`,
+      checklistId: (index) => `concurrent-checklist-${index}`,
+      persistRundownItems: async (rows) => {
+        await Promise.resolve();
+        rows.forEach((row) => itemIds.add(row.id));
+      },
+      createChecklistTemplates: async (rows) => {
+        await Promise.resolve();
+        rows.forEach((row) => checklistIds.add(row.id));
+      },
+      createCueRows: async () => Promise.resolve(),
+      getExistingItems: async () => [],
+    };
+
+    await Promise.all([
+      runTemplateSeed(store, sunday),
+      runTemplateSeed(store, sunday),
+    ]);
+    expect(itemIds).toHaveLength(9);
+    expect(checklistIds).toHaveLength(5);
   });
 });

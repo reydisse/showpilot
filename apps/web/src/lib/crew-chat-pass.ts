@@ -15,8 +15,9 @@ const PASS_CREATORS = new Set(["owner", "admin", "td", "pd", "pm", "sm", "tm"]);
 export async function verifyCrewChatPass(token: string, secret: string) {
   if (!token.startsWith(PASS_PREFIX)) return null;
   const payload = await verifyToken(token.slice(PASS_PREFIX.length), secret);
-  if (!payload || payload.scope !== "crew-chat" || typeof payload.orgId !== "string" || typeof payload.orgSlug !== "string") return null;
-  return { orgId: payload.orgId, orgSlug: payload.orgSlug, exp: typeof payload.exp === "number" ? payload.exp : null };
+  if (!payload || payload.scope !== "crew-chat" || typeof payload.orgId !== "string" || typeof payload.orgSlug !== "string"
+    || typeof payload.exp !== "number" || !Number.isFinite(payload.exp) || payload.exp * 1000 <= Date.now()) return null;
+  return { orgId: payload.orgId, orgSlug: payload.orgSlug, exp: payload.exp };
 }
 
 export const createCrewChatPass = createServerFn({ method: "POST" })

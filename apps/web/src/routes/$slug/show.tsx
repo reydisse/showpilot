@@ -9,32 +9,51 @@ import {
   type CSSProperties,
 } from "react";
 import {
-  Flame,
   Clock,
   Play,
   Pause,
   Square,
   Radio,
   WifiOff,
-  UserPlus,
-  LayoutDashboard,
   LayoutGrid,
   ChevronDown,
-  ArrowRight,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
-import { getOntimeState, formatOntimeTime, formatDuration as formatOntimeDuration } from "@/lib/ontime";
+import {
+  getOntimeState,
+  formatOntimeTime,
+  formatDuration as formatOntimeDuration,
+} from "@/lib/ontime";
 import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
-import { getActiveAdapters, getClockFormat, getOrgSettings, type RundownAdapterType } from "@/lib/settings";
-import { cn, getTodayDateString, formatTime, formatClockFull, type ClockFormat } from "@/lib/utils";
+import {
+  getActiveAdapters,
+  getClockFormat,
+  getOrgSettings,
+  type RundownAdapterType,
+} from "@/lib/settings";
+import {
+  cn,
+  getTodayDateString,
+  formatTime,
+  formatClockFull,
+  type ClockFormat,
+} from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { nextPlayableItem } from "@/lib/rundown-transport";
 import { useChat } from "@/hooks/useChat";
 import { ChatPanel as SharedChatPanel } from "@/components/chat/ChatPanel";
-import { getChatMembers, type ChatMemberSummary } from "@/lib/chat-collaboration";
+import {
+  getChatMembers,
+  type ChatMemberSummary,
+} from "@/lib/chat-collaboration";
 import { ShowPageTabs } from "@/components/ui/ShowPageTabs";
 import { FirstSessionChecklist } from "@/components/onboarding/FirstSessionChecklist";
 import type { OntimeRuntimeState } from "@/types/ontime";
-import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+import type {
+  RundownItem,
+  NativeTimerState,
+  RundownState,
+} from "@/types/rundown";
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -46,15 +65,33 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   const prefix = negative ? "-" : "";
-  if (hours > 0) return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  if (hours > 0)
+    return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-type ItemType = "segment" | "song" | "prayer" | "announcement" | "offering" | "custom" | "header";
+type ItemType =
+  | "segment"
+  | "song"
+  | "prayer"
+  | "announcement"
+  | "offering"
+  | "custom"
+  | "header";
 type ShowTab = "show" | "chat" | "rundown";
-type ShowLayoutPreset = "balanced" | "show-focus" | "chat-focus" | "rundown-focus" | "custom";
+type ShowLayoutPreset =
+  | "balanced"
+  | "show-focus"
+  | "chat-focus"
+  | "rundown-focus"
+  | "custom";
 
-const SHOW_LAYOUT_PRESETS: Array<{ id: Exclude<ShowLayoutPreset, "custom">; label: string; left: number; top: number }> = [
+const SHOW_LAYOUT_PRESETS: Array<{
+  id: Exclude<ShowLayoutPreset, "custom">;
+  label: string;
+  left: number;
+  top: number;
+}> = [
   { id: "balanced", label: "Balanced", left: 40, top: 45 },
   { id: "show-focus", label: "Show focus", left: 62, top: 70 },
   { id: "chat-focus", label: "Chat focus", left: 62, top: 24 },
@@ -71,20 +108,37 @@ const TYPE_COLORS: Record<ItemType, string> = {
   custom: "bg-board-muted",
 };
 
+function useLiveNow(initialNow: number): number {
+  const [now, setNow] = useState(initialNow);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick();
+    const interval = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  return now;
+}
+
 // ─── Route ───────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/show")({
   pendingComponent: () => <PageSkeleton />,
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "show:view", context.slug, context.orgId);
-    const [members, chatMembers, adapters, clockFormat, settings] = await Promise.all([
-      getCrewMembers({ data: { orgId: context.orgId } }),
-      getChatMembers({ data: { orgId: context.orgId } }),
-      getActiveAdapters({ data: { orgId: context.orgId } }),
-      getClockFormat({ data: { orgId: context.orgId } }),
-      getOrgSettings({ data: { orgId: context.orgId } }),
-    ]);
+    await withPermission(
+      context.role,
+      "show:view",
+      context.slug,
+      context.orgId,
+    );
+    const [members, chatMembers, adapters, clockFormat, settings] =
+      await Promise.all([
+        getCrewMembers({ data: { orgId: context.orgId } }),
+        getChatMembers({ data: { orgId: context.orgId } }),
+        getActiveAdapters({ data: { orgId: context.orgId } }),
+        getClockFormat({ data: { orgId: context.orgId } }),
+        getOrgSettings({ data: { orgId: context.orgId } }),
+      ]);
     const today = getTodayDateString(settings["org-timezone"]);
     const { serviceDate, showId } = await getRundownOpeningDate({
       data: { orgId: context.orgId, today },
@@ -103,11 +157,15 @@ export const Route = createFileRoute("/$slug/show")({
       } else {
         // OnTime not reachable — silent fallback to native
         effectiveRundownAdapter = "native";
-        nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate, showId } });
+        nativeRundown = await getRundownState({
+          data: { orgId: context.orgId, serviceDate, showId },
+        });
       }
     } else {
       // Native (or any other not-yet-implemented adapter)
-      nativeRundown = await getRundownState({ data: { orgId: context.orgId, serviceDate, showId } });
+      nativeRundown = await getRundownState({
+        data: { orgId: context.orgId, serviceDate, showId },
+      });
     }
 
     return {
@@ -122,6 +180,8 @@ export const Route = createFileRoute("/$slug/show")({
       showId,
       today,
       clockFormat,
+      timeZone: settings["org-timezone"] || "UTC",
+      initialNow: Date.now(),
       userName: context.user.name,
       userId: context.user.id,
       userRole: context.role,
@@ -141,13 +201,21 @@ function LiveFlash({ onDone }: { onDone: () => void }) {
     const t1 = setTimeout(() => setPhase("hold"), 100);
     const t2 = setTimeout(() => setPhase("out"), 3000);
     const t3 = setTimeout(() => onDoneRef.current(), 3700);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, []);
 
   return (
     <div
       className={`fixed inset-0 z-[100] flex items-center justify-center transition-opacity ${
-        phase === "in" ? "opacity-0" : phase === "hold" ? "opacity-100" : "opacity-0"
+        phase === "in"
+          ? "opacity-0"
+          : phase === "hold"
+            ? "opacity-100"
+            : "opacity-0"
       }`}
       style={{ transitionDuration: phase === "out" ? "700ms" : "300ms" }}
     >
@@ -159,7 +227,9 @@ function LiveFlash({ onDone }: { onDone: () => void }) {
         </h1>
         <div className="flex items-center gap-2 mt-2">
           <span className="w-3 h-3 rounded-full bg-white animate-ping" />
-          <span className="text-white/80 text-lg font-medium uppercase tracking-widest">On Air</span>
+          <span className="text-white/80 text-lg font-medium uppercase tracking-widest">
+            On Air
+          </span>
         </div>
       </div>
     </div>
@@ -183,7 +253,26 @@ function ChatPanel({
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
 }) {
-  const { messages, sendMessage, uploadAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, markRead } = useChat({
+  const {
+    messages,
+    sendMessage,
+    uploadAttachment,
+    discardAttachment,
+    votePoll,
+    toggleReaction,
+    connectionStatus,
+    typingUsers,
+    setTyping,
+    gatewayStatus,
+    hydrated,
+    markRead,
+    hasOlderMessages,
+    loadingOlderMessages,
+    olderMessagesError,
+    loadOlderMessages,
+    retryQueuedMessage,
+    cancelQueuedMessage,
+  } = useChat({
     orgId,
     isVisible: true,
     senderName: userName,
@@ -213,18 +302,31 @@ function ChatPanel({
         unreadCount={0}
         onSendMessage={sendMessage}
         onUploadAttachment={uploadAttachment}
+        onDiscardAttachment={discardAttachment}
         gatewayStatus={gatewayStatus}
         hydrated={hydrated}
         onReadThrough={markRead}
+        hasOlderMessages={hasOlderMessages}
+        loadingOlderMessages={loadingOlderMessages}
+        olderMessagesError={olderMessagesError}
+        onLoadOlderMessages={loadOlderMessages}
+        onRetryQueuedMessage={retryQueuedMessage}
+        onCancelQueuedMessage={cancelQueuedMessage}
         onVotePoll={votePoll}
         onToggleReaction={toggleReaction}
         typingUsers={typingUsers}
         onTypingChange={setTyping}
         title="Team Chat"
-        subtitle={gatewayStatus.platform === null ? userName : `${userName} · ${gatewayStatus.platform} synced`}
+        subtitle={
+          gatewayStatus.platform === null
+            ? userName
+            : `${userName} · ${gatewayStatus.platform} synced`
+        }
         currentUserName={userName}
         currentUserId={userId}
-        mentionMembers={mentionMembers.filter((member) => member.userId !== userId)}
+        mentionMembers={mentionMembers.filter(
+          (member) => member.userId !== userId,
+        )}
         liveStatus={liveStatus}
         className="min-h-0 min-w-0 max-w-full flex-1 border-l-0"
       />
@@ -236,8 +338,22 @@ function ChatPanel({
 
 function ShowPage() {
   const {
-    members: initialMembers, chatMembers, ontimeState, nativeRundown, rundownAdapter,
-    orgId, slug, serviceDate, showId, today, clockFormat, userName, userId, userRole,
+    members: initialMembers,
+    chatMembers,
+    ontimeState,
+    nativeRundown,
+    rundownAdapter,
+    orgId,
+    slug,
+    serviceDate,
+    showId,
+    today,
+    clockFormat,
+    timeZone,
+    initialNow,
+    userName,
+    userId,
+    userRole,
   } = Route.useLoaderData();
   const [members, setMembers] = useState(initialMembers);
 
@@ -280,11 +396,11 @@ function ShowPage() {
       <>
         <ShowPageWithOntime
           ontimeState={ontimeState}
-          members={members}
           activeMembers={activeMembers}
           orgId={orgId}
-          slug={slug}
           clockFormat={clockFormat}
+          timeZone={timeZone}
+          initialNow={initialNow}
           userName={userName}
           userId={userId}
           userRole={userRole}
@@ -300,7 +416,6 @@ function ShowPage() {
     <>
       <ShowPageWithNative
         initialRundown={nativeRundown}
-        members={members}
         activeMembers={activeMembers}
         orgId={orgId}
         serviceDate={serviceDate}
@@ -308,6 +423,8 @@ function ShowPage() {
         today={today}
         slug={slug}
         clockFormat={clockFormat}
+        timeZone={timeZone}
+        initialNow={initialNow}
         userName={userName}
         userId={userId}
         userRole={userRole}
@@ -392,7 +509,8 @@ function ShowPageLayout({
 
   const [leftWidthPercent, setLeftWidthPercent] = useState(40);
   const [topHeightPercent, setTopHeightPercent] = useState(45);
-  const [layoutPreset, setLayoutPreset] = useState<ShowLayoutPreset>("balanced");
+  const [layoutPreset, setLayoutPreset] =
+    useState<ShowLayoutPreset>("balanced");
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -411,7 +529,9 @@ function ShowPageLayout({
 
     const savedLeft = Number(window.localStorage.getItem(STORAGE_LEFT_WIDTH));
     const savedTop = Number(window.localStorage.getItem(STORAGE_TOP_HEIGHT));
-    const savedPreset = window.localStorage.getItem(STORAGE_LAYOUT_PRESET) as ShowLayoutPreset | null;
+    const savedPreset = window.localStorage.getItem(
+      STORAGE_LAYOUT_PRESET,
+    ) as ShowLayoutPreset | null;
 
     if (Number.isFinite(savedLeft) && savedLeft >= 24 && savedLeft <= 72) {
       setLeftWidthPercent(savedLeft);
@@ -420,7 +540,12 @@ function ShowPageLayout({
     if (Number.isFinite(savedTop) && savedTop >= 20 && savedTop <= 80) {
       setTopHeightPercent(savedTop);
     }
-    if (savedPreset && [...SHOW_LAYOUT_PRESETS.map((preset) => preset.id), "custom"].includes(savedPreset)) {
+    if (
+      savedPreset &&
+      [...SHOW_LAYOUT_PRESETS.map((preset) => preset.id), "custom"].includes(
+        savedPreset,
+      )
+    ) {
       setLayoutPreset(savedPreset);
     }
   }, []);
@@ -438,79 +563,112 @@ function ShowPageLayout({
       window.localStorage.setItem(STORAGE_LEFT_WIDTH, String(preset.left));
       window.localStorage.setItem(STORAGE_TOP_HEIGHT, String(preset.top));
       window.localStorage.setItem(STORAGE_LAYOUT_PRESET, preset.id);
-      window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
+      window.localStorage.setItem(
+        STORAGE_LAYOUT_VERSION,
+        CURRENT_LAYOUT_VERSION,
+      );
     }
   };
 
-  const beginResize = (mode: "horizontal" | "vertical") => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const panels = panelsRef.current;
-    if (!panels) return;
+  const beginResize =
+    (mode: "horizontal" | "vertical") =>
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const panels = panelsRef.current;
+      if (!panels) return;
 
-    const rect = panels.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+      const rect = panels.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
 
-    event.preventDefault();
-    setLayoutPreset("custom");
-    if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_LAYOUT_PRESET, "custom");
-    event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      setLayoutPreset("custom");
+      if (typeof window !== "undefined")
+        window.localStorage.setItem(STORAGE_LAYOUT_PRESET, "custom");
+      event.currentTarget.setPointerCapture(event.pointerId);
 
-    resizeRef.current = {
-      mode,
-      startX: event.clientX,
-      startY: event.clientY,
-      baseWidth: rect.width,
-      baseHeight: rect.height,
-      startLeftWidth: leftWidthPercent,
-      startTopHeight: topHeightPercent,
-      pointerId: event.pointerId,
-      source: event.currentTarget,
+      resizeRef.current = {
+        mode,
+        startX: event.clientX,
+        startY: event.clientY,
+        baseWidth: rect.width,
+        baseHeight: rect.height,
+        startLeftWidth: leftWidthPercent,
+        startTopHeight: topHeightPercent,
+        pointerId: event.pointerId,
+        source: event.currentTarget,
+      };
+
+      const handleMove = (moveEvent: PointerEvent) => {
+        const state = resizeRef.current;
+        if (
+          !state.mode ||
+          state.pointerId == null ||
+          moveEvent.pointerId !== state.pointerId
+        )
+          return;
+
+        if (state.mode === "vertical") {
+          const deltaX = moveEvent.clientX - state.startX;
+          const nextWidth = clamp(
+            state.startLeftWidth + (deltaX / state.baseWidth) * 100,
+            24,
+            72,
+          );
+          leftWidthRef.current = nextWidth;
+          setLeftWidthPercent(nextWidth);
+          return;
+        }
+
+        const deltaY = moveEvent.clientY - state.startY;
+        const nextTop = clamp(
+          state.startTopHeight + (deltaY / state.baseHeight) * 100,
+          20,
+          80,
+        );
+        topHeightRef.current = nextTop;
+        setTopHeightPercent(nextTop);
+      };
+
+      const handleUp = (upEvent: PointerEvent) => {
+        const state = resizeRef.current;
+        if (state.pointerId == null || upEvent.pointerId !== state.pointerId)
+          return;
+
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            STORAGE_LEFT_WIDTH,
+            String(leftWidthRef.current),
+          );
+          window.localStorage.setItem(
+            STORAGE_TOP_HEIGHT,
+            String(topHeightRef.current),
+          );
+          window.localStorage.setItem(
+            STORAGE_LAYOUT_VERSION,
+            CURRENT_LAYOUT_VERSION,
+          );
+        }
+
+        window.removeEventListener("pointermove", moveListenerRef.current);
+        window.removeEventListener("pointerup", upListenerRef.current);
+        window.removeEventListener("pointercancel", upListenerRef.current);
+        resizeRef.current.mode = null;
+        resizeRef.current.pointerId = null;
+        if (
+          state.source &&
+          state.pointerId != null &&
+          state.source.hasPointerCapture(state.pointerId)
+        ) {
+          state.source.releasePointerCapture(state.pointerId);
+        }
+      };
+
+      moveListenerRef.current = handleMove;
+      upListenerRef.current = handleUp;
+
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", handleUp);
+      window.addEventListener("pointercancel", handleUp);
     };
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      const state = resizeRef.current;
-      if (!state.mode || state.pointerId == null || moveEvent.pointerId !== state.pointerId) return;
-
-      if (state.mode === "vertical") {
-        const deltaX = moveEvent.clientX - state.startX;
-        const nextWidth = clamp(state.startLeftWidth + (deltaX / state.baseWidth) * 100, 24, 72);
-        leftWidthRef.current = nextWidth;
-        setLeftWidthPercent(nextWidth);
-        return;
-      }
-
-      const deltaY = moveEvent.clientY - state.startY;
-      const nextTop = clamp(state.startTopHeight + (deltaY / state.baseHeight) * 100, 20, 80);
-      topHeightRef.current = nextTop;
-      setTopHeightPercent(nextTop);
-    };
-
-    const handleUp = (upEvent: PointerEvent) => {
-      const state = resizeRef.current;
-      if (state.pointerId == null || upEvent.pointerId !== state.pointerId) return;
-
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(STORAGE_LEFT_WIDTH, String(leftWidthRef.current));
-        window.localStorage.setItem(STORAGE_TOP_HEIGHT, String(topHeightRef.current));
-        window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
-      }
-
-      window.removeEventListener("pointermove", moveListenerRef.current);
-      window.removeEventListener("pointerup", upListenerRef.current);
-      window.removeEventListener("pointercancel", upListenerRef.current);
-      resizeRef.current.mode = null;
-      resizeRef.current.pointerId = null;
-      if (state.source && state.pointerId != null && state.source.hasPointerCapture(state.pointerId)) {
-        state.source.releasePointerCapture(state.pointerId);
-      }
-    };
-
-    moveListenerRef.current = handleMove;
-    upListenerRef.current = handleUp;
-
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
-  };
 
   useEffect(() => {
     return () => {
@@ -531,7 +689,9 @@ function ShowPageLayout({
       <div className="show-page-root" data-show-tab={activeTab}>
         <div className="show-page-shell">
           <header className="show-page-header">
-            <h1 className="text-sm font-medium text-board-text/70">Show Flow</h1>
+            <h1 className="text-sm font-medium text-board-text/70">
+              Show Flow
+            </h1>
             <div className="flex items-center gap-2 sm:gap-4">
               <div className="relative hidden sm:block">
                 <button
@@ -542,11 +702,20 @@ function ShowPageLayout({
                   aria-haspopup="menu"
                 >
                   <LayoutGrid className="h-3.5 w-3.5" />
-                  <span>{layoutPreset === "custom" ? "Custom" : SHOW_LAYOUT_PRESETS.find((preset) => preset.id === layoutPreset)?.label}</span>
+                  <span>
+                    {layoutPreset === "custom"
+                      ? "Custom"
+                      : SHOW_LAYOUT_PRESETS.find(
+                          (preset) => preset.id === layoutPreset,
+                        )?.label}
+                  </span>
                   <ChevronDown className="h-3 w-3" />
                 </button>
                 {layoutMenuOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-1.5 w-40 overflow-hidden rounded-lg border border-board-border bg-board-card p-1 shadow-2xl" role="menu">
+                  <div
+                    className="absolute right-0 top-full z-50 mt-1.5 w-40 overflow-hidden rounded-lg border border-board-border bg-board-card p-1 shadow-2xl"
+                    role="menu"
+                  >
                     {SHOW_LAYOUT_PRESETS.map((preset) => (
                       <button
                         key={preset.id}
@@ -554,16 +723,25 @@ function ShowPageLayout({
                         role="menuitemradio"
                         aria-checked={layoutPreset === preset.id}
                         onClick={() => chooseLayout(preset)}
-                        className={cn("flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors", layoutPreset === preset.id ? "bg-fire-500/10 text-fire-400" : "text-board-muted hover:bg-board-border/50 hover:text-board-text")}
+                        className={cn(
+                          "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors",
+                          layoutPreset === preset.id
+                            ? "bg-fire-500/10 text-fire-400"
+                            : "text-board-muted hover:bg-board-border/50 hover:text-board-text",
+                        )}
                       >
                         {preset.label}
-                        {layoutPreset === preset.id && <span className="h-1.5 w-1.5 rounded-full bg-fire-500" />}
+                        {layoutPreset === preset.id && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-fire-500" />
+                        )}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-              <span className="text-xs text-board-muted tabular-nums">{statusClock}</span>
+              <span className="text-xs text-board-muted tabular-nums">
+                {statusClock}
+              </span>
               {statusNode}
             </div>
           </header>
@@ -574,18 +752,29 @@ function ShowPageLayout({
             className="show-page-panels"
             ref={panelsRef}
             aria-live="polite"
-              style={{
+            style={
+              {
                 "--show-page-left-width": `${leftWidthPercent}%`,
                 "--show-page-top-height": `${topHeightPercent}%`,
-              } as CSSProperties}
+              } as CSSProperties
+            }
           >
-            <section data-tab="show" className="show-page-tab-panel show-page-show-panel">
+            <section
+              data-tab="show"
+              className="show-page-tab-panel show-page-show-panel"
+            >
               {showPanel}
             </section>
-            <section data-tab="chat" className="show-page-tab-panel show-page-chat-panel">
+            <section
+              data-tab="chat"
+              className="show-page-tab-panel show-page-chat-panel"
+            >
               {chatPanel}
             </section>
-            <section data-tab="rundown" className="show-page-tab-panel show-page-rundown-panel">
+            <section
+              data-tab="rundown"
+              className="show-page-tab-panel show-page-rundown-panel"
+            >
               {rundownPanel}
             </section>
 
@@ -603,7 +792,9 @@ function ShowPageLayout({
             />
           </main>
 
-          {crewPanel && <section className="show-page-crew-strip">{crewPanel}</section>}
+          {crewPanel && (
+            <section className="show-page-crew-strip">{crewPanel}</section>
+          )}
         </div>
       </div>
     </div>
@@ -614,7 +805,6 @@ function ShowPageLayout({
 
 function ShowPageWithNative({
   initialRundown,
-  members,
   activeMembers,
   orgId,
   serviceDate,
@@ -622,13 +812,14 @@ function ShowPageWithNative({
   today,
   slug,
   clockFormat,
+  timeZone,
+  initialNow,
   userName,
   userId,
   userRole,
   chatMembers,
 }: {
   initialRundown: RundownState | null;
-  members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
   orgId: string;
   serviceDate: string;
@@ -636,11 +827,14 @@ function ShowPageWithNative({
   today: string;
   slug: string;
   clockFormat: ClockFormat;
+  timeZone: string;
+  initialNow: number;
   userName: string;
   userId: string;
   userRole: string;
   chatMembers: ChatMemberSummary[];
 }) {
+  const statusNow = useLiveNow(initialNow);
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
   const [syncTarget, setSyncTarget] = useState({
     serviceDate,
@@ -660,7 +854,11 @@ function ShowPageWithNative({
       try {
         const opening = await getRundownOpeningDate({ data: { orgId, today } });
         if (cancelled) return;
-        if (opening.serviceDate === syncTarget.serviceDate && opening.showId === syncTarget.showId) return;
+        if (
+          opening.serviceDate === syncTarget.serviceDate &&
+          opening.showId === syncTarget.showId
+        )
+          return;
 
         const rundown = await getRundownState({
           data: {
@@ -706,15 +904,17 @@ function ShowPageWithNative({
     stateShowId: syncedShowId,
   } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId);
 
-  const relayMatchesTarget = syncHydrated && syncedInitialized
-    && syncedServiceDate === syncTarget.serviceDate
-    && (!syncTarget.showId || syncedShowId === syncTarget.showId);
+  const relayMatchesTarget =
+    syncHydrated &&
+    syncedInitialized &&
+    syncedServiceDate === syncTarget.serviceDate &&
+    (!syncTarget.showId || syncedShowId === syncTarget.showId);
 
   // Use synced state when available, fall back to initial loader data
   // IMPORTANT: only use synced data after hydration (before that, syncedItems is [])
-  const items: RundownItem[] = (relayMatchesTarget
-    ? syncedItems
-    : syncTarget.rundown?.items ?? []) as RundownItem[];
+  const items: RundownItem[] = (
+    relayMatchesTarget ? syncedItems : (syncTarget.rundown?.items ?? [])
+  ) as RundownItem[];
   const timer: NativeTimerState = relayMatchesTarget
     ? {
         playback: syncedTimer.playback,
@@ -725,10 +925,15 @@ function ShowPageWithNative({
         mode: syncedTimer.mode ?? "count-down",
         serverTime: syncedTimer.serverTime ?? Date.now(),
       }
-    : syncTarget.rundown?.timer ?? {
-        playback: "stop", currentItemId: null, elapsed: 0,
-        startedAt: null, pausedAt: null, mode: "count-down", serverTime: Date.now(),
-      };
+    : (syncTarget.rundown?.timer ?? {
+        playback: "stop",
+        currentItemId: null,
+        elapsed: 0,
+        startedAt: null,
+        pausedAt: null,
+        mode: "count-down",
+        serverTime: Date.now(),
+      });
 
   const [displayTime, setDisplayTime] = useState(0);
   const isPlaying = timer.playback === "play";
@@ -752,41 +957,40 @@ function ShowPageWithNative({
   }, [timer.playback, timer.startedAt, timer.elapsed, timer.mode]);
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);
-  const currentIdx = timer.currentItemId
-    ? items.findIndex((i) => i.id === timer.currentItemId)
-    : -1;
-  // "Next" must name a segment the operator will actually run, not the
-  // section band sitting between two of them.
-  const nextItem = items.find(
-    (item, i) => i > currentIdx && item.status !== "complete" && item.type !== "header",
-  );
-  const remaining = currentItem && timer.mode === "count-down"
-    ? currentItem.duration - (timer.playback === "pause" && timer.startedAt === null ? timer.elapsed : displayTime)
-    : 0;
+  const nextItem = nextPlayableItem(items, timer.currentItemId);
+  const remaining =
+    currentItem && timer.mode === "count-down"
+      ? currentItem.duration -
+        (timer.playback === "pause" && timer.startedAt === null
+          ? timer.elapsed
+          : displayTime)
+      : 0;
   const isOvertime = timer.mode === "count-down" && remaining < 0;
   const timerDisplay = currentItem
     ? timer.mode === "clock"
-      ? formatClockFull(new Date(displayTime), clockFormat)
+      ? formatClockFull(new Date(displayTime), clockFormat, timeZone)
       : timer.mode === "count-down"
         ? formatDuration(remaining)
         : formatDuration(displayTime)
     : "--:--";
-  const progressPercent = currentItem && timer.mode !== "clock"
-    ? Math.min(100, (Math.max(0, displayTime) / currentItem.duration) * 100)
-    : 0;
+  const progressPercent =
+    currentItem && timer.mode !== "clock"
+      ? Math.min(100, (Math.max(0, displayTime) / currentItem.duration) * 100)
+      : 0;
 
   // Show flash on transition to play
   const [showFlash, setShowFlash] = useState(false);
   const prevPlayback = useRef(timer.playback);
   useEffect(() => {
-    if (timer.playback === "play" && prevPlayback.current !== "play") setShowFlash(true);
+    if (timer.playback === "play" && prevPlayback.current !== "play")
+      setShowFlash(true);
     prevPlayback.current = timer.playback;
   }, [timer.playback]);
 
-  if (members.length === 0) return <EmptyState slug={slug} />;
-
-    const showPanel = (
-      <div className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}>
+  const showPanel = (
+    <div
+      className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}
+    >
       <div className="flex items-center gap-2 mb-2">
         {isPlaying ? (
           <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
@@ -796,30 +1000,40 @@ function ShowPageWithNative({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-          {timer.playback === "stop" ? "Stopped" : isPlaying ? "Playing" : "Paused"}
+          {timer.playback === "stop"
+            ? "Stopped"
+            : isPlaying
+              ? "Playing"
+              : "Paused"}
         </span>
         {isOvertime && (
-          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
+            Overtime
+          </span>
         )}
       </div>
 
-        <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : isPlaying ? "text-board-text" : "text-board-muted"}`}>
-          {timerDisplay}
-        </p>
+      <p
+        className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : isPlaying ? "text-board-text" : "text-board-muted"}`}
+      >
+        {timerDisplay}
+      </p>
 
       {/* Progress bar */}
-        {currentItem && (
-          <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        )}
+      {currentItem && (
+        <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      )}
 
       {currentItem && (
         <div className="mt-3 pt-3 border-t border-board-border/40">
-          <p className="text-sm font-medium text-board-text truncate">{currentItem.title}</p>
+          <p className="text-sm font-medium text-board-text truncate">
+            {currentItem.title}
+          </p>
           <p className="text-xs text-board-muted mt-0.5">
             Duration: {formatDuration(currentItem.duration)}
             {currentItem.assignee && ` · ${currentItem.assignee}`}
@@ -830,29 +1044,43 @@ function ShowPageWithNative({
       {nextItem && (
         <p className="text-xs text-board-muted mt-2">
           Next: <span className="text-board-text/70">{nextItem.title}</span>
-          <span className="text-board-muted/50 ml-1">({formatDuration(nextItem.duration)})</span>
+          <span className="text-board-muted/50 ml-1">
+            ({formatDuration(nextItem.duration)})
+          </span>
         </p>
       )}
-
     </div>
   );
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? currentItem?.title ?? null : null} />
+      <ChatPanel
+        orgId={orgId}
+        userName={userName}
+        userId={userId}
+        userRole={userRole}
+        mentionMembers={chatMembers}
+        liveStatus={isPlaying ? (currentItem?.title ?? null) : null}
+      />
     </div>
   );
 
-    const rundownPanel = (
-      <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
+  const rundownPanel = (
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
+        Rundown
+      </h2>
       {items.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <Clock className="w-8 h-8 text-board-muted/20" />
           <p className="text-sm text-board-muted">No items in the rundown</p>
           <p className="text-xs text-board-muted/50">
             Add items in the{" "}
-            <Link to="/$slug/rundown" params={{ slug }} className="text-fire-500 hover:text-fire-400">
+            <Link
+              to="/$slug/rundown"
+              params={{ slug }}
+              className="text-fire-500 hover:text-fire-400"
+            >
               Rundown Editor
             </Link>
           </p>
@@ -862,7 +1090,8 @@ function ShowPageWithNative({
           {items.map((event) => {
             const isCurrent = event.id === timer.currentItemId;
             const isComplete = event.status === "complete";
-            const dotColor = TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
+            const dotColor =
+              TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
 
             return (
               <div
@@ -875,17 +1104,37 @@ function ShowPageWithNative({
                       : "bg-board-card/50 border-board-border/50"
                 }`}
               >
-                <div className={`w-2 h-2 rounded-full shrink-0 ${
-                  isCurrent ? "bg-fire-500 animate-pulse" : isComplete ? "bg-green-500" : dotColor
-                }`} />
+                <div
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    isCurrent
+                      ? "bg-fire-500 animate-pulse"
+                      : isComplete
+                        ? "bg-green-500"
+                        : dotColor
+                  }`}
+                />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-xs font-medium truncate ${
-                    isCurrent ? "text-fire-500" : isComplete ? "text-board-muted line-through" : "text-board-text/80"
-                  }`}>
+                  <p
+                    className={`text-xs font-medium truncate ${
+                      isCurrent
+                        ? "text-fire-500"
+                        : isComplete
+                          ? "text-board-muted line-through"
+                          : "text-board-text/80"
+                    }`}
+                  >
                     {event.title || "Untitled"}
                   </p>
-                  {event.assignee && <p className="text-[10px] text-board-muted/40 truncate mt-0.5">{event.assignee}</p>}
-                  {event.notes && <p className="text-[11px] text-board-muted/60 truncate mt-0.5">{event.notes}</p>}
+                  {event.assignee && (
+                    <p className="text-[10px] text-board-muted/40 truncate mt-0.5">
+                      {event.assignee}
+                    </p>
+                  )}
+                  {event.notes && (
+                    <p className="text-[11px] text-board-muted/60 truncate mt-0.5">
+                      {event.notes}
+                    </p>
+                  )}
                 </div>
 
                 <div className="text-right shrink-0">
@@ -895,32 +1144,42 @@ function ShowPageWithNative({
                   </p>
                 </div>
 
-                {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+                {isCurrent && (
+                  <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />
+                )}
               </div>
             );
           })}
         </div>
       )}
-      </div>
-    );
+    </div>
+  );
 
-    return (
-      <>
+  return (
+    <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <ShowPageLayout
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        statusClock={formatTime(new Date(), clockFormat)}
-        statusNode={(
+        statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
+        statusNode={
           <div className="flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`} />
-            <span className="text-xs text-board-muted">{isPlaying ? "Live" : "Native"}</span>
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`}
+            />
+            <span className="text-xs text-board-muted">
+              {isPlaying ? "Live" : "Native"}
+            </span>
           </div>
-        )}
+        }
         showPanel={showPanel}
         chatPanel={chatPanel}
         rundownPanel={rundownPanel}
-        crewPanel={activeMembers.length > 0 ? <CrewTicker activeMembers={activeMembers} /> : null}
+        crewPanel={
+          activeMembers.length > 0 ? (
+            <CrewTicker activeMembers={activeMembers} />
+          ) : null
+        }
       />
     </>
   );
@@ -930,27 +1189,28 @@ function ShowPageWithNative({
 
 function ShowPageWithOntime({
   ontimeState: initialOntime,
-  members,
   activeMembers,
   orgId,
-  slug,
   clockFormat,
+  timeZone,
+  initialNow,
   userName,
   userId,
   userRole,
   chatMembers,
 }: {
   ontimeState: OntimeRuntimeState;
-  members: Awaited<ReturnType<typeof getCrewMembers>>;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
   orgId: string;
-  slug: string;
   clockFormat: ClockFormat;
+  timeZone: string;
+  initialNow: number;
   userName: string;
   userId: string;
   userRole: string;
   chatMembers: ChatMemberSummary[];
 }) {
+  const statusNow = useLiveNow(initialNow);
   const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
   const currentId = ontime.eventNow?.id;
@@ -964,8 +1224,12 @@ function ShowPageWithOntime({
     const poll = async () => {
       if (document.visibilityState !== "visible" || polling) return;
       polling = true;
-      try { setOntime(await getOntimeState({ data: { orgId } })); } catch {}
-      finally { polling = false; }
+      try {
+        setOntime(await getOntimeState({ data: { orgId } }));
+      } catch {
+      } finally {
+        polling = false;
+      }
     };
     const interval = setInterval(poll, 1500);
     const pollWhenVisible = () => {
@@ -982,14 +1246,15 @@ function ShowPageWithOntime({
   const [showFlash, setShowFlash] = useState(false);
   const prevPlayback = useRef(ontime.timer.playback);
   useEffect(() => {
-    if (ontime.timer.playback === "play" && prevPlayback.current !== "play") setShowFlash(true);
+    if (ontime.timer.playback === "play" && prevPlayback.current !== "play")
+      setShowFlash(true);
     prevPlayback.current = ontime.timer.playback;
   }, [ontime.timer.playback]);
 
-  if (members.length === 0) return <EmptyState slug={slug} />;
-
-    const showPanel = (
-      <div className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}>
+  const showPanel = (
+    <div
+      className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}
+    >
       <div className="flex items-center gap-2 mb-2">
         {isPlaying ? (
           <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
@@ -999,49 +1264,72 @@ function ShowPageWithOntime({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-          {ontime.timer.playback === "stop" ? "Stopped"
-            : ontime.timer.playback === "armed" ? "Armed"
-            : ontime.timer.playback === "roll" ? "Rolling"
-            : isPlaying ? "Playing" : "Paused"}
+          {ontime.timer.playback === "stop"
+            ? "Stopped"
+            : ontime.timer.playback === "armed"
+              ? "Armed"
+              : ontime.timer.playback === "roll"
+                ? "Rolling"
+                : isPlaying
+                  ? "Playing"
+                  : "Paused"}
         </span>
         {isOvertime && (
-          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>
+          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
+            Overtime
+          </span>
         )}
       </div>
 
-      <p className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}>
+      <p
+        className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}
+      >
         {formatOntimeDuration(ontime.timer.current)}
       </p>
 
       {ontime.eventNow && (
         <div className="mt-3 pt-3 border-t border-board-border/40">
-          <p className="text-sm font-medium text-board-text truncate">{ontime.eventNow.title}</p>
+          <p className="text-sm font-medium text-board-text truncate">
+            {ontime.eventNow.title}
+          </p>
           <p className="text-xs text-board-muted mt-0.5">
-            {formatOntimeTime(ontime.eventNow.timeStart)} – {formatOntimeTime(ontime.eventNow.timeEnd)}
+            {formatOntimeTime(ontime.eventNow.timeStart)} –{" "}
+            {formatOntimeTime(ontime.eventNow.timeEnd)}
           </p>
         </div>
       )}
 
       {ontime.eventNext && (
         <p className="text-xs text-board-muted mt-2">
-          Next: <span className="text-board-text/70">{ontime.eventNext.title}</span>
+          Next:{" "}
+          <span className="text-board-text/70">{ontime.eventNext.title}</span>
         </p>
       )}
-
     </div>
   );
 
   const chatPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
-      <ChatPanel orgId={orgId} userName={userName} userId={userId} userRole={userRole} mentionMembers={chatMembers} liveStatus={isPlaying ? ontime.eventNow?.title ?? null : null} />
+      <ChatPanel
+        orgId={orgId}
+        userName={userName}
+        userId={userId}
+        userRole={userRole}
+        mentionMembers={chatMembers}
+        liveStatus={isPlaying ? (ontime.eventNow?.title ?? null) : null}
+      />
     </div>
   );
 
   const rundownPanel = (
     <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">Rundown</h2>
+      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
+        Rundown
+      </h2>
       {ontime.events.length === 0 ? (
-        <p className="text-center text-board-muted text-sm py-12">No events in the rundown</p>
+        <p className="text-center text-board-muted text-sm py-12">
+          No events in the rundown
+        </p>
       ) : (
         <div className="space-y-1 overflow-auto flex-1 hide-scrollbar pr-1">
           {ontime.events.map((event) => {
@@ -1055,21 +1343,37 @@ function ShowPageWithOntime({
                     : "bg-board-card/50 border-board-border/50 hover:border-board-border"
                 }`}
               >
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: event.colour || (isCurrent ? "#ffc107" : "#444") }} />
+                <div
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{
+                    backgroundColor:
+                      event.colour || (isCurrent ? "#ffc107" : "#444"),
+                  }}
+                />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-xs xl:text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}>
+                  <p
+                    className={`text-xs xl:text-sm font-medium truncate ${isCurrent ? "text-fire-500" : "text-board-text/80"}`}
+                  >
                     {event.title || "Untitled"}
                   </p>
-                  {event.note && <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">{event.note}</p>}
+                  {event.note && (
+                    <p className="text-[11px] xl:text-xs text-board-muted/60 truncate mt-0.5">
+                      {event.note}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">{formatOntimeTime(event.timeStart)}</p>
+                  <p className="text-[11px] xl:text-xs text-board-muted tabular-nums">
+                    {formatOntimeTime(event.timeStart)}
+                  </p>
                   <p className="text-[10px] text-board-muted/50 tabular-nums mt-0.5">
                     <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
                     {formatOntimeDuration(event.duration)}
                   </p>
                 </div>
-                {isCurrent && <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />}
+                {isCurrent && (
+                  <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />
+                )}
               </div>
             );
           })}
@@ -1084,7 +1388,7 @@ function ShowPageWithOntime({
       <ShowPageLayout
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        statusClock={formatTime(new Date(), clockFormat)}
+        statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
         statusNode={
           <div className="flex items-center gap-1.5">
             {ontime.connected ? (
@@ -1092,13 +1396,19 @@ function ShowPageWithOntime({
             ) : (
               <WifiOff className="w-3.5 h-3.5 text-red-400" />
             )}
-            <span className="text-xs text-board-muted">{ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}</span>
+            <span className="text-xs text-board-muted">
+              {ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}
+            </span>
           </div>
         }
         showPanel={showPanel}
         chatPanel={chatPanel}
         rundownPanel={rundownPanel}
-        crewPanel={activeMembers.length > 0 ? <CrewTicker activeMembers={activeMembers} /> : null}
+        crewPanel={
+          activeMembers.length > 0 ? (
+            <CrewTicker activeMembers={activeMembers} />
+          ) : null
+        }
       />
     </>
   );
@@ -1106,75 +1416,41 @@ function ShowPageWithOntime({
 
 // ─── Shared Components ───────────────────────────────────────
 
-function EmptyState({ slug }: { slug: string }) {
-  return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 flex items-center justify-center px-4">
-        <div className="w-full max-w-lg animate-float-in">
-          <div className="flex justify-center mb-8">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-3xl bg-fire-500/10 blur-2xl scale-150" />
-              <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-fire-500/20 to-fire-800/10 border border-fire-500/20 flex items-center justify-center">
-                <Flame className="w-9 h-9 text-fire-500/70" />
-              </div>
-            </div>
-          </div>
-          <h2 className="text-center font-[family-name:var(--font-display)] text-2xl font-bold text-board-text mb-2">
-            Your production board is ready
-          </h2>
-          <p className="text-center text-board-muted text-sm leading-relaxed max-w-sm mx-auto mb-10">
-            Add your team members and they&apos;ll appear here in real time as they check in for service.
-          </p>
-          <div className="flex justify-center mb-12">
-            <Link
-              to="/$slug/admin" params={{ slug }}
-              className="group flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-              style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
-            >
-              <UserPlus className="w-5 h-5" />
-              Add Team Members
-              <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-            </Link>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              { icon: UserPlus, title: "Build your crew", desc: "Add names, roles, and photos for everyone on the team" },
-              { icon: Radio, title: "Live check-in", desc: "Members scan a badge or tap in — status updates instantly" },
-              { icon: LayoutDashboard, title: "See it all", desc: "Full-screen board shows who's on crew right now" },
-            ].map((card) => (
-              <div key={card.title} className="rounded-xl border border-board-border/60 bg-board-card/50 p-4 text-center">
-                <div className="mx-auto mb-3 w-10 h-10 rounded-lg bg-fire-500/10 flex items-center justify-center">
-                  <card.icon className="w-5 h-5 text-fire-500/70" />
-                </div>
-                <p className="text-sm font-medium text-board-text mb-1">{card.title}</p>
-                <p className="text-xs text-board-muted leading-relaxed">{card.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CrewTicker({ activeMembers }: { activeMembers: Awaited<ReturnType<typeof getCrewMembers>> }) {
+function CrewTicker({
+  activeMembers,
+}: {
+  activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
+}) {
   return (
     <footer className="shrink-0 border-t border-board-border py-2.5 overflow-hidden">
       <div className="flex items-center px-8">
         <div className="overflow-hidden flex-1">
           <div className="animate-scroll-left flex items-center gap-5 whitespace-nowrap">
             {[...activeMembers, ...activeMembers].map((member, i) => (
-              <div key={`${member.id}-${i}`} className="flex items-center gap-1.5 shrink-0">
+              <div
+                key={`${member.id}-${i}`}
+                className="flex items-center gap-1.5 shrink-0"
+              >
                 <div className="w-5 h-5 rounded-full overflow-hidden bg-board-border shrink-0">
                   {member.photoUrl ? (
-                    <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover" />
+                    <img
+                      src={member.photoUrl}
+                      alt={member.name}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-board-muted text-[9px] font-medium">
-                      {member.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                      {member.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")
+                        .slice(0, 2)}
                     </div>
                   )}
                 </div>
-                <span className="text-xs text-board-text/70">{member.name}</span>
+                <span className="text-xs text-board-text/70">
+                  {member.name}
+                </span>
               </div>
             ))}
           </div>

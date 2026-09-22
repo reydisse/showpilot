@@ -20,7 +20,7 @@ export function ManagerDashboardScreen({ kind }: { kind: "pm" | "tm" }) {
   const data = query.data;
   const confirmed = data?.assignments.find((assignment) => assignment.status === "confirmed")?.count ?? 0;
   const assigned = data?.assignments.reduce((sum, assignment) => sum + assignment.count, 0) ?? 0;
-  const equipmentAttention = data?.equipment.filter((asset) => asset.status !== "operational").length ?? 0;
+  const equipmentAttention = data?.totals.equipmentAttention ?? 0;
   const streamAttention = (data?.inputs.filter((input) => !["connected", "streaming"].includes(input.status)).length ?? 0) + (data?.destinations.filter((destination) => destination.enabled && !destination.connected).length ?? 0);
   return (
     <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow={kind === "pm" ? "SHOW READINESS" : "SYSTEM READINESS"} title={kind === "pm" ? "Prod Manager" : "Tech Manager"} refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
@@ -29,7 +29,7 @@ export function ManagerDashboardScreen({ kind }: { kind: "pm" | "tm" }) {
       <View style={styles.stats}>
         <OperationsStat label="Rundown" value={`${data?.items.complete ?? 0}/${data?.items.total ?? 0}`} tone={data?.items.total && data.items.complete === data.items.total ? "good" : "warning"} />
         <OperationsStat label="Checklist" value={`${data?.checklist.complete ?? 0}/${data?.checklist.total ?? 0}`} tone={data?.checklist.total && data.checklist.complete === data.checklist.total ? "good" : "warning"} />
-        <OperationsStat label="Open faults" value={data?.incidents.length ?? 0} tone={data?.incidents.length ? "danger" : "good"} />
+        <OperationsStat label="Open faults" value={data?.totals.openIncidents ?? 0} tone={data?.totals.openIncidents ? "danger" : "good"} />
       </View>
       {kind === "pm" ? (
         <>
@@ -46,7 +46,7 @@ export function ManagerDashboardScreen({ kind }: { kind: "pm" | "tm" }) {
       ) : (
         <>
           <View style={styles.stats}><OperationsStat label="Gear attention" value={equipmentAttention} tone={equipmentAttention ? "danger" : "good"} /><OperationsStat label="Stream attention" value={streamAttention} tone={streamAttention ? "danger" : "good"} /><OperationsStat label="Devices" value={data?.devices.filter((device) => device.enabled).length ?? 0} /></View>
-          <OperationsPanel title="Technical queue">
+          <OperationsPanel title="Technical queue" detail={data?.totals.openIncidents && data.totals.openIncidents > data.incidents.length ? `Showing ${data.incidents.length} of ${data.totals.openIncidents} open faults` : undefined}>
             {data?.incidents.length ? data.incidents.map((incident) => <OperationsRow key={incident.id} title={incident.description} detail={`${incident.category} · ${incident.assignedName || "Unassigned"}`} status={incident.severity} onPress={() => router.push("/incidents")} />) : <OperationsEmpty>No unresolved faults.</OperationsEmpty>}
             <AppButton label="Open incidents" variant="secondary" onPress={() => router.push("/incidents")} />
           </OperationsPanel>

@@ -49,7 +49,8 @@ export default function AppLayout() {
     }
   }
 
-  if (isPending || ((organizationPending || organizationRefetching) && !organizationTimedOut)) return <LoadingView />;
+  // Background refreshes retain the mounted tab, scroll position and drafts.
+  if (isPending || (!organization && organizationPending && !organizationTimedOut)) return <LoadingView />;
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization && (organizationTimedOut || organizationError)) {
     return <SessionRecoveryView error={organizationTimedOut ? "Workspace restore took too long. Check your connection and try again." : organizationError?.message} retrying={retryingOrganization} onRetry={() => void retryOrganization()} />;

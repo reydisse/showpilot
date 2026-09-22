@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import Bell from "lucide-react-native/icons/bell";
 import CalendarCheck2 from "lucide-react-native/icons/calendar-check-2";
@@ -8,9 +8,15 @@ import Info from "lucide-react-native/icons/info";
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
+import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
-import { markAllNotificationsRead, markNotificationRead } from "@/lib/mobile-api";
+import {
+  getMobileNotificationPage,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type MobileNotification,
+} from "@/lib/mobile-api";
 import { openNotificationDestination } from "@/lib/notification-destination";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
@@ -20,8 +26,22 @@ export default function InboxScreen() {
   const queryClient = useQueryClient();
   const { organization, data, isPending, error, refetch } = useMobileBootstrap();
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [olderNotifications, setOlderNotifications] = useState<MobileNotification[]>([]);
+  const [olderCursor, setOlderCursor] = useState<{ createdAt: string; id: string } | null>(null);
+  const [paginationStarted, setPaginationStarted] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const organizationId = organization?.id;
   const unreadCount = data?.unreadNotifications ?? 0;
+  const nextCursor = paginationStarted ? olderCursor : data?.notificationNextCursor ?? null;
+  const visibleNotifications = [
+    ...(data?.notifications ?? []),
+    ...olderNotifications.filter((older) => !(data?.notifications ?? []).some((recent) => recent.id === older.id)),
+  ];
+  useEffect(() => {
+    setOlderNotifications([]);
+    setOlderCursor(null);
+    setPaginationStarted(false);
+  }, [organizationId]);
   if (!organizationId) return <Redirect href="/organizations" />;
   const activeOrganizationId: string = organizationId;
 
@@ -57,11 +77,29 @@ export default function InboxScreen() {
     }
   }
 
+  async function loadOlder() {
+    if (!nextCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const result = await getMobileNotificationPage(activeOrganizationId, nextCursor);
+      setOlderNotifications((current) => {
+        const known = new Set(current.map((item) => item.id));
+        return [...current, ...result.notifications.filter((item) => !known.has(item.id))];
+      });
+      setOlderCursor(result.nextCursor);
+      setPaginationStarted(true);
+    } catch (pageError) {
+      Alert.alert("Older notifications not loaded", pageError instanceof Error ? pageError.message : "Try again in a moment.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
   return (
     <Page eyebrow="ACTIVITY" title="Inbox" subtitle={`${unreadCount} unread notifications`} scroll={false} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
       <FlatList
         contentContainerStyle={styles.list}
-        data={data?.notifications ?? []}
+        data={visibleNotifications}
         initialNumToRender={12}
         keyExtractor={(notification) => notification.id}
         ListHeaderComponent={(
@@ -72,6 +110,9 @@ export default function InboxScreen() {
         )}
         ListEmptyComponent={data && !isPending ? (
           <View style={styles.empty}><Bell size={25} color={colors.textFaint} /><Text style={styles.emptyTitle}>All quiet</Text><Text style={styles.muted}>New assignments, mentions, alerts, and show activity will appear here.</Text></View>
+        ) : null}
+        ListFooterComponent={nextCursor ? (
+          <AppButton label="Load older notifications" loading={loadingOlder} onPress={() => void loadOlder()} />
         ) : null}
         maxToRenderPerBatch={12}
         onRefresh={() => void refreshInbox()}

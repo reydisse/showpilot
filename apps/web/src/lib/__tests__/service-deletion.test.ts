@@ -19,11 +19,16 @@ describe("shared service deletion", () => {
 
   it("deletes the complete show graph in one tenant-scoped batch", async () => {
     const statements: { sql: string; params: unknown[] }[] = [];
+    const lifecycle: string[] = [];
     const database = {
       prepare(sql: string) {
-        return { bind: (...params: unknown[]) => ({ sql, params, run: vi.fn() }) };
+        return { bind: (...params: unknown[]) => ({ sql, params, run: vi.fn(async () => {
+          lifecycle.push("tombstone");
+          return { success: true };
+        }) }) };
       },
       batch: vi.fn(async (rows: { sql: string; params: unknown[] }[]) => {
+        lifecycle.push("delete-rows");
         statements.push(...rows);
         return [];
       }),
@@ -33,9 +38,30 @@ describe("shared service deletion", () => {
       appSetting: { findMany: vi.fn().mockResolvedValue([{ value: JSON.stringify({ playback: "stop" }) }]) },
     });
     mocks.getD1.mockReturnValue(database);
-    await expect(deleteServiceForOrg({ orgId: "org-1", showId: "show-1" })).resolves.toEqual({ ok: true });
+    const purge = vi.fn(async () => { lifecycle.push("purge-relay"); });
+    await expect(deleteServiceForOrg({ orgId: "org-1", showId: "show-1" }, purge)).resolves.toEqual({ ok: true });
     expect(database.batch).toHaveBeenCalledTimes(1);
+    expect(lifecycle).toEqual(["tombstone", "purge-relay", "delete-rows"]);
     expect(statements.some((statement) => statement.sql === "DELETE FROM rundown WHERE orgId = ? AND id = ?" && statement.params.join(":") === "org-1:show-1")).toBe(true);
     expect(statements.every((statement) => statement.params.includes("org-1"))).toBe(true);
+  });
+
+  it("keeps the show tombstoned and rows intact when relay cleanup fails", async () => {
+    const database = {
+      prepare: vi.fn(() => ({ bind: vi.fn(() => ({ run: vi.fn(async () => ({ success: true })) })) })),
+      batch: vi.fn(),
+    };
+    mocks.getPrisma.mockReturnValue({
+      rundown: { findFirst: vi.fn().mockResolvedValue({ id: "show-1", serviceDate: "2026-09-06", status: "stopped" }) },
+      appSetting: { findMany: vi.fn().mockResolvedValue([]) },
+    });
+    mocks.getD1.mockReturnValue(database);
+
+    await expect(deleteServiceForOrg(
+      { orgId: "org-1", showId: "show-1" },
+      async () => { throw new Error("relay unavailable"); },
+    )).rejects.toThrow("relay unavailable");
+    expect(database.prepare).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO app_setting"));
+    expect(database.batch).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,9 @@ export type NotificationDestination =
   | { kind: "tech-manager" }
   | { kind: "incident"; incident?: string; date?: string; show?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
+  | { kind: "personal-assignment"; assignment: string }
   | { kind: "chat"; room: string; message?: string }
+  | { kind: "report"; date?: string; show?: string }
   | { kind: "feature"; path: NotificationFeaturePath };
 
 export const NOTIFICATION_FEATURE_PATHS = [
@@ -52,6 +54,20 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
     return { kind: "schedule", date: search?.get("date") || undefined, assignment: search?.get("assignment") || undefined };
   }
 
+  if (actionUrl.startsWith("assignments?")) {
+    const search = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1));
+    const assignment = search.get("assignment")?.trim();
+    if (assignment && assignment.length <= 128) {
+      return { kind: "personal-assignment", assignment };
+    }
+    return null;
+  }
+
+  if (actionUrl === "reports" || actionUrl.startsWith("reports?")) {
+    const search = actionUrl.includes("?") ? new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1)) : null;
+    return { kind: "report", date: search?.get("date") || undefined, show: search?.get("show") || undefined };
+  }
+
   if (actionUrl.startsWith("chat?")) {
     const search = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1));
     const room = search.get("room");
@@ -90,6 +106,15 @@ export function getNotificationPath(orgSlug: string, actionUrl: string): string 
     if (destination.date) search.set("date", destination.date);
     if (destination.assignment) search.set("assignment", destination.assignment);
     return `${base}/schedule${search.size ? `?${search}` : ""}`;
+  }
+  if (destination.kind === "personal-assignment") {
+    search.set("assignment", destination.assignment);
+    return `${base}/assignments?${search}`;
+  }
+  if (destination.kind === "report") {
+    if (destination.date) search.set("date", destination.date);
+    if (destination.show) search.set("show", destination.show);
+    return `${base}/reports${search.size ? `?${search}` : ""}`;
   }
   if (destination.kind === "feature") return `${base}/${destination.path}`;
 

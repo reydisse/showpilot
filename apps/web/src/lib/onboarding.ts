@@ -2,7 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
-import { persistRundownItemsForOrg, getRundownStateForOrg } from "@/lib/rundown";
+import {
+  persistRundownItemsForOrg,
+  getRundownStateForOrg,
+} from "@/lib/rundown";
 import {
   getOnboardingTemplate,
   runTemplateSeed,
@@ -14,7 +17,14 @@ import {
   type OnboardingArchetype,
 } from "@/lib/onboarding-flow";
 import { z } from "zod";
-import { idSchema, orgSlugSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import {
+  idSchema,
+  orgSlugSchema,
+  parseOrThrow,
+  serviceDateSchema,
+} from "@/lib/validation";
+import { getD1 } from "@/lib/d1";
+import { seedDefaultCueColumnsOnce } from "@/lib/cue-column-seed";
 
 // ─────────────────────────────────────────────────────────────
 // Onboarding wizard server functions. Wizard progress lives in
@@ -59,7 +69,10 @@ function parseSeedMarker(value: string | null | undefined): SeedMarker | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as SeedMarker;
-    if (typeof parsed?.template === "string" && typeof parsed?.serviceDate === "string") {
+    if (
+      typeof parsed?.template === "string" &&
+      typeof parsed?.serviceDate === "string"
+    ) {
       return parsed;
     }
   } catch {
@@ -68,7 +81,9 @@ function parseSeedMarker(value: string | null | undefined): SeedMarker | null {
   return { template: "", serviceDate: "" };
 }
 
-export async function getSeedMarkerForOrg(orgId: string): Promise<SeedMarker | null> {
+export async function getSeedMarkerForOrg(
+  orgId: string,
+): Promise<SeedMarker | null> {
   const prisma = getPrisma();
   const setting = await prisma.appSetting.findUnique({
     where: { orgId_key: { orgId, key: ONBOARDING_SEED_KEY } },
@@ -117,7 +132,9 @@ export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
     const membership = await prisma.member.findFirst({
       where: { userId: user.id },
       orderBy: { createdAt: "asc" },
-      include: { organization: { select: { id: true, name: true, slug: true } } },
+      include: {
+        organization: { select: { id: true, name: true, slug: true } },
+      },
     });
     if (!membership) return { ...EMPTY_PROGRESS, authenticated: true };
 
@@ -126,18 +143,31 @@ export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
     const settings = await prisma.appSetting.findMany({
       where: {
         orgId,
-        key: { in: [ONBOARDING_STARTED_KEY, ONBOARDING_COMPLETED_KEY, ONBOARDING_SEED_KEY, roleKey] },
+        key: {
+          in: [
+            ONBOARDING_STARTED_KEY,
+            ONBOARDING_COMPLETED_KEY,
+            ONBOARDING_SEED_KEY,
+            roleKey,
+          ],
+        },
       },
     });
-    const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+    const byKey = new Map(
+      settings.map((setting) => [setting.key, setting.value]),
+    );
 
     let archetype: string | null = null;
     let landing: string | null = null;
     const roleValue = byKey.get(roleKey);
     if (roleValue) {
       try {
-        const parsed = JSON.parse(roleValue) as { archetype?: string; landing?: string };
-        archetype = typeof parsed.archetype === "string" ? parsed.archetype : null;
+        const parsed = JSON.parse(roleValue) as {
+          archetype?: string;
+          landing?: string;
+        };
+        archetype =
+          typeof parsed.archetype === "string" ? parsed.archetype : null;
         landing = typeof parsed.landing === "string" ? parsed.landing : null;
       } catch {
         archetype = null;
@@ -175,11 +205,17 @@ async function upsertOrgSetting(orgId: string, key: string, value: string) {
  * without it (pre-existing, invited members) never see the wizard.
  */
 export const markOnboardingStarted = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     const role = await getOrgMemberRole(data.orgId);
     if (role !== "owner") throw new Error("Forbidden");
-    await upsertOrgSetting(data.orgId, ONBOARDING_STARTED_KEY, new Date().toISOString());
+    await upsertOrgSetting(
+      data.orgId,
+      ONBOARDING_STARTED_KEY,
+      new Date().toISOString(),
+    );
     return { ok: true };
   });
 
@@ -193,7 +229,10 @@ export const saveOnboardingRole = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
-        archetype: z.string().max(20).refine(isOnboardingArchetype, "Unknown archetype"),
+        archetype: z
+          .string()
+          .max(20)
+          .refine(isOnboardingArchetype, "Unknown archetype"),
       }),
       data,
     ),
@@ -211,11 +250,17 @@ export const saveOnboardingRole = createServerFn({ method: "POST" })
 
 /** GO LIVE pressed — the wizard never shows again for this org. */
 export const completeOnboarding = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
   .handler(async ({ data }) => {
     const role = await getOrgMemberRole(data.orgId);
     if (role !== "owner") throw new Error("Forbidden");
-    await upsertOrgSetting(data.orgId, ONBOARDING_COMPLETED_KEY, new Date().toISOString());
+    await upsertOrgSetting(
+      data.orgId,
+      ONBOARDING_COMPLETED_KEY,
+      new Date().toISOString(),
+    );
     return { ok: true };
   });
 
@@ -231,14 +276,18 @@ interface FirstSessionState {
   completed: string[];
 }
 
-function parseFirstSessionState(value: string | null | undefined): FirstSessionState {
+function parseFirstSessionState(
+  value: string | null | undefined,
+): FirstSessionState {
   if (value) {
     try {
       const parsed = JSON.parse(value) as Partial<FirstSessionState>;
       return {
         dismissed: parsed.dismissed === true,
         completed: Array.isArray(parsed.completed)
-          ? parsed.completed.filter((item): item is string => typeof item === "string")
+          ? parsed.completed.filter(
+              (item): item is string => typeof item === "string",
+            )
           : [],
       };
     } catch {
@@ -249,29 +298,39 @@ function parseFirstSessionState(value: string | null | undefined): FirstSessionS
 }
 
 export const getFirstSessionChecklist = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<{ show: boolean; completed: string[] }> => {
-    const user = await getSessionUser().catch(() => null);
-    if (!user) return { show: false, completed: [] };
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
+  .handler(
+    async ({ data }): Promise<{ show: boolean; completed: string[] }> => {
+      const user = await getSessionUser().catch(() => null);
+      if (!user) return { show: false, completed: [] };
 
-    const prisma = getPrisma();
-    const member = await prisma.member.findFirst({
-      where: { organizationId: data.orgId, userId: user.id },
-      select: { role: true },
-    });
-    // The checklist belongs to the wizard runner — the org owner.
-    if (member?.role !== "owner") return { show: false, completed: [] };
+      const prisma = getPrisma();
+      const member = await prisma.member.findFirst({
+        where: { organizationId: data.orgId, userId: user.id },
+        select: { role: true },
+      });
+      // The checklist belongs to the wizard runner — the org owner.
+      if (member?.role !== "owner") return { show: false, completed: [] };
 
-    const settings = await prisma.appSetting.findMany({
-      where: { orgId: data.orgId, key: { in: [ONBOARDING_STARTED_KEY, firstSessionKey(user.id)] } },
-    });
-    const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
-    if (!byKey.get(ONBOARDING_STARTED_KEY)) return { show: false, completed: [] };
+      const settings = await prisma.appSetting.findMany({
+        where: {
+          orgId: data.orgId,
+          key: { in: [ONBOARDING_STARTED_KEY, firstSessionKey(user.id)] },
+        },
+      });
+      const byKey = new Map(
+        settings.map((setting) => [setting.key, setting.value]),
+      );
+      if (!byKey.get(ONBOARDING_STARTED_KEY))
+        return { show: false, completed: [] };
 
-    const state = parseFirstSessionState(byKey.get(firstSessionKey(user.id)));
-    if (state.dismissed) return { show: false, completed: state.completed };
-    return { show: true, completed: state.completed };
-  });
+      const state = parseFirstSessionState(byKey.get(firstSessionKey(user.id)));
+      if (state.dismissed) return { show: false, completed: state.completed };
+      return { show: true, completed: state.completed };
+    },
+  );
 
 export const updateFirstSessionChecklist = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -304,31 +363,41 @@ export const updateFirstSessionChecklist = createServerFn({ method: "POST" })
 // ─── Slug availability (Scene 1 live check) ──────────────────
 
 export const checkOrgSlug = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ slug: z.string().max(60) }), data))
-  .handler(async ({ data }): Promise<{ available: boolean; suggestion: string | null }> => {
-    await getSessionUser();
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ slug: z.string().max(60) }), data),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ available: boolean; suggestion: string | null }> => {
+      await getSessionUser();
 
-    const parsed = orgSlugSchema.safeParse(data.slug);
-    if (!parsed.success) return { available: false, suggestion: null };
+      const parsed = orgSlugSchema.safeParse(data.slug);
+      if (!parsed.success) return { available: false, suggestion: null };
 
-    const prisma = getPrisma();
-    const existing = await prisma.organization.findUnique({
-      where: { slug: parsed.data },
-      select: { id: true },
-    });
-    if (!existing) return { available: true, suggestion: null };
+      const prisma = getPrisma();
+      const existing = await prisma.organization.findUnique({
+        where: { slug: parsed.data },
+        select: { id: true },
+      });
+      if (!existing) return { available: true, suggestion: null };
 
-    // Taken — offer the first free numbered variant, e.g. faithfire-2.
-    const base = parsed.data.slice(0, 37);
-    const candidates = Array.from({ length: 8 }, (_, i) => `${base}-${i + 2}`);
-    const taken = await prisma.organization.findMany({
-      where: { slug: { in: candidates } },
-      select: { slug: true },
-    });
-    const takenSet = new Set(taken.map((org) => org.slug));
-    const suggestion = candidates.find((candidate) => !takenSet.has(candidate)) ?? null;
-    return { available: false, suggestion };
-  });
+      // Taken — offer the first free numbered variant, e.g. faithfire-2.
+      const base = parsed.data.slice(0, 37);
+      const candidates = Array.from(
+        { length: 8 },
+        (_, i) => `${base}-${i + 2}`,
+      );
+      const taken = await prisma.organization.findMany({
+        where: { slug: { in: candidates } },
+        select: { slug: true },
+      });
+      const takenSet = new Set(taken.map((org) => org.slug));
+      const suggestion =
+        candidates.find((candidate) => !takenSet.has(candidate)) ?? null;
+      return { available: false, suggestion };
+    },
+  );
 
 /**
  * Seed the org's first show from an onboarding template: rundown items,
@@ -353,7 +422,9 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
     if (!template) throw new Error("Unknown template");
 
     const prisma = getPrisma();
+    const seedShowId = `${data.orgId}:onboarding:show`;
     let seededShowId: string | undefined;
+    let seededItems: Array<{ id: string; title: string }> = [];
 
     const store: TemplateSeedStore = {
       getSeedMarker: async () => {
@@ -361,21 +432,61 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
         return marker ? JSON.stringify(marker) : null;
       },
       setSeedMarker: async () => {
-        const value = JSON.stringify({ template: template.id, serviceDate: data.serviceDate });
+        const value = JSON.stringify({
+          template: template.id,
+          serviceDate: data.serviceDate,
+        });
         await prisma.appSetting.upsert({
           where: { orgId_key: { orgId: data.orgId, key: ONBOARDING_SEED_KEY } },
           update: { value },
           create: { orgId: data.orgId, key: ONBOARDING_SEED_KEY, value },
         });
       },
+      itemId: (_templateId, index) => `${data.orgId}:onboarding:item:${index}`,
+      checklistId: (index) => `${data.orgId}:onboarding:checklist:${index}`,
       persistRundownItems: async (items) => {
-        seededShowId = await persistRundownItemsForOrg(data.orgId, data.serviceDate, items);
+        seededItems = items.map((item) => ({ id: item.id, title: item.title }));
+        const existing = await prisma.rundown.findFirst({
+          where: { id: seedShowId, orgId: data.orgId },
+          select: { id: true },
+        });
+        if (!existing) {
+          const { checkPlanLimit } = await import("@/lib/plan-limits");
+          const showCount = await prisma.rundown.count({
+            where: { orgId: data.orgId },
+          });
+          await checkPlanLimit(data.orgId, "shows", showCount);
+          await prisma.rundown.upsert({
+            where: { id: seedShowId },
+            update: {},
+            create: {
+              id: seedShowId,
+              orgId: data.orgId,
+              serviceDate: data.serviceDate,
+              name: template.name,
+              status: "stopped",
+            },
+          });
+        }
+        seededShowId = await persistRundownItemsForOrg(
+          data.orgId,
+          data.serviceDate,
+          items,
+          seedShowId,
+        );
       },
       createChecklistTemplates: async (rows) => {
         await Promise.all(
           rows.map((row) =>
-            prisma.checklistTemplate.create({
-              data: {
+            prisma.checklistTemplate.upsert({
+              where: { id: row.id },
+              update: {
+                label: row.label,
+                category: row.category,
+                sortOrder: row.sortOrder,
+              },
+              create: {
+                id: row.id,
                 orgId: data.orgId,
                 label: row.label,
                 category: row.category,
@@ -386,26 +497,68 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
         );
       },
       createCueRows: async (rows) => {
-        await Promise.all(
-          rows.map((row) =>
-            prisma.cueSheet.create({
-              data: {
-                orgId: data.orgId,
-                showId: seededShowId,
-                cueNumber: row.cueNumber,
-                rundownItem: row.rundownItem,
-                cameraAssignments: row.cameraAssignments,
-                notes: row.notes,
-                serviceDate: data.serviceDate,
-              },
-            }),
-          ),
+        if (!seededShowId)
+          throw new Error("Cannot seed cue notes without a show");
+        const db = getD1();
+        const now = new Date().toISOString();
+        await seedDefaultCueColumnsOnce(db, data.orgId, now);
+        const columns = await db
+          .prepare(
+            `SELECT id, label FROM cue_column
+              WHERE orgId = ? AND label IN ('Show Caller', 'Production')`,
+          )
+          .bind(data.orgId)
+          .all<{ id: string; label: string }>();
+        const columnByLabel = new Map(
+          (columns.results ?? []).map((column) => [column.label, column.id]),
         );
+        const statements = rows.flatMap((row) => {
+          const item = seededItems.find(
+            (candidate) => candidate.title === row.rundownItem,
+          );
+          if (!item) return [];
+          return [
+            {
+              columnId: columnByLabel.get("Production"),
+              text: row.cameraAssignments,
+            },
+            { columnId: columnByLabel.get("Show Caller"), text: row.notes },
+          ].flatMap(({ columnId, text }) =>
+            columnId && text.trim()
+              ? [
+                  db
+                    .prepare(
+                      `INSERT INTO cue_note
+                         (id, orgId, showId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(orgId, showId, itemId, columnId)
+                       DO UPDATE SET text = excluded.text, updatedAt = excluded.updatedAt,
+                                     updatedBy = excluded.updatedBy`,
+                    )
+                    .bind(
+                      crypto.randomUUID(),
+                      data.orgId,
+                      seededShowId,
+                      data.serviceDate,
+                      item.id,
+                      columnId,
+                      text.trim(),
+                      now,
+                      "Onboarding template",
+                    ),
+                ]
+              : [],
+          );
+        });
+        if (statements.length > 0) await db.batch(statements);
       },
       getExistingItems: async () => {
         const marker = await getSeedMarkerForOrg(data.orgId);
         const serviceDate = marker?.serviceDate || data.serviceDate;
-        const state = await getRundownStateForOrg({ orgId: data.orgId, serviceDate });
+        const state = await getRundownStateForOrg({
+          orgId: data.orgId,
+          serviceDate,
+        });
         return state.items;
       },
     };

@@ -73,7 +73,7 @@ export class ProfileDrivenModule extends BaseDeviceModule {
   private profile: DeviceProfile;
   private driver: ProtocolDriver;
   private settings: Record<string, unknown>;
-  private commandQueue: Array<{ command: string; resolve: () => void; reject: (e: Error) => void }> = [];
+  private commandQueue: Array<{ command: string; resolve: (response: string | void) => void; reject: (e: Error) => void }> = [];
   private draining = false;
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimers: ReturnType<typeof setInterval>[] = [];
@@ -127,7 +127,13 @@ export class ProfileDrivenModule extends BaseDeviceModule {
     }
 
     const command = buildProfileCommand(this.profile, actionId, params);
-    await this.enqueueCommand(command);
+    const response = await this.enqueueCommand(command);
+    if (this.profile.manufacturer.toLowerCase() === "extron" && response) {
+      const rejection = /(?:^|[\r\n])E(\d{2})(?=[\r\n]|$)/i.exec(response);
+      if (rejection) {
+        throw new Error(`Extron rejected the command with SIS error E${rejection[1]}`);
+      }
+    }
   }
 
   // ─── Feedbacks ──────────────────────────────────────────
@@ -145,8 +151,8 @@ export class ProfileDrivenModule extends BaseDeviceModule {
 
   // ─── Command Queue ──────────────────────────────────────
 
-  private enqueueCommand(command: string): Promise<void> {
-    const promise = new Promise<void>((resolve, reject) => {
+  private enqueueCommand(command: string): Promise<string | void> {
+    const promise = new Promise<string | void>((resolve, reject) => {
       this.commandQueue.push({ command, resolve, reject });
       if (!this.draining) {
         this.drainQueue();
@@ -168,7 +174,7 @@ export class ProfileDrivenModule extends BaseDeviceModule {
 
     this.driver
       .sendCommand(item.command)
-      .then(() => item.resolve())
+      .then((response) => item.resolve(response))
       .catch((err) => item.reject(err instanceof Error ? err : new Error(String(err))))
       .finally(() => {
         const interval = this.profile.quirks?.commandInterval ?? 0;

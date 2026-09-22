@@ -19,6 +19,12 @@ import {
 } from "@/lib/rundown-relay-payload";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { persistedRundownStatus } from "@/lib/rundown-status";
+import { projectRundownDisplayState } from "@/lib/rundown-display";
+import {
+  hasLiveRundownAuthority,
+  type LiveRundownAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
+import { getPresentedRundownPin } from "@/lib/rundown-pin.server";
 
 interface D1BoundStatement {
   first<T>(): Promise<T | null>;
@@ -35,6 +41,7 @@ interface D1Database {
 
 interface Env {
   DB: D1Database;
+  BETTER_AUTH_SECRET?: string;
 }
 
 export type ItemType =
@@ -461,6 +468,57 @@ export class RundownRelay extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      await this.ctx.storage.deleteAll();
+      this.state = {
+        initialized: false,
+        items: [],
+        timer: { ...DEFAULT_TIMER },
+        ppSlide: null,
+        ppPreviewSlide: null,
+        ppOutputEnabled: false,
+        stageMessage: "",
+        revision: 0,
+        recentCommandIds: [],
+      };
+      this.hydrated = true;
+      this.hydrationPromise = null;
+      return Response.json({ ok: true });
+    }
+    if (url.pathname === "/internal/purge-show" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      await this.hydrateFromStorage();
+      const targetShowId = url.searchParams.get("showId");
+      const targetServiceDate = url.searchParams.get("serviceDate");
+      const force = url.searchParams.get("force") === "1";
+      const belongsToTarget = force
+        || (targetShowId !== null && this.state.showId === targetShowId)
+        || (!this.state.showId && targetServiceDate !== null && this.state.serviceDate === targetServiceDate);
+      if (!belongsToTarget) return Response.json({ ok: true, skipped: true });
+
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Show deleted");
+      await this.ctx.storage.deleteAll();
+      this.state = {
+        initialized: false,
+        items: [],
+        timer: { ...DEFAULT_TIMER },
+        ppSlide: null,
+        ppPreviewSlide: null,
+        ppOutputEnabled: false,
+        stageMessage: "",
+        revision: 0,
+        recentCommandIds: [],
+      };
+      this.hydrated = true;
+      this.hydrationPromise = null;
+      return Response.json({ ok: true });
+    }
     await this.hydrateFromStorage();
     await this.reconcileProPresenterOutputSetting();
     const serviceDate = url.searchParams.get("serviceDate");
@@ -500,6 +558,7 @@ export class RundownRelay extends DurableObject {
         orgId: this.orgId,
         serviceDate: serviceDate ?? null,
         showId: showId ?? null,
+        authClaim: this.readAuthorityClaim(url, request),
       });
 
       // Hydrate with current state
@@ -573,6 +632,7 @@ export class RundownRelay extends DurableObject {
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
       orgId?: string;
+      authClaim?: LiveRundownAuthorityClaim | null;
     } | null;
     if (attachment?.orgId) this.orgId = attachment.orgId;
     await this.hydrateFromStorage();
@@ -580,7 +640,9 @@ export class RundownRelay extends DurableObject {
       const raw: unknown = JSON.parse(data as string);
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
       if ((raw as Record<string, unknown>).type === "ping") {
-        // Keepalive — just receiving this prevents hibernation
+        if (attachment?.writeAccess && !(await this.socketCanWrite(attachment))) {
+          ws.close(4403, "Rundown access changed");
+        }
         return;
       }
       if ((raw as Record<string, unknown>).type === "command") {
@@ -598,6 +660,17 @@ export class RundownRelay extends DurableObject {
           return;
         }
         if (!attachment?.writeAccess) return;
+        if (!(await this.socketCanWrite(attachment))) {
+          ws.send(JSON.stringify({
+            type: "command-result",
+            id: parsed.id,
+            accepted: false,
+            reason: "forbidden",
+            revision: this.state.revision,
+          }));
+          ws.close(4403, "Rundown access changed");
+          return;
+        }
         if (!canApplyRundownRelayAction(attachment.writeAccess, parsed.action)) {
           ws.send(JSON.stringify({
             type: "command-result",
@@ -628,7 +701,7 @@ export class RundownRelay extends DurableObject {
           }
 
           if (decision === "revision-conflict") {
-            this.sendStateToSocket(ws);
+            await this.sendStateToSocket(ws);
             ws.send(JSON.stringify({
               type: "command-result",
               id: parsed.id,
@@ -640,7 +713,7 @@ export class RundownRelay extends DurableObject {
           }
 
           const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
-          if (!accepted) this.sendStateToSocket(ws);
+          if (!accepted) await this.sendStateToSocket(ws);
           ws.send(JSON.stringify({
             type: "command-result",
             id: parsed.id,
@@ -661,6 +734,33 @@ export class RundownRelay extends DurableObject {
 
   webSocketError(_ws: WebSocket) {
     // No manual session tracking needed
+  }
+
+  private readAuthorityClaim(url: URL, request: Request): LiveRundownAuthorityClaim | null {
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    if (!userId || !sessionId || !this.orgId) return null;
+    return {
+      userId,
+      sessionId,
+      orgId: this.orgId,
+      rundownPin: getPresentedRundownPin(request, this.orgId),
+    };
+  }
+
+  private async socketCanWrite(attachment: {
+    writeAccess?: RundownRelayWriteAccess | null;
+    authClaim?: LiveRundownAuthorityClaim | null;
+  }): Promise<boolean> {
+    if (!attachment.writeAccess) return false;
+    // Internal/bridge calls do not carry a member session. Internet clients
+    // always receive a server-derived claim at the Worker gateway.
+    if (!attachment.authClaim) return true;
+    return hasLiveRundownAuthority(
+      this.env.DB,
+      attachment.authClaim,
+      attachment.writeAccess === "edit" ? "rundown:edit" : "rundown:control",
+    );
   }
 
   private async handleCommand(
@@ -1081,7 +1181,7 @@ export class RundownRelay extends DurableObject {
       this.state.recentCommandIds = [...this.state.recentCommandIds, commandId].slice(-100);
     }
     await this.persistState();
-    this.broadcastState();
+    await this.broadcastState();
 
     if (previousPlayback === "stop" && this.state.timer.playback === "play") {
       this.persistActiveShow();
@@ -1122,31 +1222,28 @@ export class RundownRelay extends DurableObject {
 
   /** Minimum state needed by the intentionally public confidence timer. */
   private getDisplayState() {
-    return {
+    return projectRundownDisplayState({
       serviceDate: this.state.serviceDate ?? null,
       showId: this.state.showId ?? null,
       initialized: this.state.initialized,
       revision: this.state.revision,
-      items: this.state.items.map((item) => ({
-        id: item.id,
-        title: item.title,
-        type: item.type,
-        duration: item.duration,
-        status: item.status,
-        sortOrder: item.sortOrder,
-        hardStop: item.hardStop,
-      })),
-      timer: { ...this.state.timer, serverTime: Date.now() },
+      items: this.state.items,
+      timer: this.state.timer,
       ppSlide: this.state.ppSlide,
       stageMessage: this.state.stageMessage,
-    };
+    });
   }
 
-  private sendStateToSocket(ws: WebSocket) {
+  private async sendStateToSocket(ws: WebSocket): Promise<void> {
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
       canObserve?: boolean;
+      authClaim?: LiveRundownAuthorityClaim | null;
     } | null;
+    if (attachment?.writeAccess && !(await this.socketCanWrite(attachment))) {
+      ws.close(4403, "Rundown access changed");
+      return;
+    }
     ws.send(JSON.stringify({
       type: "state",
       state: attachment?.writeAccess || attachment?.canObserve
@@ -1155,14 +1252,14 @@ export class RundownRelay extends DurableObject {
     }));
   }
 
-  private broadcastState() {
+  private async broadcastState(): Promise<void> {
     // Use ctx.getWebSockets() instead of manual Set — survives hibernation
-    for (const ws of this.ctx.getWebSockets()) {
+    await Promise.all(this.ctx.getWebSockets().map(async (ws) => {
       try {
-        this.sendStateToSocket(ws);
+        await this.sendStateToSocket(ws);
       } catch {
-        // Dead socket — Cloudflare will clean it up
+        try { ws.close(1011, "Broadcast failed"); } catch {}
       }
-    }
+    }));
   }
 }

@@ -47,6 +47,7 @@ interface PresentationSummary {
 
 interface PresentationSlide {
   index: number;
+  sourceId: string;
   text: string;
   label: string;
   notes: string;
@@ -54,6 +55,21 @@ interface PresentationSlide {
 
 interface PresentationDetail extends PresentationSummary {
   slides: PresentationSlide[];
+}
+
+interface PresentationLibraryFailure {
+  id: string;
+  name: string;
+  error: string;
+}
+
+interface PresentationListResult {
+  presentations: PresentationSummary[];
+  libraries: {
+    total: number;
+    read: number;
+    failed: PresentationLibraryFailure[];
+  };
 }
 
 export class ProPresenterBridge {
@@ -237,7 +253,10 @@ export class ProPresenterBridge {
     }
     const action = typeof structured?.action === "string" ? structured.action : command;
     if (action === "query-presentations") {
-      return JSON.stringify(await this.queryPresentations());
+      const libraryIds = Array.isArray(structured?.libraryIds)
+        ? structured.libraryIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
+        : undefined;
+      return JSON.stringify(await this.queryPresentations(libraryIds));
     }
     if (action === "query-presentation") {
       const presentationUuid = structured?.presentationUuid;
@@ -323,6 +342,7 @@ export class ProPresenterBridge {
         const slideLabel = typeof slide.label === "string" ? slide.label.trim() : "";
         slides.push({
           index,
+          sourceId: this.identifier(slide.id ?? slide.uuid),
           text: this.extractTextFromResponse(slide),
           label: slideLabel || groupName || `Slide ${index + 1}`,
           notes: String(slide.notes ?? ""),
@@ -332,27 +352,47 @@ export class ProPresenterBridge {
     return slides;
   }
 
-  private async queryPresentations(): Promise<PresentationSummary[]> {
-    const libraries = this.objectArray(await this.requestJson("/v1/libraries"));
+  private async queryPresentations(requestedLibraryIds?: string[]): Promise<PresentationListResult> {
+    const allLibraries = this.objectArray(await this.requestJson("/v1/libraries"));
+    const requested = requestedLibraryIds?.length ? new Set(requestedLibraryIds) : null;
+    const libraries = requested
+      ? allLibraries.filter((library) => requested.has(this.identifier(library.id ?? library.uuid ?? library)))
+      : allLibraries;
     const presentations = new Map<string, PresentationSummary>();
-    const libraryResults = await Promise.allSettled(libraries.map(async (library) => {
+    const libraryResults = await Promise.all(libraries.map(async (library) => {
       const libraryId = this.identifier(library.id ?? library.uuid ?? library);
-      if (!libraryId) return [];
-      return this.objectArray(await this.requestJson(`/v1/library/${encodeURIComponent(libraryId)}`));
+      const name = String(library.name ?? (library.id as Record<string, unknown> | undefined)?.name ?? "Unnamed library");
+      if (!libraryId) return { id: "", name, items: [], error: "Library has no identifier." };
+      try {
+        return {
+          id: libraryId,
+          name,
+          items: this.objectArray(await this.requestJson(`/v1/library/${encodeURIComponent(libraryId)}`)),
+          error: "",
+        };
+      } catch (error) {
+        return {
+          id: libraryId,
+          name,
+          items: [],
+          error: error instanceof Error ? error.message : "Library could not be read.",
+        };
+      }
     }));
-    const readableLibraries = libraryResults.filter((result) => result.status === "fulfilled");
-    if (libraries.length && !readableLibraries.length) {
-      throw new Error("ProPresenter libraries could not be read");
-    }
-    for (const result of readableLibraries) {
-      const items = result.value;
-      for (const item of items) {
+    for (const result of libraryResults) {
+      if (!result.error) for (const item of result.items) {
         const uuid = this.identifier(item.id ?? item.uuid);
         if (!uuid) continue;
         presentations.set(uuid, { uuid, name: String(item.name ?? item.title ?? "Untitled presentation") });
       }
     }
-    return [...presentations.values()].sort((left, right) => left.name.localeCompare(right.name));
+    const failed = libraryResults
+      .filter((result) => Boolean(result.error))
+      .map(({ id, name, error }) => ({ id, name, error }));
+    return {
+      presentations: [...presentations.values()].sort((left, right) => left.name.localeCompare(right.name)),
+      libraries: { total: libraries.length, read: libraries.length - failed.length, failed },
+    };
   }
 
   private async queryPresentation(presentationUuid: string): Promise<PresentationDetail> {

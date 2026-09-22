@@ -3,6 +3,18 @@ import { getNotificationDestination, getNotificationPath } from "../notification
 import { ACCESS_CAPABILITIES } from "../access-capabilities";
 
 describe("notification destinations", () => {
+  it("routes personal assignments without requiring manager schedule access", () => {
+    expect(
+      getNotificationDestination("assignments?assignment=assignment-12"),
+    ).toEqual({ kind: "personal-assignment", assignment: "assignment-12" });
+    expect(
+      getNotificationPath(
+        "faithfire-production",
+        "assignments?assignment=assignment-12",
+      ),
+    ).toBe("/faithfire-production/assignments?assignment=assignment-12");
+  });
+
   it("routes dashboard and incident assignments", () => {
     expect(getNotificationDestination("dashboard/tech-manager")).toEqual({ kind: "tech-manager" });
     expect(getNotificationDestination("production/incidents?incident=fault-12")).toEqual({ kind: "incident", incident: "fault-12", date: undefined, show: undefined });
@@ -20,6 +32,17 @@ describe("notification destinations", () => {
       date: "2026-08-23",
       assignment: "assignment-12",
     });
+  });
+
+  it("routes post-show reminders to the exact report", () => {
+    expect(getNotificationDestination("reports?date=2026-08-23&show=show-12")).toEqual({
+      kind: "report",
+      date: "2026-08-23",
+      show: "show-12",
+    });
+    expect(getNotificationPath("faithfire-production", "reports?date=2026-08-23&show=show-12")).toBe(
+      "/faithfire-production/reports?date=2026-08-23&show=show-12",
+    );
   });
 
   it("rejects malformed, external, and non-canonical destinations", () => {

@@ -38,6 +38,8 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
   const [items, setItems] = useState<PersonalNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [nextCursor, setNextCursor] = useState<{ createdAt: string; id: string } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
@@ -52,6 +54,7 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
     try {
       const result = await getPersonalNotifications({ data: { orgId } });
       setItems(result.notifications);
+      setNextCursor(result.nextCursor);
       setUnread(result.unread);
       onUnreadChange?.(result.unread);
       setActionError(null);
@@ -62,6 +65,26 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
       refreshInFlightRef.current = false;
     }
   }, [orgId, onUnreadChange]);
+
+  const loadOlder = async () => {
+    if (!nextCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const result = await getPersonalNotifications({ data: { orgId, cursor: nextCursor } });
+      setItems((current) => {
+        const known = new Set(current.map((item) => item.id));
+        return [...current, ...result.notifications.filter((item) => !known.has(item.id))];
+      });
+      setNextCursor(result.nextCursor);
+      setUnread(result.unread);
+      onUnreadChange?.(result.unread);
+      setActionError(null);
+    } catch {
+      setActionError("Older notifications could not be loaded. Try again.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   useEffect(() => {
     void refresh();
@@ -237,6 +260,13 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
             }}
           />
         )) : null}
+        {loaded && nextCursor ? (
+          <div className="flex justify-center px-5 py-4 sm:px-6">
+            <Button type="button" variant="outline" size="sm" disabled={loadingOlder} onClick={() => void loadOlder()}>
+              {loadingOlder ? "Loading…" : "Load older notifications"}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -309,6 +339,18 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
   }
   if (destination.kind === "schedule") {
     await navigate({ to: "/$slug/schedule", params: { slug }, search: { date: destination.date, assignment: destination.assignment } });
+    return;
+  }
+  if (destination.kind === "personal-assignment") {
+    await navigate({
+      to: "/$slug/assignments",
+      params: { slug },
+      search: { assignment: destination.assignment },
+    });
+    return;
+  }
+  if (destination.kind === "report") {
+    await navigate({ to: "/$slug/reports", params: { slug }, search: { date: destination.date, show: destination.show, page: 1 } });
     return;
   }
   if (destination.kind === "feature") {

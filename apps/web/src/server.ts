@@ -15,6 +15,11 @@ import {
   readRequestTextWithinLimit,
 } from "./lib/request-body.server";
 import { withSecurityHeaders } from "./lib/http-security-headers";
+import {
+  permissionsRequireRundownPin,
+  rundownPinChallenge,
+  verifyRundownPin,
+} from "./lib/rundown-pin.server";
 
 // Durable Objects
 export { ChatRelay } from "./durable-objects/ChatRelay";
@@ -125,8 +130,17 @@ async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"])
   return mismatch === 0;
 }
 
+async function guestAttachmentOwnerId(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const value = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `guest:${value}`;
+}
+
 interface OrgIdentity {
   userId: string;
+  sessionId: string | null;
   name: string;
   role: string;
   permissions: Permission[];
@@ -144,6 +158,7 @@ async function getOrgIdentity(
     if (!access) return null;
     return {
       userId: session.user.id,
+      sessionId: session.session?.id ?? null,
       name: session.user.name,
       role: access.role,
       permissions: access.permissions,
@@ -190,20 +205,34 @@ async function canAccessChatRoom(
   return members.every(Boolean);
 }
 
-async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string> {
+async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string | null> {
   const byId = await db
     .prepare("SELECT id FROM organization WHERE id = ?")
     .bind(slugOrId)
     .first<{ id: string }>();
-  if (byId) return byId.id;
-
-  const bySlug = await db
+  const resolved = byId ?? await db
     .prepare("SELECT id FROM organization WHERE slug = ?")
     .bind(slugOrId)
     .first<{ id: string }>();
-  if (bySlug) return bySlug.id;
+  if (!resolved) return null;
 
-  return slugOrId;
+  const tombstone = await db.prepare(
+    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'organization-deleting' LIMIT 1",
+  ).bind(resolved.id).first<{ value: string }>();
+  return tombstone ? null : resolved.id;
+}
+
+async function isShowAvailable(orgId: string, showId: string, db: Env["DB"]): Promise<boolean> {
+  const show = await db.prepare(
+    `SELECT r.id FROM rundown r
+     WHERE r.orgId = ? AND r.id = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM app_setting s
+         WHERE s.orgId = r.orgId AND s.key = ?
+       )
+     LIMIT 1`,
+  ).bind(orgId, showId, `show-deleting:${showId}`).first<{ id: string }>();
+  return Boolean(show);
 }
 
 // Build-time commit SHA, injected by deploy.yml (VITE_COMMIT_SHA=${{ github.sha }}).
@@ -257,6 +286,7 @@ const appServer = {
     const slackEventsMatch = url.pathname.match(/^\/api\/integrations\/slack\/events\/([^/]+)$/);
     if (slackEventsMatch && request.method === "POST") {
       const orgId = await resolveOrgId(slackEventsMatch[1], e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const [adapter, signingSecret, channel] = await Promise.all([
         e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'chat-adapter' LIMIT 1").bind(orgId).first<{ value: string }>(),
         e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'slack-signing-secret' LIMIT 1").bind(orgId).first<{ value: string }>(),
@@ -304,6 +334,7 @@ const appServer = {
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const publicDisplayRead = request.method === "GET"
         && (subpath === "ws" || subpath === "state")
@@ -315,6 +346,10 @@ const appServer = {
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", publicDisplayRead ? "read" : "write");
+      if (access.identity) {
+        doUrl.searchParams.set("authUserId", access.identity.userId);
+        if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -322,6 +357,7 @@ const appServer = {
     if (bridgeMatch) {
       const [, slugOrId, subpath] = bridgeMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const requestedRole = url.searchParams.get("role") ?? "client";
       if (requestedRole === "bridge" ? !access.hasBridgeKey : !canUse(access, "devices:access")) {
@@ -333,6 +369,13 @@ const appServer = {
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", "write");
+      if (requestedRole === "bridge") {
+        const bridgeKey = request.headers.get("x-showpilot-api-key") ?? url.searchParams.get("key");
+        if (bridgeKey) doUrl.searchParams.set("authBridgeKey", bridgeKey);
+      } else if (access.identity) {
+        doUrl.searchParams.set("authUserId", access.identity.userId);
+        if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -340,6 +383,11 @@ const appServer = {
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
+      const showId = url.searchParams.get("showId");
+      if (showId && !(await isShowAvailable(orgId, showId, e.DB))) {
+        return new Response("Show not found", { status: 404 });
+      }
       const access = await getRelayAccess(request, orgId, e.DB);
       const canControl = canUse(access, "rundown:control");
       const canEdit = canUse(access, "rundown:edit");
@@ -354,6 +402,19 @@ const appServer = {
       const publicDisplayRead = request.method === "GET"
         && (subpath === "ws" || subpath === "state")
         && url.searchParams.get("display") === "1";
+      if (
+        !publicDisplayRead
+        && !access.hasBridgeKey
+        && access.identity
+        && permissionsRequireRundownPin(access.identity.role, [
+          "rundown:view",
+          "rundown:edit",
+          "rundown:control",
+        ])
+        && !(await verifyRundownPin(request, e.DB, orgId))
+      ) {
+        return rundownPinChallenge();
+      }
       const writeAccess = canControl ? "control" : canEdit ? "edit" : null;
       const isMutation = subpath === "command" || (subpath === "ws" && writeAccess !== null);
       if (subpath === "command" && !writeAccess) {
@@ -363,7 +424,6 @@ const appServer = {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
-      const showId = url.searchParams.get("showId");
       const timezone = await e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
         .bind(orgId).first<{ value: string }>();
       const id = e.RUNDOWN_RELAY.idFromName(
@@ -377,6 +437,12 @@ const appServer = {
         "access",
         isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
       );
+      if (access.identity) {
+        doUrl.searchParams.set("authUserId", access.identity.userId);
+        if (access.identity.sessionId) {
+          doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+        }
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
@@ -388,22 +454,44 @@ const appServer = {
     if (cueMatch) {
       const [, slugOrId, subpath] = cueMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
-      if (!canUse(access, ["cuesheet:edit", "cuesheet:add_notes"])) {
+      const canWriteColumns = canUse(access, "cuesheet:edit");
+      const canWriteNotes = canUse(access, ["cuesheet:edit", "cuesheet:add_notes"]);
+      const canWriteIncidents = canUse(access, ["incidents:report", "incidents:access"]);
+      const canObserve = canUse(access, [
+        "cuesheet:view",
+        "cuesheet:edit",
+        "cuesheet:add_notes",
+        "incidents:report",
+        "incidents:access",
+      ]);
+      if (!canObserve) {
         return new Response("Unauthorized", { status: 401 });
       }
       const id = e.CUE_SHEET_RELAY.idFromName(orgId);
       const stub = e.CUE_SHEET_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
-      doUrl.searchParams.set("access", "write");
+      doUrl.searchParams.set("orgId", orgId);
+      const scopes = [
+        canWriteColumns ? "columns" : null,
+        canWriteNotes ? "notes" : null,
+        canWriteIncidents ? "incidents" : null,
+      ].filter(Boolean).join(",");
+      doUrl.searchParams.set("access", scopes || "observe");
+      if (access.identity) {
+        doUrl.searchParams.set("authUserId", access.identity.userId);
+        if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 
     const chatFileMatch = url.pathname.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/(.+)$/);
-    if (chatFileMatch && request.method === "GET") {
+    if (chatFileMatch && (request.method === "GET" || request.method === "DELETE")) {
       const [, slugOrId, fileId, encodedName] = chatFileMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
       const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
@@ -417,6 +505,26 @@ const appServer = {
       if (!await canAccessChatRoom(objectRoom, access, orgId, e.DB, guestPass?.orgId === orgId)) {
         return new Response("Forbidden", { status: 403 });
       }
+      if (request.method === "DELETE") {
+        const expectedOwner = access.identity?.userId
+          ?? (guestToken && guestPass?.orgId === orgId ? await guestAttachmentOwnerId(guestToken) : null);
+        if (!expectedOwner || object.customMetadata?.uploadedBy !== expectedOwner) {
+          return new Response("Only the uploader can remove this file", { status: 403 });
+        }
+        const attachmentUrl = `/api/chat-file/${encodeURIComponent(orgId)}/${encodeURIComponent(fileId)}/${encodeURIComponent(fileName)}`;
+        const relay = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, objectRoom)));
+        const referenceUrl = new URL("https://chat.internal/attachment-reference");
+        referenceUrl.searchParams.set("orgId", orgId);
+        referenceUrl.searchParams.set("room", objectRoom);
+        referenceUrl.searchParams.set("access", "write");
+        referenceUrl.searchParams.set("url", attachmentUrl);
+        const referenceResponse = await relay.fetch(referenceUrl);
+        if (!referenceResponse.ok) return new Response("File reference check failed", { status: 503 });
+        const reference = await referenceResponse.json<{ referenced?: boolean }>();
+        if (reference.referenced) return new Response("This file is attached to a message", { status: 409 });
+        await e.STORAGE.delete(`orgs/${orgId}/chat/${fileId}/${fileName}`);
+        return new Response(null, { status: 204 });
+      }
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set("Cache-Control", "private, max-age=3600");
@@ -428,6 +536,7 @@ const appServer = {
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
       const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
@@ -454,7 +563,12 @@ const appServer = {
         if (contentLengthExceeds(request, 16 * 1024 * 1024)) {
           return new Response("Files must be 15 MB or smaller", { status: 413 });
         }
-        const formData = await request.formData();
+        let formData: FormData;
+        try {
+          formData = await request.formData();
+        } catch {
+          return new Response("Invalid upload. Choose the file again.", { status: 400 });
+        }
         const file = formData.get("file");
         if (!(file instanceof File)) return new Response("Choose a file to upload", { status: 400 });
         const allowedTypes = new Set([
@@ -468,9 +582,12 @@ const appServer = {
         if (file.size > 15 * 1024 * 1024) return new Response("Files must be 15 MB or smaller", { status: 413 });
         const fileId = crypto.randomUUID();
         const safeName = file.name.replace(/[\\/\u0000-\u001f]/g, "-").trim().slice(0, 180) || "attachment";
+        const attachmentOwner = access.identity?.userId
+          ?? (guestToken && validGuest ? await guestAttachmentOwnerId(guestToken) : null);
+        if (!attachmentOwner) return new Response("Unable to establish file ownership", { status: 403 });
         await e.STORAGE.put(`orgs/${orgId}/chat/${fileId}/${safeName}`, file.stream(), {
           httpMetadata: { contentType: file.type },
-          customMetadata: { uploadedBy: access.identity?.userId ?? "guest", roomId },
+          customMetadata: { uploadedBy: attachmentOwner, roomId },
         });
         return Response.json({
           id: fileId,
@@ -487,13 +604,23 @@ const appServer = {
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("room", roomId);
       doUrl.searchParams.set("access", "write");
-      if (guestAllowed) {
+      // These are trusted relay metadata, never client-provided identity.
+      for (const field of ["userId", "name", "role", "guestExpiresAt", "attachmentOwnerId", "authUserId", "authSessionId"]) {
+        doUrl.searchParams.delete(field);
+      }
+      if (guestAllowed && guestPass) {
         doUrl.searchParams.set("name", (url.searchParams.get("guestName") || "Guest crew").trim().slice(0, 60));
         doUrl.searchParams.set("role", "Guest");
+        doUrl.searchParams.set("guestExpiresAt", String(guestPass.exp * 1000));
+        if (guestToken) doUrl.searchParams.set("attachmentOwnerId", await guestAttachmentOwnerId(guestToken));
       } else if (access.identity) {
         doUrl.searchParams.set("userId", access.identity.userId);
         doUrl.searchParams.set("name", access.identity.name);
         doUrl.searchParams.set("role", access.identity.role);
+        if (access.identity.sessionId) {
+          doUrl.searchParams.set("authUserId", access.identity.userId);
+          doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+        }
       }
       if (subpath === "send" && request.method === "POST" && access.identity) {
         let body: Record<string, unknown>;
@@ -564,6 +691,7 @@ const appServer = {
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
       const orgId = await resolveOrgId(slugOrId, e.DB);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const isMutation = subpath !== "current" && subpath !== "ws";
       const canControl = canUse(access, "lowerthird:trigger");
@@ -574,7 +702,12 @@ const appServer = {
       const stub = e.LOWER_THIRDS_RELAY.get(id);
       const doUrl = new URL(request.url);
       doUrl.pathname = `/${subpath}`;
+      doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", canControl ? "write" : "read");
+      if (access.identity) {
+        doUrl.searchParams.set("authUserId", access.identity.userId);
+        if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
+      }
       return stub.fetch(new Request(doUrl.toString(), request));
     }
 

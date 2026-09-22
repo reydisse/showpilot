@@ -34,7 +34,29 @@ pub struct BridgeConfig {
 
 struct BridgeProcess {
     child: Child,
-    logs: Arc<Mutex<VecDeque<String>>>,
+    observation: Arc<Mutex<BridgeObservation>>,
+}
+
+struct BridgeObservation {
+    connection: BridgeConnection,
+    logs: VecDeque<String>,
+}
+
+impl BridgeObservation {
+    fn new() -> Self {
+        Self {
+            connection: BridgeConnection::Connecting,
+            logs: VecDeque::new(),
+        }
+    }
+
+    fn push(&mut self, line: String) {
+        self.connection = connection_from_log(self.connection, &line);
+        self.logs.push_back(line);
+        while self.logs.len() > MAX_LOG_LINES {
+            self.logs.pop_front();
+        }
+    }
 }
 
 impl Drop for BridgeProcess {
@@ -116,6 +138,7 @@ fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnectio
     }
 }
 
+#[cfg(test)]
 fn connection_from_logs(logs: &[String]) -> BridgeConnection {
     let mut connection = BridgeConnection::Offline;
     for line in logs {
@@ -212,22 +235,22 @@ fn save_config(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<(), Stri
     fs::rename(temporary, path).map_err(|error| error.to_string())
 }
 
-fn append_log(logs: &Arc<Mutex<VecDeque<String>>>, line: String) {
-    if let Ok(mut entries) = logs.lock() {
-        entries.push_back(line);
-        while entries.len() > MAX_LOG_LINES {
-            entries.pop_front();
-        }
+fn append_log(observation: &Arc<Mutex<BridgeObservation>>, line: String) {
+    if let Ok(mut observation) = observation.lock() {
+        observation.push(line);
     }
 }
 
-fn capture_output<R: Read + Send + 'static>(reader: R, logs: Arc<Mutex<VecDeque<String>>>) {
+fn capture_output<R: Read + Send + 'static>(reader: R, observation: Arc<Mutex<BridgeObservation>>) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             match line {
-                Ok(line) => append_log(&logs, line),
+                Ok(line) => append_log(&observation, line),
                 Err(error) => {
-                    append_log(&logs, format!("Device engine output error: {error}"));
+                    append_log(
+                        &observation,
+                        format!("[bridge] Device engine output error: {error}"),
+                    );
                     break;
                 }
             }
@@ -298,19 +321,19 @@ fn bridge_command(config: &BridgeConfig) -> Result<Command, String> {
 }
 
 fn spawn_process(config: &BridgeConfig) -> Result<BridgeProcess, String> {
-    let logs = Arc::new(Mutex::new(VecDeque::new()));
+    let observation = Arc::new(Mutex::new(BridgeObservation::new()));
     let mut command = bridge_command(config)?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| format!("Unable to start the local device engine: {error}"))?;
     if let Some(stdout) = child.stdout.take() {
-        capture_output(stdout, Arc::clone(&logs));
+        capture_output(stdout, Arc::clone(&observation));
     }
     if let Some(stderr) = child.stderr.take() {
-        capture_output(stderr, Arc::clone(&logs));
+        capture_output(stderr, Arc::clone(&observation));
     }
-    Ok(BridgeProcess { child, logs })
+    Ok(BridgeProcess { child, observation })
 }
 
 fn replace_process(runtime: &BridgeRuntime, config: &BridgeConfig) -> Result<u32, String> {
@@ -342,6 +365,7 @@ pub fn bridge_status(
     let mut running = false;
     let mut pid = None;
     let mut logs = Vec::new();
+    let mut observed_connection = BridgeConnection::Offline;
 
     if let Some(active) = process.as_mut() {
         running = active
@@ -352,13 +376,18 @@ pub fn bridge_status(
         if running {
             pid = Some(active.child.id());
         }
-        logs = active
-            .logs
-            .lock()
-            .map_err(|_| "Device engine logs unavailable".to_string())?
-            .iter()
-            .cloned()
-            .collect();
+        let snapshot = {
+            let observation = active
+                .observation
+                .lock()
+                .map_err(|_| "Device engine status unavailable".to_string())?;
+            (
+                observation.connection,
+                observation.logs.iter().cloned().collect::<Vec<_>>(),
+            )
+        };
+        observed_connection = snapshot.0;
+        logs = snapshot.1;
         if !running {
             if let Ok(mut previous) = runtime.last_logs.lock() {
                 previous.clear();
@@ -378,7 +407,7 @@ pub fn bridge_status(
     }
 
     let connection = if running {
-        connection_from_logs(&logs)
+        observed_connection
     } else {
         BridgeConnection::Offline
     };
@@ -483,10 +512,10 @@ pub fn start_supervisor(app: tauri::AppHandle) {
                         .unwrap_or(false);
                     if stopped {
                         if let (Ok(logs), Ok(mut previous)) =
-                            (active.logs.lock(), runtime.last_logs.lock())
+                            (active.observation.lock(), runtime.last_logs.lock())
                         {
                             previous.clear();
-                            previous.extend(logs.iter().cloned());
+                            previous.extend(logs.logs.iter().cloned());
                         }
                         *process = None;
                     }
@@ -614,6 +643,23 @@ mod tests {
         ];
         assert_eq!(connection_from_logs(&logs), BridgeConnection::Connected);
         assert_eq!(last_error_from_logs(&logs), None);
+    }
+
+    #[test]
+    fn keeps_connection_state_after_the_connection_log_rolls_out() {
+        let observation = Arc::new(Mutex::new(BridgeObservation::new()));
+        append_log(&observation, "[bridge] Connected to ShowPilot".to_string());
+        for index in 0..2_000 {
+            append_log(&observation, format!("[pp-bridge] Forwarded slide {index}"));
+        }
+
+        let observation = observation.lock().expect("observation lock");
+        assert_eq!(observation.logs.len(), MAX_LOG_LINES);
+        assert!(!observation
+            .logs
+            .iter()
+            .any(|line| line.contains("Connected to ShowPilot")));
+        assert_eq!(observation.connection, BridgeConnection::Connected);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,11 +17,16 @@ import {
 import { ContextHelp } from "@/components/ui/context-help";
 import {
   addGraphicTemplate,
-  updateGraphicTemplate,
-  setActiveGraphics,
+  deleteGraphicScene,
   clearActiveGraphics,
   getActiveGraphics,
+  getGraphicScenes,
+  publishGraphicComposition,
+  saveGraphicScene,
+  type GraphicCompositionItem,
+  type SavedGraphicScene,
 } from "@/lib/graphics";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import {
   type Controls,
@@ -40,10 +45,14 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
   loader: async ({ context }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "lowerthird:view", context.slug, context.orgId);
-    const active = await getActiveGraphics({ data: { orgId: context.orgId } });
+    const [active, scenes] = await Promise.all([
+      getActiveGraphics({ data: { orgId: context.orgId } }),
+      getGraphicScenes({ data: { orgId: context.orgId } }),
+    ]);
     return {
       orgId: context.orgId,
       activeIds: active.map((g) => g.id),
+      scenes,
       role: context.role,
       grantedPermissions: context.grantedPermissions,
       slug: context.slug,
@@ -290,7 +299,7 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
-  const { orgId, activeIds: initialActiveIds, role, grantedPermissions, slug } = Route.useLoaderData();
+  const { orgId, activeIds: initialActiveIds, scenes: initialScenes, role, grantedPermissions, slug } = Route.useLoaderData();
   const router = useRouter();
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
   const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
@@ -299,18 +308,20 @@ function TemplatePreviewPage() {
   const [sampleKey, setSampleKey] = useState<keyof typeof SAMPLES | "custom">("person");
   const [controls, setControls] = useState<Controls>(DEFAULT_CONTROLS);
   const [showControls, setShowControls] = useState(true);
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [customPrimary, setCustomPrimary] = useState("");
   const [customSecondary, setCustomSecondary] = useState("");
   const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
   // The current scene — additional LTs composed alongside the one being edited.
   const [scene, setScene] = useState<SceneItem[]>([]);
-  // Reusable scratch records (one per scene item + the draft) so re-pushing
-  // updates in place instead of littering the library.
-  const [scratchId, setScratchId] = useState<string | null>(null);
-  const sceneRecordsRef = useRef<Record<string, string>>({});
+  const [savedScenes, setSavedScenes] = useState<SavedGraphicScene[]>(initialScenes);
+  const [sceneId, setSceneId] = useState<string | null>(null);
+  const [sceneName, setSceneName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingScene, setSavingScene] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
+  const [operationError, setOperationError] = useState("");
 
   const template = TEMPLATES[currentIndex];
 
@@ -346,23 +357,25 @@ function TemplatePreviewPage() {
     const text = getCurrentText();
     if (!text.primary.trim()) return;
     setSaving(true);
-    await addGraphicTemplate({
-      data: {
-        orgId,
-        name: text.primary.trim(),
-        title: text.primary.trim(),
-        subtitle: text.secondary?.trim() ?? "",
-        style: JSON.stringify({
-          type: "lower-third",
-          templateId: template.id,
-          controls,
-        }),
-      },
-    });
-    setSaving(false);
-    setSavedMsg("Saved to library");
-    setTimeout(() => setSavedMsg(""), 2000);
-    router.invalidate();
+    setOperationError("");
+    try {
+      await addGraphicTemplate({
+        data: {
+          orgId,
+          name: text.primary.trim().slice(0, 200),
+          title: text.primary.trim(),
+          subtitle: text.secondary?.trim() ?? "",
+          style: JSON.stringify({ type: "lower-third", templateId: template.id, controls }),
+        },
+      });
+      setSavedMsg("Graphic saved to library");
+      setTimeout(() => setSavedMsg(""), 2000);
+      router.invalidate();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "The graphic could not be saved.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Does the in-progress draft carry real text (vs. an empty custom field)?
@@ -407,10 +420,10 @@ function TemplatePreviewPage() {
     setScene((prev) => prev.filter((s) => s.key !== item.key));
   };
 
-  // Everything currently shown in the preview: scene items + the draft.
+  // Everything currently shown in Preview: scene items plus a deliberately visible draft.
   const composed = (): SceneItem[] => {
     const items = [...scene];
-    if (draftHasText) {
+    if (draftHasText && visible) {
       const text = getCurrentText();
       items.push({
         key: "__draft__",
@@ -423,50 +436,95 @@ function TemplatePreviewPage() {
     return items;
   };
 
+  const compositionItems = (): GraphicCompositionItem[] => composed().map((item) => ({
+    key: item.key,
+    name: item.primary.slice(0, 200),
+    title: item.primary,
+    subtitle: item.secondary,
+    style: JSON.stringify({ type: "lower-third", templateId: item.templateId, controls: item.controls }),
+  }));
+
+  const loadScene = (savedScene: SavedGraphicScene) => {
+    const restored = savedScene.items.flatMap((item) => {
+      try {
+        const style = JSON.parse(item.style) as { templateId?: unknown; controls?: unknown };
+        if (typeof style.templateId !== "string" || !style.controls || typeof style.controls !== "object") return [];
+        return [{ key: item.key, templateId: style.templateId, primary: item.title, secondary: item.subtitle, controls: style.controls as Controls }];
+      } catch {
+        return [];
+      }
+    });
+    setScene(restored);
+    setSceneId(savedScene.id);
+    setSceneName(savedScene.name);
+    setSampleKey("custom");
+    setCustomPrimary("");
+    setCustomSecondary("");
+    setVisible(false);
+    setOperationError(restored.length === savedScene.items.length ? "" : "Some saved layers could not be restored.");
+  };
+
+  const handleSaveScene = async () => {
+    if (!canConfigureGraphics) return;
+    const items = compositionItems();
+    if (!sceneName.trim() || items.length === 0) return;
+    setSavingScene(true);
+    setOperationError("");
+    try {
+      const saved = await saveGraphicScene({ data: { orgId, ...(sceneId ? { sceneId } : {}), name: sceneName.trim(), items } });
+      setSceneId(saved.id);
+      setSavedScenes((current) => [saved, ...current.filter((candidate) => candidate.id !== saved.id)]);
+      setSavedMsg("Scene saved");
+      setTimeout(() => setSavedMsg(""), 2000);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "The scene could not be saved.");
+    } finally {
+      setSavingScene(false);
+    }
+  };
+
+  const handleDeleteScene = async (savedScene: SavedGraphicScene) => {
+    try {
+      await deleteGraphicScene({ data: { orgId, sceneId: savedScene.id } });
+      setSavedScenes((current) => current.filter((candidate) => candidate.id !== savedScene.id));
+      if (sceneId === savedScene.id) { setSceneId(null); setSceneName(""); }
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "The scene could not be deleted.");
+    }
+  };
+
   // Push the whole composition live at once — the output matches the preview.
   const handlePushLive = async () => {
     if (!canTriggerGraphics) return;
-    const items = composed();
+    const items = compositionItems();
     if (items.length === 0) return;
     setPushing(true);
-
-    const ids: string[] = [];
-    for (const item of items) {
-      const style = JSON.stringify({
-        type: "lower-third",
-        templateId: item.templateId,
-        controls: item.controls,
-        scratch: true, // hidden from the library — these are live-preview records
-      });
-      const fields = { name: item.primary, title: item.primary, subtitle: item.secondary };
-      const mapped =
-        item.key === "__draft__" ? scratchId : sceneRecordsRef.current[item.key];
-      if (mapped) {
-        await updateGraphicTemplate({ data: { orgId, id: mapped, updates: { ...fields, style } } });
-        ids.push(mapped);
-      } else {
-        const created = await addGraphicTemplate({ data: { orgId, ...fields, style } });
-        if (item.key === "__draft__") setScratchId(created.id);
-        else sceneRecordsRef.current[item.key] = created.id;
-        ids.push(created.id);
-      }
+    setOperationError("");
+    try {
+      const result = await publishGraphicComposition({ data: { orgId, requestId: crypto.randomUUID(), items } });
+      setActiveIds(result.activeIds);
+      if (!result.isActive) setOperationError("A newer Program revision is active. Preview was not put on air.");
+      router.invalidate();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Program could not be changed. The prior output remains active.");
+    } finally {
+      setPushing(false);
     }
-
-    // Absolute write: the live set becomes exactly the composed scene.
-    await setActiveGraphics({ data: { orgId, graphicIds: ids } });
-    setActiveIds(ids);
-    setPushing(false);
-    router.invalidate();
   };
 
   const handleClearLive = async () => {
     if (!canTriggerGraphics) return;
-    await clearActiveGraphics({ data: { orgId } });
-    setActiveIds([]);
+    setOperationError("");
+    try {
+      await clearActiveGraphics({ data: { orgId } });
+      setActiveIds([]);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Program could not be cleared.");
+    }
   };
 
   const sample = getCurrentText();
-  const composedCount = scene.length + (draftHasText ? 1 : 0);
+  const composedCount = scene.length + (draftHasText && visible ? 1 : 0);
 
   return (
     <div className="h-full overflow-auto bg-[#07090d]">
@@ -484,18 +542,22 @@ function TemplatePreviewPage() {
             </Link>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-lg font-semibold text-board-text">Template Studio</h1>
-              <ContextHelp title="Template Studio" description="Build a broadcast scene from one or more lower thirds. The Program canvas matches the live output; Save stores a reusable template, Push Live airs the current composition, and Clear removes it from every connected output." className="size-7" />
+              <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear removes Program from connected outputs." className="size-7" />
             </div>
           </div>
           <button
             onClick={() => setShowControls((v) => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors lg:flex ${
               showControls
                 ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                 : "text-board-muted hover:text-board-text border border-board-border"
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
+            Controls
+          </button>
+          <button onClick={() => setMobileControlsOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium text-board-text lg:hidden">
+            <Sliders className="h-3.5 w-3.5" />
             Controls
           </button>
         </div>
@@ -519,6 +581,17 @@ function TemplatePreviewPage() {
           </aside>
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-3">
+            {savedScenes.length > 0 && (
+              <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
+                <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {savedScenes.map((savedScene) => <div key={savedScene.id} className="flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
+                    <button type="button" onClick={() => loadScene(savedScene)} className="px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
+                    {canConfigureGraphics && <button type="button" aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="p-2 text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>}
+                  </div>)}
+                </div>
+              </section>
+            )}
             {/* Top controls */}
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-board-border bg-board-card/70 p-2.5">
               <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -556,7 +629,7 @@ function TemplatePreviewPage() {
                       : "bg-board-bg text-board-muted border border-board-border hover:text-board-text"
                   }`}
                 >
-                  {visible ? "On Air" : "Off Air"}
+                  {visible ? "Draft shown" : "Draft hidden"}
                 </button>
                 <span className="text-xs text-board-muted font-mono">
                   {currentIndex + 1}/{TEMPLATES.length}
@@ -584,20 +657,22 @@ function TemplatePreviewPage() {
 
             {/* Custom text inputs */}
             {sampleKey === "custom" && (
-              <div className="flex gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <input
                   type="text"
                   value={customPrimary}
                   onChange={(e) => setCustomPrimary(e.target.value)}
                   placeholder="Primary text (name, title, verse...)"
-                  className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  maxLength={500}
+                  className="min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
                 <input
                   type="text"
                   value={customSecondary}
                   onChange={(e) => setCustomSecondary(e.target.value)}
                   placeholder="Secondary text (optional)"
-                  className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  maxLength={500}
+                  className="min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
             )}
@@ -643,8 +718,14 @@ function TemplatePreviewPage() {
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  {saving ? "Saving..." : "Save to Library"}
+                  {saving ? "Saving..." : "Save graphic"}
                 </button>
+              )}
+              {canConfigureGraphics && (
+                <div className="flex min-w-[15rem] flex-1 items-center gap-2 sm:max-w-md">
+                  <input aria-label="Scene name" value={sceneName} onChange={(event) => setSceneName(event.target.value)} maxLength={200} placeholder="Scene name" className="min-w-0 flex-1 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500" />
+                  <button type="button" onClick={() => void handleSaveScene()} disabled={savingScene || !sceneName.trim() || composedCount === 0} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40"><Layers className="h-3.5 w-3.5" />{savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}</button>
+                </div>
               )}
               {savedMsg && (
                 <span className="text-xs text-green-400 font-medium">{savedMsg}</span>
@@ -653,11 +734,12 @@ function TemplatePreviewPage() {
                 <div className="flex items-center gap-1.5 ml-auto">
                   <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
                   <span className="text-xs font-medium text-fire-500">
-                    {activeIds.length === 1 ? "On Air" : `${activeIds.length} On Air`}
+                    {activeIds.length === 1 ? "Program: 1 layer" : `Program: ${activeIds.length} layers`}
                   </span>
                 </div>
               )}
             </div>
+            {operationError && <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{operationError}</div>}
 
             {/* Scene tray — LTs composed alongside the one being edited */}
             {scene.length > 0 && (
@@ -714,7 +796,7 @@ function TemplatePreviewPage() {
 
             {/* Preview viewport — 16:9 OBS canvas, scaled 1:1 with the stream */}
             <section className="overflow-hidden rounded-xl border border-board-border bg-board-card/60 shadow-2xl shadow-black/40">
-              <div className="flex items-center justify-between border-b border-board-border px-3 py-2"><div className="flex items-center gap-2"><MonitorPlay className="size-4 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-board-muted">Program · 16:9</span></div><span className="text-[10px] text-board-muted">Title-safe guides enabled</span></div>
+              <div className="flex items-center justify-between border-b border-board-border px-3 py-2"><div className="flex items-center gap-2"><MonitorPlay className="size-4 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-board-muted">Preview · 16:9</span></div><span className="text-[10px] text-board-muted">Title-safe guides enabled</span></div>
             <div
               className="relative w-full select-none overflow-hidden"
               style={{ aspectRatio: "16 / 9", background: "#111" }}
@@ -773,10 +855,10 @@ function TemplatePreviewPage() {
                 {visible ? (
                   <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/20">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">on air</span>
+                    <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">draft shown</span>
                   </div>
                 ) : (
-                  <span className="text-[10px] text-white/20 font-mono uppercase tracking-widest">off air</span>
+                  <span className="text-[10px] text-white/20 font-mono uppercase tracking-widest">draft hidden</span>
                 )}
               </div>
             </div>
@@ -810,6 +892,8 @@ function TemplatePreviewPage() {
                       setVisible(true);
                     }, 300);
                   }}
+                  aria-label={`Select ${t.name} template`}
+                  aria-current={i === currentIndex ? "true" : undefined}
                   className={`h-2 rounded-full transition-all ${
                     i === currentIndex ? "bg-fire-500 w-6" : "bg-board-border hover:bg-board-muted w-2"
                   }`}
@@ -871,6 +955,12 @@ function TemplatePreviewPage() {
           )}
         </div>
       </div>
+      <Dialog open={mobileControlsOpen} onOpenChange={setMobileControlsOpen}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto border-board-border bg-board-card text-board-text lg:hidden">
+          <DialogHeader><DialogTitle>Style & position</DialogTitle><DialogDescription>Adjust the selected Preview layer.</DialogDescription></DialogHeader>
+          <ControlPanel controls={controls} onChange={setControls} onReset={() => setControls(DEFAULT_CONTROLS)} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

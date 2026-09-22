@@ -207,10 +207,16 @@ export default function ScheduleScreen() {
     ]);
   }
 
-  async function respond(assignmentId: string, response: "confirmed" | "declined") {
-    setRespondingId(assignmentId);
+  async function respond(assignment: Assignment, response: "confirmed" | "declined") {
+    setRespondingId(assignment.id);
     try {
-      await respondToMobileAssignment({ orgId, assignmentId, response, reason: response === "declined" ? reason.trim() : "" });
+      await respondToMobileAssignment({
+        orgId,
+        assignmentId: assignment.id,
+        reviewedVersion: assignment.responseVersion,
+        response,
+        reason: response === "declined" ? reason.trim() : "",
+      });
       setDecliningId(null);
       setReason("");
       await saved();
@@ -294,7 +300,7 @@ export default function ScheduleScreen() {
             </Pressable>
             <View style={styles.metrics}><Text style={styles.metric}>{service.completedItems}/{service.itemCount} rundown</Text><Text style={styles.metric}>{service.crewConfirmed}/{service.crewTotal} confirmed</Text>{service.crewOpen ? <Text style={styles.warning}>{service.crewOpen} open</Text> : null}{service.incidentCount ? <Text style={styles.danger}>{service.incidentCount} incidents</Text> : null}</View>
             {canManage ? <View style={styles.manageActions}><SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => setEditor({ kind: "service", service })} />{canManageAssignments ? <><SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => setEditor({ kind: "assignment", service, assignment: null })} /><SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />{assignments.length === 0 && previousWithTeam ? <SmallAction icon={<Copy color={colors.textMuted} size={14} />} label="Copy team" onPress={() => copyTeam(service, previousWithTeam)} /> : null}{assignments.some((assignment) => assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open") ? <SmallAction icon={<Bell color={colors.textMuted} size={14} />} label="Remind" onPress={() => void remindAll(service)} /> : null}</> : null}<SmallAction danger icon={<Trash2 color={colors.red} size={14} />} label="Delete" onPress={() => removeService(service)} /></View> : null}
-            {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} onRemind={() => void remindOne(assignment)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment.id, response)} pending={respondingId === assignment.id} reason={reason} />)}</View> : <Text style={styles.noAssignments}>{canManageAssignments ? "No positions yet. Add an open position or build a team." : "No crew assignments published."}</Text>}
+            {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} onRemind={() => void remindOne(assignment)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />)}</View> : <Text style={styles.noAssignments}>{canManageAssignments ? "No positions yet. Add an open position or build a team." : "No crew assignments published."}</Text>}
           </View>;
         }}
         windowSize={7}

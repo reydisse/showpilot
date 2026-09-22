@@ -2,13 +2,13 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { Lock, ShieldAlert } from "lucide-react";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { getRundownPinCookieName } from "@/middleware/withPermission";
-import { validateRundownPin } from "@/lib/rbac";
+import { getRundownPinCookieName } from "@/lib/rundown-pin";
+import { getRundownPinRequirement, validateRundownPin } from "@/lib/rbac";
 import { hasEffectivePermission, roleRequiresRundownPin } from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug/rundown-pin")({
   pendingComponent: () => <BoardSkeleton />,
-  beforeLoad: ({ context, params }) => {
+  beforeLoad: async ({ context, params }) => {
     if (
       !hasEffectivePermission(
         context.role,
@@ -20,6 +20,11 @@ export const Route = createFileRoute("/$slug/rundown-pin")({
     }
 
     if (!roleRequiresRundownPin(context.role)) {
+      throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
+    }
+
+    const requirement = await getRundownPinRequirement({ data: { orgId: context.orgId } });
+    if (!requirement.enabled) {
       throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
     }
 
@@ -66,7 +71,7 @@ function RundownPinPage() {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-board-text">Rundown PIN Required</h1>
-            <p className="text-xs text-board-muted">Technical Manager access requires the organization PIN.</p>
+            <p className="text-xs text-board-muted">Technical Managers use the organization PIN to open the rundown and live controls.</p>
           </div>
         </div>
 

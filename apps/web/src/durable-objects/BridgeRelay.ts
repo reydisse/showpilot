@@ -1,6 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
+import {
+  hasLivePermissionAuthority,
+  type LiveSessionAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
 
 /**
  * BridgeRelay — mediates between browser clients and the ShowPilot Bridge agent.
@@ -37,11 +41,14 @@ export type BridgeDispatchMessage =
     };
 
 type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
+type BridgeRelayRuntimeEnv = BridgeRelayEnv & { BETTER_AUTH_SECRET?: string };
 
 interface SocketAttachment {
   role: "bridge" | "client";
   orgId: string;
   bridgeInfo?: BridgeRelayStatusInfo;
+  bridgeKey?: string;
+  authClaim?: LiveSessionAuthorityClaim;
 }
 
 export interface BridgeDeviceEventSnapshot {
@@ -66,6 +73,11 @@ export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
 interface PendingDispatch {
   resolve: (result: BridgeDispatchResult) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingClientCommand {
+  socket: WebSocket;
+  clientId: string;
 }
 
 export interface BridgeDispatchResult {
@@ -117,17 +129,30 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     role: value.role,
     orgId: value.orgId,
     bridgeInfo: bridgeInfo ?? undefined,
+    bridgeKey: typeof value.bridgeKey === "string" ? value.bridgeKey : undefined,
+    authClaim: isRecord(value.authClaim)
+      && typeof value.authClaim.userId === "string"
+      && typeof value.authClaim.sessionId === "string"
+      && typeof value.authClaim.orgId === "string"
+      ? {
+          userId: value.authClaim.userId,
+          sessionId: value.authClaim.sessionId,
+          orgId: value.authClaim.orgId,
+        }
+      : undefined,
   };
 }
 
-export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
+export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private bridgeWs: WebSocket | null = null;
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
   private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [], deviceEvents: {} };
+  private bridgeKey: string | null = null;
   private orgId = "";
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
+  private pendingClientCommands = new Map<string, PendingClientCommand>();
 
   constructor(ctx: DurableObjectState, env: BridgeRelayEnv) {
     super(ctx, env);
@@ -142,6 +167,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
 
       if (attachment.role === "bridge") {
         this.bridgeWs = ws;
+        this.bridgeKey = attachment.bridgeKey ?? null;
         this.bridgeOnline = true;
         if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
       } else {
@@ -159,6 +185,22 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     if (!this.orgId) this.orgId = requestedOrgId;
     if (!this.orgId) return new Response("Organization is required", { status: 400 });
 
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      this.failPendingDispatches("Organization deleted");
+      this.failPendingClientCommands("Organization deleted");
+      await this.ctx.storage.deleteAll();
+      this.bridgeWs = null;
+      this.clientSessions.clear();
+      this.bridgeOnline = false;
+      this.bridgeKey = null;
+      this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === "/ws") {
       if (request.method !== "GET") {
         return new Response("Method not allowed", { status: 405 });
@@ -172,6 +214,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
         const attachment: SocketAttachment = {
           role: role === "bridge" ? "bridge" : "client",
           orgId: this.orgId,
+          ...(role === "bridge"
+            ? { bridgeKey: url.searchParams.get("authBridgeKey") ?? url.searchParams.get("key") ?? undefined }
+            : {
+                authClaim: this.readAuthorityClaim(url) ?? undefined,
+              }),
         };
 
         this.ctx.acceptWebSocket(server);
@@ -181,16 +228,19 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
           // Bridge agent connecting
           if (this.bridgeWs) {
             this.failPendingDispatches("Venue Bridge was replaced");
-            // Disconnect old bridge
+            // A deliberate replacement must not become a reconnect war. The
+            // displaced installation treats 4410 as a terminal takeover and
+            // remains stopped until an operator starts it again.
             try {
-              this.bridgeWs.close();
+              this.bridgeWs.close(4410, "Venue Bridge replaced by another installation");
             } catch {}
           }
           this.bridgeWs = server;
+          this.bridgeKey = attachment.bridgeKey ?? null;
           this.bridgeOnline = true;
           this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
           // Notify all clients bridge is online
-          this.broadcastToClients(
+          await this.broadcastToClients(
             JSON.stringify({
               type: "bridge-status",
               online: true,
@@ -269,16 +319,30 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     });
   }
 
-  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     try {
       const parsed: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
       if (!isRecord(parsed) || typeof parsed.type !== "string") return;
       const msg: BridgeMessage = { ...parsed, type: parsed.type };
 
       if (ws === this.bridgeWs) {
+        if (this.bridgeKey && !(await this.bridgeKeyIsCurrent())) {
+          ws.close(4403, "Venue Bridge key changed");
+          this.webSocketClose(ws);
+          return;
+        }
         // Message from bridge → forward to clients
         void this.handleBridgeMessage(msg);
       } else {
+        const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
+        if (
+          attachment?.authClaim
+          && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
+        ) {
+          ws.close(4403, "Device access changed");
+          this.clientSessions.delete(ws);
+          return;
+        }
         // Message from browser client → forward to bridge
         this.handleClientMessage(msg, ws);
       }
@@ -290,17 +354,22 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
   webSocketClose(ws: WebSocket) {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
+      this.bridgeKey = null;
       this.bridgeOnline = false;
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
+      this.failPendingClientCommands("Venue Bridge disconnected");
       void this.clearPreviewSlide();
       void this.stopBridgeTimecode();
-      this.broadcastToClients(JSON.stringify({
+      void this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
         online: false,
       }));
     } else {
       this.clientSessions.delete(ws);
+      for (const [operationId, owner] of this.pendingClientCommands) {
+        if (owner.socket === ws) this.pendingClientCommands.delete(operationId);
+      }
     }
   }
 
@@ -322,8 +391,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
             : this.bridgeInfo.connectedTargets,
           deviceEvents: this.bridgeInfo.deviceEvents,
         };
-        this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
-        this.broadcastToClients(JSON.stringify({
+        this.serializeBridgeAttachment();
+        await this.broadcastToClients(JSON.stringify({
           type: "bridge-status",
           online: true,
           ...this.bridgeInfo,
@@ -331,8 +400,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
         break;
 
       case "command-response":
-      case "device-event":
-        if (msg.type === "command-response" && typeof msg.id === "string") {
+        if (typeof msg.id === "string") {
           const pending = this.pendingCommands.get(msg.id);
           if (pending) {
             clearTimeout(pending.timer);
@@ -342,8 +410,21 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
               response: typeof msg.response === "string" ? msg.response : undefined,
               error: typeof msg.error === "string" ? msg.error : undefined,
             });
+            break;
+          }
+          const owner = this.pendingClientCommands.get(msg.id);
+          if (owner) {
+            this.pendingClientCommands.delete(msg.id);
+            try {
+              owner.socket.send(JSON.stringify({ ...msg, id: owner.clientId }));
+            } catch {
+              this.clientSessions.delete(owner.socket);
+            }
           }
         }
+        break;
+
+      case "device-event":
         if (msg.eventName === "slide" && typeof msg.data === "string") {
           void this.pushPreviewSlide(msg.data);
         }
@@ -364,13 +445,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
               },
             },
           };
-          this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
+          this.serializeBridgeAttachment();
         }
-        // Command responses must reach the browser that is waiting for them,
-        // and unsolicited device events must reach every open operator. The
-        // old relay consumed both message types here, which made remote
-        // equipment control time out even while the Bridge showed online.
-        this.broadcastToClients(JSON.stringify(msg));
+        // Unsolicited device events are shared venue state and reach every
+        // operator. Command replies above are deliberately point-to-point.
+        await this.broadcastToClients(JSON.stringify(msg));
         break;
 
       case "device-status":
@@ -381,7 +460,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
           const deviceEvents = { ...this.bridgeInfo.deviceEvents };
           if (msg.connected !== true) delete deviceEvents[msg.target];
           this.bridgeInfo = { ...this.bridgeInfo, connectedTargets: [...targets].sort(), devices: targets.size, deviceEvents };
-          this.bridgeWs?.serializeAttachment?.({ role: "bridge", orgId: this.orgId, bridgeInfo: this.bridgeInfo } satisfies SocketAttachment);
+          this.serializeBridgeAttachment();
           const pending = this.pendingConnections.get(msg.target);
           if (pending) {
             clearTimeout(pending.timer);
@@ -401,7 +480,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
           void this.clearPreviewSlide();
         }
         // Forward directly to all browser clients
-        this.broadcastToClients(JSON.stringify(msg));
+        await this.broadcastToClients(JSON.stringify(msg));
         break;
 
       case "pong":
@@ -414,11 +493,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     }
   }
 
-  private handleClientMessage(msg: BridgeMessage, _clientWs: WebSocket): void {
+  private handleClientMessage(msg: BridgeMessage, clientWs: WebSocket): void {
     if (!this.bridgeWs || !this.bridgeOnline) {
       // No bridge connected — can't forward
       if (msg.type === "command" && msg.id) {
-        _clientWs.send(JSON.stringify({
+        clientWs.send(JSON.stringify({
           type: "command-response",
           id: msg.id,
           success: false,
@@ -429,15 +508,39 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     }
 
     switch (msg.type) {
-      case "command":
+      case "command": {
+        if (typeof msg.id !== "string" || !msg.id) return;
+        const operationId = `client_${crypto.randomUUID()}`;
+        this.pendingClientCommands.set(operationId, { socket: clientWs, clientId: msg.id });
+        try {
+          this.bridgeWs.send(JSON.stringify({ ...msg, id: operationId }));
+        } catch {
+          this.pendingClientCommands.delete(operationId);
+          try {
+            clientWs.send(JSON.stringify({
+              type: "command-response",
+              id: msg.id,
+              success: false,
+              error: "Venue Bridge disconnected",
+            }));
+          } catch {}
+        }
+        break;
+      }
       case "connect-device":
-      case "disconnect-device":
         // Forward to bridge
         try {
           this.bridgeWs.send(JSON.stringify(msg));
         } catch {
           // Bridge disconnected
         }
+        break;
+
+      case "disconnect-device":
+        // Closing a control panel detaches that browser only. Physical venue
+        // connections remain owned by the Bridge so another operator is not
+        // disconnected mid-show. Deliberate venue-wide disconnects use the
+        // internal dispatch API.
         break;
 
       case "ping":
@@ -459,14 +562,72 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
     this.pendingConnections.clear();
   }
 
-  private broadcastToClients(data: string): void {
-    for (const ws of this.clientSessions) {
+  private failPendingClientCommands(error: string): void {
+    for (const owner of this.pendingClientCommands.values()) {
+      try {
+        owner.socket.send(JSON.stringify({
+          type: "command-response",
+          id: owner.clientId,
+          success: false,
+          error,
+        }));
+      } catch {}
+    }
+    this.pendingClientCommands.clear();
+  }
+
+  private async broadcastToClients(data: string): Promise<void> {
+    for (const ws of [...this.clientSessions]) {
+      const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
+      if (
+        attachment?.authClaim
+        && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
+      ) {
+        ws.close(4403, "Device access changed");
+        this.clientSessions.delete(ws);
+        continue;
+      }
       try {
         ws.send(data);
       } catch {
         this.clientSessions.delete(ws);
       }
     }
+  }
+
+  private readAuthorityClaim(url: URL): LiveSessionAuthorityClaim | null {
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    if (!userId || !sessionId || !this.orgId) return null;
+    return { userId, sessionId, orgId: this.orgId };
+  }
+
+  private serializeBridgeAttachment(): void {
+    this.bridgeWs?.serializeAttachment?.({
+      role: "bridge",
+      orgId: this.orgId,
+      bridgeInfo: this.bridgeInfo,
+      ...(this.bridgeKey ? { bridgeKey: this.bridgeKey } : {}),
+    } satisfies SocketAttachment);
+  }
+
+  private async bridgeKeyIsCurrent(): Promise<boolean> {
+    if (!this.bridgeKey || !this.orgId) return false;
+    const setting = await this.env.DB.prepare(
+      "SELECT value FROM app_setting WHERE orgId = ? AND key = 'api-key' LIMIT 1",
+    ).bind(this.orgId).first<{ value: string | null }>();
+    const expected = setting?.value ?? "";
+    if (!expected) return false;
+    const encoder = new TextEncoder();
+    const [leftBuffer, rightBuffer] = await Promise.all([
+      crypto.subtle.digest("SHA-256", encoder.encode(this.bridgeKey)),
+      crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+    ]);
+    const left = new Uint8Array(leftBuffer);
+    const right = new Uint8Array(rightBuffer);
+    let mismatch = left.length ^ right.length;
+    for (let index = 0; index < left.length; index += 1) mismatch |= left[index] ^ right[index];
+    return mismatch === 0;
   }
 
   private async pushPreviewSlide(data: string): Promise<void> {
@@ -529,7 +690,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
   }
 
   private async pushTimecode(message: BridgeMessage): Promise<void> {
-    if (!this.orgId || !isRecord(message.timecode) || !isRecord(message.format)) return;
+    if (!this.orgId || !this.env.TIMECODE_RELAY || !isRecord(message.timecode) || !isRecord(message.format)) return;
     const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
     await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
       method: "POST",
@@ -546,7 +707,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayEnv> {
   }
 
   private async stopBridgeTimecode(): Promise<void> {
-    if (!this.orgId) return;
+    if (!this.orgId || !this.env.TIMECODE_RELAY) return;
     const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
     await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
       method: "POST",

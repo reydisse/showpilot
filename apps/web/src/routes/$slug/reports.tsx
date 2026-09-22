@@ -538,7 +538,7 @@ function ManagerNotes({
   onReportChange: (report: ShowReport) => void;
 }) {
   const writable = report.viewer.writableNoteLanes;
-  const ownNote = report.managerNotes.find((note) => note.userId === report.viewer.userId);
+  const ownNote = report.managerNotes.find((note) => note.userId === report.viewer.userId && note.role === (writable[0] ?? "pm"));
   const [lane, setLane] = useState<ShowReportLane>(ownNote?.role ?? writable[0] ?? "pm");
   const [draft, setDraft] = useState(() => ({
     summary: ownNote?.summary ?? "",
@@ -549,6 +549,18 @@ function ManagerNotes({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
+  const selectLane = (value: ShowReportLane) => {
+    const saved = report.managerNotes.find((note) => note.userId === report.viewer.userId && note.role === value);
+    setLane(value);
+    setDraft({
+      summary: saved?.summary ?? "",
+      wins: saved?.wins ?? "",
+      issues: saved?.issues ?? "",
+      followUps: saved?.followUps ?? "",
+    });
+    setMessage("");
+  };
+
   const save = async () => {
     setSaving(true);
     setMessage("");
@@ -556,7 +568,7 @@ function ManagerNotes({
       const note = await saveShowReportNote({
         data: { orgId, showId: report.showId, role: lane, ...draft },
       });
-      const notes = [...report.managerNotes.filter((item) => item.userId !== note.userId), note]
+      const notes = [...report.managerNotes.filter((item) => item.userId !== note.userId || item.role !== note.role), note]
         .sort((left, right) => left.role.localeCompare(right.role) || left.updatedAt.localeCompare(right.updatedAt));
       onReportChange({ ...report, managerNotes: notes });
       setMessage("Notes saved and included in exports.");
@@ -580,7 +592,7 @@ function ManagerNotes({
         {writable.length > 1 ? (
           <div className="flex rounded-lg border border-board-border bg-board-card p-1">
             {writable.map((value) => (
-              <button key={value} type="button" onClick={() => setLane(value)} className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
+              <button key={value} type="button" onClick={() => selectLane(value)} className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
                 {value === "pm" ? "PM note" : "TM note"}
               </button>
             ))}

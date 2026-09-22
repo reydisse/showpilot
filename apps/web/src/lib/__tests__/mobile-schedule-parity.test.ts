@@ -105,7 +105,7 @@ describe("mobile schedule parity", () => {
     expect(inserts).toHaveLength(2);
     expect(inserts[0]?.params).toEqual([
       "copy-show-source-show-target-0", "org-1", "show-target", "2026-09-13",
-      "crew-1", "Camera 1", "Video", "08:15",
+      "crew-1", "manager-1", "Camera 1", "Video", "08:15",
     ]);
     expect(mocks.sendInvite).toHaveBeenCalledOnce();
     expect(mocks.sendInvite).toHaveBeenCalledWith(expect.objectContaining({

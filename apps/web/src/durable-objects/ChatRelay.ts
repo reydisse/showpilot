@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { isEmojiReaction } from "@showpilot/shared";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 import { objectionableContentReason } from "@/lib/user-content-safety";
 import {
@@ -10,6 +11,10 @@ import {
   type ExternalChatMessage,
   type ExternalChatPlatform,
 } from "@/lib/external-chat-gateway";
+import {
+  hasLivePermissionAuthority,
+  type LiveSessionAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
 
 interface ChatMessage {
   id: string;
@@ -47,6 +52,45 @@ interface GatewayStatusFrame {
   error?: string;
 }
 
+type ChatSession = { name: string; orgId: string; roomId: string } & (
+  | { kind: "member"; userId: string; role?: string; authClaim?: LiveSessionAuthorityClaim }
+  | { kind: "guest"; userId?: never; role: "Guest"; expiresAt: number; attachmentOwnerId?: string }
+  | { kind: "integration"; userId?: never; role?: string }
+);
+
+function readChatSession(value: unknown): ChatSession | null {
+  if (!isRecord(value) || typeof value.name !== "string" || typeof value.orgId !== "string" || typeof value.roomId !== "string") return null;
+  const base = { name: value.name, orgId: value.orgId, roomId: value.roomId };
+  if (value.kind === "guest" && value.userId === undefined && value.role === "Guest"
+    && typeof value.expiresAt === "number" && Number.isFinite(value.expiresAt)) {
+    return {
+      ...base,
+      kind: "guest",
+      role: "Guest",
+      expiresAt: value.expiresAt,
+      ...(typeof value.attachmentOwnerId === "string" ? { attachmentOwnerId: value.attachmentOwnerId } : {}),
+    };
+  }
+  if (value.role !== undefined && typeof value.role !== "string") return null;
+  if (value.kind === "member" && typeof value.userId === "string" && value.userId.length > 0) {
+    const authClaim = isRecord(value.authClaim)
+      && typeof value.authClaim.userId === "string"
+      && typeof value.authClaim.sessionId === "string"
+      && typeof value.authClaim.orgId === "string"
+      ? {
+          userId: value.authClaim.userId,
+          sessionId: value.authClaim.sessionId,
+          orgId: value.authClaim.orgId,
+        }
+      : undefined;
+    return { ...base, kind: "member", userId: value.userId, role: value.role, authClaim };
+  }
+  if (value.kind === "integration" && value.userId === undefined) {
+    return { ...base, kind: "integration", role: value.role };
+  }
+  return null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -78,7 +122,7 @@ function parseExternalImport(value: unknown): { platform: ExternalChatPlatform; 
 }
 
 export class ChatRelay extends DurableObject<ChatRelayEnv> {
-  private sessions: Map<WebSocket, { userId?: string; name: string; role?: string; orgId: string; roomId: string }> = new Map();
+  private sessions: Map<WebSocket, ChatSession> = new Map();
   private recentMessages: ChatMessage[] = [];
   /** Keep connection hydration bounded without treating that window as retention. */
   private readonly HYDRATION_MESSAGE_LIMIT = 2000;
@@ -400,13 +444,24 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   private async syncAndScheduleExternalGateway(): Promise<void> {
     const interval = await this.syncExternalGateway();
-    if (interval && this.ctx.getWebSockets().length > 0) {
-      await this.ctx.storage.setAlarm(Date.now() + interval);
+    let nextAlarm: number | null = interval ? Date.now() + interval : null;
+    let activeConnections = 0;
+    for (const socket of this.ctx.getWebSockets()) {
+      const session = this.getSession(socket);
+      if (!session) continue;
+      activeConnections += 1;
+      if (session.kind === "guest") {
+        nextAlarm = Math.min(nextAlarm ?? session.expiresAt, session.expiresAt);
+      }
     }
+    if (nextAlarm !== null && activeConnections > 0) await this.ctx.storage.setAlarm(nextAlarm);
+    else await this.ctx.storage.deleteAlarm();
   }
 
   async alarm(): Promise<void> {
     await this.ensureHistoryLoaded();
+    // Close expired guests before gateway I/O or any further room broadcast.
+    for (const socket of this.ctx.getWebSockets()) this.getSession(socket);
     if (this.ctx.getWebSockets().length === 0) return;
     await this.enqueueGatewayOperation(() => this.syncAndScheduleExternalGateway());
   }
@@ -426,6 +481,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return Response.json(await this.deleteUserData(userId));
     }
 
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      const suppliedSecret = request.headers.get("x-showpilot-internal-secret");
+      if (!this.env.BETTER_AUTH_SECRET || suppliedSecret !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      await this.ctx.storage.deleteAll();
+      this.sessions.clear();
+      this.recentMessages = [];
+      this.historyLoad = null;
+      this.lastGatewayStatus = null;
+      return Response.json({ ok: true });
+    }
+
     const requestedOrgId = url.searchParams.get("orgId") ?? "";
     const requestedRoomId = url.searchParams.get("room") ?? "production";
     if (!this.setContext(requestedOrgId, requestedRoomId)) {
@@ -443,17 +512,39 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     }
 
     if (url.pathname === "/ws") {
+      const base = {
+        name: url.searchParams.get("name") ?? "Gateway",
+        orgId: this.orgId,
+        roomId: this.roomId,
+      };
+      const userId = url.searchParams.get("userId");
+      const role = url.searchParams.get("role") ?? undefined;
+      let session: ChatSession;
+      if (role === "Guest") {
+        const expiresAt = Number(url.searchParams.get("guestExpiresAt"));
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return new Response("Guest pass expired", { status: 401 });
+        const attachmentOwnerId = url.searchParams.get("attachmentOwnerId") ?? undefined;
+        session = { ...base, kind: "guest", role: "Guest", expiresAt, attachmentOwnerId };
+      } else {
+        const authUserId = url.searchParams.get("authUserId")?.trim();
+        const authSessionId = url.searchParams.get("authSessionId")?.trim();
+        session = userId
+          ? {
+              ...base,
+              kind: "member",
+              userId,
+              role,
+              ...(authUserId && authSessionId
+                ? { authClaim: { userId: authUserId, sessionId: authSessionId, orgId: this.orgId } }
+                : {}),
+            }
+          : { ...base, kind: "integration", role };
+      }
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
-      this.sessions.set(server, {
-        userId: url.searchParams.get("userId") ?? undefined,
-        name: url.searchParams.get("name") ?? "Gateway",
-        role: url.searchParams.get("role") ?? undefined,
-        orgId: this.orgId,
-        roomId: this.roomId,
-      });
-      server.serializeAttachment?.(this.sessions.get(server));
+      this.sessions.set(server, session);
+      server.serializeAttachment(session);
 
       // Send recent messages for hydration
       server.send(
@@ -500,6 +591,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMessage(message)).catch(() => undefined));
 
       return Response.json({ ok: true, message });
+    }
+
+    if (url.pathname === "/attachment-reference" && request.method === "GET") {
+      if (url.searchParams.get("access") !== "write") return new Response("Unauthorized", { status: 401 });
+      const attachmentUrl = url.searchParams.get("url") ?? "";
+      return Response.json({ referenced: this.attachmentIsReferenced(attachmentUrl) });
     }
 
     if (url.pathname === "/history") {
@@ -571,6 +668,15 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
       const session = this.getSession(ws);
       if (!session) return;
+      if (
+        session.kind === "member"
+        && session.authClaim
+        && !(await hasLivePermissionAuthority(this.env.DB, session.authClaim, "chat:access"))
+      ) {
+        ws.close(4403, "Chat access changed");
+        this.sessions.delete(ws);
+        return;
+      }
 
       if (parsed.type === "typing") {
         this.broadcast(JSON.stringify({
@@ -598,14 +704,15 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       if (parsed.type === "message") {
+        const requestedMessageId = typeof parsed.clientMessageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.clientMessageId)
+          ? parsed.clientMessageId
+          : undefined;
         const contentError = objectionableContentReason(parsed.text ?? "");
         if (contentError) {
-          ws.send(JSON.stringify({ type: "error", error: contentError }));
+          ws.send(JSON.stringify({ type: "error", error: contentError, ...(requestedMessageId ? { messageId: requestedMessageId } : {}) }));
           return;
         }
-        const clientMessageId = typeof parsed.clientMessageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed.clientMessageId)
-          ? parsed.clientMessageId
-          : crypto.randomUUID();
+        const clientMessageId = requestedMessageId ?? crypto.randomUUID();
         const existingMessage = this.findMessage(clientMessageId);
         if (existingMessage) {
           ws.send(JSON.stringify({ type: "message", message: existingMessage }));
@@ -627,7 +734,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           roomId: session.roomId,
           threadRootId: replyParent ? replyParent.threadRootId ?? replyParent.id : undefined,
           replyTo,
-          attachments: this.cleanAttachments(parsed.attachments, session.orgId),
+          attachments: await this.cleanAttachments(parsed.attachments, session),
           poll: this.cleanPoll(parsed.poll),
         };
 
@@ -662,7 +769,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
       if (parsed.type === "reaction") {
         const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
-        const emoji = typeof parsed.emoji === "string" && parsed.emoji.length <= 32 && /\p{Extended_Pictographic}/u.test(parsed.emoji)
+        const emoji = isEmojiReaction(parsed.emoji)
           ? parsed.emoji
           : null;
         const userId = session.userId;
@@ -692,6 +799,18 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         if (!current) { respond(false, "Message no longer exists"); return; }
         if (current.senderId !== session.userId) { respond(false, "You can only change your own messages"); return; }
         if (current.deletedAt) { respond(false, "Message is already deleted"); return; }
+        if (parsed.type === "delete" && current.attachments?.length) {
+          try {
+            await this.deleteOwnedUnreferencedAttachments(
+              current.attachments,
+              session.userId,
+              new Set([current.id]),
+            );
+          } catch {
+            respond(false, "Attachment cleanup failed. Try deleting the message again.");
+            return;
+          }
+        }
         const now = Date.now();
         const updated: ChatMessage = parsed.type === "delete"
           ? { ...current, text: "", attachments: undefined, poll: undefined, deletedAt: now, editedAt: undefined }
@@ -742,20 +861,109 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     };
   }
 
-  private cleanAttachments(attachments: ChatMessage["attachments"], orgId: string): ChatMessage["attachments"] {
+  private attachmentStorageKey(
+    attachment: NonNullable<ChatMessage["attachments"]>[number],
+    orgId: string,
+  ): { key: string; id: string; name: string; url: string } | null {
+    try {
+      const path = new URL(attachment.url, "https://showpilot.local").pathname;
+      const match = path.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/([^/]+)$/);
+      if (!match || decodeURIComponent(match[1]) !== orgId) return null;
+      const id = decodeURIComponent(match[2]);
+      const name = decodeURIComponent(match[3]);
+      if (!id || !name) return null;
+      return {
+        key: `orgs/${orgId}/chat/${id}/${name}`,
+        id,
+        name,
+        url: `/api/chat-file/${encodeURIComponent(orgId)}/${encodeURIComponent(id)}/${encodeURIComponent(name)}`,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async cleanAttachments(attachments: ChatMessage["attachments"], session: ChatSession): Promise<ChatMessage["attachments"]> {
     if (!Array.isArray(attachments)) return undefined;
-    const requiredPrefix = `/api/chat-file/${encodeURIComponent(orgId)}/`;
-    const clean = attachments.slice(0, 6).flatMap((attachment) => {
-      if (!attachment?.id || !attachment.url?.startsWith(requiredPrefix) || !attachment.name) return [];
-      return [{
-        id: String(attachment.id).slice(0, 100),
-        name: String(attachment.name).slice(0, 180),
-        url: String(attachment.url).slice(0, 1000),
-        mimeType: String(attachment.mimeType || "application/octet-stream").slice(0, 120),
-        size: Math.max(0, Number(attachment.size) || 0),
-      }];
-    });
+    const expectedUploader = session.kind === "member"
+      ? session.userId
+      : session.kind === "guest"
+        ? session.attachmentOwnerId ?? null
+        : null;
+    if (!expectedUploader || !this.env.STORAGE) return undefined;
+    const clean = (await Promise.all(attachments.slice(0, 6).map(async (attachment) => {
+      if (!attachment?.url) return null;
+      const resolved = this.attachmentStorageKey(attachment, session.orgId);
+      if (!resolved) return null;
+      const object = await this.env.STORAGE.head(resolved.key);
+      if (!object
+        || object.customMetadata?.uploadedBy !== expectedUploader
+        || (object.customMetadata?.roomId ?? "production") !== session.roomId) return null;
+      return {
+        id: resolved.id.slice(0, 100),
+        name: resolved.name.slice(0, 180),
+        url: resolved.url,
+        mimeType: String(object.httpMetadata?.contentType || "application/octet-stream").slice(0, 120),
+        size: object.size,
+      };
+    }))).filter((attachment): attachment is NonNullable<typeof attachment> => attachment !== null);
     return clean.length ? clean : undefined;
+  }
+
+  private async deleteOwnedUnreferencedAttachments(
+    attachments: NonNullable<ChatMessage["attachments"]>,
+    ownerUserId: string,
+    excludedMessageIds: Set<string>,
+  ): Promise<number> {
+    if (!this.env.STORAGE) return 0;
+    const candidateKeys = new Set(attachments.flatMap((attachment) => {
+      const resolved = this.attachmentStorageKey(attachment, this.orgId);
+      return resolved ? [resolved.key] : [];
+    }));
+    if (!candidateKeys.size) return 0;
+
+    const liveKeys = new Set<string>();
+    const rows = this.ctx.storage.sql.exec<{ id: string; payload: string }>(
+      "SELECT id, payload FROM chat_messages",
+    ).toArray();
+    for (const row of rows) {
+      if (excludedMessageIds.has(row.id)) continue;
+      try {
+        const message = JSON.parse(row.payload) as ChatMessage;
+        if (message.deletedAt) continue;
+        for (const attachment of message.attachments ?? []) {
+          const resolved = this.attachmentStorageKey(attachment, message.orgId);
+          if (resolved) liveKeys.add(resolved.key);
+        }
+      } catch {
+        // An unreadable row cannot safely authorize deleting an object.
+        return 0;
+      }
+    }
+
+    let deleted = 0;
+    for (const key of candidateKeys) {
+      if (liveKeys.has(key)) continue;
+      const object = await this.env.STORAGE.head(key);
+      if (!object || object.customMetadata?.uploadedBy !== ownerUserId) continue;
+      await this.env.STORAGE.delete(key);
+      deleted += 1;
+    }
+    return deleted;
+  }
+
+  private attachmentIsReferenced(url: string): boolean {
+    const rows = this.ctx.storage.sql.exec<{ payload: string }>("SELECT payload FROM chat_messages").toArray();
+    for (const row of rows) {
+      try {
+        const message = JSON.parse(row.payload) as ChatMessage;
+        if (!message.deletedAt && message.attachments?.some((attachment) => attachment.url === url)) return true;
+      } catch {
+        // Fail closed: an unreadable retained row may still reference it.
+        return true;
+      }
+    }
+    return false;
   }
 
   private cleanPoll(poll: ChatMessage["poll"]): ChatMessage["poll"] {
@@ -781,17 +989,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     });
     const scrubbed = scrubDeletedUserFromChat(parsedRows.map(({ message }) => message), userId);
     const authoredIds = new Set(scrubbed.deleted.map((message) => message.id));
-    const attachmentKeys = scrubbed.deleted.flatMap((message) =>
-      (message.attachments ?? []).flatMap((attachment) => {
-        try {
-          const path = new URL(attachment.url, "https://showpilot.local").pathname;
-          const match = path.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/([^/]+)$/);
-          if (!match || decodeURIComponent(match[1]) !== message.orgId) return [];
-          return [`orgs/${message.orgId}/chat/${decodeURIComponent(match[2])}/${decodeURIComponent(match[3])}`];
-        } catch {
-          return [];
-        }
-      }),
+    const authoredAttachments = scrubbed.deleted.flatMap((message) => message.attachments ?? []);
+    const filesDeleted = await this.deleteOwnedUnreferencedAttachments(
+      authoredAttachments,
+      userId,
+      authoredIds,
     );
 
     for (const { id } of parsedRows) {
@@ -801,16 +1003,21 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     }
     for (const message of scrubbed.messages) this.persistMessage(message);
     this.ctx.storage.sql.exec("DELETE FROM chat_reads WHERE user_id = ?", userId);
-    if (attachmentKeys.length && this.env.STORAGE) await this.env.STORAGE.delete(attachmentKeys);
-
     this.recentMessages = scrubbed.messages.slice(-this.HYDRATION_MESSAGE_LIMIT);
-    return { messagesDeleted: scrubbed.deleted.length, filesDeleted: attachmentKeys.length };
+    return { messagesDeleted: scrubbed.deleted.length, filesDeleted };
   }
 
   private getSession(ws: WebSocket) {
     const session = this.sessions.get(ws) ??
-      (ws.deserializeAttachment?.() as { userId?: string; name: string; role?: string; orgId: string; roomId: string } | null);
-    if (session) this.sessions.set(ws, session);
+      readChatSession(ws.deserializeAttachment());
+    // Older attachments have no authority kind/expiry. Reconnect through the
+    // authenticated gateway instead of retaining unverifiable authorization.
+    if (!session || (session.kind === "guest" && session.expiresAt <= Date.now())) {
+      this.sessions.delete(ws);
+      try { ws.close(1008, "Chat access expired. Reconnect to continue."); } catch { /* Already closed. */ }
+      return null;
+    }
+    this.sessions.set(ws, session);
     return session;
   }
 
@@ -832,6 +1039,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private broadcast(data: string, exclude?: WebSocket) {
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === exclude) continue;
+      if (!this.getSession(ws)) continue;
       try {
         ws.send(data);
       } catch {

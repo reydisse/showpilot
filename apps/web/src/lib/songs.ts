@@ -7,6 +7,8 @@ import { idSchema, labelSchema, parseOrThrow, textSchema } from "@/lib/validatio
 import { isValidTimecode, parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
 import { isBridgeVersionAtLeast } from "@/lib/bridge-version";
+import { planProPresenterMerge } from "@/lib/song-import";
+import type { Prisma } from "@/generated/prisma/client";
 
 const songIdInput = z.object({ orgId: idSchema, songId: idSchema });
 const metadataSchema = z.object({
@@ -48,6 +50,39 @@ const cueMapSchema = z.object({
     ppSlideIndex: z.number().int().min(0).nullable().optional(),
   })).max(500),
 });
+
+const songDraftSchema = metadataSchema.extend({
+  songId: idSchema,
+  sections: z.array(z.object({
+    id: idSchema,
+    label: labelSchema,
+    lyrics: textSchema,
+    sourceSlideIndex: z.number().int().min(0).nullable(),
+  })).max(100),
+  cueMap: cueMapSchema.omit({ orgId: true, songId: true }),
+});
+
+function parseCueDrafts(data: z.infer<typeof cueMapSchema>) {
+  const format: TimecodeFormat = {
+    frameRate: data.frameRate as FrameRate,
+    dropFrame: data.dropFrame,
+  };
+  if (format.dropFrame === "df" && format.frameRate !== 29.97) {
+    throw new Error("Drop-frame is only valid at 29.97 fps.");
+  }
+  const cues = data.cues.map((cue, sortOrder) => {
+    const timecode = parseTimecodeString(cue.triggerTc);
+    if (!timecode || !isValidTimecode(timecode, format)) {
+      throw new Error(`Invalid cue timecode: ${cue.triggerTc}`);
+    }
+    return {
+      ...cue,
+      sortOrder,
+      triggerFrame: timecodeToFrames(timecode, format),
+    };
+  });
+  return { cues, format };
+}
 
 export const listSongs = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
@@ -161,13 +196,7 @@ export const saveSongCueMap = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(cueMapSchema, data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "songs:manage");
-    const format: TimecodeFormat = { frameRate: data.frameRate as FrameRate, dropFrame: data.dropFrame };
-    if (format.dropFrame === "df" && format.frameRate !== 29.97) throw new Error("Drop-frame is only valid at 29.97 fps.");
-    const parsed = data.cues.map((cue, sortOrder) => {
-      const timecode = parseTimecodeString(cue.triggerTc);
-      if (!timecode || !isValidTimecode(timecode, format)) throw new Error(`Invalid cue timecode: ${cue.triggerTc}`);
-      return { ...cue, sortOrder, triggerFrame: timecodeToFrames(timecode, format) };
-    });
+    const { cues: parsed, format } = parseCueDrafts(data);
     const prisma = getPrisma();
     const sections = await prisma.songSection.findMany({ where: { songId: data.songId, orgId: data.orgId }, select: { id: true } });
     const sectionIds = new Set(sections.map((section) => section.id));
@@ -189,6 +218,113 @@ export const saveSongCueMap = createServerFn({ method: "POST" })
     return { ok: true, cueMapId };
   });
 
+export const saveSongDraft = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(songDraftSchema, data))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "songs:manage");
+    const prisma = getPrisma();
+    const [song, storedSections] = await Promise.all([
+      prisma.song.findFirst({
+        where: { id: data.songId, orgId: data.orgId },
+        select: { id: true },
+      }),
+      prisma.songSection.findMany({
+        where: { songId: data.songId, orgId: data.orgId },
+        select: { id: true },
+      }),
+    ]);
+    if (!song) throw new Error("Song not found");
+    const sectionIds = new Set(data.sections.map((section) => section.id));
+    if (
+      sectionIds.size !== data.sections.length ||
+      storedSections.length !== data.sections.length ||
+      storedSections.some((section) => !sectionIds.has(section.id))
+    ) {
+      throw new Error(
+        "The song arrangement changed elsewhere. Reload before saving your draft.",
+      );
+    }
+
+    const cueInput = {
+      orgId: data.orgId,
+      songId: data.songId,
+      ...data.cueMap,
+    };
+    const { cues: parsedCues, format } = parseCueDrafts(cueInput);
+    if (parsedCues.some((cue) => !sectionIds.has(cue.sectionId))) {
+      throw new Error("Cue map contains a section from another song.");
+    }
+
+    const cueMapId = data.cueMap.cueMapId ?? crypto.randomUUID();
+    if (data.cueMap.cueMapId) {
+      const existingMap = await prisma.songCueMap.findFirst({
+        where: {
+          id: data.cueMap.cueMapId,
+          songId: data.songId,
+          orgId: data.orgId,
+        },
+        select: { id: true },
+      });
+      if (!existingMap) throw new Error("Cue map not found");
+    }
+
+    const metadata = {
+      title: data.title.trim(),
+      artist: data.artist,
+      ccliNumber: data.ccliNumber,
+      bpm: data.bpm,
+      keySignature: data.keySignature,
+    };
+    const cueMapData = {
+      name: data.cueMap.name.trim(),
+      format: JSON.stringify(format),
+    };
+    await prisma.$transaction([
+      prisma.song.update({ where: { id: song.id }, data: metadata }),
+      ...data.sections.map((section, sortOrder) =>
+        prisma.songSection.update({
+          where: { id: section.id },
+          data: {
+            label: section.label.trim(),
+            lyrics: section.lyrics,
+            sourceSlideIndex: section.sourceSlideIndex,
+            sortOrder,
+          },
+        }),
+      ),
+      data.cueMap.cueMapId
+        ? prisma.songCueMap.update({
+            where: { id: cueMapId },
+            data: cueMapData,
+          })
+        : prisma.songCueMap.create({
+            data: {
+              id: cueMapId,
+              orgId: data.orgId,
+              songId: data.songId,
+              ...cueMapData,
+            },
+          }),
+      prisma.songCue.deleteMany({
+        where: { cueMapId, orgId: data.orgId },
+      }),
+      ...parsedCues.map((cue) =>
+        prisma.songCue.create({
+          data: {
+            orgId: data.orgId,
+            cueMapId,
+            sectionId: cue.sectionId,
+            triggerTc: cue.triggerTc,
+            triggerFrame: cue.triggerFrame,
+            sortOrder: cue.sortOrder,
+            ppSlideIndex: cue.ppSlideIndex ?? null,
+          },
+        }),
+      ),
+    ]);
+    return { ok: true, cueMapId };
+  });
+
 export const deleteSong = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(songIdInput, data))
   .handler(async ({ data }) => {
@@ -206,7 +342,13 @@ export interface BridgePresentationSummary {
 }
 
 export interface BridgePresentation extends BridgePresentationSummary {
-  slides: Array<{ index: number; text: string; label: string; notes: string }>;
+  slides: Array<{ index: number; sourceId?: string; text: string; label: string; notes: string }>;
+}
+
+export interface ProPresenterLibraryFailure {
+  id: string;
+  name: string;
+  error: string;
 }
 
 type ProPresenterQueryResult =
@@ -215,16 +357,39 @@ type ProPresenterQueryResult =
 
 const PROPRESENTER_IMPORT_BRIDGE_VERSION = "0.1.11";
 
-function parsePresentationSummaries(response: string | undefined): BridgePresentationSummary[] {
-  if (!response) return [];
+function parsePresentationSummaries(response: string | undefined): {
+  presentations: BridgePresentationSummary[];
+  totalLibraries: number | null;
+  readLibraries: number | null;
+  failedLibraries: ProPresenterLibraryFailure[];
+} {
+  if (!response) return { presentations: [], totalLibraries: null, readLibraries: null, failedLibraries: [] };
   const value: unknown = JSON.parse(response);
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((candidate): BridgePresentationSummary[] => {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const candidates = Array.isArray(value) ? value : Array.isArray(record?.presentations) ? record.presentations : [];
+  const presentations = candidates.flatMap((candidate): BridgePresentationSummary[] => {
     if (!candidate || typeof candidate !== "object") return [];
     const item = candidate as Record<string, unknown>;
     if (typeof item.uuid !== "string" || typeof item.name !== "string") return [];
     return [{ uuid: item.uuid, name: item.name }];
   });
+  const libraries = record?.libraries && typeof record.libraries === "object" && !Array.isArray(record.libraries)
+    ? record.libraries as Record<string, unknown>
+    : null;
+  const failedLibraries = Array.isArray(libraries?.failed)
+    ? libraries.failed.flatMap((candidate): ProPresenterLibraryFailure[] => {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+        const item = candidate as Record<string, unknown>;
+        if (typeof item.id !== "string" || typeof item.name !== "string") return [];
+        return [{ id: item.id, name: item.name, error: typeof item.error === "string" ? item.error : "Library could not be read." }];
+      })
+    : [];
+  return {
+    presentations,
+    totalLibraries: typeof libraries?.total === "number" ? libraries.total : null,
+    readLibraries: typeof libraries?.read === "number" ? libraries.read : null,
+    failedLibraries,
+  };
 }
 
 function parsePresentation(response: string | undefined): BridgePresentation {
@@ -240,12 +405,12 @@ function parsePresentation(response: string | undefined): BridgePresentation {
   const slides = item.slides.flatMap((slide, index) => {
       if (!slide || typeof slide !== "object") return [];
       const row = slide as Record<string, unknown>;
-      return [{ index: typeof row.index === "number" ? row.index : index, text: String(row.text ?? ""), label: String(row.label ?? `Slide ${index + 1}`), notes: String(row.notes ?? "") }];
+      return [{ index: typeof row.index === "number" ? row.index : index, sourceId: typeof row.sourceId === "string" ? row.sourceId : "", text: String(row.text ?? ""), label: String(row.label ?? `Slide ${index + 1}`), notes: String(row.notes ?? "") }];
     });
   return { uuid: item.uuid, name: item.name, slides };
 }
 
-async function queryProPresenter(orgId: string, command: Record<string, string>): Promise<ProPresenterQueryResult> {
+async function queryProPresenter(orgId: string, command: Record<string, unknown>): Promise<ProPresenterQueryResult> {
   const bridge = (env as Cloudflare.Env).BRIDGE_RELAY.get((env as Cloudflare.Env).BRIDGE_RELAY.idFromName(orgId));
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const status = await bridge.getBridgeStatus();
@@ -274,12 +439,24 @@ async function queryProPresenter(orgId: string, command: Record<string, string>)
 }
 
 export const listProPresenterSongs = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    libraryIds: z.array(idSchema).max(100).optional(),
+  }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "songs:manage");
-    const result = await queryProPresenter(data.orgId, { action: "query-presentations" });
-    if (result.kind === "offline") return { connected: false, presentations: [] as BridgePresentationSummary[] };
-    return { connected: true, presentations: parsePresentationSummaries(result.response) };
+    const result = await queryProPresenter(data.orgId, {
+      action: "query-presentations",
+      ...(data.libraryIds?.length ? { libraryIds: data.libraryIds } : {}),
+    });
+    if (result.kind === "offline") return {
+      connected: false,
+      presentations: [] as BridgePresentationSummary[],
+      totalLibraries: null,
+      readLibraries: null,
+      failedLibraries: [] as ProPresenterLibraryFailure[],
+    };
+    return { connected: true, ...parsePresentationSummaries(result.response) };
   });
 
 export const getProPresenterSong = createServerFn({ method: "GET" })
@@ -301,23 +478,68 @@ export const getProPresenterSong = createServerFn({ method: "GET" })
 export const importProPresenterSong = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({
     orgId: idSchema,
-    presentation: z.object({ uuid: idSchema, name: labelSchema, slides: z.array(z.object({ index: z.number().int().min(0), text: textSchema, label: z.string().max(120), notes: textSchema })).max(500) }),
+    presentation: z.object({ uuid: idSchema, name: labelSchema, slides: z.array(z.object({ index: z.number().int().min(0), sourceId: z.string().max(300).optional(), text: textSchema, label: z.string().max(120), notes: textSchema })).max(500) }),
     strategy: z.enum(["merge", "replace", "skip"]).default("merge"),
   }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "songs:manage");
     const prisma = getPrisma();
-    const existing = await prisma.song.findFirst({ where: { orgId: data.orgId, ppPresentationUuid: data.presentation.uuid }, include: { sections: true } });
+    const existing = await prisma.song.findFirst({
+      where: { orgId: data.orgId, ppPresentationUuid: data.presentation.uuid },
+      include: { sections: { include: { _count: { select: { cues: true } } } } },
+    });
     if (existing && data.strategy === "skip") return { songId: existing.id, changed: false };
-    const song = existing
-      ? await prisma.song.update({ where: { id: existing.id }, data: { title: data.presentation.name, importSource: "propresenter" } })
-      : await prisma.song.create({ data: { orgId: data.orgId, title: data.presentation.name, ppPresentationUuid: data.presentation.uuid, importSource: "propresenter" } });
-    if (existing && data.strategy === "replace") await prisma.songSection.deleteMany({ where: { songId: song.id, orgId: data.orgId } });
-    const current = existing && data.strategy === "merge" ? new Map(existing.sections.map((section) => [section.sourceSlideIndex, section])) : new Map();
-    for (const [sortOrder, slide] of data.presentation.slides.entries()) {
-      const old = current.get(slide.index);
-      if (old) await prisma.songSection.update({ where: { id: old.id }, data: { label: slide.label || `Slide ${slide.index + 1}`, lyrics: slide.text, sortOrder } });
-      else await prisma.songSection.create({ data: { orgId: data.orgId, songId: song.id, label: slide.label || `Slide ${slide.index + 1}`, lyrics: slide.text, sortOrder, sourceSlideIndex: slide.index } });
+    const songId = existing?.id ?? crypto.randomUUID();
+    const operations: Prisma.PrismaPromise<unknown>[] = [existing
+      ? prisma.song.update({ where: { id: existing.id }, data: { title: data.presentation.name, importSource: "propresenter" } })
+      : prisma.song.create({ data: { id: songId, orgId: data.orgId, title: data.presentation.name, ppPresentationUuid: data.presentation.uuid, importSource: "propresenter" } })];
+    let preservedMappedSections: Array<{ sectionId: string; label: string; reason: string }> = [];
+
+    if (existing && data.strategy === "replace") {
+      operations.push(prisma.songSection.deleteMany({ where: { songId, orgId: data.orgId } }));
+      for (const [sortOrder, slide] of data.presentation.slides.entries()) {
+        operations.push(prisma.songSection.create({ data: {
+          orgId: data.orgId,
+          songId,
+          label: slide.label || `Slide ${slide.index + 1}`,
+          lyrics: slide.text,
+          sortOrder,
+          sourceSlideIndex: slide.index,
+          sourceSlideId: slide.sourceId ?? "",
+        } }));
+      }
+    } else {
+      const plan = planProPresenterMerge(
+        (existing?.sections ?? []).map((section) => ({
+          id: section.id,
+          label: section.label,
+          lyrics: section.lyrics,
+          sortOrder: section.sortOrder,
+          sourceSlideIndex: section.sourceSlideIndex,
+          sourceSlideId: section.sourceSlideId,
+          cueCount: section._count.cues,
+        })),
+        data.presentation.slides,
+      );
+      preservedMappedSections = plan.preservedMappedSections;
+      for (const write of plan.writes) {
+        if (write.kind === "delete") {
+          operations.push(prisma.songSection.delete({ where: { id: write.sectionId } }));
+          continue;
+        }
+        const sectionData = {
+          label: write.slide.label || `Slide ${write.slide.index + 1}`,
+          lyrics: write.slide.text,
+          sortOrder: write.sortOrder,
+          sourceSlideIndex: write.slide.index,
+          sourceSlideId: write.slide.sourceId ?? "",
+        };
+        operations.push(write.kind === "update"
+          ? prisma.songSection.update({ where: { id: write.sectionId }, data: sectionData })
+          : prisma.songSection.create({ data: { orgId: data.orgId, songId, ...sectionData } }));
+      }
     }
-    return { songId: song.id, changed: true };
+
+    await prisma.$transaction(operations);
+    return { songId, changed: true, preservedMappedSections };
   });

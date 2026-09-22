@@ -129,6 +129,7 @@ export function RundownItemSheet({
               cue: cue.trim(),
               status: item?.status ?? "upcoming",
               sortOrder: item?.sortOrder ?? itemCount,
+              revision: item?.revision ?? 0,
               hardStop,
             });
             onClose();

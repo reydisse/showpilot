@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Check, Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 
 export const Route = createFileRoute("/_auth/reset-password")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -131,10 +132,10 @@ function ResetPasswordPage() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     required
-                    minLength={6}
+                    minLength={PASSWORD_MIN_LENGTH}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
+                    placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
                     className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 pr-11 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
                   />
                   <button
@@ -163,7 +164,7 @@ function ResetPasswordPage() {
                   id="confirmPassword"
                   type={showPassword ? "text" : "password"}
                   required
-                  minLength={6}
+                  minLength={PASSWORD_MIN_LENGTH}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter your password"

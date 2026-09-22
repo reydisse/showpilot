@@ -12,7 +12,7 @@ const settingsByAdapter: Record<string, Record<string, unknown>> = {
   "profile:epson-eb-l1755u": { host: "10.0.0.24", port: 4352 },
   "profile:extron-dxp-crosspoint": { host: "10.0.0.25", port: 23 },
   "profile:panasonic-pt-rz690": { host: "10.0.0.26", port: 4352 },
-  "profile:ptzoptics-move-4k": { host: "10.0.0.27", port: 52381 },
+  "profile:ptzoptics-move-4k": { host: "10.0.0.27", port: 1259, viscaMode: "raw" },
   "profile:samsung-smart-signage": { host: "10.0.0.28", port: 8001 },
   "vmix": { host: "10.0.0.29", port: 8088 },
 };

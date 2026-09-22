@@ -87,6 +87,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const queueRef = useRef<string[]>([]);
   const pendingMutationsRef = useRef(new Map<string, PendingMutation>());
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const roomGenerationRef = useRef(0);
 
   const flush = useCallback(() => {
     const socket = socketRef.current;
@@ -99,6 +100,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
 
   useEffect(() => {
     if (!orgId) return;
+    const roomGeneration = ++roomGenerationRef.current;
     const activeOrgId = orgId;
     let disposed = false;
     let connecting = false;
@@ -107,6 +109,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     setMessages([]);
     setHistoryCursor(null);
     setHasOlder(false);
+    setLoadingOlder(false);
     setTypingUsers([]);
     setReadReceipts({});
     setHydrated(false);
@@ -264,6 +267,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
     const typingTimers = typingTimersRef.current;
     return () => {
       disposed = true;
+      if (roomGenerationRef.current === roomGeneration) roomGenerationRef.current += 1;
       appState.remove();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       const socket = socketRef.current;
@@ -339,15 +343,19 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
 
   const loadOlder = useCallback(async () => {
     if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
+    const requestedGeneration = roomGenerationRef.current;
     setLoadingOlder(true);
     try {
       const nativeCookieHeader = await getNativeCookieHeader();
+      if (roomGenerationRef.current !== requestedGeneration) return;
       const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
         credentials: getAuthenticatedFetchCredentials(),
         headers: { Accept: "application/json", ...nativeCookieHeader },
       });
+      if (roomGenerationRef.current !== requestedGeneration) return;
       if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
       const payload: unknown = await response.json();
+      if (roomGenerationRef.current !== requestedGeneration) return;
       const page = parseChatHistoryPage(payload);
       if (!page) {
         throw new Error("ShowPilot returned an invalid chat history page.");
@@ -361,9 +369,11 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
       setHasOlder(page.nextCursor !== null);
       setLastError(null);
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Earlier messages could not be loaded.");
+      if (roomGenerationRef.current === requestedGeneration) {
+        setLastError(error instanceof Error ? error.message : "Earlier messages could not be loaded.");
+      }
     } finally {
-      setLoadingOlder(false);
+      if (roomGenerationRef.current === requestedGeneration) setLoadingOlder(false);
     }
   }, [hasOlder, historyCursor, loadingOlder, orgId, roomId]);
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import BadgeCheck from "lucide-react-native/icons/badge-check";
 import Building2 from "lucide-react-native/icons/building-2";
 import Camera from "lucide-react-native/icons/camera";
@@ -7,7 +8,7 @@ import Mail from "lucide-react-native/icons/mail";
 import Save from "lucide-react-native/icons/save";
 import Settings2 from "lucide-react-native/icons/settings-2";
 import UserRound from "lucide-react-native/icons/user-round";
-import { Alert, Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -15,13 +16,14 @@ import * as ImagePicker from "expo-image-picker";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
-import { resolveMobileAvatarUrl, saveMobilePushToken, uploadMobileAvatar } from "@/lib/mobile-api";
-import { getNativePushToken } from "@/lib/native-notifications";
+import { resolveMobileAvatarUrl, uploadMobileAvatar } from "@/lib/mobile-api";
+import { exitMobileAccount } from "@/lib/account-exit";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 export default function ProfileScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const queryClient = useQueryClient();
   const { data: session, refetch: refetchSession } = authClient.useSession();
   const { data: organization } = authClient.useActiveOrganization();
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -83,12 +85,7 @@ export default function ProfileScreen() {
   async function signOut() {
     setSigningOut(true);
     try {
-      const token = await getNativePushToken().catch(() => null);
-      if (token && organization?.id && (Platform.OS === "ios" || Platform.OS === "android")) {
-        await saveMobilePushToken(organization.id, token, Platform.OS, false).catch(() => undefined);
-      }
-      const result = await authClient.signOut();
-      if (result.error) throw new Error(result.error.message || "Sign out could not be completed.");
+      await exitMobileAccount(queryClient, organization?.id);
       await Haptics.selectionAsync();
       router.replace("/sign-in");
     } catch (error) {

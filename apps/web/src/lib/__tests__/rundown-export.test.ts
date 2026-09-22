@@ -14,8 +14,8 @@ const report: ExportReport = {
       title: 'Welcome, "everyone"',
       type: "segment",
       duration: 60_000,
-      notes: "Opening",
-      assignee: "Alex",
+      notes: "=HYPERLINK(\"https://invalid.example\",\"Opening\")",
+      assignee: "+1+2",
       cue: "GO",
       status: "upcoming",
       sortOrder: 0,
@@ -57,5 +57,12 @@ describe("buildRundownCsv", () => {
 
   it("escapes commas and quotes in text fields", () => {
     expect(buildRundownCsv(report)).toContain('"Welcome, ""everyone"""');
+  });
+
+  it("exports formula-like user text as literal spreadsheet cells", () => {
+    const csv = buildRundownCsv(report);
+    expect(csv).toContain("'+1+2");
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).not.toContain(',+1+2,');
   });
 });

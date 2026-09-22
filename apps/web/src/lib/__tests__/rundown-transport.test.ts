@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { start, pause, stop, next, previous, adjustTime, elapsedAt } from "../rundown-transport";
+import { start, pause, stop, next, previous, adjustTime, elapsedAt, nextPlayableItem } from "../rundown-transport";
 import type { RundownItem, NativeTimerState } from "@/types/rundown";
 
 function item(id: string, overrides: Partial<RundownItem> = {}): RundownItem {
@@ -29,6 +29,23 @@ const STOPPED: NativeTimerState = {
 };
 
 const items3 = () => [item("a"), item("b"), item("c")];
+
+describe("next-item display and transport agree", () => {
+  const items = [item("heading", { type: "header" }), item("a"), item("section", { type: "header" }), item("b", { status: "complete" }), item("c"), item("end", { type: "header" })];
+  it.each([null, "missing", "heading", "a", "section", "b", "c", "end"])("uses the same next item after %s", (currentItemId) => {
+    const display = nextPlayableItem(items, currentItemId);
+    const result = next(items, { ...STOPPED, currentItemId }, 1000);
+    expect(display?.id ?? null).toBe(result.timer.currentItemId);
+    expect(display?.type).not.toBe("header");
+  });
+  it("skips completed rows as well as section headings", () => {
+    expect(nextPlayableItem(items, "a")?.id).toBe("c");
+  });
+  it("handles empty and header-only rundowns", () => {
+    expect(nextPlayableItem([], null)).toBeNull();
+    expect(nextPlayableItem([item("heading", { type: "header" })], null)).toBeNull();
+  });
+});
 
 describe("start", () => {
   it("marks the target live and runs the timer from zero", () => {

@@ -31,6 +31,7 @@ export function normalizeRelayItems(value: unknown): RundownItem[] {
       cue: stringValue(candidate.cue),
       status: stringValue(candidate.status, "upcoming"),
       sortOrder: finiteNumber(candidate.sortOrder, index),
+      revision: Math.max(0, finiteNumber(candidate.revision, 0)),
       hardStop: candidate.hardStop === true,
       lowerThirdId: stringValue(candidate.lowerThirdId) || undefined,
       scheduledStart: typeof candidate.scheduledStart === "string" ? candidate.scheduledStart : null,

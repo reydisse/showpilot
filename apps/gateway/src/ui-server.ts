@@ -48,20 +48,46 @@ interface UIServerDeps {
 function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
   });
   res.end(JSON.stringify(data));
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, maximumBytes = 64 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let receivedBytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maximumBytes) {
+        reject(new Error("Request body is too large"));
+        req.destroy();
+        return;
+      }
+      body += chunk.toString("utf8");
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function isTrustedBrowserOrigin(req: IncomingMessage, port: number): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+}
+
+function redactDevice(device: DeviceConfig): DeviceConfig {
+  return { ...device, ...(device.password ? { password: "***" } : { password: undefined }) };
+}
+
+function redactConfig(config: BridgeConfig): BridgeConfig {
+  return {
+    ...config,
+    apiKey: config.apiKey ? "***" : "",
+    devices: config.devices.map(redactDevice),
+  };
 }
 
 export function startUIServer(port: number, deps: UIServerDeps): void {
@@ -70,15 +96,12 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${port}`);
 
-    // CORS preflight
     if (req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      });
-      res.end();
-      return;
+      return json(res, { error: "Cross-origin requests are not allowed" }, 403);
+    }
+
+    if (req.method !== "GET" && !isTrustedBrowserOrigin(req, port)) {
+      return json(res, { error: "Untrusted request origin" }, 403);
     }
 
     // API Routes
@@ -87,9 +110,7 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
     }
 
     if (url.pathname === "/api/config" && req.method === "GET") {
-      const config = getConfig();
-      // Don't expose the API key
-      return json(res, { ...config, apiKey: config.apiKey ? "***" : "" });
+      return json(res, redactConfig(getConfig()));
     }
 
     if (url.pathname === "/api/config" && req.method === "PUT") {
@@ -126,7 +147,7 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
           allowControl: body.allowControl ?? false,
         };
         deps.addDevice(device);
-        return json(res, { ok: true, device });
+        return json(res, { ok: true, device: redactDevice(device) });
       } catch {
         return json(res, { error: "Invalid device" }, 400);
       }
@@ -178,7 +199,7 @@ export function startUIServer(port: number, deps: UIServerDeps): void {
     res.end("Not found");
   });
 
-  server.listen(port, () => {
+  server.listen(port, "127.0.0.1", () => {
     console.log(`[UI] Bridge dashboard at http://localhost:${port}`);
   });
 }

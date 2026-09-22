@@ -8,6 +8,7 @@ export class UdpConnection {
   private host = "";
   private port = 0;
   private responseTimeout = 3000;
+  private requestTail: Promise<void> = Promise.resolve();
 
   async connect(host: string, port: number): Promise<void> {
     this.host = host;
@@ -52,6 +53,17 @@ export class UdpConnection {
 
   /** Send and wait for response (for request/response protocols) */
   async sendAndReceive(data: Buffer): Promise<Buffer> {
+    return this.sendAndReceiveUntil(data, () => true);
+  }
+
+  /** Serialize request/reply exchanges and ignore non-terminal protocol frames. */
+  async sendAndReceiveUntil(data: Buffer, complete: (message: Buffer) => boolean): Promise<Buffer> {
+    const result = this.requestTail.then(() => this.sendAndReceiveNow(data, complete));
+    this.requestTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async sendAndReceiveNow(data: Buffer, complete: (message: Buffer) => boolean): Promise<Buffer> {
     if (!this.socket) throw new Error("Not connected");
 
     return new Promise((resolve, reject) => {
@@ -61,9 +73,16 @@ export class UdpConnection {
       }, this.responseTimeout);
 
       const onMessage = (msg: Buffer) => {
-        clearTimeout(timer);
-        this.socket?.removeListener("message", onMessage);
-        resolve(msg);
+        try {
+          if (!complete(msg)) return;
+          clearTimeout(timer);
+          this.socket?.removeListener("message", onMessage);
+          resolve(msg);
+        } catch (error) {
+          clearTimeout(timer);
+          this.socket?.removeListener("message", onMessage);
+          reject(error);
+        }
       };
 
       this.socket!.on("message", onMessage);

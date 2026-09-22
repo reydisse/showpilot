@@ -18,7 +18,7 @@ interface UseTimecodeOptions {
   relayBaseUrl?: string;
 }
 
-interface UseTimecodeReturn {
+export interface UseTimecodeReturn {
   state: TimecodeState | null;
   display: string;
   connected: boolean;
@@ -35,6 +35,7 @@ interface UseTimecodeReturn {
 
   // Event management
   addEvent: (event: Omit<AutomationEvent, "id" | "fired" | "triggerFrame">) => void;
+  replaceEventGroup: (sourceKey: string, events: AutomationEvent[]) => void;
   updateEvent: (id: string, updates: Partial<AutomationEvent>) => void;
   removeEvent: (id: string) => void;
   resetEvents: () => void;
@@ -127,11 +128,13 @@ export function useTimecode({
 
         switch (msg.type) {
           case "hydrate":
-            setState(msg.state);
-            setEvents(msg.events);
+            if ("source" in msg.state && "events" in msg) {
+              setState(msg.state);
+              setEvents(msg.events);
+            }
             break;
           case "tc-update":
-            setState(msg.state);
+            if ("source" in msg.state) setState(msg.state);
             break;
           case "events-update":
             setEvents(msg.events);
@@ -271,11 +274,10 @@ export function useTimecode({
         internalSourceRef.current = null;
         stopMtcFn();
 
-        const source = new MtcSource((tc, frameRate) => {
-          const format = { frameRate, dropFrame: "ndf" as const };
+        const source = new MtcSource((tc, format) => {
           formatRef.current = format;
           const totalFrames = timecodeToFrames(tc, format);
-          const display = timecodeToString(tc, false);
+          const display = timecodeToString(tc, format.dropFrame === "df");
           latestTcRef.current = { tc, totalFrames, display, format };
         });
 
@@ -321,6 +323,13 @@ export function useTimecode({
       sendCommand("add-event", event as Record<string, unknown>);
     },
     [sendCommand]
+  );
+
+  const replaceEventGroup = useCallback(
+    (sourceKey: string, nextEvents: AutomationEvent[]) => {
+      sendCommand("replace-event-group", { sourceKey, events: nextEvents });
+    },
+    [sendCommand],
   );
 
   const updateEvent = useCallback(
@@ -372,6 +381,7 @@ export function useTimecode({
     setTimecode,
     setFormat,
     addEvent,
+    replaceEventGroup,
     updateEvent,
     removeEvent,
     resetEvents,

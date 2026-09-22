@@ -27,6 +27,16 @@ export interface PersonalNotification {
   category: NotificationCategory;
 }
 
+export interface NotificationCursor {
+  createdAt: string;
+  id: string;
+}
+
+const notificationPageInput = z.object({
+  orgId: idSchema,
+  cursor: z.object({ createdAt: z.string().min(1).max(64), id: idSchema }).optional(),
+});
+
 async function assertInboxAccess(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
@@ -39,8 +49,8 @@ async function assertInboxAccess(orgId: string) {
 }
 
 export const getPersonalNotifications = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<{ notifications: PersonalNotification[]; unread: number }> => {
+  .inputValidator((data: unknown) => parseOrThrow(notificationPageInput, data))
+  .handler(async ({ data }): Promise<{ notifications: PersonalNotification[]; unread: number; nextCursor: NotificationCursor | null }> => {
     const userId = await assertInboxAccess(data.orgId);
     const db = getD1();
     const [rows, unreadRow] = await Promise.all([
@@ -48,16 +58,27 @@ export const getPersonalNotifications = createServerFn({ method: "GET" })
         `SELECT id, type, severity, title, message, actionUrl, source, createdAt, readAt, category
          FROM notification
          WHERE orgId = ? AND userId = ? AND dismissed = 0
-         ORDER BY createdAt DESC LIMIT 30`,
-      ).bind(data.orgId, userId).all<PersonalNotification>(),
+           ${data.cursor ? "AND (julianday(createdAt) < julianday(?) OR (julianday(createdAt) = julianday(?) AND id < ?))" : ""}
+         ORDER BY julianday(createdAt) DESC, id DESC LIMIT 31`,
+      ).bind(
+        data.orgId,
+        userId,
+        ...(data.cursor ? [data.cursor.createdAt, data.cursor.createdAt, data.cursor.id] : []),
+      ).all<PersonalNotification>(),
       db.prepare(
         `SELECT CAST(COUNT(*) AS INTEGER) AS count
          FROM notification
          WHERE orgId = ? AND userId = ? AND dismissed = 0 AND readAt IS NULL`,
       ).bind(data.orgId, userId).first<{ count: number }>(),
     ]);
-    const notifications = rows.results ?? [];
-    return { notifications, unread: unreadRow?.count ?? 0 };
+    const page = rows.results ?? [];
+    const notifications = page.slice(0, 30);
+    const last = notifications.at(-1);
+    return {
+      notifications,
+      unread: unreadRow?.count ?? 0,
+      nextCursor: page.length > 30 && last ? { createdAt: last.createdAt, id: last.id } : null,
+    };
   });
 
 export const getPersonalDeviceNotifications = createServerFn({ method: "GET" })
@@ -69,7 +90,7 @@ export const getPersonalDeviceNotifications = createServerFn({ method: "GET" })
         `SELECT id, type, severity, title, message, actionUrl, source, createdAt, readAt, category
          FROM notification
          WHERE orgId = ? AND userId = ? AND dismissed = 0 AND deviceAlertEnabled = 1
-         ORDER BY createdAt DESC LIMIT 30`,
+         ORDER BY julianday(createdAt) DESC, id DESC LIMIT 30`,
       ).bind(data.orgId, userId).all<PersonalNotification>(),
       getD1().prepare(
         `SELECT CAST(COUNT(*) AS INTEGER) AS count
@@ -111,7 +132,7 @@ export const markPersonalNotificationRead = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const userId = await assertInboxAccess(data.orgId);
     await getD1().prepare(
-      `UPDATE notification SET readAt = COALESCE(readAt, CURRENT_TIMESTAMP)
+      `UPDATE notification SET readAt = COALESCE(readAt, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
        WHERE id = ? AND orgId = ? AND userId = ?`,
     ).bind(data.id, data.orgId, userId).run();
     return { ok: true as const };
@@ -122,7 +143,7 @@ export const markAllPersonalNotificationsRead = createServerFn({ method: "POST" 
   .handler(async ({ data }) => {
     const userId = await assertInboxAccess(data.orgId);
     await getD1().prepare(
-      `UPDATE notification SET readAt = CURRENT_TIMESTAMP
+      `UPDATE notification SET readAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
        WHERE orgId = ? AND userId = ? AND readAt IS NULL`,
     ).bind(data.orgId, userId).run();
     return { ok: true as const };

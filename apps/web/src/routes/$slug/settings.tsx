@@ -46,12 +46,14 @@ import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getManageableOrgSettings,
   updateOrgSetting,
+  updateRundownPinProtection,
   getOrgMembers,
   regenerateApiKey,
   getRecentWebhookEvents,
   setCloudEnabled,
   type WebhookEventLogItem,
 } from "@/lib/settings";
+import { getRundownPinRequirement } from "@/lib/rbac";
 import { inviteMember } from "@/lib/session";
 import {
   getOrgBilling,
@@ -79,6 +81,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ContextHelp } from "@/components/ui/context-help";
+import { spreadsheetSafeCsvCell } from "@showpilot/shared";
+import {
+  REPORT_EXPORT_SECTIONS,
+  selectReportExportSections,
+  type ReportExportSection,
+} from "@/lib/settings-export";
 
 const loadEmbeddedCheckoutModal = () => import("@/components/settings/EmbeddedCheckoutModal");
 const EmbeddedCheckoutModal = lazy(loadEmbeddedCheckoutModal);
@@ -107,12 +115,15 @@ export const Route = createFileRoute("/$slug/settings")({
     ], context.slug, context.orgId);
     const canReadMembers = hasPermission(context.role, "settings:members");
     const canReadBilling = hasPermission(context.role, "settings:billing");
-    const [settings, members, billing] = await Promise.all([
+    const [settings, members, billing, rundownPin] = await Promise.all([
       getManageableOrgSettings({ data: { orgId: context.orgId } }),
       canReadMembers ? getOrgMembers({ data: { orgId: context.orgId } }) : Promise.resolve([]),
       canReadBilling
         ? getOrgBilling({ data: { orgId: context.orgId } })
         : Promise.resolve(null),
+      canReadMembers
+        ? getRundownPinRequirement({ data: { orgId: context.orgId } })
+        : Promise.resolve({ enabled: false }),
     ]);
     return {
       settings,
@@ -122,6 +133,7 @@ export const Route = createFileRoute("/$slug/settings")({
       slug: context.slug,
       org: context.org,
       role: context.role,
+      rundownPinEnabled: rundownPin.enabled,
     };
   },
   component: SettingsPage,
@@ -196,7 +208,7 @@ function OrganizationSettingsPage({
 }: {
   loaderData: ReturnType<typeof Route.useLoaderData>;
 }) {
-  const { settings, members, billing, orgId, slug, org, role } = loaderData;
+  const { settings, members, billing, orgId, slug, org, role, rundownPinEnabled } = loaderData;
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -246,7 +258,17 @@ function OrganizationSettingsPage({
     void navigate({ search: { section: "billing" } });
   }, [navigate]);
 
-  const sectionProps = { orgId, slug, role, org, getSetting, saveSetting, members, openBilling };
+  const sectionProps = {
+    orgId,
+    slug,
+    role,
+    org,
+    getSetting,
+    saveSetting,
+    members,
+    openBilling,
+    rundownPinEnabled,
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
@@ -382,6 +404,7 @@ interface SectionProps {
     user: { id: string; name: string; email: string; image: string | null };
   }>;
   openBilling: () => void;
+  rundownPinEnabled: boolean;
 }
 
 function SectionHeader({
@@ -558,7 +581,15 @@ function SettingSelect({
 
 // ─── ORGANIZATION ───────────────────────────────────────────
 
-function OrganizationSection({ org, getSetting, saveSetting }: SectionProps) {
+function OrganizationSection({
+  org,
+  orgId,
+  role,
+  getSetting,
+  saveSetting,
+  rundownPinEnabled,
+}: SectionProps) {
+  const canManageRundownPin = hasPermission(role, "settings:members");
   return (
     <div>
       <SectionHeader
@@ -613,8 +644,189 @@ function OrganizationSection({ org, getSetting, saveSetting }: SectionProps) {
             {new Date(org.createdAt).toLocaleDateString()}
           </div>
         </FieldGroup>
+
+        {canManageRundownPin ? (
+          <RundownPinSettings orgId={orgId} initiallyEnabled={rundownPinEnabled} />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function RundownPinSettings({
+  orgId,
+  initiallyEnabled,
+}: {
+  orgId: string;
+  initiallyEnabled: boolean;
+}) {
+  const [enabled, setEnabled] = useState(initiallyEnabled);
+  const [pin, setPin] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmingDisable, setConfirmingDisable] = useState(false);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  const savePin = async () => {
+    setMessage(null);
+    if (!/^\d{4,8}$/u.test(pin)) {
+      setMessage({ kind: "error", text: "Use 4 to 8 digits." });
+      return;
+    }
+    if (pin !== confirmation) {
+      setMessage({ kind: "error", text: "The PIN entries do not match." });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateRundownPinProtection({
+        data: { orgId, action: "set", pin },
+      });
+      setEnabled(true);
+      setPin("");
+      setConfirmation("");
+      setMessage({
+        kind: "success",
+        text: initiallyEnabled || enabled ? "Rundown PIN changed." : "Rundown PIN enabled.",
+      });
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not save the rundown PIN.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const disablePin = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      await updateRundownPinProtection({ data: { orgId, action: "disable" } });
+      setEnabled(false);
+      setConfirmingDisable(false);
+      setPin("");
+      setConfirmation("");
+      setMessage({ kind: "success", text: "Rundown PIN disabled." });
+    } catch (error) {
+      setMessage({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not disable the rundown PIN.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsGroup
+      title="Rundown protection"
+      description="Require Technical Managers to enter an organization PIN before opening the rundown or live controls. Owners, administrators, and directors are not prompted."
+      icon={Shield}
+    >
+      <div className="space-y-4 px-4 py-4 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-board-text">Technical Manager PIN</p>
+            <p className="mt-1 text-xs leading-5 text-board-muted">
+              The existing PIN is never displayed. Enter a new one to {enabled ? "replace it" : "turn protection on"}.
+            </p>
+          </div>
+          <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+            enabled
+              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
+              : "border-board-border bg-board-bg text-board-muted"
+          }`}>
+            {enabled ? "Enabled" : "Disabled"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FieldGroup label={enabled ? "New PIN" : "PIN"}>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              value={pin}
+              onChange={(event) => setPin(event.target.value.replace(/\D/gu, "").slice(0, 8))}
+              placeholder="4 to 8 digits"
+              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-board-text outline-none transition-colors placeholder:text-board-muted/50 focus:border-fire-500"
+            />
+          </FieldGroup>
+          <FieldGroup label="Confirm PIN">
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value.replace(/\D/gu, "").slice(0, 8))}
+              placeholder="Repeat PIN"
+              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-board-text outline-none transition-colors placeholder:text-board-muted/50 focus:border-fire-500"
+            />
+          </FieldGroup>
+        </div>
+
+        {message ? (
+          <p
+            role={message.kind === "error" ? "alert" : "status"}
+            className={`text-xs ${message.kind === "error" ? "text-red-400" : "text-emerald-400"}`}
+          >
+            {message.text}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void savePin()}
+            disabled={saving || !pin || !confirmation}
+            className="rounded-lg bg-fire-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-fire-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? "Saving..." : enabled ? "Change PIN" : "Enable PIN"}
+          </button>
+
+          {enabled && !confirmingDisable ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMessage(null);
+                setConfirmingDisable(true);
+              }}
+              disabled={saving}
+              className="rounded-lg border border-board-border px-4 py-2 text-sm text-board-muted transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+            >
+              Disable PIN
+            </button>
+          ) : null}
+        </div>
+
+        {enabled && confirmingDisable ? (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+            <p className="text-sm text-red-300">Technical Managers will be able to open the rundown without a PIN.</p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void disablePin()}
+                disabled={saving}
+                className="rounded-lg bg-red-500 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {saving ? "Disabling..." : "Confirm disable"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDisable(false)}
+                disabled={saving}
+                className="rounded-lg px-3 py-2 text-xs text-board-muted hover:bg-board-border/50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </SettingsGroup>
   );
 }
 
@@ -2025,7 +2237,7 @@ function DangerSection({
   const [availableDates, setAvailableDates] = useState<Array<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }>>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
-  const [selectedSections, setSelectedSections] = useState<string[]>(["summary", "rundown", "incidents", "checklist", "cueSheets"]);
+  const [selectedSections, setSelectedSections] = useState<ReportExportSection[]>(REPORT_EXPORT_SECTIONS.map(([value]) => value));
 
   const handleDeleteOrganization = async () => {
     setDeleting(true);
@@ -2080,16 +2292,7 @@ function DangerSection({
       const serviceDate = selectedShow.date;
 
       const report = await exportShowReport({ data: { orgId: org.id, serviceDate, showId: selectedShow.showId } });
-      const filteredReport = {
-        generatedAt: report.generatedAt,
-        serviceDate: report.serviceDate,
-        organization: report.organization,
-        ...(selectedSections.includes("summary") ? { summary: report.summary } : {}),
-        ...(selectedSections.includes("rundown") ? { rundown: report.rundown } : {}),
-        ...(selectedSections.includes("incidents") ? { incidents: report.incidents } : {}),
-        ...(selectedSections.includes("checklist") ? { checklist: report.checklist } : {}),
-        ...(selectedSections.includes("cueSheets") ? { cueSheets: report.cueSheets } : {}),
-      };
+      const filteredReport = selectReportExportSections(report, selectedSections);
 
       let blob: Blob;
       let extension = selectedFormat;
@@ -2129,7 +2332,7 @@ function DangerSection({
         }
         blob = new Blob([
           rows
-            .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+            .map((row) => row.map(spreadsheetSafeCsvCell).join(","))
             .join("\n"),
         ], { type: "text/csv" });
       } else {
@@ -2170,8 +2373,14 @@ function DangerSection({
         if (selectedSections.includes("checklist")) {
           sheets.push({ sheet: "Checklist", data: excelRows(report.checklist), stickyRowsCount: 1 });
         }
+        if (selectedSections.includes("crew")) {
+          sheets.push({ sheet: "Crew", data: excelRows(report.crew), stickyRowsCount: 1 });
+        }
         if (selectedSections.includes("cueSheets")) {
           sheets.push({ sheet: "Cue Sheets", data: excelRows(report.cueSheets), stickyRowsCount: 1 });
+        }
+        if (selectedSections.includes("managerNotes")) {
+          sheets.push({ sheet: "Manager Notes", data: excelRows(report.managerNotes), stickyRowsCount: 1 });
         }
 
         blob = await writeExcelFile(sheets).toBlob();
@@ -2391,13 +2600,7 @@ function DangerSection({
 
                 <FieldGroup label="Include Sections">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {([
-                      ["summary", "Summary"],
-                      ["rundown", "Rundown"],
-                      ["incidents", "Incidents"],
-                      ["checklist", "Checklist"],
-                      ["cueSheets", "Cue Sheets"],
-                    ] as const).map(([value, label]) => {
+                    {REPORT_EXPORT_SECTIONS.map(([value, label]) => {
                       const enabled = selectedSections.includes(value);
                       return (
                         <label

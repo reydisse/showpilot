@@ -44,3 +44,10 @@
 0037_songs.sql
 0038_notification_preferences.sql
 0039_auth_rate_limit.sql
+0040_plan_member_limits.sql
+0041_notification_timestamps.sql
+0042_assignment_response_owner.sql
+0043_show_report_note_lanes.sql
+0044_song_section_source_identity.sql
+0045_checklist_entry_state.sql
+0046_equipment_revision.sql

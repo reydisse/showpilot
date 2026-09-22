@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -16,7 +17,7 @@ import Trash2 from "lucide-react-native/icons/trash-2";
 import UserRound from "lucide-react-native/icons/user-round";
 import UsersRound from "lucide-react-native/icons/users-round";
 import X from "lucide-react-native/icons/x";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -42,27 +43,26 @@ import { getServiceDateForTimeZone } from "@/lib/service-time";
 import { createLocalRequestId } from "@/lib/request-id";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
-const categories = ["audio", "video", "stream", "lighting", "other"] as const;
-const severities = ["low", "medium", "high"] as const;
+const categories = ["audio", "video", "lighting", "network", "power", "software", "hardware", "stream", "other"] as const;
+const severities = ["low", "medium", "high", "critical"] as const;
 type IncidentFilter = "open" | "resolved" | "all";
 type MobileIncident = MobileIncidents["incidents"][number];
-const reactionEmojis: readonly MobileIncidentReactionEmoji[] = [
-  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
-  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
-];
+const reactionEmojis: readonly MobileIncidentReactionEmoji[] = QUICK_REACTION_EMOJIS;
 
 function isIncidentCategory(value: string): value is (typeof categories)[number] {
-  return categories.some((category) => category === value);
+  return categories.some((category) => category === value.toLowerCase());
 }
 
 function isIncidentSeverity(value: string): value is (typeof severities)[number] {
-  return severities.some((severity) => severity === value);
+  return severities.some((severity) => severity === value.toLowerCase());
 }
 
 export default function IncidentsScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const router = useRouter();
+  const params = useLocalSearchParams<{ incident?: string }>();
+  const focusedIncidentId = typeof params.incident === "string" ? params.incident : null;
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: bootstrap } = useMobileBootstrap();
   const queryClient = useQueryClient();
@@ -149,14 +149,14 @@ export default function IncidentsScreen() {
   const visibleIncidents = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (query.data?.incidents ?? []).filter((incident) => {
-      if (filter !== "all" && incident.status !== filter) return false;
+      if (incident.id !== focusedIncidentId && filter !== "all" && incident.status !== filter) return false;
       return !needle
         || incident.description.toLowerCase().includes(needle)
         || incident.category.toLowerCase().includes(needle)
         || incident.reportedBy.toLowerCase().includes(needle)
         || incident.assignedName.toLowerCase().includes(needle);
-    });
-  }, [filter, query.data?.incidents, search]);
+    }).sort((left, right) => left.id === focusedIncidentId ? -1 : right.id === focusedIncidentId ? 1 : 0);
+  }, [filter, focusedIncidentId, query.data?.incidents, search]);
 
   if (organizationPending) return <LoadingView label="Opening incidents…" />;
   if (!organization) return <Redirect href="/organizations" />;
@@ -171,8 +171,10 @@ export default function IncidentsScreen() {
 
   function startEdit(incident: MobileIncident) {
     setEditingId(incident.id);
-    setCategory(isIncidentCategory(incident.category) ? incident.category : "other");
-    setSeverity(isIncidentSeverity(incident.severity) ? incident.severity : "medium");
+    const existingCategory = incident.category.toLowerCase();
+    const existingSeverity = incident.severity.toLowerCase();
+    setCategory(isIncidentCategory(existingCategory) ? existingCategory : "other");
+    setSeverity(isIncidentSeverity(existingSeverity) ? existingSeverity : "medium");
     setDescription(incident.description);
     setReporting(true);
   }
@@ -238,11 +240,11 @@ export default function IncidentsScreen() {
           const assignedToMe = incident.assignedTo === currentUserId;
           const incidentComments = query.data?.comments.filter((comment) => comment.incidentId === incident.id) ?? [];
           return (
-            <View style={[styles.card, open && incident.severity === "high" && styles.cardHigh]}>
+            <View style={[styles.card, open && (incident.severity === "high" || incident.severity === "critical") && styles.cardHigh]}>
               <View style={styles.cardHeader}>
-                {open ? <CircleDot color={incident.severity === "high" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}
+                {open ? <CircleDot color={incident.severity === "high" || incident.severity === "critical" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}
                 <Text style={styles.category}>{incident.category}</Text>
-                <Text style={[styles.severity, incident.severity === "high" && styles.severityHigh]}>{incident.severity}</Text>
+                <Text style={[styles.severity, (incident.severity === "high" || incident.severity === "critical") && styles.severityHigh]}>{incident.severity}</Text>
                 <Text style={styles.date}>{incident.serviceDate}</Text>
               </View>
               <Text style={styles.description}>{incident.description}</Text>
@@ -352,6 +354,7 @@ function IncidentDiscussion({
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(null);
+  const [customReaction, setCustomReaction] = useState("");
   if (!enabled) return null;
   const roots = comments.filter((comment) => !comment.parentId);
 
@@ -375,15 +378,18 @@ function IncidentDiscussion({
   function renderComment(comment: MobileIncidentComment, depth = 0): ReactNode {
     const commentReactions = reactions.filter((reaction) => reaction.targetId === comment.id);
     const children = comments.filter((candidate) => candidate.parentId === comment.id);
+    const parent = comment.parentId ? comments.find((candidate) => candidate.id === comment.parentId) : null;
     return (
-      <View key={comment.id} style={[styles.comment, depth > 0 && styles.commentReply]}>
+      <Fragment key={comment.id}>
+      <View style={[styles.comment, depth > 0 && styles.commentReply]}>
+        {parent ? <View style={styles.replyQuote}><Text numberOfLines={1} style={styles.replyQuoteAuthor}>Replying to {parent.authorName}</Text><Text numberOfLines={1} style={styles.replyQuoteBody}>{parent.body}</Text></View> : null}
         <View style={styles.commentHeader}>
           <Text style={styles.commentAuthor}>{comment.authorName}</Text>
           <Text style={styles.commentTime}>{new Date(comment.createdAt).toLocaleString()}</Text>
         </View>
         <Text style={styles.commentBody}>{comment.body}</Text>
         <View style={styles.reactionRow}>
-          {reactionEmojis.map((emoji) => {
+          {[...new Set(commentReactions.map((reaction) => reaction.emoji))].map((emoji) => {
             const emojiReactions = commentReactions.filter((reaction) => reaction.emoji === emoji);
             if (emojiReactions.length === 0) return null;
             const active = emojiReactions.some((reaction) => reaction.userId === currentUserId);
@@ -414,8 +420,8 @@ function IncidentDiscussion({
           </Pressable>
         </View>
         {reactionPickerFor === comment.id ? (
-          <ScrollView contentContainerStyle={styles.reactionPicker} horizontal={false}>
-            {reactionEmojis.map((emoji) => {
+          <View style={styles.reactionPicker}>
+            <View style={styles.reactionPickerChoices}>{reactionEmojis.map((emoji) => {
               const active = commentReactions.some((reaction) => reaction.emoji === emoji && reaction.userId === currentUserId);
               return (
                 <Pressable
@@ -432,11 +438,16 @@ function IncidentDiscussion({
                   <Text style={styles.reactionPickerEmoji}>{emoji}</Text>
                 </Pressable>
               );
-            })}
-          </ScrollView>
+            })}</View>
+            <View style={styles.customReactionRow}>
+              <TextInput accessibilityLabel="Type or paste any emoji" maxLength={32} onChangeText={setCustomReaction} placeholder="Any emoji" placeholderTextColor={colors.textFaint} style={styles.customReactionInput} value={customReaction} />
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: pending || !isEmojiReaction(customReaction) }} disabled={pending || !isEmojiReaction(customReaction)} onPress={() => { const emoji = customReaction; setReactionPickerFor(null); setCustomReaction(""); void onReaction({ commentId: comment.id, emoji, active: !commentReactions.some((reaction) => reaction.emoji === emoji && reaction.userId === currentUserId) }).catch(() => undefined); }} style={[styles.customReactionButton, (pending || !isEmojiReaction(customReaction)) && styles.disabled]}><Text style={styles.customReactionButtonText}>Add</Text></Pressable>
+            </View>
+          </View>
         ) : null}
-        {children.length ? <View style={styles.nestedThread}>{children.map((child) => renderComment(child, depth + 1))}</View> : null}
       </View>
+      {children.map((child) => renderComment(child, depth + 1))}
+      </Fragment>
     );
   }
 
@@ -537,6 +548,9 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   thread: { gap: 7 },
   comment: { gap: 6, borderRadius: radii.small, backgroundColor: colors.panel, padding: 10 },
   commentReply: { marginLeft: 14, borderLeftWidth: 2, borderLeftColor: colors.border },
+  replyQuote: { gap: 2, borderLeftWidth: 2, borderLeftColor: colors.amberBorder, borderRadius: radii.small, backgroundColor: colors.panelStrong, paddingHorizontal: 8, paddingVertical: 6 },
+  replyQuoteAuthor: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
+  replyQuoteBody: { color: colors.textMuted, fontFamily, fontSize: 11 },
   commentHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   commentAuthor: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   commentTime: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 11 },
@@ -548,10 +562,16 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   reactionPickerButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 9 },
   replyButton: { minHeight: 36, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
   replyText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
-  reactionPicker: { flexDirection: "row", flexWrap: "wrap", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 6 },
+  reactionPicker: { gap: 7, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: 6 },
+  reactionPickerChoices: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   nestedThread: { gap: 8, marginTop: 8 },
   reactionPickerChoice: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 9 },
   reactionPickerEmoji: { fontSize: 18 },
+  customReactionRow: { flexDirection: "row", alignItems: "center", gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 7 },
+  customReactionInput: { minHeight: 40, flex: 1, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 12, paddingHorizontal: 10 },
+  customReactionButton: { minHeight: 40, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.amber, paddingHorizontal: 12 },
+  customReactionButtonText: { color: colors.black, fontFamily, fontSize: 11, fontWeight: "900" },
+  disabled: { opacity: 0.4 },
   replyingBanner: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: radii.small, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 10 },
   replyingText: { color: colors.textMuted, fontFamily, fontSize: 11 },
   commentComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8 },

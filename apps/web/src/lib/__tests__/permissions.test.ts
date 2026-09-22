@@ -6,6 +6,7 @@ import {
   getPermissions,
   hasPermission,
   normalizeRole,
+  roleRequiresRundownPin,
   type Permission,
   type Role,
 } from "../permissions";
@@ -52,6 +53,15 @@ describe("director roles (td/cd/pd)", () => {
   });
 });
 
+describe("rundown PIN policy", () => {
+  it("applies only to Technical Managers", () => {
+    expect(roleRequiresRundownPin("tm")).toBe(true);
+    for (const role of ["owner", "admin", "td", "cd", "pd", "pm", "sm", "member"] as const) {
+      expect(roleRequiresRundownPin(role)).toBe(false);
+    }
+  });
+});
+
 describe("invite role dropdown derivation", () => {
   it("every assignable role carries ROLE_META — the onboarding dropdown derives with zero changes", () => {
     for (const role of ASSIGNABLE_ROLES) {
@@ -88,7 +98,6 @@ describe("manager scoping regression (unchanged by director roles)", () => {
       "show:view",
       "showboard:view",
       "rundown:view",
-      "rundown:pin_required",
       "cuesheet:view",
       "cuesheet:add_notes",
       "chat:access",

@@ -1,6 +1,13 @@
 import { useRef, useState } from "react";
 import { ClipboardPaste, Plus, Trash2, X } from "lucide-react";
 import { formatSongLyrics, insertPastedLyrics } from "@/lib/song-lyrics-format";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export interface NewSongDraft {
   title: string;
@@ -78,22 +85,18 @@ export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-6">
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent showCloseButton={false} className="max-h-[92dvh] max-w-2xl gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text">
       <form
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-song-title"
         onSubmit={(event) => { event.preventDefault(); void submit(); }}
-        className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl"
+        className="flex min-h-0 flex-col overflow-hidden"
       >
         <header className="flex items-start justify-between border-b border-board-border px-5 py-4">
           <div>
-            <h2 id="new-song-title" className="font-semibold text-board-text">New song</h2>
-            <p className="mt-1 text-xs text-board-muted">Add the song details and its first lyric arrangement.</p>
+            <DialogTitle className="font-semibold text-board-text">New song</DialogTitle>
+            <DialogDescription className="mt-1 text-xs text-board-muted">Add the song details and its first lyric arrangement.</DialogDescription>
           </div>
-          <button type="button" aria-label="Close new song" onClick={onClose} className="rounded-lg p-2 text-board-muted hover:bg-board-bg hover:text-board-text">
-            <X className="h-4 w-4" />
-          </button>
+          <DialogClose asChild><button type="button" aria-label="Close new song" disabled={busy} className="rounded-lg p-2 text-board-muted hover:bg-board-bg hover:text-board-text"><X className="h-4 w-4" /></button></DialogClose>
         </header>
 
         <div className="space-y-5 overflow-y-auto p-5">
@@ -166,23 +169,24 @@ export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; on
           <button type="submit" disabled={!canSubmit || busy} className="flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40">{busy ? "Creating…" : "Create song"}</button>
         </footer>
       </form>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function DeleteSongModal({ title, sectionCount, cueMapCount, busy, error, onClose, onDelete }: { title: string; sectionCount: number; cueMapCount: number; busy: boolean; error: string | null; onClose: () => void; onDelete: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div role="alertdialog" aria-modal="true" aria-labelledby="delete-song-title" aria-describedby="delete-song-description" className="w-full max-w-md rounded-2xl border border-red-500/30 bg-board-card p-5 shadow-2xl">
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent showCloseButton={false} className="max-w-md gap-0 border-red-500/30 bg-board-card p-5 text-board-text">
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500/10 text-red-400"><Trash2 className="h-5 w-5" /></div>
-        <h2 id="delete-song-title" className="mt-4 text-lg font-semibold text-board-text">Delete "{title}"?</h2>
-        <p id="delete-song-description" className="mt-2 text-sm leading-6 text-board-muted">This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</p>
+        <DialogTitle className="mt-4 text-lg font-semibold text-board-text">Delete "{title}"?</DialogTitle>
+        <DialogDescription className="mt-2 text-sm leading-6 text-board-muted">This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</DialogDescription>
         {error ? <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p> : null}
         <div className="mt-5 flex gap-2">
           <button type="button" disabled={busy} onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text disabled:opacity-40">Keep song</button>
           <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40">{busy ? "Deleting…" : "Delete song"}</button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

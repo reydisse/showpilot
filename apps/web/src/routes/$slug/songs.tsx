@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useParams, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { LibraryBig, Plus, Search, Upload, X } from "lucide-react";
+import { AlertTriangle, LibraryBig, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { SongCreateModal } from "@/components/SongDialogs";
 import { createSong, getProPresenterSong, importProPresenterSong, listProPresenterSongs, listSongs } from "@/lib/songs";
@@ -36,6 +36,10 @@ function SongsLibraryPage() {
   const [presentations, setPresentations] = useState<Awaited<ReturnType<typeof listProPresenterSongs>>["presentations"]>([]);
   const [importQuery, setImportQuery] = useState("");
   const [importingPresentationId, setImportingPresentationId] = useState<string | null>(null);
+  const [importReadState, setImportReadState] = useState<"idle" | "loading" | "complete" | "partial" | "failed">("idle");
+  const [failedLibraries, setFailedLibraries] = useState<Array<{ id: string; name: string; error: string }>>([]);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [importedSongId, setImportedSongId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const filtered = songs.filter((song) => `${song.title} ${song.artist} ${song.ccliNumber}`.toLowerCase().includes(query.trim().toLowerCase()));
   const normalizedImportQuery = importQuery.trim().toLowerCase();
@@ -48,6 +52,10 @@ function SongsLibraryPage() {
     setPresentations([]);
     setImportQuery("");
     setError(null);
+    setImportNotice(null);
+    setImportedSongId(null);
+    setFailedLibraries([]);
+    setImportReadState("loading");
     try {
       const result = await withOperationTimeout(
         listProPresenterSongs({ data: { orgId } }),
@@ -56,8 +64,38 @@ function SongsLibraryPage() {
       );
       if (!result.connected) throw new Error("Connect ProPresenter through Venue Bridge, then try again.");
       setPresentations(result.presentations);
+      setFailedLibraries(result.failedLibraries);
+      setImportReadState(result.failedLibraries.length
+        ? result.readLibraries === 0 ? "failed" : "partial"
+        : "complete");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not read ProPresenter.");
+      setImportReadState("failed");
+    }
+  };
+
+  const retryFailedLibraries = async () => {
+    const ids = failedLibraries.map((library) => library.id).filter(Boolean);
+    if (!ids.length) return;
+    setError(null);
+    setImportReadState("loading");
+    try {
+      const result = await withOperationTimeout(
+        listProPresenterSongs({ data: { orgId, libraryIds: ids } }),
+        15_000,
+        "ProPresenter took too long to retry the unread libraries.",
+      );
+      if (!result.connected) throw new Error("Venue Bridge or ProPresenter went offline.");
+      setPresentations((current) => {
+        const merged = new Map(current.map((presentation) => [presentation.uuid, presentation]));
+        for (const presentation of result.presentations) merged.set(presentation.uuid, presentation);
+        return [...merged.values()].sort((left, right) => left.name.localeCompare(right.name));
+      });
+      setFailedLibraries(result.failedLibraries);
+      setImportReadState(result.failedLibraries.length ? "partial" : "complete");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not retry the unread ProPresenter libraries.");
+      setImportReadState("partial");
     }
   };
 
@@ -71,6 +109,12 @@ function SongsLibraryPage() {
         "ProPresenter took too long to read this song. Check the venue Bridge connection, then try again.",
       );
       const result = await importProPresenterSong({ data: { orgId, presentation, strategy: "merge" } });
+      const preservedMappedSections = result.preservedMappedSections ?? [];
+      if (preservedMappedSections.length) {
+        setImportedSongId(result.songId);
+        setImportNotice(`${preservedMappedSections.length} timed section${preservedMappedSections.length === 1 ? " was" : "s were"} preserved because ProPresenter changed or removed its source slide. Review the cue map before the next load.`);
+        return;
+      }
       await router.navigate({ to: "/$slug/songs/$songId", params: { slug, songId: result.songId } });
       await router.invalidate();
     } catch (cause) {
@@ -90,6 +134,6 @@ function SongsLibraryPage() {
       {songs.length ? <div className="space-y-4"><label className="flex min-h-11 items-center gap-2 rounded-xl border border-board-border bg-board-card px-3"><Search className="h-4 w-4 text-board-muted" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, artist, or CCLI" className="min-w-0 flex-1 bg-transparent text-sm text-board-text outline-none" /></label><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{filtered.map((song) => <Link key={song.id} to="/$slug/songs/$songId" params={{ slug, songId: song.id }} className="group rounded-2xl border border-board-border bg-board-card p-5 transition hover:-translate-y-0.5 hover:border-fire-500/40"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-base font-semibold text-board-text">{song.title}</h2><p className="mt-1 truncate text-sm text-board-muted">{song.artist || "Artist not set"}</p></div>{song.importSource === "propresenter" ? <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-300">PP</span> : null}</div><p className="mt-5 text-xs text-board-muted">{song._count.sections} sections · {song._count.cueMaps} cue maps{song.ccliNumber ? ` · CCLI ${song.ccliNumber}` : ""}</p></Link>)}</div></div> : <div className="flex min-h-80 flex-col items-center justify-center rounded-3xl border border-dashed border-board-border bg-board-card/50 p-8 text-center"><LibraryBig className="h-10 w-10 text-fire-500" /><h2 className="mt-4 text-lg font-semibold text-board-text">Build your first lyrics cue map</h2><p className="mt-2 max-w-md text-sm leading-6 text-board-muted">Import a ProPresenter presentation when the Venue Bridge is connected, or create a song manually.</p>{canManage ? <div className="mt-5 flex flex-wrap justify-center gap-2"><button type="button" onClick={() => void openImport()} className="rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-bold text-black">Import from ProPresenter</button><button type="button" onClick={() => setNewSong(true)} className="rounded-xl border border-board-border px-4 py-2.5 text-sm font-semibold text-board-text">Create manually</button></div> : null}</div>}
     </div>
     {newSong ? <SongCreateModal onClose={() => setNewSong(false)} onCreate={async (draft) => { const song = await createSong({ data: { orgId, ...draft } }); await router.navigate({ to: "/$slug/songs/$songId", params: { slug, songId: song.id } }); await router.invalidate(); }} /> : null}
-    {importing ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"><div className="flex max-h-[82vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-board-border bg-board-card"><div className="flex items-center justify-between border-b border-board-border p-5"><div><h2 className="font-semibold text-board-text">Import from ProPresenter</h2><p className="mt-1 text-xs text-board-muted">Search every presentation, then choose one to import its slides.</p></div><button aria-label="Close import" onClick={() => setImporting(false)} className="p-2 text-board-muted"><X className="h-4 w-4" /></button></div>{presentations.length ? <div className="border-b border-board-border p-4"><label className="flex min-h-11 items-center gap-2 rounded-xl border border-board-border bg-board-bg px-3"><Search className="h-4 w-4 text-board-muted" /><input autoFocus value={importQuery} onChange={(event) => setImportQuery(event.target.value)} placeholder="Search ProPresenter songs" className="min-w-0 flex-1 bg-transparent text-sm text-board-text outline-none" /></label><p className="mt-2 px-1 text-xs text-board-muted">{filteredPresentations.length.toLocaleString()} of {presentations.length.toLocaleString()} presentations</p></div> : null}<div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">{error ? <p role="alert" className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p> : null}{presentations.length ? filteredPresentations.map((presentation) => <button key={presentation.uuid} type="button" disabled={importingPresentationId !== null} onClick={() => void importPresentation(presentation.uuid)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-board-border bg-board-bg p-4 text-left hover:border-fire-500/40 disabled:opacity-50"><span className="min-w-0 truncate font-medium text-board-text">{presentation.name}</span><span className="shrink-0 text-xs text-board-muted">{importingPresentationId === presentation.uuid ? "Reading slides…" : "Import"}</span></button>) : error ? null : <p className="py-8 text-center text-sm text-board-muted">Reading all presentations…</p>}{presentations.length && !filteredPresentations.length ? <p className="py-8 text-center text-sm text-board-muted">No ProPresenter songs match “{importQuery}”.</p> : null}</div></div></div> : null}
+    {importing ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"><div className="flex max-h-[82vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-board-border bg-board-card"><div className="flex items-center justify-between border-b border-board-border p-5"><div><h2 className="font-semibold text-board-text">Import from ProPresenter</h2><p className="mt-1 text-xs text-board-muted">Search every presentation, then choose one to import its slides.</p></div><button aria-label="Close import" onClick={() => setImporting(false)} className="p-2 text-board-muted"><X className="h-4 w-4" /></button></div>{presentations.length ? <div className="border-b border-board-border p-4"><label className="flex min-h-11 items-center gap-2 rounded-xl border border-board-border bg-board-bg px-3"><Search className="h-4 w-4 text-board-muted" /><input autoFocus value={importQuery} onChange={(event) => setImportQuery(event.target.value)} placeholder="Search ProPresenter songs" className="min-w-0 flex-1 bg-transparent text-sm text-board-text outline-none" /></label><p className="mt-2 px-1 text-xs text-board-muted">{filteredPresentations.length.toLocaleString()} of {presentations.length.toLocaleString()} presentations</p></div> : null}<div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">{error ? <p role="alert" className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p> : null}{failedLibraries.length ? <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200"><div className="flex gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="font-semibold">{failedLibraries.length} ProPresenter librar{failedLibraries.length === 1 ? "y was" : "ies were"} not read</p><p className="mt-1 text-xs text-amber-200/80">{failedLibraries.map((library) => library.name).join(", ")}. Results below are incomplete.</p><button type="button" disabled={importReadState === "loading"} onClick={() => void retryFailedLibraries()} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg border border-amber-400/30 px-3 text-xs font-semibold disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${importReadState === "loading" ? "animate-spin" : ""}`} />Retry unread libraries</button></div></div></div> : null}{importNotice && importedSongId ? <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100"><p>{importNotice}</p><button type="button" onClick={() => void router.navigate({ to: "/$slug/songs/$songId", params: { slug, songId: importedSongId } })} className="mt-3 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-black">Review imported song</button></div> : null}{presentations.length ? filteredPresentations.map((presentation) => <button key={presentation.uuid} type="button" disabled={importingPresentationId !== null} onClick={() => void importPresentation(presentation.uuid)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-board-border bg-board-bg p-4 text-left hover:border-fire-500/40 disabled:opacity-50"><span className="min-w-0 truncate font-medium text-board-text">{presentation.name}</span><span className="shrink-0 text-xs text-board-muted">{importingPresentationId === presentation.uuid ? "Reading slides…" : "Import"}</span></button>) : importReadState === "loading" ? <p className="py-8 text-center text-sm text-board-muted">Reading all presentations…</p> : importReadState === "complete" ? <p className="py-8 text-center text-sm text-board-muted">No readable presentations were found in ProPresenter.</p> : null}{presentations.length && !filteredPresentations.length ? <p className="py-8 text-center text-sm text-board-muted">No ProPresenter songs match “{importQuery}”.</p> : null}</div></div></div> : null}
   </div>;
 }

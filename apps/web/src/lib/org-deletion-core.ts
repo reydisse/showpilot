@@ -44,6 +44,7 @@ export interface OrgDeletionTarget {
 // Better Auth organization tables — deleted in the final step together with
 // the organization row, after app data and R2 objects are gone.
 export const AUTH_ORG_MODELS = ["Member", "Invitation"] as const;
+const FINAL_ORG_MODELS = new Set<string>([...AUTH_ORG_MODELS, "AppSetting"]);
 
 /** How recent a session must be to authorize deletion (server-enforced). */
 export const FRESH_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
@@ -234,6 +235,10 @@ export async function deleteOrganizationCore(opts: {
   cancelStripeSubscription: (subscriptionId: string) => Promise<void>;
   /** Delete all R2 objects under the org's prefix; returns count deleted. */
   deleteR2Prefix: (orgId: string) => Promise<number>;
+  /** Block new traffic before destructive cleanup begins. */
+  markDeleting?: (orgId: string) => Promise<void>;
+  /** Close/purge non-Prisma stores such as relays and raw index tables. */
+  purgeExternalState?: (orgId: string) => Promise<void>;
 }): Promise<OrgDeletionResult> {
   const { prisma, orgId } = opts;
 
@@ -252,9 +257,8 @@ export async function deleteOrganizationCore(opts: {
   }
 
   const plan = deriveOrgDeletionPlan(getRuntimeDataModel(prisma));
-  const authModels = new Set<string>(AUTH_ORG_MODELS);
-  const appTargets = plan.filter((t) => !authModels.has(t.model));
-  const authTargets = plan.filter((t) => authModels.has(t.model));
+  const appTargets = plan.filter((t) => !FINAL_ORG_MODELS.has(t.model));
+  const finalTargets = plan.filter((t) => FINAL_ORG_MODELS.has(t.model));
   const d = delegates(prisma);
 
   // 1. Stripe first — never delete a paying org's data while its
@@ -264,6 +268,14 @@ export async function deleteOrganizationCore(opts: {
     await opts.cancelStripeSubscription(org.stripeSubscriptionId);
     stripeSubscriptionCancelled = true;
   }
+
+  // From this point forward the deletion is resumable and the org must no
+  // longer accept fresh HTTP or WebSocket traffic.
+  await opts.markDeleting?.(orgId);
+
+  // Relays and raw D1 tables are outside Prisma's runtime datamodel. Purge
+  // them while the org/show indexes still exist, then continue with rows.
+  await opts.purgeExternalState?.(orgId);
 
   // 2. App data, children before parents.
   await prisma.$transaction(
@@ -282,7 +294,7 @@ export async function deleteOrganizationCore(opts: {
       where: { activeOrganizationId: orgId },
       data: { activeOrganizationId: null },
     }),
-    ...authTargets.map((t) =>
+    ...finalTargets.map((t) =>
       d[t.delegate].deleteMany({ where: { [t.orgField]: orgId } }),
     ),
     prisma.organization.deleteMany({ where: { id: orgId } }),

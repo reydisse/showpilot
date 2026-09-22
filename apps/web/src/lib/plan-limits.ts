@@ -43,10 +43,22 @@ export interface OrgPlanFields {
   plan: string;
   trialEndsAt: Date | null;
   betaTester: boolean;
+  subscriptionStatus?: string | null;
 }
 
 function asPlan(plan: string): Plan {
   return plan === "starter" || plan === "pro" ? plan : "free";
+}
+
+/**
+ * Paid entitlement policy:
+ * - active/trialing retain access;
+ * - past_due gets a grace period while Stripe retries payment;
+ * - unpaid/incomplete/paused/canceled states do not grant paid access;
+ * - null preserves legacy/manual plans that predate Stripe status tracking.
+ */
+export function subscriptionGrantsPaidAccess(status: string | null | undefined): boolean {
+  return status == null || status === "active" || status === "trialing" || status === "past_due";
 }
 
 /**
@@ -71,7 +83,11 @@ export function getEffectivePlan(
   if (org.trialEndsAt && now < org.trialEndsAt) {
     return "pro";
   }
-  return asPlan(org.plan);
+  const storedPlan = asPlan(org.plan);
+  if (storedPlan !== "free" && !subscriptionGrantsPaidAccess(org.subscriptionStatus)) {
+    return "free";
+  }
+  return storedPlan;
 }
 
 /** Map a Stripe price ID to its plan. Founding members get pro. */
@@ -106,10 +122,15 @@ export async function getEffectivePlanForOrg(orgId: string): Promise<Plan> {
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({
     where: { id: orgId },
-    select: { plan: true, trialEndsAt: true, betaTester: true },
+    select: { plan: true, trialEndsAt: true, betaTester: true, subscriptionStatus: true },
   });
   if (!org) throw new Error("Organization not found");
   return getEffectivePlan(org, await getPublicLaunchDate());
+}
+
+export async function getPlanMemberLimitForOrg(orgId: string): Promise<number> {
+  const plan = await getEffectivePlanForOrg(orgId);
+  return PLAN_LIMITS[plan].members;
 }
 
 /** Throw a PlanLimitError unless the org's effective plan includes `feature`. */

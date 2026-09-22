@@ -1,4 +1,4 @@
-import type { TimecodeValue, FrameRate } from "@/types/timecode";
+import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
 
 /**
  * MTC (MIDI Timecode) source via Web MIDI API.
@@ -20,17 +20,19 @@ import type { TimecodeValue, FrameRate } from "@/types/timecode";
 
 interface MtcAccumulator {
   nibbles: number[];
-  count: number;
+  seenMask: number;
+  lastType: number | null;
+  direction: 1 | -1 | null;
 }
 
 export interface MtcSourceCallback {
-  (tc: TimecodeValue, frameRate: FrameRate): void;
+  (tc: TimecodeValue, format: TimecodeFormat): void;
 }
 
 export class MtcSource {
   private midiAccess: MIDIAccess | null = null;
   private input: MIDIInput | null = null;
-  private accumulator: MtcAccumulator = { nibbles: new Array(8).fill(0), count: 0 };
+  private accumulator = this.emptyAccumulator();
   private onTimecode: MtcSourceCallback;
 
   constructor(callback: MtcSourceCallback) {
@@ -71,7 +73,7 @@ export class MtcSource {
     }
     this.input = null;
     this.midiAccess = null;
-    this.accumulator = { nibbles: new Array(8).fill(0), count: 0 };
+    this.accumulator = this.emptyAccumulator();
   }
 
   private handleMidiMessage(event: MIDIMessageEvent): void {
@@ -100,12 +102,31 @@ export class MtcSource {
     const messageType = (dataByte >> 4) & 0x07; // bits 4-6
     const nibbleValue = dataByte & 0x0f; // bits 0-3
 
-    this.accumulator.nibbles[messageType] = nibbleValue;
-    this.accumulator.count++;
+    const previousType = this.accumulator.lastType;
+    if (previousType === null) {
+      this.beginSequence(messageType, nibbleValue);
+      return;
+    }
 
-    // After 8 quarter-frame messages, we have a complete timecode
-    if (this.accumulator.count >= 8) {
-      this.accumulator.count = 0;
+    const forward = (previousType + 1) % 8;
+    const reverse = (previousType + 7) % 8;
+    const nextDirection = messageType === forward ? 1 : messageType === reverse ? -1 : null;
+    if (
+      nextDirection === null
+      || (this.accumulator.direction !== null && this.accumulator.direction !== nextDirection)
+      || (this.accumulator.seenMask & (1 << messageType)) !== 0
+    ) {
+      this.beginSequence(messageType, nibbleValue);
+      return;
+    }
+
+    this.accumulator.direction = nextDirection;
+    this.accumulator.lastType = messageType;
+    this.accumulator.nibbles[messageType] = nibbleValue;
+    this.accumulator.seenMask |= 1 << messageType;
+
+    // Publish only a coherent, contiguous cycle containing all eight pieces.
+    if (this.accumulator.seenMask === 0xff) {
 
       const frames =
         this.accumulator.nibbles[0] | (this.accumulator.nibbles[1] << 4);
@@ -120,9 +141,10 @@ export class MtcSource {
 
       // Frame rate from bits 1-2 of nibble 7
       const rateCode = (hoursHigh >> 1) & 0x03;
-      const frameRate = this.decodeFrameRate(rateCode);
+      const format = this.decodeFormat(rateCode);
 
-      this.onTimecode({ hours, minutes, seconds, frames }, frameRate);
+      this.onTimecode({ hours, minutes, seconds, frames }, format);
+      this.accumulator = this.emptyAccumulator();
     }
   }
 
@@ -132,23 +154,34 @@ export class MtcSource {
     const minutes = data[6] & 0x7f;
     const seconds = data[7] & 0x7f;
     const frames = data[8] & 0x7f;
-    const frameRate = this.decodeFrameRate(rateCode);
+    const format = this.decodeFormat(rateCode);
 
-    this.onTimecode({ hours, minutes, seconds, frames }, frameRate);
+    this.onTimecode({ hours, minutes, seconds, frames }, format);
   }
 
-  private decodeFrameRate(code: number): FrameRate {
+  private emptyAccumulator(): MtcAccumulator {
+    return { nibbles: new Array(8).fill(0), seenMask: 0, lastType: null, direction: null };
+  }
+
+  private beginSequence(messageType: number, nibbleValue: number): void {
+    this.accumulator = this.emptyAccumulator();
+    this.accumulator.nibbles[messageType] = nibbleValue;
+    this.accumulator.seenMask = 1 << messageType;
+    this.accumulator.lastType = messageType;
+  }
+
+  private decodeFormat(code: number): TimecodeFormat {
     switch (code) {
       case 0:
-        return 24;
+        return { frameRate: 24, dropFrame: "ndf" };
       case 1:
-        return 25;
+        return { frameRate: 25, dropFrame: "ndf" };
       case 2:
-        return 29.97;
+        return { frameRate: 29.97, dropFrame: "df" };
       case 3:
-        return 30;
+        return { frameRate: 30, dropFrame: "ndf" };
       default:
-        return 30;
+        return { frameRate: 30, dropFrame: "ndf" };
     }
   }
 }

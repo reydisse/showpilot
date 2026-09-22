@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Circle, ListChecks, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -73,6 +73,8 @@ function ChecklistPage() {
     checked: boolean;
     checkedBy: string | null;
     checkedAt: string | Date | null;
+    category: string;
+    revision: number;
     template?: { label: string; category: string } | null;
   }>);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -85,17 +87,20 @@ function ChecklistPage() {
   const [draft, setDraft] = useState<SmartChecklistDraft[]>([]);
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
   const [generatorError, setGeneratorError] = useState("");
+  const checklistRequestRef = useRef(0);
 
   const loadEntries = useCallback(async (date: string, requestedShowId?: string) => {
+    const requestId = ++checklistRequestRef.current;
     setLoadingEntries(true);
     try {
       const rundown = await getRundownState({ data: { orgId, serviceDate: date, showId: requestedShowId } });
       const resolvedShowId = rundown.meta?.showId;
       const latest = await getChecklistEntries({ data: { orgId, serviceDate: date, showId: resolvedShowId } });
+      if (checklistRequestRef.current !== requestId) return;
       setShowId(resolvedShowId);
       setEntries(latest as typeof entries);
     } finally {
-      setLoadingEntries(false);
+      if (checklistRequestRef.current === requestId) setLoadingEntries(false);
     }
   }, [orgId]);
 
@@ -131,9 +136,9 @@ function ChecklistPage() {
   const canManageChecklist =
     hasEffectivePermission(role, grantedPermissions, "checklist:access") && Boolean(showId);
 
-  const handleToggle = async (entryId: string, checked: boolean) => {
+  const handleToggle = async (entryId: string, checked: boolean, expectedRevision: number) => {
     if (!canManageChecklist) return;
-    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked } });
+    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, expectedRevision } });
     await loadEntries(serviceDate, showId);
   };
 
@@ -161,16 +166,16 @@ function ChecklistPage() {
    * department card can only report "2 checks outstanding" if the checks
    * know which department they belong to.
    */
-  const handleCategoryChange = async (templateId: string, category: DepartmentKey) => {
+  const handleCategoryChange = async (entryId: string, category: DepartmentKey) => {
     if (!canManageChecklist) return;
     setEntries((prev) =>
       prev.map((e) =>
-        e.templateId === templateId && e.template
-          ? { ...e, template: { ...e.template, category } }
+        e.id === entryId && e.template
+          ? { ...e, category, template: { ...e.template, category } }
           : e,
       ),
     );
-    await updateChecklistTemplate({ data: { orgId, id: templateId, updates: { category } } });
+    await updateChecklistTemplate({ data: { orgId, id: entryId, updates: { category } } });
   };
 
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
@@ -288,7 +293,7 @@ function ChecklistPage() {
               <div className="space-y-2">
                 {items.map((entry) => (
                   <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-                    <button onClick={() => handleToggle(entry.id, entry.checked)} className="shrink-0" disabled={!canManageChecklist} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
+                    <button onClick={() => handleToggle(entry.id, entry.checked, entry.revision)} className="shrink-0" disabled={!canManageChecklist} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
                       {entry.checked ? (
                         <CheckCircle2 className="w-5 h-5 text-green-500" />
                       ) : (
@@ -317,7 +322,7 @@ function ChecklistPage() {
                           id={`cat-${entry.id}`}
                           value={normalizeCategory(entry.template?.category ?? "")}
                           onChange={(e) =>
-                            void handleCategoryChange(entry.templateId, e.target.value as DepartmentKey)
+                            void handleCategoryChange(entry.id, e.target.value as DepartmentKey)
                           }
                           className="shrink-0 text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text hover:border-fire-500/30 outline-none focus:border-fire-500/50 transition-colors"
                         >

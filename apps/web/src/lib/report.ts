@@ -9,6 +9,7 @@ import { isHeaderItem } from "@/types/rundown";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
 import { z } from "zod";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import { buildReportCueRows } from "@/lib/report-cue-sheet";
 
 export type ShowReportIndexItem = {
   id: string;
@@ -184,7 +185,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
       incidents,
       entries,
       templates,
-      cueSheets,
+      cueNotes,
+      cueColumns,
       crew,
       managerNotes,
     ] = await Promise.all([
@@ -213,9 +215,14 @@ export const exportShowReport = createServerFn({ method: "POST" })
         where: { orgId: data.orgId },
         select: { id: true, label: true, category: true },
       }),
-      prisma.cueSheet.findMany({
+      prisma.cueNote.findMany({
         where: { orgId: data.orgId, showId: show.id },
-        orderBy: { cueNumber: "asc" },
+        select: { itemId: true, columnId: true, text: true },
+      }),
+      prisma.cueColumn.findMany({
+        where: { orgId: data.orgId },
+        select: { id: true, label: true, sortOrder: true },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       }),
       prisma.serviceAssignment.findMany({
         where: { orgId: data.orgId, showId: show.id },
@@ -286,13 +293,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
           checkedAt: entry.checkedAt?.toISOString() ?? null,
         };
       }),
-      cueSheets: cueSheets.map((cueSheet) => ({
-        id: cueSheet.id,
-        cueNumber: cueSheet.cueNumber,
-        rundownItem: cueSheet.rundownItem,
-        cameraAssignments: cueSheet.cameraAssignments,
-        notes: cueSheet.notes,
-      })),
+      cueSheets: buildReportCueRows(items, cueColumns, cueNotes),
       crew: crew.map((assignment) => ({
         role: assignment.role,
         name: assignment.crewMember?.name ?? "Open position",

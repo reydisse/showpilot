@@ -77,10 +77,7 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   );
 
   const nextItem = useMemo(() => {
-    if (!timer.currentItemId) return items[0] ?? null;
-    const currentIndex = items.findIndex((i) => i.id === timer.currentItemId);
-    if (currentIndex === -1) return items[0] ?? null;
-    return items[currentIndex + 1] ?? null;
+    return transport.nextPlayableItem(items, timer.currentItemId);
   }, [items, timer.currentItemId]);
 
   const isOvertime = useMemo(() => {
@@ -281,12 +278,9 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   }, [persistItems, persistTimer]);
 
   const next = useCallback(() => {
-    const currentIndex = itemsRef.current.findIndex(
-      (i) => i.id === timerRef.current.currentItemId,
-    );
-    const nextIdx = currentIndex + 1;
-    if (nextIdx < itemsRef.current.length) {
-      start(itemsRef.current[nextIdx].id);
+    const nextItem = transport.nextPlayableItem(itemsRef.current, timerRef.current.currentItemId);
+    if (nextItem) {
+      start(nextItem.id);
     } else {
       // No more items — stop
       stop();
@@ -294,12 +288,8 @@ export function useRundown({ orgId, serviceDate, initialState }: UseRundownOptio
   }, [start, stop]);
 
   const previous = useCallback(() => {
-    const currentIndex = itemsRef.current.findIndex(
-      (i) => i.id === timerRef.current.currentItemId,
-    );
-    // At the first item (or with nothing live) stepping back is a no-op.
-    if (currentIndex <= 0) return;
-    start(itemsRef.current[currentIndex - 1].id);
+    const previousId = transport.previous(itemsRef.current, timerRef.current).timer.currentItemId;
+    if (previousId && previousId !== timerRef.current.currentItemId) start(previousId);
   }, [start]);
 
   const adjustTime = useCallback(

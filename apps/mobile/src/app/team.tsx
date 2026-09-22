@@ -259,13 +259,13 @@ export default function TeamScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View><Text style={styles.modalTitle}>Grant operational access</Text><Text style={styles.modalSubtitle}>The member keeps their normal role.</Text></View>
-              <Pressable accessibilityLabel="Close grant form" hitSlop={10} onPress={() => setGrantOpen(false)} style={styles.closeButton}><X color={colors.textMuted} size={20} /></Pressable>
+              <Pressable accessibilityLabel="Close grant form" accessibilityRole="button" hitSlop={10} onPress={() => setGrantOpen(false)} style={styles.closeButton}><X color={colors.textMuted} size={20} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>MEMBER</Text>
-              <View style={styles.choices}>
+              <View accessibilityRole="radiogroup" style={styles.choices}>
                 {eligibleMembers.map((member) => (
-                  <Pressable key={member.userId} onPress={() => setTargetUserId(member.userId)} style={[styles.choice, targetUserId === member.userId && styles.choiceActive]}>
+                  <Pressable accessibilityRole="radio" accessibilityState={{ checked: targetUserId === member.userId }} key={member.userId} onPress={() => setTargetUserId(member.userId)} style={[styles.choice, targetUserId === member.userId && styles.choiceActive]}>
                     <Text style={[styles.choiceTitle, targetUserId === member.userId && styles.choiceTitleActive]}>{member.user.name}</Text>
                     <Text style={styles.choiceMeta}>{roleLabels[member.role] ?? member.role}</Text>
                   </Pressable>
@@ -273,9 +273,9 @@ export default function TeamScreen() {
               </View>
 
               <Text style={styles.label}>CAPABILITY</Text>
-              <View style={styles.choices}>
+              <View accessibilityRole="radiogroup" style={styles.choices}>
                 {query.data?.capabilities.map((capability) => (
-                  <Pressable key={capability.id} onPress={() => setCapabilityId(capability.id)} style={[styles.choice, capabilityId === capability.id && styles.choiceActive]}>
+                  <Pressable accessibilityRole="radio" accessibilityState={{ checked: capabilityId === capability.id }} key={capability.id} onPress={() => setCapabilityId(capability.id)} style={[styles.choice, capabilityId === capability.id && styles.choiceActive]}>
                     <Text style={[styles.choiceTitle, capabilityId === capability.id && styles.choiceTitleActive]}>{capability.label}</Text>
                   </Pressable>
                 ))}

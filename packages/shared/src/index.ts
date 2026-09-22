@@ -5,3 +5,8 @@ export * from "./types/members";
 export * from "./types/gateway";
 export * from "./types/chat";
 export * from "./device-control-surface";
+export * from "./spreadsheet";
+export * from "./rundown";
+export * from "./auth";
+export * from "./equipment";
+export * from "./emoji";

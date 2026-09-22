@@ -100,7 +100,7 @@ export const saveShowReportNote = createServerFn({ method: "POST" })
          (id, orgId, showId, userId, authorName, role, summary, wins, issues,
           followUps, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT(orgId, showId, userId) DO UPDATE SET
+       ON CONFLICT(orgId, showId, userId, role) DO UPDATE SET
          authorName = excluded.authorName,
          role = excluded.role,
          summary = excluded.summary,
@@ -124,8 +124,8 @@ export const saveShowReportNote = createServerFn({ method: "POST" })
       `SELECT id, showId, userId, authorName, role, summary, wins, issues,
               followUps, createdAt, updatedAt
          FROM show_report_note
-        WHERE orgId = ? AND showId = ? AND userId = ? LIMIT 1`,
-    ).bind(data.orgId, data.showId, request.user.id).first<ShowReportNote>();
+        WHERE orgId = ? AND showId = ? AND userId = ? AND role = ? LIMIT 1`,
+    ).bind(data.orgId, data.showId, request.user.id, data.role).first<ShowReportNote>();
     if (!note) throw new Error("The report note did not save.");
     return note;
   });
@@ -165,14 +165,31 @@ export async function createDuePostShowReminders(
             reminder.value AS reminderHours,
             m.userId
        FROM rundown r
-       JOIN member m ON m.organizationId = r.orgId AND lower(m.role) IN ('pm', 'tm')
+       JOIN member m ON m.organizationId = r.orgId
        LEFT JOIN rundown_item ri ON ri.orgId = r.orgId AND ri.showId = r.id
        LEFT JOIN app_setting reminder ON reminder.orgId = r.orgId AND reminder.key = 'post-show-reminder-hours'
        LEFT JOIN show_report_note note ON note.orgId = r.orgId AND note.showId = r.id AND note.userId = m.userId
+       LEFT JOIN show_report_reminder sent ON sent.orgId = r.orgId AND sent.showId = r.id AND sent.userId = m.userId
       WHERE r.scheduledStartTime IS NOT NULL
         AND r.scheduledStartTime >= datetime('now', '-30 days')
         AND r.scheduledStartTime <= datetime('now')
         AND note.id IS NULL
+        AND sent.id IS NULL
+        AND (
+          lower(m.role) IN ('owner', 'admin', 'td', 'cd', 'pd', 'pm', 'tm', 'sm')
+          OR EXISTS (
+            SELECT 1 FROM member_permission_grant grant_row
+            WHERE grant_row.orgId = r.orgId
+              AND grant_row.userId = m.userId
+              AND grant_row.revokedAt IS NULL
+              AND grant_row.startsOn <= date('now')
+              AND (grant_row.expiresOn IS NULL OR grant_row.expiresOn >= date('now'))
+              AND (
+                grant_row.permissions LIKE '%"dashboard:pm"%'
+                OR grant_row.permissions LIKE '%"dashboard:tm"%'
+              )
+          )
+        )
       GROUP BY r.orgId, r.id, m.userId
       ORDER BY r.scheduledStartTime ASC
       LIMIT 500`,
@@ -184,15 +201,8 @@ export async function createDuePostShowReminders(
     const durationMs = candidate.plannedDurationMs > 0 ? candidate.plannedDurationMs : 4 * 60 * 60 * 1_000;
     const dueAt = new Date(candidate.scheduledStartTime).getTime() + durationMs + reminderHours * 60 * 60 * 1_000;
     if (!Number.isFinite(dueAt) || dueAt > now.getTime()) continue;
-    const insert = await database.prepare(
-      `INSERT INTO show_report_reminder (id, orgId, showId, userId, createdAt)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(orgId, showId, userId) DO NOTHING`,
-    ).bind(crypto.randomUUID(), candidate.orgId, candidate.showId, candidate.userId).run();
-    if (insert.success === false || insert.meta?.changes !== 1) continue;
-    created += 1;
     const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
-    await notifyOperationalEvent({
+    const delivery = await notifyOperationalEvent({
       orgId: candidate.orgId,
       recipientIds: [candidate.userId],
       category: "reports",
@@ -204,6 +214,14 @@ export async function createDuePostShowReminders(
       pushTag: `post-show-notes-${candidate.showId}`,
       dedupeKey: `post-show-notes:${candidate.showId}`,
     });
+    if (delivery.notified !== 1) continue;
+    const insert = await database.prepare(
+      `INSERT INTO show_report_reminder (id, orgId, showId, userId, createdAt)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(orgId, showId, userId) DO NOTHING`,
+    ).bind(crypto.randomUUID(), candidate.orgId, candidate.showId, candidate.userId).run();
+    if (insert.success === false || insert.meta?.changes !== 1) continue;
+    created += 1;
   }
   return { created };
 }

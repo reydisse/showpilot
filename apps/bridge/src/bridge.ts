@@ -15,6 +15,7 @@ import {
 import { DmxConnection } from "./protocols/dmx.js";
 import { ObsConnection } from "./protocols/obs.js";
 import { PjlinkConnection } from "./protocols/pjlink.js";
+import { frameViscaPacket, inspectViscaReply, type ViscaUdpMode } from "./protocols/visca.js";
 import {
   ProPresenterBridge,
   type PPBridgeDebugState,
@@ -124,6 +125,10 @@ export function bridgeWebSocketOptions(
   };
 }
 
+export function shouldReconnectBridge(code: number): boolean {
+  return code !== 4410;
+}
+
 /**
  * ShowPilot Bridge — connects to ShowPilot cloud via WebSocket
  * and proxies commands to local network devices.
@@ -136,6 +141,8 @@ export class Bridge {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private tcpConnections = new Map<string, TcpConnection>();
   private udpConnections = new Map<string, UdpConnection>();
+  private viscaModes = new Map<string, ViscaUdpMode>();
+  private viscaSequences = new Map<string, number>();
   private ppConnections = new Map<string, ProPresenterBridge>();
   private atemConnections = new Map<string, Atem>();
   private dmxConnections = new Map<string, DmxConnection>();
@@ -256,9 +263,11 @@ export class Bridge {
       console.log(
         `[bridge] Disconnected (code ${code}${detail ? `: ${detail}` : ""})`,
       );
-      if (this.reconnect) {
+      if (this.reconnect && shouldReconnectBridge(code)) {
         console.log("[bridge] Reconnecting in 5s...");
         this.reconnectTimer = setTimeout(() => this.connect(), 5000);
+      } else if (code === 4410) {
+        console.log("[bridge] This installation was replaced. Start it again only to intentionally take control.");
       }
     });
 
@@ -317,8 +326,10 @@ export class Bridge {
           response = await this.executeHttpCommand(msg.target, msg.command);
           break;
         case "udp":
-        case "visca-ip":
           await this.executeUdpCommand(msg.target, msg.command);
+          break;
+        case "visca-ip":
+          await this.executeViscaCommand(msg.target, msg.command);
           break;
         case "propresenter":
           response = await this.executePPCommand(msg.target, msg.command);
@@ -402,6 +413,11 @@ export class Bridge {
       }
 
       if (msg.protocol === "pjlink") {
+        const existing = this.pjlinkConnections.get(key);
+        if (existing && !existing.isConnected()) {
+          existing.disconnect();
+          this.pjlinkConnections.delete(key);
+        }
         if (!this.pjlinkConnections.has(key)) {
           const conn = new PjlinkConnection();
           const password = typeof msg.settings.password === "string" ? msg.settings.password : undefined;
@@ -409,6 +425,11 @@ export class Bridge {
           this.pjlinkConnections.set(key, conn);
         }
       } else if (msg.protocol === "tcp-command") {
+        const existing = this.tcpConnections.get(key);
+        if (existing && !existing.isConnected()) {
+          existing.disconnect();
+          this.tcpConnections.delete(key);
+        }
         if (!this.tcpConnections.has(key)) {
           const conn = new TcpConnection();
           await conn.connect(host, port);
@@ -422,12 +443,27 @@ export class Bridge {
           this.udpConnections.set(key, conn);
         }
         await this.configureOscMixerFeedback(key, conn, msg.settings);
-      } else if (msg.protocol === "udp" || msg.protocol === "visca-ip") {
+      } else if (msg.protocol === "udp") {
         if (!this.udpConnections.has(key)) {
           const conn = new UdpConnection();
           await conn.connect(host, port);
           this.udpConnections.set(key, conn);
         }
+      } else if (msg.protocol === "visca-ip") {
+        let conn = this.udpConnections.get(key);
+        if (!conn) {
+          conn = new UdpConnection();
+          await conn.connect(host, port);
+          this.udpConnections.set(key, conn);
+        }
+        const mode: ViscaUdpMode = msg.settings.viscaMode === "raw" ? "raw" : "sony-ip";
+        const sequence = this.nextViscaSequence(key);
+        const inquiry = Buffer.from("81090400ff", "hex");
+        await conn.sendAndReceiveUntil(
+          frameViscaPacket(inquiry, mode, sequence, true),
+          (reply) => inspectViscaReply(reply, mode, sequence) === "complete",
+        );
+        this.viscaModes.set(key, mode);
       }
 
       this.send({ type: "device-status", target: key, connected: true });
@@ -438,6 +474,12 @@ export class Bridge {
         const connection = this.udpConnections.get(key);
         connection?.disconnect();
         this.udpConnections.delete(key);
+      }
+      if (msg.protocol === "visca-ip") {
+        this.udpConnections.get(key)?.disconnect();
+        this.udpConnections.delete(key);
+        this.viscaModes.delete(key);
+        this.viscaSequences.delete(key);
       }
       console.error(
         `[bridge] ${msg.protocol} connection to ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -468,6 +510,8 @@ export class Bridge {
       udp.disconnect();
       this.udpConnections.delete(msg.target);
     }
+    this.viscaModes.delete(msg.target);
+    this.viscaSequences.delete(msg.target);
     const atem = this.atemConnections.get(msg.target);
     if (atem) {
       void atem.disconnect();
@@ -927,6 +971,24 @@ export class Bridge {
     // Command is hex string for VISCA, or raw bytes
     const buf = Buffer.from(command.replace(/\s+/g, ""), "hex");
     await conn.send(buf);
+  }
+
+  private nextViscaSequence(target: string): number {
+    const next = (this.viscaSequences.get(target) ?? 0) + 1;
+    this.viscaSequences.set(target, next >>> 0);
+    return next >>> 0;
+  }
+
+  private async executeViscaCommand(target: string, command: string): Promise<void> {
+    const conn = this.udpConnections.get(target);
+    const mode = this.viscaModes.get(target);
+    if (!conn?.isConnected() || !mode) throw new Error("VISCA camera is not verified as responding");
+    const payload = Buffer.from(command.replace(/\s+/g, ""), "hex");
+    const sequence = this.nextViscaSequence(target);
+    await conn.sendAndReceiveUntil(
+      frameViscaPacket(payload, mode, sequence),
+      (reply) => inspectViscaReply(reply, mode, sequence) === "complete",
+    );
   }
 
   private async executeHttpCommand(

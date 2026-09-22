@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Mic,
   MicOff,
@@ -89,13 +89,20 @@ function AudioPage() {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => initialAssignments[0]?.id ?? null);
+  const assignmentRequestRef = useRef(0);
 
-  const loadAssignments = async (date: string, targetShowId: string | null) => {
+  const loadAssignments = useCallback(async (date: string, targetShowId: string | null) => {
+    const requestId = ++assignmentRequestRef.current;
     setLoading(true);
-    const result = await getMicAssignments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } });
-    setAssignments(result);
-    setLoading(false);
-  };
+    try {
+      const result = await getMicAssignments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } });
+      if (assignmentRequestRef.current !== requestId) return;
+      setAssignments(result);
+      setSelectedId((current) => result.some((assignment) => assignment.id === current) ? current : result[0]?.id ?? null);
+    } finally {
+      if (assignmentRequestRef.current === requestId) setLoading(false);
+    }
+  }, [orgId]);
 
   useServiceDateRollover({
     serviceDate,

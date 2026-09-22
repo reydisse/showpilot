@@ -36,9 +36,50 @@ fn validate_snapshot(payload: &str) -> Result<(), String> {
     if payload.len() > MAX_SNAPSHOT_BYTES {
         return Err("Service snapshot exceeds the 5 MB desktop limit".to_string());
     }
-    serde_json::from_str::<serde_json::Value>(payload)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    let value =
+        serde_json::from_str::<serde_json::Value>(payload).map_err(|error| error.to_string())?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "Service snapshot must be a JSON object".to_string())?;
+    if object.get("version").and_then(|value| value.as_u64()) != Some(1) {
+        return Err("Unsupported service snapshot version".to_string());
+    }
+    for field in ["orgId", "orgSlug", "serviceDate", "cachedAt"] {
+        let text = object
+            .get(field)
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| format!("Service snapshot is missing {field}"))?;
+        if text.is_empty() || text.len() > 200 {
+            return Err(format!("Service snapshot {field} is invalid"));
+        }
+    }
+    let items = object
+        .get("items")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "Service snapshot items are invalid".to_string())?;
+    if items.len() > 1_000 {
+        return Err("Service snapshot has too many rundown items".to_string());
+    }
+    for item in items {
+        let item = item
+            .as_object()
+            .ok_or_else(|| "Service snapshot contains an invalid rundown item".to_string())?;
+        let valid_text = |field: &str| {
+            item.get(field)
+                .and_then(|value| value.as_str())
+                .is_some_and(|text| !text.is_empty() && text.len() <= 4_000)
+        };
+        if !valid_text("id")
+            || !valid_text("title")
+            || item
+                .get("duration")
+                .and_then(|value| value.as_f64())
+                .is_none()
+        {
+            return Err("Service snapshot contains an invalid rundown item".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn companion_window_spec(org_slug: &str, kind: &str) -> Result<CompanionWindowSpec, String> {
@@ -325,12 +366,13 @@ mod tests {
 
     #[test]
     fn accepts_bounded_json_snapshots() {
-        assert!(validate_snapshot(r#"{"version":1,"items":[]}"#).is_ok());
+        assert!(validate_snapshot(r#"{"version":1,"orgId":"org-1","orgSlug":"faithfire","serviceDate":"2026-09-22","cachedAt":"2026-09-22T10:00:00.000Z","items":[]}"#).is_ok());
     }
 
     #[test]
     fn rejects_invalid_or_oversized_snapshots() {
         assert!(validate_snapshot("not-json").is_err());
+        assert!(validate_snapshot(r#"{"version":1,"items":[]}"#).is_err());
         assert!(validate_snapshot(&"x".repeat(MAX_SNAPSHOT_BYTES + 1)).is_err());
     }
 

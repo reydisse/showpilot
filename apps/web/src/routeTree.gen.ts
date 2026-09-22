@@ -21,6 +21,7 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SlugIndexRouteImport } from './routes/$slug/index'
 import { Route as SlugAdminRouteImport } from './routes/$slug/admin'
+import { Route as SlugAssignmentsRouteImport } from './routes/$slug/assignments'
 import { Route as SlugBoardRouteImport } from './routes/$slug/board'
 import { Route as SlugChatRouteImport } from './routes/$slug/chat'
 import { Route as SlugCheckinRouteImport } from './routes/$slug/checkin'
@@ -147,6 +148,11 @@ const SlugIndexRoute = SlugIndexRouteImport.update({
 const SlugAdminRoute = SlugAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => SlugRoute,
+} as any)
+const SlugAssignmentsRoute = SlugAssignmentsRouteImport.update({
+  id: '/assignments',
+  path: '/assignments',
   getParentRoute: () => SlugRoute,
 } as any)
 const SlugBoardRoute = SlugBoardRouteImport.update({
@@ -518,6 +524,7 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/assignments': typeof SlugAssignmentsRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
@@ -598,6 +605,7 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/assignments': typeof SlugAssignmentsRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
@@ -681,6 +689,7 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/$slug/admin': typeof SlugAdminRoute
+  '/$slug/assignments': typeof SlugAssignmentsRoute
   '/$slug/board': typeof SlugBoardRoute
   '/$slug/chat': typeof SlugChatRoute
   '/$slug/checkin': typeof SlugCheckinRoute
@@ -764,6 +773,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/$slug/admin'
+    | '/$slug/assignments'
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
@@ -844,6 +854,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/$slug/admin'
+    | '/$slug/assignments'
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
@@ -926,6 +937,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/$slug/admin'
+    | '/$slug/assignments'
     | '/$slug/board'
     | '/$slug/chat'
     | '/$slug/checkin'
@@ -1126,6 +1138,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/$slug/admin'
       preLoaderRoute: typeof SlugAdminRouteImport
+      parentRoute: typeof SlugRoute
+    }
+    '/$slug/assignments': {
+      id: '/$slug/assignments'
+      path: '/assignments'
+      fullPath: '/$slug/assignments'
+      preLoaderRoute: typeof SlugAssignmentsRouteImport
       parentRoute: typeof SlugRoute
     }
     '/$slug/board': {
@@ -1645,6 +1664,7 @@ const SlugStreamingGraphicsRouteWithChildren =
 
 interface SlugRouteChildren {
   SlugAdminRoute: typeof SlugAdminRoute
+  SlugAssignmentsRoute: typeof SlugAssignmentsRoute
   SlugBoardRoute: typeof SlugBoardRoute
   SlugChatRoute: typeof SlugChatRoute
   SlugCheckinRoute: typeof SlugCheckinRoute
@@ -1677,6 +1697,7 @@ interface SlugRouteChildren {
 
 const SlugRouteChildren: SlugRouteChildren = {
   SlugAdminRoute: SlugAdminRoute,
+  SlugAssignmentsRoute: SlugAssignmentsRoute,
   SlugBoardRoute: SlugBoardRoute,
   SlugChatRoute: SlugChatRoute,
   SlugCheckinRoute: SlugCheckinRoute,

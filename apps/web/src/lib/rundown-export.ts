@@ -1,6 +1,7 @@
 import { formatTime, formatDuration, itemOverrunMs } from "@/lib/rundown-timing";
 import type { ShowReportNote } from "@/lib/show-report-notes";
 import { rundownItemNumbers, type RundownItem } from "@/types/rundown";
+import { spreadsheetSafeText } from "@showpilot/shared";
 
 export interface ExportReport {
   generatedAt: string;
@@ -167,7 +168,7 @@ export function buildRundownCsv(report: ExportReport): string {
 
 function csvEscape(value: unknown): string {
   if (value == null) return "";
-  const text = String(value);
+  const text = spreadsheetSafeText(value);
   if (!text) return "";
   if (/[",\r\n]/.test(text)) {
     return `"${text.replace(/"/g, '""')}"`;

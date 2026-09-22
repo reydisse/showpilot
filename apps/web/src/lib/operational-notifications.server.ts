@@ -46,16 +46,27 @@ async function notificationIdFor(
  * Operational writes must never be rolled back because a browser push endpoint
  * is unavailable, so delivery errors are isolated per recipient.
  */
-export async function notifyOperationalEvent(input: OperationalNotification) {
-  const recipients = new Set(input.recipientIds ?? []);
-  if (input.includeLeadership) {
+async function deliverOperationalEvent(input: OperationalNotification) {
+  const requestedRecipients = new Set(input.recipientIds ?? []);
+  const recipients = new Set<string>();
+  if (requestedRecipients.size > 0 || input.includeLeadership) {
     const members = await getPrisma().member.findMany({
-      where: { organizationId: input.orgId },
+      where: {
+        organizationId: input.orgId,
+        ...(!input.includeLeadership && requestedRecipients.size > 0
+          ? { userId: { in: [...requestedRecipients] } }
+          : {}),
+      },
       select: { userId: true, role: true },
     });
     for (const member of members) {
       const role = normalizeRole(member.role);
-      if (role && LEADERSHIP_ROLES.has(role)) recipients.add(member.userId);
+      if (
+        requestedRecipients.has(member.userId)
+        || (input.includeLeadership && role && LEADERSHIP_ROLES.has(role))
+      ) {
+        recipients.add(member.userId);
+      }
     }
   }
   if (input.actorId) recipients.delete(input.actorId);
@@ -87,7 +98,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
             `INSERT INTO notification
              (id, orgId, userId, type, severity, title, message, target, source, actionUrl,
               category, deviceAlertEnabled, dismissed, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
              ON CONFLICT(id) DO UPDATE SET
                type = excluded.type,
                severity = excluded.severity,
@@ -100,7 +111,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
                deviceAlertEnabled = excluded.deviceAlertEnabled,
                dismissed = 0,
                readAt = NULL,
-               createdAt = CURRENT_TIMESTAMP`,
+               createdAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
           )
           .bind(
             notificationId,
@@ -139,4 +150,14 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
     }),
   );
   return { notified: results.filter(Boolean).length };
+}
+
+/** Notification work must not change the outcome of an already-saved action. */
+export async function notifyOperationalEvent(input: OperationalNotification) {
+  try {
+    return await deliverOperationalEvent(input);
+  } catch (error) {
+    console.error("[Notifications] Preparation failed", error);
+    return { notified: 0 };
+  }
 }

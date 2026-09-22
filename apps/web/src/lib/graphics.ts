@@ -4,11 +4,33 @@ import type { Permission } from "@/lib/app-permissions";
 import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+import { getD1 } from "@/lib/d1";
+import { setGraphicPresenceForOrg } from "@/lib/active-graphics";
+import { publishGraphicCompositionForOrg } from "@/lib/graphic-composition";
+
+export { setGraphicPresenceForOrg } from "@/lib/active-graphics";
+export type { GraphicCompositionItem } from "@/lib/graphic-composition";
 
 // Style is a JSON blob of overlay styling — bound generously.
 const styleSchema = z.string().max(20_000);
 const graphicTextSchema = z.string().max(500);
 const orgGraphicSchema = z.object({ orgId: idSchema, graphicId: idSchema });
+const compositionItemSchema = z.object({
+  key: idSchema,
+  name: labelSchema,
+  title: graphicTextSchema,
+  subtitle: graphicTextSchema,
+  style: styleSchema,
+});
+const savedSceneSchema = z.object({
+  id: idSchema,
+  name: labelSchema,
+  items: z.array(compositionItemSchema).min(1).max(50),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type SavedGraphicScene = z.infer<typeof savedSceneSchema>;
 
 async function assertGraphicPermission(orgId: string, permission: Permission) {
   await assertOrgPermission(orgId, permission);
@@ -101,6 +123,64 @@ export const deleteGraphicTemplate = createServerFn({ method: "POST" })
     await prisma.graphicTemplate.deleteMany({ where: { id: data.id, orgId: data.orgId } });
   });
 
+const SCENE_KEY_PREFIX = "graphic-scene:";
+
+export const getGraphicScenes = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }): Promise<SavedGraphicScene[]> => {
+    await assertGraphicPermission(data.orgId, "lowerthird:view");
+    const rows = await getPrisma().appSetting.findMany({
+      where: { orgId: data.orgId, key: { startsWith: SCENE_KEY_PREFIX } },
+      orderBy: { key: "asc" },
+    });
+    return rows.flatMap((row) => {
+      try {
+        const scene = savedSceneSchema.safeParse(JSON.parse(row.value));
+        return scene.success ? [scene.data] : [];
+      } catch {
+        return [];
+      }
+    }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  });
+
+export const saveGraphicScene = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    sceneId: idSchema.optional(),
+    name: labelSchema,
+    items: z.array(compositionItemSchema).min(1).max(50),
+  }), data))
+  .handler(async ({ data }): Promise<SavedGraphicScene> => {
+    await assertGraphicPermission(data.orgId, "lowerthird:configure");
+    const prisma = getPrisma();
+    const id = data.sceneId ?? crypto.randomUUID();
+    const key = `${SCENE_KEY_PREFIX}${id}`;
+    const existing = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key } } });
+    let createdAt = new Date().toISOString();
+    if (existing) {
+      try {
+        const parsed = savedSceneSchema.safeParse(JSON.parse(existing.value));
+        if (parsed.success) createdAt = parsed.data.createdAt;
+      } catch {
+        // Replace an unreadable record while preserving a valid scene contract.
+      }
+    }
+    const scene: SavedGraphicScene = { id, name: data.name, items: data.items, createdAt, updatedAt: new Date().toISOString() };
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key } },
+      create: { orgId: data.orgId, key, value: JSON.stringify(scene) },
+      update: { value: JSON.stringify(scene) },
+    });
+    return scene;
+  });
+
+export const deleteGraphicScene = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, sceneId: idSchema }), data))
+  .handler(async ({ data }) => {
+    await assertGraphicPermission(data.orgId, "lowerthird:configure");
+    await getPrisma().appSetting.deleteMany({ where: { orgId: data.orgId, key: `${SCENE_KEY_PREFIX}${data.sceneId}` } });
+  });
+
 // ─── Active Graphics (via AppSetting) ───────────────────────
 //
 // Multiple lower thirds can be live at once (e.g. two panelists), so the
@@ -146,6 +226,18 @@ async function writeActiveIds(prisma: PrismaClientLike, orgId: string, ids: stri
     update: { value: JSON.stringify(unique) },
   });
 }
+
+/** Atomically creates an immutable output revision and points Program at it. */
+export const publishGraphicComposition = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    requestId: idSchema,
+    items: z.array(compositionItemSchema).min(1).max(50),
+  }), data))
+  .handler(async ({ data }) => {
+    await assertGraphicPermission(data.orgId, "lowerthird:trigger");
+    return publishGraphicCompositionForOrg(getD1(), data);
+  });
 
 // Keep only IDs that still belong to this org, preserving stored order.
 async function resolveActive(prisma: PrismaClientLike, orgId: string) {
@@ -196,11 +288,8 @@ export const addActiveGraphic = createServerFn({ method: "POST" })
       where: { id: data.graphicId, orgId: data.orgId },
       select: { id: true },
     });
-    if (!owns) return;
-    const ids = await readActiveIds(prisma, data.orgId);
-    if (!ids.includes(data.graphicId)) {
-      await writeActiveIds(prisma, data.orgId, [...ids, data.graphicId]);
-    }
+    if (!owns) throw new Error("Graphic not found");
+    return setGraphicPresenceForOrg(getD1(), data.orgId, data.graphicId, true);
   });
 
 /** Remove one graphic from the active set. */
@@ -208,9 +297,7 @@ export const removeActiveGraphic = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(orgGraphicSchema, data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
-    const prisma = getPrisma();
-    const ids = await readActiveIds(prisma, data.orgId);
-    await writeActiveIds(prisma, data.orgId, ids.filter((id) => id !== data.graphicId));
+    return setGraphicPresenceForOrg(getD1(), data.orgId, data.graphicId, false);
   });
 
 /** Toggle one graphic on/off; returns the new active ID list. */

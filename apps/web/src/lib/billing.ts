@@ -6,7 +6,12 @@ import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { getEffectivePlan, getPublicLaunchDate, type Plan } from "@/lib/plan-limits";
-import { buildCheckoutSessionParams } from "@/lib/checkout";
+import {
+  buildCheckoutSessionParams,
+  checkoutIdempotencyKey,
+  isBlockingSubscriptionStatus,
+  reusableCheckoutSession,
+} from "@/lib/checkout";
 import { requireShowPilotBaseUrl } from "@/lib/auth-origins";
 
 export { getPublicLaunchDate };
@@ -101,6 +106,18 @@ export type CheckoutSessionResult =
   | { mode: "embedded"; clientSecret: string }
   | { mode: "hosted"; url: string };
 
+function checkoutResult(
+  uiMode: "embedded" | "hosted",
+  session: { client_secret: string | null; url: string | null },
+): CheckoutSessionResult {
+  if (uiMode === "embedded") {
+    if (!session.client_secret) throw new Error("Stripe did not return a client secret");
+    return { mode: "embedded", clientSecret: session.client_secret };
+  }
+  if (!session.url) throw new Error("Stripe did not return a checkout URL");
+  return { mode: "hosted", url: session.url };
+}
+
 export const createCheckoutSession = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(checkoutSchema, data))
   .handler(async ({ data }): Promise<CheckoutSessionResult> => {
@@ -124,17 +141,43 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
 
     let customerId = org.stripeCustomerId;
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        name: org.name,
-        email: user.email,
-        metadata: { orgId: org.id },
-      });
+      const customer = await stripe.customers.create(
+        {
+          name: org.name,
+          email: user.email,
+          metadata: { orgId: org.id },
+        },
+        { idempotencyKey: `showpilot-customer:${org.id}` },
+      );
       customerId = customer.id;
       await prisma.organization.update({
         where: { id: org.id },
         data: { stripeCustomerId: customerId },
       });
     }
+
+    // Stripe is canonical here. This catches a delayed local webhook and
+    // prevents a second billable subscription from another tab or retry.
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 100,
+    });
+    if (subscriptions.data.some((subscription) => isBlockingSubscriptionStatus(subscription.status))) {
+      throw new Error("This organization already has a subscription. Manage it in the billing portal.");
+    }
+
+    const openSessions = await stripe.checkout.sessions.list({
+      customer: customerId,
+      status: "open",
+      limit: 100,
+    });
+    const reusable = reusableCheckoutSession(openSessions.data, {
+      orgId: org.id,
+      plan: data.plan,
+      uiMode: data.uiMode,
+    });
+    if (reusable) return checkoutResult(data.uiMode, reusable);
 
     const prices = getStripePriceIds();
     const session = await stripe.checkout.sessions.create(
@@ -143,17 +186,15 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
         customerId,
         orgId: org.id,
         orgSlug: org.slug,
+        plan: data.plan,
         priceId: prices[data.plan],
         baseUrl: getBaseUrl(),
       }),
+      {
+        idempotencyKey: checkoutIdempotencyKey(org.id, data.plan, data.uiMode),
+      },
     );
-
-    if (data.uiMode === "embedded") {
-      if (!session.client_secret) throw new Error("Stripe did not return a client secret");
-      return { mode: "embedded", clientSecret: session.client_secret };
-    }
-    if (!session.url) throw new Error("Stripe did not return a checkout URL");
-    return { mode: "hosted", url: session.url };
+    return checkoutResult(data.uiMode, session);
   });
 
 // ─── Billing portal ──────────────────────────────────────────

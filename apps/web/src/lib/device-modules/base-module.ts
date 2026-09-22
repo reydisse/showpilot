@@ -16,25 +16,45 @@ export abstract class BaseDeviceModule implements DeviceModule {
   private _status: DeviceConnectionStatus = "disconnected";
   private _statusListeners = new Set<StatusChangeCallback>();
   private _feedbackListeners = new Set<FeedbackChangeCallback>();
+  private _connectionGeneration = 0;
+  private _connectAttempt: Promise<void> | null = null;
 
   // ─── Connection lifecycle ───────────────────────────────
 
   async connect(): Promise<void> {
     if (this._status === "connected" || this._status === "connecting") return;
 
+    const generation = ++this._connectionGeneration;
+    const previousAttempt = this._connectAttempt;
     this.setStatus("connecting");
+    const attempt = (async () => {
+      if (previousAttempt) await previousAttempt;
+      if (this._connectionGeneration !== generation) return;
+      try {
+        await this.doConnect();
+        if (this._connectionGeneration !== generation) {
+          this.doDisconnect();
+          return;
+        }
+        this.setStatus("connected");
+      } catch (err) {
+        if (this._connectionGeneration !== generation) return;
+        const message = err instanceof Error ? err.message : String(err);
+        this.setStatus("error", message);
+      }
+    })();
+    this._connectAttempt = attempt;
     try {
-      await this.doConnect();
-      this.setStatus("connected");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.setStatus("error", message);
+      await attempt;
+    } finally {
+      if (this._connectAttempt === attempt) this._connectAttempt = null;
     }
   }
 
   disconnect(): void {
     if (this._status === "disconnected") return;
 
+    this._connectionGeneration++;
     this.doDisconnect();
     this.setStatus("disconnected");
   }

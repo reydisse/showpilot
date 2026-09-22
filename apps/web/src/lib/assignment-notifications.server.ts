@@ -59,7 +59,7 @@ export async function notifyAssignmentRecipient(
     severity: "info",
     title: input.reminder ? "Assignment reminder" : "New assignment",
     message: `${input.role} · ${input.serviceName} · ${input.serviceDate} · Call ${input.start}`,
-    actionUrl: `schedule?date=${encodeURIComponent(input.serviceDate)}&assignment=${encodeURIComponent(input.assignmentId)}`,
+    actionUrl: `assignments?assignment=${encodeURIComponent(input.assignmentId)}`,
     source: input.assignmentId,
     pushTag: `assignment-${input.assignmentId}`,
     dedupeKey: `assignment-${input.assignmentId}`,

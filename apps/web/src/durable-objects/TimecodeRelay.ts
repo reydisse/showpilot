@@ -8,20 +8,28 @@ import type {
   LyricsDisplayState,
   TimecodeCommand,
   TimecodeWsMessage,
+  TimecodeDisplayState,
 } from "@/types/timecode";
-import { crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
   appendWebhookEvent,
   sanitizePayloadSummary,
   type WebhookEventInput,
-} from "@/lib/settings";
+} from "@/lib/webhook-events";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+import { projectTimecodeDisplayState } from "@/lib/timecode-display";
+import {
+  hasLivePermissionAuthority,
+  type LiveSessionAuthorityClaim,
+} from "@/lib/live-rundown-authority.server";
+import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
   BRIDGE_RELAY: DurableObjectNamespace<import("@/durable-objects/BridgeRelay").BridgeRelay>;
   DB: D1Database;
+  BETTER_AUTH_SECRET?: string;
 }
 
 const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
@@ -100,7 +108,9 @@ export class TimecodeRelay extends DurableObject {
 
     try {
       const prisma = getPrisma();
-      void appendWebhookEvent(prisma, this.orgId, event);
+      this.ctx.waitUntil(appendWebhookEvent(prisma, this.orgId, event).catch(() => {
+        // Telemetry must never fail a live automation command.
+      }));
     } catch {
       // Non-blocking telemetry.
     }
@@ -112,6 +122,28 @@ export class TimecodeRelay extends DurableObject {
     // Extract orgId from query param or path
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
 
+    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
+      await this.ctx.storage.deleteAll();
+      this.state = {
+        timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
+        display: "00:00:00:00",
+        source: "internal-freerun",
+        format: { frameRate: 30, dropFrame: "ndf" },
+        running: false,
+        serverTime: Date.now(),
+        totalFrames: 0,
+        lyrics: null,
+      };
+      this.events = [];
+      this.masterSessionId = null;
+      this.previousFeedFrame = null;
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
@@ -120,24 +152,28 @@ export class TimecodeRelay extends DurableObject {
         canWrite: url.searchParams.get("access") === "write",
         sessionId: crypto.randomUUID(),
         orgId: this.orgId,
+        authClaim: this.readAuthorityClaim(url),
       });
 
       // Hydrate
-      const hydrate: TimecodeWsMessage = {
-        type: "hydrate",
-        state: this.state,
-        events: this.events,
-      };
+      const hydrate: TimecodeWsMessage = url.searchParams.get("access") === "write"
+        ? { type: "hydrate", state: this.state, events: this.events }
+        : { type: "hydrate", state: this.getDisplayState() };
       server.send(JSON.stringify(hydrate));
 
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/state") {
-      return Response.json(this.state);
+      return Response.json(
+        url.searchParams.get("access") === "write" ? this.state : this.getDisplayState(),
+      );
     }
 
     if (url.pathname === "/events") {
+      if (url.searchParams.get("access") !== "write") {
+        return new Response("Unauthorized", { status: 401 });
+      }
       return Response.json(this.events);
     }
 
@@ -164,8 +200,16 @@ export class TimecodeRelay extends DurableObject {
           canWrite?: boolean;
           sessionId?: string;
           orgId?: string;
+          authClaim?: LiveSessionAuthorityClaim | null;
         } | null;
         if (!attachment?.canWrite) return;
+        if (
+          attachment.authClaim
+          && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"))
+        ) {
+          ws.close(4403, "Timecode access changed");
+          return;
+        }
         if (attachment.orgId) this.orgId = attachment.orgId;
         await this.handleCommand(msg.action, msg.payload, attachment.sessionId);
       }
@@ -181,11 +225,18 @@ export class TimecodeRelay extends DurableObject {
       this.previousFeedFrame = null;
       this.state.running = false;
       await this.persist();
-      this.broadcastState();
+      await this.broadcastState();
     }
   }
 
   webSocketError() {}
+
+  private readAuthorityClaim(url: URL): LiveSessionAuthorityClaim | null {
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    if (!userId || !sessionId || !this.orgId) return null;
+    return { userId, sessionId, orgId: this.orgId };
+  }
 
   // ─── Command Handler ────────────────────────────────────
 
@@ -204,7 +255,7 @@ export class TimecodeRelay extends DurableObject {
         this.sendMasterStatus(sessionId, true);
         this.state.running = true;
         await this.persist();
-        this.broadcastState();
+        await this.broadcastState();
         break;
 
       case "stop":
@@ -214,7 +265,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.running = false;
         this.previousFeedFrame = null;
         await this.persist();
-        this.broadcastState();
+        await this.broadcastState();
         break;
 
       case "feed-tc": {
@@ -223,8 +274,24 @@ export class TimecodeRelay extends DurableObject {
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
         if (!isValidTimecodeFormat(format) || !tc || !isValidTimecode(tc, format)) break;
-        const totalFrames =
-          (payload.totalFrames as number) ?? timecodeToFrames(tc, format);
+        const formatChanged = format.frameRate !== this.state.format.frameRate
+          || format.dropFrame !== this.state.format.dropFrame;
+        if (formatChanged) {
+          this.state.format = format;
+          for (const event of this.events) {
+            event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
+            event.fired = false;
+            event.executionStatus = "scheduled";
+            delete event.executionError;
+            delete event.executedAt;
+          }
+          this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+          this.previousFeedFrame = null;
+          await this.broadcastEvents();
+        }
+        // The relay derives frame position from the accepted format instead of
+        // trusting a stale client-side conversion.
+        const totalFrames = timecodeToFrames(tc, format);
 
         this.state.timecode = tc;
         this.state.totalFrames = totalFrames;
@@ -243,7 +310,7 @@ export class TimecodeRelay extends DurableObject {
         if (eventFired || Date.now() - this.lastPersistedAt >= 5_000) {
           await this.persist();
         }
-        this.broadcastState();
+        await this.broadcastState();
         break;
       }
 
@@ -253,7 +320,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.running = false;
         this.previousFeedFrame = null;
         await this.persist();
-        this.broadcastState();
+        await this.broadcastState();
         break;
 
       case "set-timecode": {
@@ -269,7 +336,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.serverTime = Date.now();
         this.previousFeedFrame = null;
         await this.persist();
-        this.broadcastState();
+        await this.broadcastState();
         break;
       }
 
@@ -278,7 +345,7 @@ export class TimecodeRelay extends DurableObject {
           this.state.source = payload.source as TimecodeState["source"];
         }
         await this.persist();
-        this.broadcastState();
+        await this.broadcastState();
         break;
 
       case "set-format":
@@ -287,13 +354,16 @@ export class TimecodeRelay extends DurableObject {
           for (const event of this.events) {
             event.triggerFrame = timecodeToFrames(event.triggerTimecode, this.state.format);
             event.fired = false;
+            event.executionStatus = "scheduled";
+            delete event.executionError;
+            delete event.executedAt;
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           this.previousFeedFrame = null;
         }
         await this.persist();
-        this.broadcastState();
-        this.broadcastEvents();
+        await this.broadcastState();
+        await this.broadcastEvents();
         break;
 
       case "add-event": {
@@ -308,6 +378,9 @@ export class TimecodeRelay extends DurableObject {
         ) break;
         event.id = event.id || crypto.randomUUID();
         event.fired = false;
+        event.executionStatus = "scheduled";
+        delete event.executionError;
+        delete event.executedAt;
         event.toleranceFrames = event.toleranceFrames ?? 5;
         event.triggerFrame = timecodeToFrames(
           event.triggerTimecode,
@@ -316,7 +389,52 @@ export class TimecodeRelay extends DurableObject {
         this.events.push(event);
         this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
         await this.persist();
-        this.broadcastEvents();
+        await this.broadcastEvents();
+        break;
+      }
+
+      case "replace-event-group": {
+        const sourceKey = typeof payload?.sourceKey === "string" ? payload.sourceKey.trim() : "";
+        const rawEvents = Array.isArray(payload?.events) ? payload.events : [];
+        if (!sourceKey || sourceKey.length > 240 || rawEvents.length > 1_000) break;
+        const nextEvents: AutomationEvent[] = [];
+        let valid = true;
+        for (const raw of rawEvents) {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            valid = false;
+            break;
+          }
+          const candidate = raw as Partial<AutomationEvent>;
+          if (
+            !candidate.action
+            || !SUPPORTED_ACTIONS.has(candidate.action)
+            || !candidate.triggerTimecode
+            || !isValidTimecode(candidate.triggerTimecode, this.state.format)
+            || typeof candidate.label !== "string"
+            || candidate.label.length > 200
+            || !candidate.payload
+            || typeof candidate.payload !== "object"
+            || Array.isArray(candidate.payload)
+          ) {
+            valid = false;
+            break;
+          }
+          nextEvents.push({
+            ...(candidate as AutomationEvent),
+            id: candidate.id || crypto.randomUUID(),
+            fired: false,
+            executionStatus: "scheduled",
+            executionError: undefined,
+            executedAt: undefined,
+            toleranceFrames: candidate.toleranceFrames ?? 5,
+            triggerFrame: timecodeToFrames(candidate.triggerTimecode, this.state.format),
+            sourceKey,
+          });
+        }
+        if (!valid) break;
+        this.events = replaceAutomationEventGroup(this.events, sourceKey, nextEvents);
+        await this.persist();
+        await this.broadcastEvents();
         break;
       }
 
@@ -339,7 +457,7 @@ export class TimecodeRelay extends DurableObject {
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           await this.persist();
-          this.broadcastEvents();
+          await this.broadcastEvents();
         }
         break;
       }
@@ -350,17 +468,20 @@ export class TimecodeRelay extends DurableObject {
           (e) => e.id !== (payload.id as string)
         );
         await this.persist();
-        this.broadcastEvents();
+        await this.broadcastEvents();
         break;
       }
 
       case "reset-events":
         for (const event of this.events) {
           event.fired = false;
+          event.executionStatus = "scheduled";
+          delete event.executionError;
+          delete event.executedAt;
         }
         this.previousFeedFrame = null;
         await this.persist();
-        this.broadcastEvents();
+        await this.broadcastEvents();
         break;
 
       case "set-lyrics": {
@@ -378,7 +499,7 @@ export class TimecodeRelay extends DurableObject {
         };
         await this.persist();
         this.broadcastLyrics(this.state.lyrics);
-        this.broadcastState();
+        await this.broadcastState();
         break;
       }
 
@@ -386,7 +507,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.lyrics = null;
         await this.persist();
         this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
-        this.broadcastState();
+        await this.broadcastState();
         break;
     }
   }
@@ -399,10 +520,13 @@ export class TimecodeRelay extends DurableObject {
       for (const event of this.events) {
         if (event.fired && event.triggerFrame > totalFrames) {
           event.fired = false;
+          event.executionStatus = "scheduled";
+          delete event.executionError;
+          delete event.executedAt;
           reset = true;
         }
       }
-      if (reset) this.broadcastEvents();
+      if (reset) await this.broadcastEvents();
     }
     let fired = false;
     for (const event of this.events) {
@@ -410,9 +534,30 @@ export class TimecodeRelay extends DurableObject {
 
       if (crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames)) {
         event.fired = true;
+        event.executionStatus = "dispatching";
+        delete event.executionError;
+        await this.broadcastEvents();
         fired = true;
-        await this.executeEventAction(event);
-        this.broadcastEventFired(event);
+        try {
+          await this.executeEventAction(event);
+          event.executionStatus = "acknowledged";
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Automation action failed.";
+          event.executionStatus = "failed";
+          event.executionError = message;
+          this.logWebhookEvent({
+            source: "timecode-relay",
+            type: event.action,
+            direction: "outgoing",
+            status: "error",
+            details: message,
+            payloadSummary: sanitizePayloadSummary({ action: event.action, label: event.label }),
+          });
+          console.error(`[TimecodeRelay] Failed to execute event "${event.label}":`, error);
+        }
+        event.executedAt = Date.now();
+        await this.broadcastEventFired(event);
+        await this.broadcastEvents();
       }
     }
     return fired;
@@ -475,6 +620,33 @@ export class TimecodeRelay extends DurableObject {
         command: JSON.stringify({ action: command, ...event.payload }),
       });
       if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
+    };
+
+    const executeDeviceCommand = async () => {
+      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId, event);
+      const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
+      const status = await relay.getBridgeStatus();
+      if (!status.bridgeOnline) throw new Error("Venue Bridge is offline.");
+      if (!status.connectedTargets.includes(resolved.target)) {
+        const connected = await relay.dispatchBridgeMessage({
+          type: "connect-device",
+          protocol: resolved.protocol,
+          target: resolved.target,
+          settings: resolved.connectionSettings,
+        });
+        if (!connected.success) {
+          throw new Error(connected.error ?? `Could not connect to ${resolved.deviceName}.`);
+        }
+      }
+      const result = await relay.dispatchBridgeMessage({
+        type: "command",
+        id: `timecode-${event.id}-${crypto.randomUUID()}`,
+        protocol: resolved.protocol,
+        target: resolved.target,
+        command: resolved.command,
+      });
+      if (!result.success) throw new Error(result.error ?? `Command to ${resolved.deviceName} failed.`);
+      logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);
     };
 
     try {
@@ -639,9 +811,7 @@ export class TimecodeRelay extends DurableObject {
 
         case "device-action":
         case "lighting-scene":
-          // Device actions are forwarded to clients who execute them
-          // via their local device module connections
-          // The event-fired broadcast carries the action info
+          await executeDeviceCommand();
           break;
 
         case "lyrics-goto": {
@@ -658,15 +828,21 @@ export class TimecodeRelay extends DurableObject {
             nextLabel: typeof event.payload.nextLabel === "string" ? event.payload.nextLabel : "",
             updatedAt: Date.now(),
             manual: event.payload.manual === true,
+            generationKey: event.sourceKey,
           } satisfies LyricsDisplayState;
           this.broadcastLyrics(this.state.lyrics);
           break;
         }
 
-        case "lyrics-clear":
+        case "lyrics-clear": {
+          const generationKey = typeof event.payload.generationKey === "string"
+            ? event.payload.generationKey
+            : null;
+          if (generationKey && this.state.lyrics?.generationKey !== generationKey) break;
           this.state.lyrics = null;
           this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
           break;
+        }
 
         case "pp-trigger-slide":
           await executeProPresenterCommand("trigger-slide");
@@ -731,35 +907,42 @@ export class TimecodeRelay extends DurableObject {
         }
       }
     } catch (err) {
-      console.error(
-        `[TimecodeRelay] Failed to execute event "${event.label}":`,
-        err
-      );
+      throw err;
     }
   }
 
   // ─── Broadcasting ───────────────────────────────────────
 
-  private broadcastState(): void {
-    const msg: TimecodeWsMessage = { type: "tc-update", state: this.state };
-    this.broadcast(JSON.stringify(msg));
+  private async broadcastState(): Promise<void> {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment?.() as {
+        canWrite?: boolean;
+        authClaim?: LiveSessionAuthorityClaim | null;
+      } | null;
+      if (!(await this.socketMayReceive(ws, attachment))) continue;
+      const msg: TimecodeWsMessage = {
+        type: "tc-update",
+        state: attachment?.canWrite ? this.state : this.getDisplayState(),
+      };
+      this.send(ws, JSON.stringify(msg));
+    }
   }
 
-  private broadcastEvents(): void {
+  private async broadcastEvents(): Promise<void> {
     const msg: TimecodeWsMessage = {
       type: "events-update",
       events: this.events,
     };
-    this.broadcast(JSON.stringify(msg));
+    await this.broadcastToWriters(JSON.stringify(msg));
   }
 
-  private broadcastEventFired(event: AutomationEvent): void {
+  private async broadcastEventFired(event: AutomationEvent): Promise<void> {
     const msg: TimecodeWsMessage = {
       type: "event-fired",
       event,
       firedAt: Date.now(),
     };
-    this.broadcast(JSON.stringify(msg));
+    await this.broadcastToWriters(JSON.stringify(msg));
   }
 
   private broadcastLyrics(lyrics: LyricsDisplayState): void {
@@ -775,5 +958,37 @@ export class TimecodeRelay extends DurableObject {
         try { ws.close(1011, "Broadcast failed"); } catch {}
       }
     }
+  }
+
+  private async broadcastToWriters(data: string): Promise<void> {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment?.() as {
+        canWrite?: boolean;
+        authClaim?: LiveSessionAuthorityClaim | null;
+      } | null;
+      if (attachment?.canWrite && await this.socketMayReceive(ws, attachment)) this.send(ws, data);
+    }
+  }
+
+  private async socketMayReceive(
+    ws: WebSocket,
+    attachment: { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null } | null,
+  ): Promise<boolean> {
+    if (!attachment?.canWrite || !attachment.authClaim) return true;
+    if (await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access")) return true;
+    ws.close(4403, "Timecode access changed");
+    return false;
+  }
+
+  private send(ws: WebSocket, data: string): void {
+    try {
+      ws.send(data);
+    } catch {
+      try { ws.close(1011, "Broadcast failed"); } catch {}
+    }
+  }
+
+  private getDisplayState(): TimecodeDisplayState {
+    return projectTimecodeDisplayState(this.state);
   }
 }

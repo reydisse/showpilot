@@ -27,13 +27,16 @@ type InventoryDelegate = Prisma.ShowInventoryItemDelegate;
 function inventoryDelegate(): InventoryDelegate | undefined {
   // Older dev servers can retain a Prisma client generated before migration
   // 0025. The schedule must remain usable until that process is restarted.
-  return (getPrisma() as unknown as { showInventoryItem?: InventoryDelegate }).showInventoryItem;
+  return (getPrisma() as unknown as { showInventoryItem?: InventoryDelegate })
+    .showInventoryItem;
 }
 
 function requireInventoryDelegate(): InventoryDelegate {
   const delegate = inventoryDelegate();
   if (!delegate) {
-    throw new Error("Show inventory is unavailable until the Prisma client is regenerated and the app is restarted.");
+    throw new Error(
+      "Show inventory is unavailable until the Prisma client is regenerated and the app is restarted.",
+    );
   }
   return delegate;
 }
@@ -54,7 +57,9 @@ function parseItems(value: string | undefined): RundownItem[] {
     const parsed = JSON.parse(value) as unknown;
     const items = Array.isArray(parsed)
       ? parsed
-      : parsed && typeof parsed === "object" && Array.isArray((parsed as { items?: unknown }).items)
+      : parsed &&
+          typeof parsed === "object" &&
+          Array.isArray((parsed as { items?: unknown }).items)
         ? (parsed as { items: unknown[] }).items
         : [];
     return items.filter((item): item is RundownItem => {
@@ -86,23 +91,31 @@ export type SavedRundownSource = {
   itemCount: number;
 };
 
-function parseSavedSources(value: string | undefined): SavedRundownSource[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value) as Array<{ id?: unknown; name?: unknown; itemCount?: unknown }>;
-    return parsed
-      .filter((row) => typeof row.id === "string" && typeof row.name === "string")
-      .map((row) => ({
-        id: row.id as string,
-        name: row.name as string,
-        itemCount: typeof row.itemCount === "number" ? row.itemCount : 0,
-      }));
-  } catch {
-    return [];
-  }
+function parseSavedSources(values: string[]): SavedRundownSource[] {
+  return values.flatMap((value) => {
+    try {
+      const row = JSON.parse(value) as {
+        id?: unknown;
+        name?: unknown;
+        items?: unknown;
+      };
+      if (typeof row.id !== "string" || typeof row.name !== "string") return [];
+      return [
+        {
+          id: row.id,
+          name: row.name,
+          itemCount: Array.isArray(row.items) ? row.items.length : 0,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
 }
 
-function mapInventoryRows(rows: Awaited<ReturnType<NonNullable<InventoryDelegate>["findMany"]>>): ShowInventorySummary[] {
+function mapInventoryRows(
+  rows: Awaited<ReturnType<NonNullable<InventoryDelegate>["findMany"]>>,
+): ShowInventorySummary[] {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -130,7 +143,9 @@ export async function readShowInventoryItem(orgId: string, id: string) {
 }
 
 export const listShowInventory = createServerFn({ method: "GET" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema }), value))
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), value),
+  )
   .handler(async ({ data }): Promise<ShowInventorySummary[]> => {
     await assertInventoryAccess(data.orgId);
     const delegate = requireInventoryDelegate();
@@ -151,46 +166,64 @@ export const listShowInventory = createServerFn({ method: "GET" })
 
 /** Single schedule-loader read for the catalog and legacy template sources. */
 export const getShowInventoryData = createServerFn({ method: "GET" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema }), value))
-  .handler(async ({ data }): Promise<{ inventory: ShowInventorySummary[]; archivedInventory: ShowInventorySummary[]; savedTemplates: SavedRundownSource[] }> => {
-    await assertInventoryAccess(data.orgId);
-    const prisma = getPrisma();
-    const delegate = requireInventoryDelegate();
-    let rows: Awaited<ReturnType<NonNullable<InventoryDelegate>["findMany"]>>;
-    try {
-      rows = await delegate.findMany({
-        where: { orgId: data.orgId },
-        orderBy: [{ name: "asc" }, { createdAt: "desc" }],
-      });
-    } catch (error) {
-      if (isMissingInventoryTable(error)) {
-        throw new Error("Show inventory migration 0025 has not been applied.");
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), value),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      inventory: ShowInventorySummary[];
+      archivedInventory: ShowInventorySummary[];
+      savedTemplates: SavedRundownSource[];
+    }> => {
+      await assertInventoryAccess(data.orgId);
+      const prisma = getPrisma();
+      const delegate = requireInventoryDelegate();
+      let rows: Awaited<ReturnType<NonNullable<InventoryDelegate>["findMany"]>>;
+      try {
+        rows = await delegate.findMany({
+          where: { orgId: data.orgId },
+          orderBy: [{ name: "asc" }, { createdAt: "desc" }],
+        });
+      } catch (error) {
+        if (isMissingInventoryTable(error)) {
+          throw new Error(
+            "Show inventory migration 0025 has not been applied.",
+          );
+        }
+        throw error;
       }
-      throw error;
-    }
-    const setting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: "rundown-saved-index" } },
-      select: { value: true },
-    });
-    const mapped = mapInventoryRows(rows);
-    return {
-      inventory: mapped.filter((row) => !row.archivedAt),
-      archivedInventory: mapped.filter((row) => Boolean(row.archivedAt)),
-      savedTemplates: parseSavedSources(setting?.value),
-    };
-  });
+      const settings = await prisma.appSetting.findMany({
+        where: {
+          orgId: data.orgId,
+          key: { startsWith: SAVED_TEMPLATE_PREFIX },
+        },
+        select: { value: true },
+      });
+      const mapped = mapInventoryRows(rows);
+      return {
+        inventory: mapped.filter((row) => !row.archivedAt),
+        archivedInventory: mapped.filter((row) => Boolean(row.archivedAt)),
+        savedTemplates: parseSavedSources(
+          settings.map((setting) => setting.value),
+        ),
+      };
+    },
+  );
 
 /** Existing rundown templates are valid inventory sources as well. */
 export const listSavedRundownSources = createServerFn({ method: "GET" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema }), value))
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), value),
+  )
   .handler(async ({ data }): Promise<SavedRundownSource[]> => {
     await assertInventoryAccess(data.orgId);
-    const setting = await getPrisma().appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: "rundown-saved-index" } },
+    const settings = await getPrisma().appSetting.findMany({
+      where: { orgId: data.orgId, key: { startsWith: SAVED_TEMPLATE_PREFIX } },
       select: { value: true },
     });
-    if (!setting) return [];
-    return parseSavedSources(setting.value);
+    return parseSavedSources(settings.map((setting) => setting.value));
   });
 
 export const createShowInventoryItem = createServerFn({ method: "POST" })
@@ -202,20 +235,27 @@ export const createShowInventoryItem = createServerFn({ method: "POST" })
     const sourceTemplateId = data.sourceTemplateId || null;
     if (sourceTemplateId) {
       const template = await getPrisma().appSetting.findUnique({
-        where: { orgId_key: { orgId: data.orgId, key: `${SAVED_TEMPLATE_PREFIX}${sourceTemplateId}` } },
+        where: {
+          orgId_key: {
+            orgId: data.orgId,
+            key: `${SAVED_TEMPLATE_PREFIX}${sourceTemplateId}`,
+          },
+        },
         select: { value: true },
       });
       if (!template) throw new Error("Saved rundown template not found");
       const items = parseItems(template.value);
-      rundownJson = JSON.stringify(items.map((item, index) => ({
-        ...item,
-        id: `${crypto.randomUUID()}-${index}`,
-        status: "upcoming",
-        scheduledStart: null,
-        expectedEnd: null,
-        actualStart: null,
-        actualEnd: null,
-      })));
+      rundownJson = JSON.stringify(
+        items.map((item, index) => ({
+          ...item,
+          id: `${crypto.randomUUID()}-${index}`,
+          status: "upcoming",
+          scheduledStart: null,
+          expectedEnd: null,
+          actualStart: null,
+          actualEnd: null,
+        })),
+      );
     }
     const row = await delegate.create({
       data: {
@@ -232,18 +272,28 @@ export const createShowInventoryItem = createServerFn({ method: "POST" })
   });
 
 export const archiveShowInventoryItem = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value))
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value),
+  )
   .handler(async ({ data }) => {
     await assertInventoryAccess(data.orgId, true);
     const delegate = requireInventoryDelegate();
-    const row = await delegate.findFirst({ where: { id: data.id, orgId: data.orgId, archivedAt: null }, select: { id: true } });
+    const row = await delegate.findFirst({
+      where: { id: data.id, orgId: data.orgId, archivedAt: null },
+      select: { id: true },
+    });
     if (!row) throw new Error("Show inventory item not found");
-    await delegate.update({ where: { id: row.id }, data: { archivedAt: new Date() } });
+    await delegate.update({
+      where: { id: row.id },
+      data: { archivedAt: new Date() },
+    });
     return { ok: true as const };
   });
 
 export const restoreShowInventoryItem = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value))
+  .inputValidator((value: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value),
+  )
   .handler(async ({ data }) => {
     await assertInventoryAccess(data.orgId, true);
     const delegate = requireInventoryDelegate();
@@ -252,6 +302,9 @@ export const restoreShowInventoryItem = createServerFn({ method: "POST" })
       select: { id: true },
     });
     if (!row) throw new Error("Archived show inventory item not found");
-    await delegate.update({ where: { id: row.id }, data: { archivedAt: null } });
+    await delegate.update({
+      where: { id: row.id },
+      data: { archivedAt: null },
+    });
     return { ok: true as const };
   });

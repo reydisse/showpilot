@@ -6,6 +6,12 @@ import { checkPermission } from "@/middleware/withPermission";
 import type { Permission } from "@/lib/permissions";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
+import {
+  hashRundownPin,
+  isHashedRundownPin,
+  verifyStoredRundownPin,
+} from "@/lib/rundown-pin-crypto";
+import { RUNDOWN_PIN_SETTING_KEY } from "@/lib/rundown-pin";
 
 async function assertOrgMembership(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -32,16 +38,32 @@ export const validateRundownPin = createServerFn({ method: "POST" })
 
     const prisma = getPrisma();
     const setting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: "rundown-pin" } },
+      where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY } },
       select: { value: true },
     });
 
-    const expectedPin = setting?.value?.trim() ?? "";
-    if (!expectedPin) {
-      return { ok: true };
+    const ok = await verifyStoredRundownPin(data.pin.trim(), setting?.value);
+    if (ok && setting?.value && !isHashedRundownPin(setting.value)) {
+      await prisma.appSetting.update({
+        where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY } },
+        data: { value: await hashRundownPin(data.pin.trim()) },
+      });
     }
 
-    return { ok: data.pin.trim() === expectedPin };
+    return { ok };
+  });
+
+export const getRundownPinRequirement = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) =>
+    parseOrThrow(z.object({ orgId: idSchema }), data),
+  )
+  .handler(async ({ data }) => {
+    await assertOrgMembership(data.orgId);
+    const setting = await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY } },
+      select: { value: true },
+    });
+    return { enabled: Boolean(setting?.value.trim()) };
   });
 
 const permissionSchema = z.string().min(1).max(100);

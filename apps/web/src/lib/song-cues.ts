@@ -16,11 +16,15 @@ export function buildSongAutomationEvents(input: {
   offsetFrames?: number;
   toleranceFrames?: number;
   ppPresentationUuid?: string;
+  cueMapId?: string;
+  /** Optional deliberate hold duration. Omitted means hold until the next lyric or a manual clear. */
+  clearAfterFrames?: number | null;
 }): AutomationEvent[] {
   const offset = Math.trunc(input.offsetFrames ?? 0);
   const toleranceFrames = Math.max(0, Math.trunc(input.toleranceFrames ?? 5));
   const sorted = [...input.cues].sort((a, b) => a.triggerFrame - b.triggerFrame);
   const events: AutomationEvent[] = [];
+  const sourceKey = `song:${input.song.id}:map:${input.cueMapId ?? "default"}:target:${input.target}:offset:${offset}`;
 
   sorted.forEach((cue, index) => {
     const triggerFrame = Math.max(0, cue.triggerFrame + offset);
@@ -31,6 +35,7 @@ export function buildSongAutomationEvents(input: {
       fired: false,
       toleranceFrames,
       category: "lyrics",
+      sourceKey,
     };
     if (input.target === "native" || input.target === "both") {
       events.push({
@@ -62,20 +67,35 @@ export function buildSongAutomationEvents(input: {
     }
   });
 
-  if (sorted.length > 0 && (input.target === "native" || input.target === "both")) {
-    const clearFrame = Math.max(0, sorted[sorted.length - 1].triggerFrame + offset + Math.round(input.format.frameRate));
+  if (sorted.length > 0 && input.clearAfterFrames != null && input.clearAfterFrames >= 0) {
+    const clearFrame = Math.max(0, sorted[sorted.length - 1].triggerFrame + offset + Math.trunc(input.clearAfterFrames));
     const triggerTimecode = framesToTimecode(clearFrame, input.format);
-    events.push({
-      id: crypto.randomUUID(),
+    const commonClear = {
       triggerTimecode,
       triggerFrame: clearFrame,
-      action: "lyrics-clear",
-      payload: {},
-      label: `${input.song.title} · Clear lyrics`,
       fired: false,
       toleranceFrames,
       category: "lyrics",
-    });
+      sourceKey,
+    };
+    if (input.target === "native" || input.target === "both") {
+      events.push({
+        ...commonClear,
+        id: crypto.randomUUID(),
+        action: "lyrics-clear",
+        payload: { generationKey: sourceKey },
+        label: `${input.song.title} · Clear lyrics`,
+      });
+    }
+    if (input.target === "propresenter" || input.target === "both") {
+      events.push({
+        ...commonClear,
+        id: crypto.randomUUID(),
+        action: "pp-trigger-clear",
+        payload: {},
+        label: `${input.song.title} · Clear ProPresenter`,
+      });
+    }
   }
 
   // Array.sort is stable: paired native/ProPresenter actions retain their

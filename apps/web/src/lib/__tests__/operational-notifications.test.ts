@@ -6,13 +6,22 @@ const mocks = vi.hoisted(() => ({
   insertError: null as Error | null,
   deliverPushToUser: vi.fn(),
   deviceAlerts: true,
+  memberError: null as Error | null,
+  preferenceError: null as Error | null,
+  organizationError: null as Error | null,
 }));
 
 vi.mock("../db", () => ({
   getPrisma: () => ({
-    member: { findMany: vi.fn().mockResolvedValue([]) },
+    member: { findMany: vi.fn(async () => {
+      if (mocks.memberError) throw mocks.memberError;
+      return [{ userId: "user-1", role: "member" }];
+    }) },
     organization: {
-      findUnique: vi.fn().mockResolvedValue({ slug: "test-org" }),
+      findUnique: vi.fn(async () => {
+        if (mocks.organizationError) throw mocks.organizationError;
+        return { slug: "test-org" };
+      }),
     },
   }),
 }));
@@ -44,7 +53,10 @@ vi.mock("../notification-preferences.server", () => ({
   readRecipientNotificationPreferences: vi.fn(async (
     _orgId: string,
     userIds: string[],
-  ) => new Map(userIds.map((userId) => [userId, mocks.deviceAlerts]))),
+  ) => {
+    if (mocks.preferenceError) throw mocks.preferenceError;
+    return new Map(userIds.map((userId) => [userId, mocks.deviceAlerts]));
+  }),
 }));
 
 const event = {
@@ -65,6 +77,9 @@ describe("operational notifications", () => {
     mocks.binds.length = 0;
     mocks.insertError = null;
     mocks.deviceAlerts = true;
+    mocks.memberError = null;
+    mocks.preferenceError = null;
+    mocks.organizationError = null;
     mocks.deliverPushToUser.mockReset();
     mocks.deliverPushToUser.mockResolvedValue({ sent: 0, configured: false });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -100,4 +115,15 @@ describe("operational notifications", () => {
     expect(mocks.deliverPushToUser).not.toHaveBeenCalled();
     expect(mocks.binds[0]).toEqual(expect.arrayContaining(["schedule", 0]));
   });
+
+  it.each(["member", "preference", "organization"] as const)(
+    "contains %s preparation failures after the authoritative operation",
+    async (stage) => {
+      if (stage === "member") mocks.memberError = new Error("member lookup unavailable");
+      if (stage === "preference") mocks.preferenceError = new Error("preference lookup unavailable");
+      if (stage === "organization") mocks.organizationError = new Error("organization lookup unavailable");
+
+      await expect(notifyOperationalEvent({ ...event, includeLeadership: true })).resolves.toEqual({ notified: 0 });
+    },
+  );
 });

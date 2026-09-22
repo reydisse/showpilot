@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isEmojiReaction } from "@showpilot/shared";
 import { useQuery } from "@tanstack/react-query";
 import ArrowLeft from "lucide-react-native/icons/arrow-left";
 import Check from "lucide-react-native/icons/check";
@@ -133,6 +134,12 @@ const MessageCard = memo(function MessageCard({
   const showMeta = operational
     || !groupedWithNext
     || Boolean(message.editedAt || message.external || message.externalDelivery);
+  const imageOnly = !deleted
+    && !message.text.trim()
+    && !message.replyTo
+    && !message.poll
+    && message.attachments?.length === 1
+    && message.attachments[0]?.mimeType.startsWith("image/");
   const translateX = useRef(new Animated.Value(0)).current;
   const swipeResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => !deleted
@@ -157,6 +164,7 @@ const MessageCard = memo(function MessageCard({
       <View style={styles.swipeReplyAction}><CornerUpLeft color={styles.swipeReplyIcon.color} size={21} /><Text style={styles.swipeReplyText}>Reply</Text></View>
       <Animated.View style={[styles.swipeSurface, { transform: [{ translateX }] }]} {...swipeResponder.panHandlers}>
       <Pressable
+        accessible={false}
         accessibilityHint="Swipe right to reply. Hold for more message actions."
         accessibilityLabel={`${own ? "You" : message.senderName}: ${readableChatText(message.text) || "attachment"}`}
         delayLongPress={350}
@@ -184,6 +192,7 @@ const MessageCard = memo(function MessageCard({
           operational && styles.messageBubbleOperational,
           message.type === "alert" && styles.messageBubbleAlert,
           message.type === "cue" && styles.messageBubbleCue,
+          imageOnly && styles.messageBubbleImageOnly,
         ]}>
         {operational ? <Text style={[styles.messageKindLabel, message.type === "alert" && styles.messageKindLabelAlert]}>{message.type}</Text> : null}
         {message.replyTo && !deleted ? (
@@ -196,7 +205,7 @@ const MessageCard = memo(function MessageCard({
         {!deleted && message.attachments?.map((attachment) => {
         const isImage = attachment.mimeType.startsWith("image/");
         return (
-          <Pressable accessibilityRole="button" accessibilityLabel={`Open ${attachment.name}`} key={attachment.id} onPress={() => onOpenAttachment(attachment)} style={[styles.attachment, own && styles.attachmentOwn]}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Open ${attachment.name}`} key={attachment.id} onPress={() => onOpenAttachment(attachment)} style={[styles.attachment, own && styles.attachmentOwn, imageOnly && styles.attachmentImageOnly]}>
             {isImage ? (
               <View style={styles.attachmentImageFrame}>
                 <Image
@@ -338,6 +347,7 @@ export default function ChatScreen() {
   const [attachmentHeaders, setAttachmentHeaders] = useState<Record<string, string>>({});
   const [actionTarget, setActionTarget] = useState<MobileChatMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
+  const [customReaction, setCustomReaction] = useState("");
   const [showLatestButton, setShowLatestButton] = useState(false);
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
   const initialScrollDoneRef = useRef(false);
@@ -632,6 +642,7 @@ export default function ChatScreen() {
     try {
       await mutateReaction(message.id, emoji);
       setReactionTarget(null);
+      setCustomReaction("");
       if (!removing && organization && message.senderId) {
         void notifyMobileChatReaction({ orgId: organization.id, roomId, messageId: message.id, targetUserId: message.senderId, emoji }).catch(() => undefined);
       }
@@ -832,16 +843,16 @@ export default function ChatScreen() {
       </Modal>
 
       <Modal animationType="slide" onRequestClose={() => setRoomPickerOpen(false)} transparent visible={roomPickerOpen}>
-        <Pressable onPress={() => setRoomPickerOpen(false)} style={styles.modalBackdrop}>
-          <Pressable onPress={() => undefined} style={styles.sheet}>
-            <View style={styles.sheetHeader}><View><Text style={styles.sheetEyebrow}>CHAT ROOMS</Text><Text style={styles.sheetTitle}>Choose a conversation</Text></View><Pressable accessibilityLabel="Close room picker" onPress={() => setRoomPickerOpen(false)}><X color={colors.textMuted} size={22} /></Pressable></View>
-            {[{ id: "production", name: "Production Chat", detail: "Live crew channel" }, { id: "planning", name: "Planning Room", detail: "Seven-day planning" }].map((room) => <Pressable key={room.id} onPress={() => { router.setParams({ room: room.id, message: "" }); setRoomPickerOpen(false); }} style={[styles.roomChoice, roomId === room.id && styles.roomChoiceActive]}><Hash color={roomId === room.id ? colors.amberText : colors.textMuted} size={18} /><View style={styles.roomChoiceCopy}><Text style={styles.roomChoiceName}>{room.name}</Text><Text style={styles.roomChoiceDetail}>{room.detail}</Text></View>{roomId === room.id ? <Check color={colors.amberText} size={18} /> : null}</Pressable>)}
+        <Pressable accessible={false} onPress={() => setRoomPickerOpen(false)} style={styles.modalBackdrop}>
+          <Pressable accessible={false} onPress={() => undefined} style={styles.sheet}>
+            <View style={styles.sheetHeader}><View><Text style={styles.sheetEyebrow}>CHAT ROOMS</Text><Text style={styles.sheetTitle}>Choose a conversation</Text></View><Pressable accessibilityLabel="Close room picker" accessibilityRole="button" onPress={() => setRoomPickerOpen(false)}><X color={colors.textMuted} size={22} /></Pressable></View>
+            {[{ id: "production", name: "Production Chat", detail: "Live crew channel" }, { id: "planning", name: "Planning Room", detail: "Seven-day planning" }].map((room) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: roomId === room.id }} key={room.id} onPress={() => { router.setParams({ room: room.id, message: "" }); setRoomPickerOpen(false); }} style={[styles.roomChoice, roomId === room.id && styles.roomChoiceActive]}><Hash color={roomId === room.id ? colors.amberText : colors.textMuted} size={18} /><View style={styles.roomChoiceCopy}><Text style={styles.roomChoiceName}>{room.name}</Text><Text style={styles.roomChoiceDetail}>{room.detail}</Text></View>{roomId === room.id ? <Check color={colors.amberText} size={18} /> : null}</Pressable>)}
             <Text style={styles.sheetLabel}>DIRECT MESSAGES</Text>
             <TextInput accessibilityLabel="Search chat members" value={roomSearch} onChangeText={setRoomSearch} placeholder="Search people or roles" placeholderTextColor={colors.textFaint} style={styles.sheetInput} />
             <ScrollView contentContainerStyle={styles.memberList} keyboardShouldPersistTaps="handled">
               {memberSearchResults.map((member) => {
                 const memberRoom = directMessageRoom(currentUserId ?? "", member.userId);
-                return <Pressable key={member.userId} onPress={() => { router.setParams({ room: memberRoom, message: "" }); setRoomPickerOpen(false); }} style={[styles.roomChoice, roomId === memberRoom && styles.roomChoiceActive]}><View style={styles.avatar}><Text style={styles.avatarText}>{member.name.slice(0, 1).toUpperCase()}</Text></View><View style={styles.roomChoiceCopy}><Text style={styles.roomChoiceName}>{member.name}</Text><Text style={styles.roomChoiceDetail}>{member.role}</Text></View>{roomId === memberRoom ? <Check color={colors.amberText} size={18} /> : null}</Pressable>;
+                return <Pressable accessibilityRole="radio" accessibilityState={{ checked: roomId === memberRoom }} key={member.userId} onPress={() => { router.setParams({ room: memberRoom, message: "" }); setRoomPickerOpen(false); }} style={[styles.roomChoice, roomId === memberRoom && styles.roomChoiceActive]}><View style={styles.avatar}><Text style={styles.avatarText}>{member.name.slice(0, 1).toUpperCase()}</Text></View><View style={styles.roomChoiceCopy}><Text style={styles.roomChoiceName}>{member.name}</Text><Text style={styles.roomChoiceDetail}>{member.role}</Text></View>{roomId === memberRoom ? <Check color={colors.amberText} size={18} /> : null}</Pressable>;
               })}
             </ScrollView>
           </Pressable>
@@ -892,6 +903,10 @@ export default function ChatScreen() {
           <Pressable onPress={() => undefined} style={styles.reactionPicker}>
             <Text style={styles.reactionPickerTitle}>React to message</Text>
             <ScrollView contentContainerStyle={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityLabel={`React ${emoji}`} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</ScrollView>
+            <View style={styles.customReactionRow}>
+              <TextInput accessibilityLabel="Type or paste any emoji" maxLength={32} onChangeText={setCustomReaction} placeholder="Any emoji" placeholderTextColor={colors.textFaint} style={styles.customReactionInput} value={customReaction} />
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isEmojiReaction(customReaction) }} disabled={!isEmojiReaction(customReaction)} onPress={() => reactionTarget && void toggleReaction(reactionTarget, customReaction)} style={[styles.customReactionButton, !isEmojiReaction(customReaction) && styles.disabled]}><Text style={styles.customReactionButtonText}>Add</Text></Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -965,6 +980,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageBubbleOperational: { width: "100%", borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10 },
   messageBubbleAlert: { borderWidth: 1, borderColor: colors.red, backgroundColor: colors.redSoft },
   messageBubbleCue: { borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
+  messageBubbleImageOnly: { minWidth: 0, gap: 0, borderRadius: 14, backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 0 },
   messageKindLabel: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   messageKindLabelAlert: { color: colors.red },
   messageKindLabelOwn: { color: colors.black },
@@ -985,6 +1001,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   replyTextOwn: { color: colors.black },
   attachment: { width: 248, maxWidth: "100%", flexShrink: 1, overflow: "hidden", gap: 7, borderRadius: 12, backgroundColor: colors.stageRaised, padding: 5 },
   attachmentOwn: { backgroundColor: colors.stage },
+  attachmentImageOnly: { borderRadius: 14, backgroundColor: "transparent", padding: 0 },
   attachmentImageFrame: { position: "relative", width: "100%", height: 148, maxHeight: 148, overflow: "hidden", borderRadius: 9, backgroundColor: colors.panelStrong },
   attachmentImage: { ...StyleSheet.absoluteFillObject, width: undefined, height: undefined, backgroundColor: colors.panelStrong },
   attachmentOpenBadge: { position: "absolute", right: 8, bottom: 8, width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: colors.overlay },
@@ -1096,6 +1113,10 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   reactionPickerRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxHeight: 264 },
   reactionPickerChoice: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.panel },
   reactionPickerEmoji: { fontSize: 23 },
+  customReactionRow: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 12 },
+  customReactionInput: { minHeight: 44, flex: 1, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 14, paddingHorizontal: 12 },
+  customReactionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, backgroundColor: colors.amber, paddingHorizontal: 16 },
+  customReactionButtonText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
   addOption: { alignSelf: "flex-start", minHeight: 34, justifyContent: "center", paddingHorizontal: 4 },
   addOptionText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   pollSend: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },

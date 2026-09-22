@@ -23,6 +23,21 @@ describe("organization service wall times", () => {
     expect(formatTimeInput(iso, "America/Toronto")).toBe("09:30");
   });
 
+  it("rejects a spring-forward time that does not exist", () => {
+    expect(() => serviceTimeToIso("2026-03-08", "02:30", "America/Toronto"))
+      .toThrow("does not exist");
+  });
+
+  it("rejects a fall-back time that occurs twice", () => {
+    expect(() => serviceTimeToIso("2026-11-01", "01:30", "America/Toronto"))
+      .toThrow("occurs twice");
+  });
+
+  it("reports an invalid timezone instead of silently using the browser timezone", () => {
+    expect(() => serviceTimeToIso("2026-09-13", "09:30", "Invalid/Zone"))
+      .toThrow("configured timezone");
+  });
+
   it("uses an empty value to clear a saved time", () => {
     expect(serviceTimeToIso("2026-08-23", "", "Africa/Accra")).toBeNull();
     expect(formatTimeInput(null, "Africa/Accra")).toBe("");

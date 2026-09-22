@@ -4,20 +4,25 @@ import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } fr
 import { getPrisma } from "@/lib/db";
 import { getDisplaySettingsBySlug, type DisplaySettingsBySlug } from "@/lib/settings";
 import { formatClockFull, getTodayDateString, type ClockFormat } from "@/lib/utils";
-import type { RundownItem, NativeTimerState, RundownState } from "@/types/rundown";
+import type { NativeTimerState } from "@/types/rundown";
 import type { PPSlidePayload } from "@/lib/rundown";
 import { getRundownStateForOrg } from "@/lib/rundown";
-import { elapsedAt } from "@/lib/rundown-transport";
+import { elapsedAt, nextPlayableItem } from "@/lib/rundown-transport";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
 import { decodeStageMessage } from "@/lib/stage-message";
+import {
+  projectRundownDisplayState,
+  type RundownDisplayItem as KioskRundownItem,
+  type RundownDisplayState as KioskRundownState,
+} from "@/lib/rundown-display";
 
 // ─── Server Functions ────────────────────────────────────────
 
 const getRundownStateBySlug = createServerFn({ method: "GET" })
   .inputValidator((data: { orgSlug: string; serviceDate: string; showId?: string }) => data)
-  .handler(async ({ data }): Promise<{ state: RundownState; message: string; ppSlide: PPSlidePayload | null } | null> => {
+  .handler(async ({ data }): Promise<{ state: KioskRundownState; message: string; ppSlide: PPSlidePayload | null } | null> => {
     const prisma = getPrisma();
 
     const org = await prisma.organization.findUnique({
@@ -51,7 +56,7 @@ const getRundownStateBySlug = createServerFn({ method: "GET" })
         : null;
 
     return {
-      state,
+      state: projectRundownDisplayState(state),
       message: messageSetting?.value ?? "",
       ppSlide,
     };
@@ -70,7 +75,7 @@ type ViewMode = "timer" | "minimal" | "stage";
 /** OnTime-style color phases */
 type TimerPhase = "normal" | "alert" | "danger" | "overtime";
 
-function localizeRundownState(state: RundownState, receivedAt = Date.now()): RundownState {
+function localizeRundownState(state: KioskRundownState, receivedAt = Date.now()): KioskRundownState {
   return {
     ...state,
     timer: rebaseTimerToLocalClock(state.timer, receivedAt),
@@ -111,7 +116,7 @@ function computeElapsed(timer: NativeTimerState, now: number): number {
 
 function computeRemaining(
   timer: NativeTimerState,
-  currentItem: RundownItem | null,
+  currentItem: KioskRundownItem | null,
   now: number
 ): number {
   if (!currentItem) return 0;
@@ -184,8 +189,6 @@ const COLORS = {
 } as const;
 
 const TIMER_CSS = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
   html, body, #root {
     width: 100%;
     height: 100%;
@@ -258,7 +261,7 @@ function TimerKioskPage() {
     return "timer";
   }, []);
 
-  const [state, setState] = useState<RundownState | null>(null);
+  const [state, setState] = useState<KioskRundownState | null>(null);
   const [stageMessage, setStageMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [messageProminent, setMessageProminent] = useState(false);
@@ -582,14 +585,8 @@ function TimerKioskPage() {
   }, [items, timer?.currentItemId]);
 
   const nextItem = useMemo(() => {
-    if (!currentItem) {
-      const upcoming = items.filter((i) => i.status === "upcoming");
-      return upcoming.length > 0 ? upcoming[0] : null;
-    }
-    const currentIndex = items.findIndex((i) => i.id === currentItem.id);
-    if (currentIndex === -1 || currentIndex >= items.length - 1) return null;
-    return items[currentIndex + 1] ?? null;
-  }, [items, currentItem]);
+    return nextPlayableItem(items, timer?.currentItemId ?? null);
+  }, [items, timer?.currentItemId]);
 
   const elapsed = timer ? computeElapsed(timer, now) : 0;
   const remaining = timer ? computeRemaining(timer, currentItem, now) : 0;
@@ -680,13 +677,37 @@ function TimerKioskPage() {
 }
 
 function LyricsKiosk({ lyrics, timecode, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode?: string; isFullscreen: boolean; toggleFullscreen: () => void }) {
-  const lines = lyrics.lyrics.split(/\r?\n/).filter((line) => line.trim()).slice(0, 4);
-  const longest = Math.max(1, ...lines.map((line) => line.length));
-  const fontSize = longest > 70 ? "clamp(2rem,5vw,5.5rem)" : longest > 42 ? "clamp(2.5rem,6.5vw,7rem)" : "clamp(3rem,8vw,9rem)";
+  const lyricAreaRef = useRef<HTMLDivElement>(null);
+  const lyricTextRef = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const area = lyricAreaRef.current;
+    const text = lyricTextRef.current;
+    if (!area || !text) return;
+    // Fit the actual rendered slide, including wrapped lines. Import and manual
+    // editing can both produce more than four lines; never discard their text.
+    const fit = () => {
+      if (!area.clientWidth || !area.clientHeight) return;
+      let low = 1;
+      let high = Math.min(window.innerWidth * 0.08, 144);
+      while (high - low > 0.25) {
+        const size = (low + high) / 2;
+        text.style.fontSize = `${size}px`;
+        if (text.scrollHeight <= area.clientHeight && text.scrollWidth <= area.clientWidth) low = size;
+        else high = size;
+      }
+      text.style.fontSize = `${low}px`;
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(area);
+    let disposed = false;
+    void document.fonts.ready.then(() => { if (!disposed) fit(); });
+    return () => { disposed = true; observer.disconnect(); };
+  }, [lyrics.lyrics]);
   return <main className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-black px-[5vw] py-[4vh] text-white">
     <style>{TIMER_CSS}</style>
     <header className="flex items-start justify-between gap-4"><div><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div><button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button></header>
-    <div key={lyrics.sectionId + lyrics.updatedAt} className="flex flex-1 animate-[lyrics-in_.22s_ease-out] items-center justify-center text-center"><p className="whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ fontSize }}>{lines.join("\n")}</p></div>
+    <div ref={lyricAreaRef} className="flex min-h-0 flex-1 items-center justify-center text-center"><p ref={lyricTextRef} className="w-full whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ overflowWrap: "anywhere" }}>{lyrics.lyrics}</p></div>
     <footer className="flex items-end justify-between gap-4 text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><span>{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono">{timecode}</span> : null}</footer>
   </main>;
 }
@@ -722,7 +743,7 @@ function MinimalView({
   displayTime: string;
   phase: TimerPhase;
   phaseColors: typeof PHASE_COLORS.normal;
-  currentItem: RundownItem | null;
+  currentItem: KioskRundownItem | null;
   stageMessage: string;
   messagePriority: boolean;
   ppSlide: PPSlidePayload | null;
@@ -998,8 +1019,8 @@ function StageView({
   toggleFullscreen,
   progress,
 }: {
-  currentItem: RundownItem | null;
-  nextItem: RundownItem | null;
+  currentItem: KioskRundownItem | null;
+  nextItem: KioskRundownItem | null;
   displayTime: string;
   phase: TimerPhase;
   phaseColors: typeof PHASE_COLORS.normal;
@@ -1228,8 +1249,8 @@ function FullTimerView({
   toggleFullscreen,
   progress,
 }: {
-  currentItem: RundownItem | null;
-  nextItem: RundownItem | null;
+  currentItem: KioskRundownItem | null;
+  nextItem: KioskRundownItem | null;
   displayTime: string;
   phase: TimerPhase;
   phaseColors: typeof PHASE_COLORS.normal;

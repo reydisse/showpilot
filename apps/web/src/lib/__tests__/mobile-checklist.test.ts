@@ -36,6 +36,8 @@ interface ChecklistEntryFixture {
   checked: boolean;
   checkedBy: string | null;
   checkedAt: string | null;
+  category: string;
+  revision: number;
 }
 
 interface FakeState {
@@ -81,6 +83,8 @@ function createState(): FakeState {
       checked: false,
       checkedBy: null,
       checkedAt: null,
+      category: "visuals",
+      revision: 0,
     }],
     show: {
       id: "show-1",
@@ -115,6 +119,14 @@ function fakeDatabase(state: FakeState): MobileApiDatabase {
         if (sql.includes("FROM rundown WHERE id = ? AND orgId = ?")) {
           return (state.show.id === params[0] && state.show.orgId === params[1] ? state.show : null) as T | null;
         }
+        if (sql.startsWith("SELECT id FROM checklist_entry")) {
+          const entry = state.entries.find((candidate) => candidate.id === params[0] && candidate.orgId === params[1]);
+          return (entry ? { id: entry.id } : null) as T | null;
+        }
+        if (sql.startsWith("SELECT checked, checkedBy, checkedAt, revision FROM checklist_entry")) {
+          const entry = state.entries.find((candidate) => candidate.id === params[0] && candidate.orgId === params[1]);
+          return (entry ?? null) as T | null;
+        }
         throw new Error(`Unhandled first query: ${sql}`);
       },
       async all<T>() {
@@ -127,13 +139,16 @@ function fakeDatabase(state: FakeState): MobileApiDatabase {
                 ...entry,
                 checked: entry.checked ? 1 : 0,
                 label: template.label,
-                category: template.category,
+                category: entry.category,
                 sortOrder: template.sortOrder,
               }] : [];
             });
           return { results: results as T[] };
         }
         if (sql.includes("FROM rundown") && sql.includes("serviceDate BETWEEN")) {
+          return { results: [state.show] as T[] };
+        }
+        if (sql.includes("FROM rundown WHERE orgId = ?") && sql.includes("LIMIT 250")) {
           return { results: [state.show] as T[] };
         }
         if (sql.includes("SELECT id, label FROM checklist_template")) {
@@ -161,20 +176,30 @@ function fakeDatabase(state: FakeState): MobileApiDatabase {
           return { success: true, meta: { changes: 1 } };
         }
         if (sql.includes("INSERT OR IGNORE INTO \"checklist_entry\"")) {
-          const [id, orgId, templateId, showId, serviceDate] = params as [string, string, string, string, string];
+          const [id, orgId, templateId, showId, serviceDate, category] = params as [string, string, string, string, string, string];
           if (state.entries.some((entry) => entry.orgId === orgId && entry.showId === showId && entry.templateId === templateId)) {
             return { success: true, meta: { changes: 0 } };
           }
-          state.entries.push({ id, orgId, templateId, showId, serviceDate, checked: false, checkedBy: null, checkedAt: null });
+          state.entries.push({ id, orgId, templateId, showId, serviceDate, category, checked: false, checkedBy: null, checkedAt: null, revision: 0 });
+          return { success: true, meta: { changes: 1 } };
+        }
+        if (sql.startsWith("UPDATE checklist_entry SET category")) {
+          const [category, entryId, orgId] = params as [string, string, string];
+          const entry = state.entries.find((candidate) => candidate.id === entryId && candidate.orgId === orgId);
+          if (!entry) return { success: true, meta: { changes: 0 } };
+          entry.category = category;
           return { success: true, meta: { changes: 1 } };
         }
         if (sql.startsWith("UPDATE checklist_entry")) {
-          const [checked, checkedBy, checkedAt, entryId, orgId] = params as [number, string | null, string | null, string, string];
+          const [checked, , checkedBy, , checkedAt, , entryId, orgId, expectedRevision] = params as [number, number, string | null, number, string | null, number, string, string, number, number];
           const entry = state.entries.find((candidate) => candidate.id === entryId && candidate.orgId === orgId);
-          if (!entry) return { success: true, meta: { changes: 0 } };
-          entry.checked = Boolean(checked);
-          entry.checkedBy = checkedBy;
-          entry.checkedAt = checkedAt;
+          if (!entry || (entry.revision !== expectedRevision && entry.checked !== Boolean(checked))) return { success: true, meta: { changes: 0 } };
+          if (entry.checked !== Boolean(checked)) {
+            entry.checked = Boolean(checked);
+            entry.checkedBy = checkedBy;
+            entry.checkedAt = checkedAt;
+            entry.revision += 1;
+          }
           return { success: true, meta: { changes: 1 } };
         }
         if (sql.startsWith("DELETE FROM checklist_entry")) {
@@ -242,6 +267,17 @@ describe("mobile checklist", () => {
     });
   });
 
+  it("lists historical shows before a checklist is selected", async () => {
+    const response = await mobileRequest(
+      fakeDatabase(createState()),
+      "/api/mobile/v1/checklist/shows?orgId=org-1",
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      shows: [expect.objectContaining({ id: "show-1", serviceDate: "2026-09-06" })],
+    });
+  });
+
   it("derives the service date from the authorized show when adding an item", async () => {
     const state = createState();
     const response = await mobileRequest(
@@ -260,7 +296,7 @@ describe("mobile checklist", () => {
     const response = await mobileRequest(
       fakeDatabase(state),
       "/api/mobile/v1/checklist/entries/entry-camera/toggle?orgId=org-1",
-      { checked: true },
+      { checked: true, expectedRevision: 0 },
     );
 
     expect(response.status).toBe(200);
@@ -268,16 +304,17 @@ describe("mobile checklist", () => {
     expect(state.entries[0].checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it("retags reusable templates and removes only the selected show entry", async () => {
+  it("retags only the selected show entry and removes only that entry", async () => {
     const state = createState();
     const db = fakeDatabase(state);
     const categoryResponse = await mobileRequest(
       db,
-      "/api/mobile/v1/checklist/templates/template-camera/category?orgId=org-1",
+      "/api/mobile/v1/checklist/entries/entry-camera/category?orgId=org-1",
       { category: "lighting" },
     );
     expect(categoryResponse.status).toBe(200);
-    expect(state.templates[0].category).toBe("lighting");
+    expect(state.entries[0].category).toBe("lighting");
+    expect(state.templates[0].category).toBe("visuals");
 
     const removeResponse = await mobileRequest(
       db,

@@ -76,4 +76,24 @@ describe("mobile push registration", () => {
       params: [token, "user-1"],
     });
   });
+
+  it("transfers a device token away from every previous account on registration", async () => {
+    const calls: StatementCall[] = [];
+    const token = "ExponentPushToken[abcdefghijk]";
+    const response = await handleMobileApi(
+      new Request("https://showpilot.tech/api/mobile/v1/push-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId: "org-1", token, platform: "ios", enabled: true }),
+      }),
+      { DB: fakeDatabase(calls) },
+    );
+
+    expect(response?.status).toBe(200);
+    expect(calls).toContainEqual({
+      sql: "DELETE FROM push_subscription WHERE endpoint = ? AND userId <> ?",
+      params: [token, "user-1"],
+    });
+    expect(calls.some((call) => call.sql.startsWith("INSERT INTO push_subscription"))).toBe(true);
+  });
 });

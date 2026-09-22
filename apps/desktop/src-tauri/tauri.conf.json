@@ -7,7 +7,7 @@
     "beforeDevCommand": "pnpm -C ../web exec vite dev --port 3001 --strictPort",
     "beforeBuildCommand": "pnpm bridge:build",
     "devUrl": "http://localhost:3001",
-    "frontendDist": "https://showpilot.tech"
+    "frontendDist": "../offline"
   },
   "app": {
     "withGlobalTauri": true,

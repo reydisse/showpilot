@@ -35,6 +35,7 @@ test("every operational notification declares a preference category", () => {
 
 test("notification writes cannot bypass preference enforcement", () => {
   const bypasses = typeScriptFiles(sourceRoot)
+    .filter((path) => !path.includes(`${join("lib", "__tests__")}`))
     .filter((path) => !path.endsWith("operational-notifications.server.ts"))
     .filter((path) => /INSERT\s+INTO\s+notification\s*[\n(]/i.test(readFileSync(path, "utf8")))
     .map((path) => relative(sourceRoot, path));

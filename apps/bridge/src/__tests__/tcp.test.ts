@@ -74,6 +74,41 @@ describe("TcpConnection", () => {
     conn.disconnect();
   });
 
+  it("waits for a complete line when a response is split across packets", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server = net.createServer((socket) => {
+      socket.on("data", () => {
+        socket.write("response:");
+        setTimeout(() => socket.write("complete\r\n"), 15);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP test address");
+
+    const conn = new TcpConnection();
+    await conn.connect("127.0.0.1", address.port);
+    await expect(conn.sendCommand("1*1!\r\n")).resolves.toBe("response:complete\r\n");
+    conn.disconnect();
+  });
+
+  it("invalidates the connection after a response timeout", async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    let acceptedSocket: net.Socket | null = null;
+    server = net.createServer((socket) => { acceptedSocket = socket; });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP test address");
+
+    const conn = new TcpConnection();
+    (conn as unknown as { responseTimeout: number }).responseTimeout = 25;
+    await conn.connect("127.0.0.1", address.port);
+    await expect(conn.sendCommand("first\r\n")).rejects.toThrow("Response timeout");
+    expect(conn.isConnected()).toBe(false);
+    await expect(conn.sendCommand("second\r\n")).rejects.toThrow("Not connected");
+    (acceptedSocket as net.Socket | null)?.destroy();
+  });
+
   it("handles disconnect", async () => {
     const conn = new TcpConnection();
     await conn.connect("127.0.0.1", serverPort);

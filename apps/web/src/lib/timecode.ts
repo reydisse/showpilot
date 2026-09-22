@@ -1,4 +1,15 @@
-import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
+import type { AutomationEvent, TimecodeValue, TimecodeFormat } from "@/types/timecode";
+
+export function replaceAutomationEventGroup(
+  current: readonly AutomationEvent[],
+  sourceKey: string,
+  replacement: readonly AutomationEvent[],
+): AutomationEvent[] {
+  return [
+    ...current.filter((event) => event.sourceKey !== sourceKey),
+    ...replacement,
+  ].sort((a, b) => a.triggerFrame - b.triggerFrame);
+}
 
 /**
  * Convert a TimecodeValue to total frame count.

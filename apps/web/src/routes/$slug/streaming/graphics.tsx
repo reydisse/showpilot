@@ -25,7 +25,8 @@ import {
   updateGraphicTemplate,
   deleteGraphicTemplate,
   getActiveGraphics,
-  setActiveGraphics,
+  addActiveGraphic,
+  removeActiveGraphic,
   clearActiveGraphics,
 } from "@/lib/graphics";
 import {
@@ -120,6 +121,7 @@ function GraphicsPage() {
   const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
   const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
+  const [graphicsError, setGraphicsError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<GraphicType | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [editTemplate, setEditTemplate] = useState<typeof templates[0] | null>(null);
@@ -192,26 +194,50 @@ function GraphicsPage() {
       ? visibleTemplates
       : visibleTemplates.filter((t) => parseStyle(t.style).type === filterType);
 
-  // Toggle one graphic on/off — multiple can be live at once (e.g. panelists).
-  // We write the full desired set (absolute write) so rapid clicks can't race.
+  useEffect(() => {
+    let disposed = false;
+    const reconcile = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const current = await getActiveGraphics({ data: { orgId } });
+        if (!disposed) setActiveIds(current.map((graphic) => graphic.id));
+      } catch {}
+    };
+    const timer = setInterval(() => void reconcile(), 2_000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [orgId]);
+
+  // Send an atomic per-graphic intent. The server returns authoritative state,
+  // so stale operator windows cannot replace another operator's live set.
   const handleToggle = async (id: string) => {
-    const next = activeIds.includes(id)
-      ? activeIds.filter((x) => x !== id)
-      : [...activeIds, id];
-    setActiveIds(next);
-    await setActiveGraphics({ data: { orgId, graphicIds: next } });
+    setGraphicsError(null);
+    try {
+      const next = activeIds.includes(id)
+        ? await removeActiveGraphic({ data: { orgId, graphicId: id } })
+        : await addActiveGraphic({ data: { orgId, graphicId: id } });
+      setActiveIds(next);
+    } catch (error) {
+      setGraphicsError(error instanceof Error ? error.message : "The on-air graphic did not change.");
+      const current = await getActiveGraphics({ data: { orgId } }).catch(() => null);
+      if (current) setActiveIds(current.map((graphic) => graphic.id));
+    }
   };
 
   const handleClearAll = async () => {
-    setActiveIds([]);
-    await clearActiveGraphics({ data: { orgId } });
+    setGraphicsError(null);
+    try {
+      await clearActiveGraphics({ data: { orgId } });
+      setActiveIds([]);
+    } catch (error) {
+      setGraphicsError(error instanceof Error ? error.message : "The on-air graphics were not cleared.");
+      const current = await getActiveGraphics({ data: { orgId } }).catch(() => null);
+      if (current) setActiveIds(current.map((graphic) => graphic.id));
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (activeIds.includes(id)) {
-      const next = activeIds.filter((x) => x !== id);
-      setActiveIds(next);
-      await setActiveGraphics({ data: { orgId, graphicIds: next } });
+      setActiveIds(await removeActiveGraphic({ data: { orgId, graphicId: id } }));
     }
     await deleteGraphicTemplate({ data: { orgId, id } });
     router.invalidate();
@@ -302,6 +328,11 @@ function GraphicsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+        {graphicsError ? (
+          <div role="alert" className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+            {graphicsError}
+          </div>
+        ) : null}
         {/* ProPresenter slide import */}
         {canConfigureGraphics && (
           <section className="rounded-xl border border-board-border bg-board-card/60 p-4">

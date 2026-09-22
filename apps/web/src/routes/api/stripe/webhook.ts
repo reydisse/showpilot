@@ -45,7 +45,7 @@ function subscriptionPlan(
   return priceId ? planFromPriceId(priceId, priceIds) : null;
 }
 
-async function handleCheckoutCompleted(
+export async function handleCheckoutCompleted(
   stripe: Stripe,
   session: Stripe.Checkout.Session,
   priceIds: Parameters<typeof planFromPriceId>[1],
@@ -72,6 +72,18 @@ async function handleCheckoutCompleted(
   }
 
   const prisma = getPrisma();
+  const current = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { stripeSubscriptionId: true },
+  });
+  if (!current) return;
+  if (current.stripeSubscriptionId && current.stripeSubscriptionId !== subscription.id) {
+    const currentSubscription = await stripe.subscriptions.retrieve(current.stripeSubscriptionId);
+    if (currentSubscription.created > subscription.created) {
+      console.error("[stripe] checkout.session.completed: ignored older subscription", subscription.id);
+      return;
+    }
+  }
   await prisma.organization.update({
     where: { id: orgId },
     data: {
@@ -84,26 +96,19 @@ async function handleCheckoutCompleted(
   });
 }
 
-async function handleSubscriptionUpdated(
+export async function handleSubscriptionUpdated(
   subscription: Stripe.Subscription,
   priceIds: Parameters<typeof planFromPriceId>[1],
 ) {
   const prisma = getPrisma();
-  const customerId =
-    typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id ?? null;
-
-  let org = await prisma.organization.findFirst({
+  const org = await prisma.organization.findFirst({
     where: { stripeSubscriptionId: subscription.id },
     select: { id: true },
   });
-  if (!org && customerId) {
-    org = await prisma.organization.findUnique({
-      where: { stripeCustomerId: customerId },
-      select: { id: true },
-    });
-  }
   if (!org) {
-    console.error("[stripe] subscription.updated: no org found", subscription.id);
+    // An update for an old/replaced subscription must never reclaim the org
+    // merely because it belongs to the same Stripe customer.
+    console.error("[stripe] subscription.updated: subscription is not current", subscription.id);
     return;
   }
 
@@ -118,7 +123,7 @@ async function handleSubscriptionUpdated(
   });
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+export async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const prisma = getPrisma();
   const result = await prisma.organization.updateMany({
     where: { stripeSubscriptionId: subscription.id },

@@ -82,6 +82,51 @@ describe("NotificationInbox", () => {
     expect(screen.getByText(/Assignments, mentions, and operational alerts/)).not.toBe(undefined);
   });
 
+  it("loads older history with a stable cursor and keeps both pages", async () => {
+    const cursor = { createdAt: "2026-09-20T12:00:00.000Z", id: "notification-30" };
+    mocks.getNotifications
+      .mockResolvedValueOnce({
+        unread: 2,
+        nextCursor: cursor,
+        notifications: [{
+          id: "notification-new",
+          type: "assignment",
+          severity: "info",
+          title: "Newest alert",
+          message: "New",
+          actionUrl: "schedule",
+          source: "new",
+          createdAt: "2026-09-21T12:00:00.000Z",
+          readAt: null,
+        }],
+      })
+      .mockResolvedValueOnce({
+        unread: 2,
+        nextCursor: null,
+        notifications: [{
+          id: "notification-old",
+          type: "assignment",
+          severity: "info",
+          title: "Older alert",
+          message: "Old",
+          actionUrl: "schedule",
+          source: "old",
+          createdAt: cursor.createdAt,
+          readAt: null,
+        }],
+      });
+
+    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Load older notifications" }));
+
+    await waitFor(() => expect(mocks.getNotifications).toHaveBeenLastCalledWith({
+      data: { orgId: "org-1", cursor },
+    }));
+    expect(screen.getByText("Newest alert")).not.toBe(undefined);
+    expect(await screen.findByText("Older alert")).not.toBe(undefined);
+    expect(screen.queryByRole("button", { name: "Load older notifications" })).toBeNull();
+  });
+
   it("always keeps the inbox on and exposes one device-alert choice per category", async () => {
     mocks.getNotifications.mockResolvedValue({ notifications: [], unread: 0 });
     mocks.getPreferences.mockResolvedValue([{ category: "schedule", deviceAlerts: true }]);

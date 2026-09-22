@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { AccessGrantSyncController } from "@/components/layout/AccessGrantSyncController";
 import { hasEffectivePermission } from "@/lib/app-permissions";
+import { TimecodeProvider } from "@/components/timecode/TimecodeContext";
 
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
@@ -77,6 +78,11 @@ function OrgLayout() {
   const isCheckin = matchRoute({ to: "/$slug/checkin" });
   const isRundown = matchRoute({ to: "/$slug/rundown" });
   const standaloneRoute = isBoard || isCrewChat || isCheckin;
+  const canUseTimecode = hasEffectivePermission(
+    context.role,
+    context.grantedPermissions,
+    "timecode:access",
+  );
 
   // Standalone routes — no sidebar, full screen
   if (standaloneRoute) {
@@ -85,6 +91,7 @@ function OrgLayout() {
 
     return (
       <ThemeProvider>
+        <TimecodeProvider enabled={canUseTimecode} orgId={context.orgId}>
         <div className={wrapperClassName}>
           <AccessGrantSyncController
             orgId={context.orgId}
@@ -92,12 +99,14 @@ function OrgLayout() {
           />
           <Outlet />
         </div>
+        </TimecodeProvider>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider>
+      <TimecodeProvider enabled={canUseTimecode} orgId={context.orgId}>
       <AppShell
         orgId={context.orgId}
         slug={context.slug}
@@ -114,6 +123,7 @@ function OrgLayout() {
         />
         <Outlet />
       </AppShell>
+      </TimecodeProvider>
     </ThemeProvider>
   );
 }

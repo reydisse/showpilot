@@ -11,9 +11,12 @@ class TestModule extends BaseDeviceModule {
   connectCalled = false;
   disconnectCalled = false;
   shouldFailConnect = false;
+  connectGate: Promise<void> | null = null;
+  disconnectCalls = 0;
 
   protected async doConnect(): Promise<void> {
     this.connectCalled = true;
+    if (this.connectGate) await this.connectGate;
     if (this.shouldFailConnect) {
       throw new Error("Connection refused");
     }
@@ -21,6 +24,7 @@ class TestModule extends BaseDeviceModule {
 
   protected doDisconnect(): void {
     this.disconnectCalled = true;
+    this.disconnectCalls++;
   }
 
   getActions(): ModuleAction[] {
@@ -118,6 +122,38 @@ describe("BaseDeviceModule", () => {
   it("does not call doDisconnect if already disconnected", () => {
     module.disconnect();
     expect(module.disconnectCalled).toBe(false);
+  });
+
+  it("does not reconnect when an obsolete connection finishes after disconnect", async () => {
+    let finishConnect!: () => void;
+    module.connectGate = new Promise<void>((resolve) => { finishConnect = resolve; });
+    const statuses: DeviceConnectionStatus[] = [];
+    module.onStatusChange((status) => statuses.push(status));
+
+    const connecting = module.connect();
+    module.disconnect();
+    finishConnect();
+    await connecting;
+
+    expect(module.connectionStatus()).toBe("disconnected");
+    expect(statuses).toEqual(["connecting", "disconnected"]);
+    // Immediate disconnect plus cleanup after the late transport completion.
+    expect(module.disconnectCalls).toBe(2);
+  });
+
+  it("serializes a reconnect behind cleanup of the obsolete attempt", async () => {
+    let finishFirst!: () => void;
+    module.connectGate = new Promise<void>((resolve) => { finishFirst = resolve; });
+    const first = module.connect();
+    module.disconnect();
+    module.connectGate = null;
+    const second = module.connect();
+
+    expect(module.connectionStatus()).toBe("connecting");
+    finishFirst();
+    await Promise.all([first, second]);
+
+    expect(module.connectionStatus()).toBe("connected");
   });
 
   // ─── Listener management ────────────────────────────────

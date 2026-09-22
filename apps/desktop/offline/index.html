@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' asset:; script-src 'self'; style-src 'self'; connect-src https://showpilot.tech; img-src 'self' data: https://showpilot.tech" />
+    <title>ShowPilot Desktop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-live="polite">
+      <section class="boot-card">
+        <div class="brand-mark">SP</div>
+        <p class="eyebrow">SHOWPILOT DESKTOP</p>
+        <h1>Opening your production workspace…</h1>
+        <p class="muted">Checking the secure cloud connection and the latest local show snapshot.</p>
+        <div class="spinner" aria-label="Loading"></div>
+      </section>
+    </main>
+    <script src="offline.js"></script>
+  </body>
+</html>

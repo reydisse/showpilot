@@ -38,6 +38,7 @@ import {
   createMobileRundown,
   getMobileRundown,
   getMobileRundownTemplates,
+  isRundownPinRequired,
   loadMobilePreviousRundown,
   loadMobileRundownTemplate,
   saveMobileRundownTemplate,
@@ -46,10 +47,12 @@ import {
   type MobileRundown,
   type RundownItem,
 } from "@/lib/mobile-api";
+import { setStoredRundownPin } from "@/lib/rundown-pin";
 import { formatTimer, timerElapsed } from "@/lib/rundown-state";
 import { shareRundownCsv, shareRundownPdf } from "@/lib/rundown-export";
 import { formatServiceTime, serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
+import { rundownItemNumbers } from "@showpilot/shared";
 
 function titleFor(show: MobileRundown["show"]) {
   return show.name.trim() || "Untitled show";
@@ -174,12 +177,14 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
   // Falling back to the HTTP snapshot would resurrect items deleted elsewhere.
   const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
   const items = relayIsAuthoritative ? relay.items : detail.items;
+  const itemNumbers = rundownItemNumbers(items);
   const timer = relayIsAuthoritative ? relay.timer : detail.timer;
-  const canEdit = detail.canEdit || detail.canControl;
+  const canAuthor = detail.canEdit;
+  const canUseLiveRelay = detail.canEdit || detail.canControl;
   const templatesQuery = useQuery({
     queryKey: ["mobile-rundown-templates", orgId, detail.show.id],
     queryFn: () => getMobileRundownTemplates(orgId, detail.show.id),
-    enabled: canEdit,
+    enabled: canAuthor,
   });
   const proPresenter = useMutation({
     mutationFn: (command: "next" | "previous" | "clear") => controlMobileProPresenter({
@@ -200,11 +205,12 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
   });
   const liveReady = relay.status === "connected" && relay.hydrated && sameRoom;
   const controlsEnabled = detail.canControl && liveReady;
-  const editControlsEnabled = canEdit && liveReady;
+  const editControlsEnabled = canAuthor && liveReady;
+  const liveWriteEnabled = canUseLiveRelay && liveReady;
 
   useEffect(() => {
     if (!relay.hydrated || seededRef.current) return;
-    if (sameRoom && !relay.initialized && canEdit) {
+    if (sameRoom && !relay.initialized && canUseLiveRelay) {
       seededRef.current = true;
       relay.seedState(detail.items, detail.timer, {
         serviceName: detail.show.name,
@@ -212,10 +218,10 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
         scheduledCallTime: detail.show.scheduledCallTime,
         location: detail.show.location,
       });
-    } else if (sameRoom && (relay.initialized || !canEdit)) {
+    } else if (sameRoom && (relay.initialized || !canUseLiveRelay)) {
       seededRef.current = true;
     }
-  }, [canEdit, detail, relay, sameRoom]);
+  }, [canUseLiveRelay, detail, relay, sameRoom]);
 
   const displayStageMessage = relay.stageMessage.replace(/^!!PRIORITY!!/, "");
   const stageMessagePriority = relay.stageMessage.startsWith("!!PRIORITY!!");
@@ -360,13 +366,13 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
               {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
               <Text style={[styles.connectionText, relay.status === "connected" && styles.connected]}>{connectionText}</Text>
               <View style={styles.permissionBadge}>
-                <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : canEdit ? "EDITOR" : "VIEW ONLY"}</Text>
+                <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : canAuthor ? "EDITOR" : "VIEW ONLY"}</Text>
               </View>
               <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
-              {canEdit ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
+              {canAuthor ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
             <TimerPanel
-              canEdit={canEdit}
+              canEdit={canAuthor}
               canControl={detail.canControl}
               controlsEnabled={controlsEnabled}
               editControlsEnabled={editControlsEnabled}
@@ -375,7 +381,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
               timer={timer}
             />
             {relay.lastError ? <Text style={styles.syncError}>{relay.lastError}</Text> : null}
-            {canEdit && detail.proPresenter.configured ? <View style={styles.ppCard}>
+            {canUseLiveRelay && detail.proPresenter.configured ? <View style={styles.ppCard}>
               <View style={styles.ppHeading}><View style={styles.ppTitleRow}><Presentation color={colors.amberText} size={17} /><Text style={styles.ppTitle}>PROPRESENTER</Text></View><Text style={[styles.ppStatus, detail.proPresenter.connected && styles.ppStatusConnected]}>{detail.proPresenter.connected ? "CONNECTED" : detail.proPresenter.bridgeOnline ? "READY" : "BRIDGE OFFLINE"}</Text></View>
               {relay.ppPreviewSlide ? <View style={styles.ppPreview}><Text numberOfLines={1} style={styles.ppPresentation}>{relay.ppPreviewSlide.presentationName || "Current slide"}</Text><Text numberOfLines={5} style={styles.ppText}>{relay.ppPreviewSlide.text || "Blank slide"}</Text>{relay.ppPreviewSlide.notes ? <Text numberOfLines={2} style={styles.ppNotes}>{relay.ppPreviewSlide.notes}</Text> : null}</View> : <Text style={styles.ppEmpty}>No active slide preview. Commands will connect through the Venue Bridge.</Text>}
               <Pressable
@@ -398,15 +404,15 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
                 </View>
               </> : null}
             </View> : null}
-            {canEdit ? <View style={styles.messageCard}>
+            {canUseLiveRelay ? <View style={styles.messageCard}>
               <View style={styles.messageHeading}><Text style={styles.messageTitle}>STAGE MESSAGE</Text>{relay.stageMessage ? <Text style={styles.messageLive}>LIVE</Text> : null}</View>
-              <TextInput accessibilityLabel="Stage message" editable={editControlsEnabled} maxLength={1_980} multiline onChangeText={setMessage} placeholder="Send a message to confidence displays" placeholderTextColor={colors.textFaint} style={styles.messageInput} value={message} />
-              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: messagePriority, disabled: !editControlsEnabled }} disabled={!editControlsEnabled} onPress={() => setMessagePriority((current) => !current)} style={[styles.priorityToggle, messagePriority && styles.priorityToggleActive]}><View style={[styles.priorityDot, messagePriority && styles.priorityDotActive]} /><View style={styles.priorityCopy}><Text style={[styles.priorityTitle, messagePriority && styles.priorityTitleActive]}>Priority message</Text><Text style={styles.priorityHint}>Use the urgent treatment on confidence displays.</Text></View></Pressable>
-              <View style={styles.messageActions}><AppButton disabled={!editControlsEnabled || !message.trim()} label="Send message" onPress={() => relay.sendCommand("stage-message", { message: `${messagePriority ? "!!PRIORITY!!" : ""}${message.trim()}` })} style={styles.messageButton} /><Pressable accessibilityRole="button" disabled={!editControlsEnabled || !relay.stageMessage} onPress={() => relay.sendCommand("stage-clear")} style={[styles.clearMessage, (!editControlsEnabled || !relay.stageMessage) && styles.disabled]}><Text style={styles.clearMessageText}>Clear</Text></Pressable></View>
+              <TextInput accessibilityLabel="Stage message" editable={liveWriteEnabled} maxLength={1_980} multiline onChangeText={setMessage} placeholder="Send a message to confidence displays" placeholderTextColor={colors.textFaint} style={styles.messageInput} value={message} />
+              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: messagePriority, disabled: !liveWriteEnabled }} disabled={!liveWriteEnabled} onPress={() => setMessagePriority((current) => !current)} style={[styles.priorityToggle, messagePriority && styles.priorityToggleActive]}><View style={[styles.priorityDot, messagePriority && styles.priorityDotActive]} /><View style={styles.priorityCopy}><Text style={[styles.priorityTitle, messagePriority && styles.priorityTitleActive]}>Priority message</Text><Text style={styles.priorityHint}>Use the urgent treatment on confidence displays.</Text></View></Pressable>
+              <View style={styles.messageActions}><AppButton disabled={!liveWriteEnabled || !message.trim()} label="Send message" onPress={() => relay.sendCommand("stage-message", { message: `${messagePriority ? "!!PRIORITY!!" : ""}${message.trim()}` })} style={styles.messageButton} /><Pressable accessibilityRole="button" disabled={!liveWriteEnabled || !relay.stageMessage} onPress={() => relay.sendCommand("stage-clear")} style={[styles.clearMessage, (!liveWriteEnabled || !relay.stageMessage) && styles.disabled]}><Text style={styles.clearMessageText}>Clear</Text></Pressable></View>
             </View> : relay.stageMessage ? <View style={[styles.activeMessage, stageMessagePriority && styles.activeMessagePriority]}><Send color={stageMessagePriority ? colors.red : colors.amberText} size={16} /><Text style={[styles.activeMessageText, stageMessagePriority && styles.activeMessagePriorityText]}>{displayStageMessage}</Text></View> : null}
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>RUNDOWN</Text>
-              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canEdit ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => Alert.alert("Clear this rundown?", "Every item will be removed for all operators. Save a template first if you may need it again.", [{ text: "Keep rundown", style: "cancel" }, { text: "Clear all", style: "destructive", onPress: () => relay.sendCommand("clear-all") }])} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item: null, index: items.length })} style={[styles.addItem, !editControlsEnabled && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
+              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => Alert.alert("Clear this rundown?", "Every item will be removed for all operators. Save a template first if you may need it again.", [{ text: "Keep rundown", style: "cancel" }, { text: "Clear all", style: "destructive", onPress: () => relay.sendCommand("clear-all") }])} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item: null, index: items.length })} style={[styles.addItem, !editControlsEnabled && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
             </View>
           </View>
         )}
@@ -418,10 +424,10 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
             <View key={item.id} style={[header ? styles.itemHeader : styles.item, active && styles.itemActive]}>
               <Pressable accessibilityRole={!header && detail.canControl ? "button" : undefined} accessibilityState={!header && detail.canControl ? { disabled: !controlsEnabled } : undefined} disabled={header || !controlsEnabled} onPress={() => startItem(item)} style={({ pressed }) => [styles.itemMain, pressed && styles.itemPressed]}>
               {header ? (
-                <Text style={styles.headerTitle}>{item.title}</Text>
+                <Text style={styles.headerTitle}>{itemNumbers.get(item.id)}  {item.title}</Text>
               ) : (
                 <>
-                  <View style={[styles.itemIndex, active && styles.itemIndexActive]}><Text style={[styles.itemIndexText, active && styles.itemIndexTextActive]}>{index + 1}</Text></View>
+                  <View style={[styles.itemIndex, active && styles.itemIndexActive]}><Text style={[styles.itemIndexText, active && styles.itemIndexTextActive]}>{itemNumbers.get(item.id)}</Text></View>
                   <View style={styles.itemCopy}>
                     <Text numberOfLines={2} style={[styles.itemTitle, active && styles.itemTitleActive]}>{item.title}</Text>
                     <Text style={styles.itemMeta}>{formatTimer(item.duration)}{item.assignee ? `  ·  ${item.assignee}` : ""}</Text>
@@ -430,7 +436,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
                 </>
               )}
               </Pressable>
-              {canEdit ? <Pressable accessibilityLabel={`Edit ${item.title}`} accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item, index })} style={[styles.editItem, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={16} /></Pressable> : null}
+              {canAuthor ? <Pressable accessibilityLabel={`Edit ${item.title}`} accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item, index })} style={[styles.editItem, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={16} /></Pressable> : null}
             </View>
           );
         }}
@@ -534,6 +540,8 @@ export default function ShowDetailScreen() {
   const { showId } = useLocalSearchParams<{ showId: string }>();
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
+  const [pin, setPin] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
   const query = useQuery({
     queryKey: ["mobile-rundown", organization?.id, showId],
     queryFn: () => getMobileRundown(organization!.id, showId),
@@ -545,6 +553,39 @@ export default function ShowDetailScreen() {
   }
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization) return <Redirect href="/organizations" />;
+  if (isRundownPinRequired(query.error)) {
+    const unlock = async () => {
+      if (!pin.trim() || unlocking) return;
+      setUnlocking(true);
+      try {
+        await setStoredRundownPin(organization.id, pin);
+        await query.refetch();
+      } finally {
+        setUnlocking(false);
+      }
+    };
+    return (
+      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Rundown PIN required">
+        <View style={styles.pinCard}>
+          <Text style={styles.pinCopy}>Enter your organization’s rundown PIN to open show details and live controls.</Text>
+          <TextInput
+            accessibilityLabel="Rundown PIN"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="number-pad"
+            onChangeText={setPin}
+            onSubmitEditing={() => void unlock()}
+            placeholder="PIN"
+            placeholderTextColor={colors.textFaint}
+            secureTextEntry
+            style={styles.pinInput}
+            value={pin}
+          />
+          <AppButton disabled={!pin.trim() || unlocking} label={unlocking ? "Checking…" : "Unlock rundown"} onPress={() => void unlock()} />
+        </View>
+      </Page>
+    );
+  }
   if (query.error || !query.data) {
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Could not open show">
@@ -558,6 +599,9 @@ export default function ShowDetailScreen() {
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   loading: { flex: 1 },
+  pinCard: { gap: 14, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.large },
+  pinCopy: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21 },
+  pinInput: { minHeight: 50, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily: "monospace", fontSize: 20, letterSpacing: 4, paddingHorizontal: 16, textAlign: "center" },
   connectionRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8 },
   connectionText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "700" },
   connected: { color: colors.green },

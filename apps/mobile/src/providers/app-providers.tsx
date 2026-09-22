@@ -5,6 +5,8 @@ import { useEffect, useState, type PropsWithChildren } from "react";
 import { AppState, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { isNativePushConfigured } from "@/lib/native-notifications";
+import { authClient } from "@/lib/auth-client";
+import { clearQueriesForIdentityTransition } from "@/lib/identity-query-cache";
 import { useAppTheme } from "@/theme/tokens";
 
 if (Platform.OS !== "web" && isNativePushConfigured()) {
@@ -35,6 +37,7 @@ if (Platform.OS !== "web") {
 
 export function AppProviders({ children }: PropsWithChildren) {
   const { colors } = useAppTheme();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const [queryClient] = useState(
     () => new QueryClient({
       defaultOptions: {
@@ -48,6 +51,19 @@ export function AppProviders({ children }: PropsWithChildren) {
       },
     }),
   );
+  const [lastSettledUserId, setLastSettledUserId] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (sessionPending) return;
+    const currentUserId = session?.user.id ?? null;
+    if (lastSettledUserId === undefined) {
+      setLastSettledUserId(currentUserId);
+      return;
+    }
+    if (lastSettledUserId === currentUserId) return;
+    void clearQueriesForIdentityTransition(queryClient, lastSettledUserId, currentUserId);
+    setLastSettledUserId(currentUserId);
+  }, [lastSettledUserId, queryClient, session?.user.id, sessionPending]);
 
   useEffect(() => {
     if (Platform.OS === "android") void SystemUI.setBackgroundColorAsync(colors.stage);

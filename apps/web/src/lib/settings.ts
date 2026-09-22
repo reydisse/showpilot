@@ -14,11 +14,32 @@ import { getTodayDateString } from "@/lib/utils";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { readMemberVisibleOrgSettings } from "@/lib/settings-read.server";
 import { getD1 } from "@/lib/d1";
+import {
+  appendWebhookEvent,
+  MAX_WEBHOOK_EVENTS,
+  normalizeWebhookEvent,
+  WEBHOOK_EVENTS_KEY,
+  type WebhookEventLogItem,
+} from "@/lib/webhook-events";
+import { hashRundownPin } from "@/lib/rundown-pin-crypto";
+import { RUNDOWN_PIN_SETTING_KEY } from "@/lib/rundown-pin";
+
+export { appendWebhookEvent, sanitizePayloadSummary } from "@/lib/webhook-events";
+export type { WebhookEventInput, WebhookEventLogItem } from "@/lib/webhook-events";
 
 // AppSetting values can be JSON blobs (templates, rundown snapshots) —
 // bound generously but finitely.
 const settingKeySchema = z.string().min(1).max(100);
 const settingValueSchema = z.string().max(200_000);
+const genericSettingKeySchema = settingKeySchema.refine(
+  (key) => key !== RUNDOWN_PIN_SETTING_KEY,
+  "Use the dedicated rundown PIN control.",
+);
+const rundownPinSchema = z.string().regex(/^\d{4,8}$/u, "PIN must contain 4 to 8 digits.");
+const rundownPinUpdateSchema = z.discriminatedUnion("action", [
+  z.object({ orgId: idSchema, action: z.literal("set"), pin: rundownPinSchema }),
+  z.object({ orgId: idSchema, action: z.literal("disable") }),
+]);
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -51,122 +72,6 @@ async function assertApiOrWebhookPermission(orgId: string) {
   if (!hasAnyPermission(role, ["settings:api_keys", "settings:webhooks"])) {
     throw new Error("Forbidden");
   }
-}
-
-const WEBHOOK_EVENTS_KEY = "webhook-events";
-const MAX_WEBHOOK_EVENTS = 50;
-
-interface StoredWebhookEvent {
-  id?: string;
-  timestamp?: string;
-  source?: string;
-  type?: string;
-  direction?: "incoming" | "outgoing" | "system";
-  status?: "success" | "error" | "info" | "warning";
-  details?: string;
-  payloadSummary?: string;
-}
-
-export interface WebhookEventLogItem {
-  id: string;
-  timestamp: string;
-  source: string;
-  type: string;
-  direction: "incoming" | "outgoing" | "system";
-  status: "success" | "error" | "info" | "warning";
-  details: string;
-  payloadSummary?: string;
-}
-
-export interface WebhookEventInput
-  extends Omit<WebhookEventLogItem, "id" | "timestamp"> {}
-
-export function sanitizePayloadSummary(payload: unknown): string | undefined {
-  if (typeof payload === "string") {
-    if (!payload.trim()) return undefined;
-    return payload.length > 180 ? `${payload.slice(0, 177)}...` : payload;
-  }
-
-  if (payload == null) return undefined;
-
-  try {
-    const json = JSON.stringify(payload);
-    if (!json) return undefined;
-    return json.length > 180 ? `${json.slice(0, 177)}...` : json;
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizeWebhookEvent(raw: unknown, fallbackIndex: number): WebhookEventLogItem | null {
-  const event = raw as StoredWebhookEvent | null;
-  if (!event || typeof event !== "object") return null;
-
-  const direction =
-    event.direction === "incoming" || event.direction === "outgoing" || event.direction === "system"
-      ? event.direction
-      : "system";
-  const status =
-    event.status === "success" || event.status === "error" || event.status === "warning"
-      ? event.status
-      : "info";
-  const timestamp =
-    typeof event.timestamp === "string" && !Number.isNaN(Date.parse(event.timestamp))
-      ? event.timestamp
-      : new Date().toISOString();
-
-  return {
-    id:
-      event.id && event.id.length > 0
-        ? event.id
-        : `webhook-event-${Date.now()}-${fallbackIndex}`,
-    timestamp,
-    source: event.source && event.source.trim().length > 0 ? event.source : "system",
-    type: event.type && event.type.trim().length > 0 ? event.type : "webhook-event",
-    direction,
-    status,
-    details: event.details?.trim() ? event.details : "No details provided.",
-    payloadSummary:
-      event.payloadSummary || sanitizePayloadSummary((event as Record<string, unknown>).payload),
-  };
-}
-
-export async function appendWebhookEvent(
-  prisma: ReturnType<typeof getPrisma>,
-  orgId: string,
-  event: WebhookEventInput,
-) {
-  const existing = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
-  });
-
-  const parsed = existing?.value ? (() => {
-    try {
-      return JSON.parse(existing.value);
-    } catch {
-      return [];
-    }
-  })() : [];
-
-  const previousEvents = Array.isArray(parsed) ? (parsed as unknown[]) : [];
-  const normalizedEvents = previousEvents
-    .map((entry, index) => normalizeWebhookEvent(entry, index))
-    .filter((entry): entry is WebhookEventLogItem => Boolean(entry));
-
-  const nextEvents: WebhookEventLogItem[] = [
-    {
-      ...event,
-      id: `webhook-event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: new Date().toISOString(),
-    },
-    ...normalizedEvents,
-  ];
-
-  await prisma.appSetting.upsert({
-    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
-    update: { value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
-    create: { orgId, key: WEBHOOK_EVENTS_KEY, value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
-  });
 }
 
 // Plan gating: configuring an integration requires a plan that includes
@@ -236,9 +141,31 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
     });
     return Object.fromEntries(
       settings
+        .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY)
         .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
         .map((setting) => [setting.key, setting.value]),
     );
+  });
+
+export const updateRundownPinProtection = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(rundownPinUpdateSchema, data))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, "settings:members");
+    const prisma = getPrisma();
+    if (data.action === "disable") {
+      await prisma.appSetting.deleteMany({
+        where: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY },
+      });
+      return { enabled: false as const };
+    }
+
+    const value = await hashRundownPin(data.pin);
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY } },
+      update: { value },
+      create: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY, value },
+    });
+    return { enabled: true as const };
   });
 
 const PROPRESENTER_RUNTIME_SETTING_KEYS = [
@@ -292,7 +219,7 @@ export const getDesktopBridgeSettings = createServerFn({ method: "GET" })
 export const updateOrgSetting = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ orgId: idSchema, key: settingKeySchema, value: settingValueSchema }),
+      z.object({ orgId: idSchema, key: genericSettingKeySchema, value: settingValueSchema }),
       data,
     ),
   )
@@ -337,7 +264,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
       z.object({
         orgId: idSchema,
         settings: z
-          .array(z.object({ key: settingKeySchema, value: settingValueSchema }))
+          .array(z.object({ key: genericSettingKeySchema, value: settingValueSchema }))
           .max(100),
       }),
       data,

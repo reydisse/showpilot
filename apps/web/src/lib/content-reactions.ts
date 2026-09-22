@@ -1,18 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import { getD1 } from "@/lib/d1";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
-export const REACTION_EMOJIS = [
-  "👍", "👎", "❤️", "🔥", "🎉", "😂", "😮", "😢", "🙏", "👏",
-  "🙌", "💯", "✅", "❌", "⚠️", "👀", "🤔", "💡", "🚀", "🎬",
-  "🎥", "🎤", "🎧", "🔊", "🔇", "⏱️", "📌", "🛠️", "🫡", "🤝",
-] as const;
-const reactionEmoji = z.string().min(1).max(32).refine(
-  (value) => /\p{Extended_Pictographic}/u.test(value),
-  "Choose an emoji",
-);
+export const REACTION_EMOJIS = QUICK_REACTION_EMOJIS;
+const reactionEmoji = z.string().refine(isEmojiReaction, "Choose an emoji");
 const targetType = z.enum(["incident-comment", "chat-message"]);
 
 export interface ContentReaction {

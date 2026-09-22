@@ -31,8 +31,8 @@ describe("HTTP security headers", () => {
   });
 
   it("does not reconstruct WebSocket upgrade responses", () => {
-    const response = new Response(null) as Response & { webSocket?: unknown };
-    response.webSocket = {};
+    const response = new Response(null);
+    Object.defineProperty(response, "webSocket", { value: {} });
     expect(withSecurityHeaders(new Request("https://showpilot.tech/api/chat/org/ws"), response)).toBe(response);
   });
 });

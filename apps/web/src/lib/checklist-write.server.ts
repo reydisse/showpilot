@@ -36,13 +36,14 @@ export async function persistChecklistItem({
 }: ChecklistItemWrite, suppliedDatabase?: ChecklistWriteDatabase) {
   const database = suppliedDatabase ?? getD1();
   const entryId = crypto.randomUUID();
+  const category = template.category;
   const entryStatement = database
     .prepare(
       `INSERT OR IGNORE INTO "checklist_entry"
-        ("id", "orgId", "templateId", "showId", "serviceDate", "checked")
-       VALUES (?, ?, ?, ?, ?, 0)`,
+        ("id", "orgId", "templateId", "showId", "serviceDate", "category", "checked", "revision")
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0)`,
     )
-    .bind(entryId, orgId, template.id, showId, serviceDate);
+    .bind(entryId, orgId, template.id, showId, serviceDate, category);
 
   if (template.kind === "existing") {
     const result = await entryStatement.run();

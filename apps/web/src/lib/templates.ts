@@ -128,7 +128,9 @@ export function templateBadge(template: OnboardingTemplate): string {
 }
 
 /** Materialize template items as RundownItems (durations in ms). */
-export function buildTemplateRundownItems(template: OnboardingTemplate): RundownItem[] {
+export function buildTemplateRundownItems(
+  template: OnboardingTemplate,
+): RundownItem[] {
   return template.items.map((item, index) => ({
     id: crypto.randomUUID(),
     title: item.title,
@@ -150,8 +152,12 @@ export function buildTemplateRundownItems(template: OnboardingTemplate): Rundown
 export interface TemplateSeedStore {
   getSeedMarker(): Promise<string | null>;
   setSeedMarker(value: string): Promise<void>;
+  itemId(templateId: OnboardingTemplateId, index: number): string;
+  checklistId(index: number): string;
   persistRundownItems(items: RundownItem[]): Promise<void>;
-  createChecklistTemplates(rows: { label: string; category: string; sortOrder: number }[]): Promise<void>;
+  createChecklistTemplates(
+    rows: { id: string; label: string; category: string; sortOrder: number }[],
+  ): Promise<void>;
   createCueRows(rows: OnboardingTemplateCueRow[]): Promise<void>;
   getExistingItems(): Promise<RundownItem[]>;
 }
@@ -175,13 +181,20 @@ export async function runTemplateSeed(
     return { items: await store.getExistingItems(), alreadySeeded: true };
   }
 
-  const items = buildTemplateRundownItems(template);
+  const items = buildTemplateRundownItems(template).map((item, index) => ({
+    ...item,
+    id: store.itemId(template.id, index),
+  }));
   if (items.length > 0) {
     await store.persistRundownItems(items);
   }
   if (template.checklist.length > 0) {
     await store.createChecklistTemplates(
-      template.checklist.map((row, index) => ({ ...row, sortOrder: index })),
+      template.checklist.map((row, index) => ({
+        ...row,
+        id: store.checklistId(index),
+        sortOrder: index,
+      })),
     );
   }
   if (template.cueRows.length > 0) {

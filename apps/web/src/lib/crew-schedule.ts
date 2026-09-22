@@ -7,6 +7,7 @@ import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { readPhaseSettings } from "@/lib/service-phase";
+import { assignmentResponseVersion } from "@/lib/assignment-response-version";
 
 const publicTokenSchema = z
   .string()
@@ -207,6 +208,7 @@ type PortalAssignmentRow = {
   callTime: string;
   invitedAt: string | null;
   respondedAt: string | null;
+  responseVersion?: string;
 };
 
 async function resolvePortal(token: string) {
@@ -397,6 +399,13 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         const rundown = assignment.showId ? rundownMap.get(assignment.showId) : undefined;
         return {
           ...assignment,
+          responseVersion: assignmentResponseVersion({
+            showId: assignment.showId,
+            serviceDate: assignment.serviceDate,
+            role: assignment.role,
+            callTime: assignment.callTime,
+            scheduledStartTime: rundown?.scheduledStartTime?.toISOString() ?? null,
+          }),
           serviceName: rundown?.name || "Show",
           scheduledStartTime:
             rundown?.scheduledStartTime?.toISOString() ?? null,
@@ -428,6 +437,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
         assignmentId: z.string().min(1).max(128),
         response: z.enum(["confirmed", "declined"]),
         reason: z.string().trim().max(500).default(""),
+        reviewedVersion: z.string().min(2).max(512),
       }),
       value,
     ),
@@ -445,9 +455,11 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
         id: true,
         showId: true,
         role: true,
+        callTime: true,
         serviceDate: true,
         status: true,
-        crewMember: { select: { name: true } },
+        assignedByUserId: true,
+        crewMember: { select: { name: true, email: true } },
       },
     });
     if (!assignment) throw new Error("Assignment not found");
@@ -473,6 +485,16 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       settings.map((setting) => [setting.key, setting.value]),
     );
     const { serviceWindowMinutes } = readPhaseSettings(settingMap);
+    const currentVersion = assignmentResponseVersion({
+      showId: assignment.showId,
+      serviceDate: assignment.serviceDate,
+      role: assignment.role,
+      callTime: assignment.callTime,
+      scheduledStartTime: rundown?.scheduledStartTime?.toISOString() ?? null,
+    });
+    if (data.reviewedVersion !== currentVersion) {
+      throw new Error("This assignment changed. Review the updated details before responding");
+    }
     const responseWindow = getCrewScheduleResponseWindow(
       {
         serviceDate: assignment.serviceDate,
@@ -503,11 +525,21 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       .run();
     if (!result.success || result.meta.changes !== 1)
       throw new Error("A response has already been recorded for this assignment");
+    const respondingMember = assignment.crewMember?.email
+      ? await prisma.member.findFirst({
+          where: {
+            organizationId: access.orgId,
+            user: { email: assignment.crewMember.email.toLowerCase() },
+          },
+          select: { userId: true },
+        })
+      : null;
     const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
     const responseLabel = data.response === "confirmed" ? "accepted" : "declined";
     await notifyOperationalEvent({
       orgId: access.orgId,
-      includeLeadership: true,
+      actorId: respondingMember?.userId,
+      recipientIds: assignment.assignedByUserId ? [assignment.assignedByUserId] : [],
       category: "schedule",
       type: `assignment-${data.response}`,
       severity: data.response === "declined" ? "warning" : "info",

@@ -371,6 +371,31 @@ describe("deleteOrganizationCore", () => {
     expect(stripeIndex).toBeLessThan(firstDelete);
   });
 
+  it("tombstones and purges external state before deleting app rows", async () => {
+    seed(db);
+    await deleteOrganizationCore(makeDeps(db, {
+      markDeleting: async (orgId) => { db.log.push(`tombstone:${orgId}`); },
+      purgeExternalState: async (orgId) => { db.log.push(`relay:purge:${orgId}`); },
+    }));
+
+    const tombstone = db.log.indexOf(`tombstone:${ORG_A}`);
+    const purge = db.log.indexOf(`relay:purge:${ORG_A}`);
+    const firstDelete = db.log.findIndex((entry) => entry.startsWith("deleteMany:"));
+    expect(tombstone).toBeGreaterThanOrEqual(0);
+    expect(purge).toBeGreaterThan(tombstone);
+    expect(firstDelete).toBeGreaterThan(purge);
+  });
+
+  it("keeps Prisma rows resumable when relay cleanup fails", async () => {
+    seed(db);
+    await expect(deleteOrganizationCore(makeDeps(db, {
+      markDeleting: async (orgId) => { db.log.push(`tombstone:${orgId}`); },
+      purgeExternalState: async () => { throw new Error("relay cleanup failed"); },
+    }))).rejects.toThrow("relay cleanup failed");
+    expect(db.log.some((entry) => entry.startsWith("deleteMany:"))).toBe(false);
+    expect(db.tables.get("organization")!.find((row) => row.id === ORG_A)).toBeDefined();
+  });
+
   it("aborts before deleting anything when Stripe cancellation fails", async () => {
     seed(db, { stripeSubForA: "sub_a" });
     await expect(
