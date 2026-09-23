@@ -13,7 +13,13 @@
  * table scrolling inside a page that also scrolls.
  */
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { GripVertical } from "lucide-react";
 import type { CueColumnRow, CueRow } from "@/lib/cue-sheet-derive";
 import { rundownItemNumbers } from "@/types/rundown";
@@ -110,6 +116,15 @@ export function CueTable({
   const bases = BASE_COLUMNS.filter((column) => !hidden.has(column.key));
   const details = RUNDOWN_DETAIL_COLUMNS.filter((column) => !hidden.has(column.key));
   const [drag, setDrag] = useState<{ id: string; overId: string } | null>(null);
+  const [rowHeights, setRowHeights] = useState(() => new Map<string, number>());
+
+  const commitRowHeight = (rowId: string, height: number) => {
+    setRowHeights((current) => {
+      const next = new Map(current);
+      next.set(rowId, height);
+      return next;
+    });
+  };
 
   const finishColumnMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag) return;
@@ -250,6 +265,8 @@ export function CueTable({
           return (
             <tr
               key={row.itemId}
+              data-cue-row-id={row.itemId}
+              style={{ height: rowHeights.get(row.itemId) }}
               className={`border-b border-board-border/40 ${
                 isLive ? "bg-fire-500/10" : isDone ? "opacity-45" : "hover:bg-board-card/40"
               }`}
@@ -258,9 +275,13 @@ export function CueTable({
                 left={0}
                 width={INDEX_WIDTH}
                 bg={rowBg}
-                className="text-right text-board-muted/60 tabular-nums"
+                className="relative text-right text-board-muted/60 tabular-nums"
               >
                 {itemNumbers.get(row.itemId)}
+                <RowResizer
+                  rowLabel={row.title || "untitled"}
+                  onCommit={(height) => commitRowHeight(row.itemId, height)}
+                />
               </Pinned>
               {bases.map((column, i) => (
                 <Pinned key={column.key} left={baseOffsets[i]} width={column.width} bg={rowBg}>
@@ -311,6 +332,81 @@ export function CueTable({
         })()}
       </tbody>
     </table>
+  );
+}
+
+/** Drag the bottom edge of a row to give every cell in it more room. */
+function RowResizer({
+  rowLabel,
+  onCommit,
+}: {
+  rowLabel: string;
+  onCommit: (height: number) => void;
+}) {
+  const start = useRef<{
+    row: HTMLTableRowElement;
+    y: number;
+    height: number;
+    inlineHeight: string;
+  } | null>(null);
+
+  const heightFor = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = start.current;
+    if (!current) return null;
+    return Math.min(1_000, Math.max(30, Math.round(current.height + event.clientY - current.y)));
+  };
+
+  const finish = (event: ReactPointerEvent<HTMLButtonElement>, cancelled: boolean) => {
+    const current = start.current;
+    if (!current) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (cancelled) {
+      current.row.style.height = current.inlineHeight;
+    } else {
+      const next = heightFor(event);
+      if (next !== null) onCommit(next);
+    }
+    current.row.removeAttribute("data-row-resizing");
+    start.current = null;
+  };
+
+  return (
+    <button
+      type="button"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={`Resize ${rowLabel} row`}
+      className="absolute bottom-0 left-0 z-20 h-1 w-full cursor-row-resize touch-none rounded-sm bg-board-border/50 opacity-45 transition-opacity hover:bg-fire-500/70 hover:opacity-100 focus-visible:bg-fire-500/70 focus-visible:opacity-100"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        const row = event.currentTarget.closest<HTMLTableRowElement>("tr");
+        if (!row) return;
+        start.current = {
+          row,
+          y: event.clientY,
+          height: row.getBoundingClientRect().height,
+          inlineHeight: row.style.height,
+        };
+        row.setAttribute("data-row-resizing", "1");
+        try {
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Synthetic or already-released pointers can reject capture;
+          // pointer movement still works while the handle remains mounted.
+        }
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const current = start.current;
+        const next = heightFor(event);
+        if (!current || next === null) return;
+        current.row.style.height = `${next}px`;
+      }}
+      onPointerUp={(event) => finish(event, false)}
+      onPointerCancel={(event) => finish(event, true)}
+    />
   );
 }
 
@@ -374,6 +470,26 @@ function NoteCell({
 }) {
   const [draft, setDraft] = useState(value);
   const [editing, setEditing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    fitNoteTextarea(textareaRef.current);
+  }, [draft]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+
+    let width = textarea.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = textarea.clientWidth;
+      if (nextWidth === width) return;
+      width = nextWidth;
+      fitNoteTextarea(textarea);
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, []);
 
   // Adopt remote edits, but never while this operator is mid-word in the
   // same cell — overwriting what someone is actively typing is the worst
@@ -393,6 +509,7 @@ function NoteCell({
   return (
     <td className="p-0 border-r border-board-border/30 align-top">
       <textarea
+        ref={textareaRef}
         value={draft}
         rows={1}
         onFocus={() => setEditing(true)}
@@ -411,10 +528,16 @@ function NoteCell({
             event.currentTarget.blur();
           }
         }}
-        className="w-full h-full min-h-[30px] px-2 py-1.5 bg-transparent text-board-text resize-none outline-none focus:bg-board-bg focus:ring-1 focus:ring-fire-500/50 placeholder:text-board-muted/30"
+        className="block w-full min-h-[30px] overflow-hidden px-2 py-1.5 bg-transparent text-board-text resize-none outline-none focus:bg-board-bg focus:ring-1 focus:ring-fire-500/50 placeholder:text-board-muted/30"
       />
     </td>
   );
+}
+
+function fitNoteTextarea(textarea: HTMLTextAreaElement | null): void {
+  if (!textarea) return;
+  textarea.style.height = "0px";
+  textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
 /** Drag the right edge of a header to resize. Commits once, on release. */
