@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Bell, BellRing, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS } from "./account-role";
-import { getPersonalNotifications } from "@/lib/personal-notifications";
+import { getPersonalNotifications, savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
+import { getDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
@@ -82,6 +83,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const [enablingPush, setEnablingPush] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
+  useEffect(() => {
+    void savePersonalNotificationTimeZone({ data: { orgId, timeZone: getDeviceTimeZone() } }).catch(() => {
+      // Inbox access still works while the preference waits for a connection.
+    });
+  }, [orgId]);
+
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
   const initials = getInitials(localUser.name);
   const roleLabel = ROLE_LABELS[role] ?? role;
@@ -109,7 +116,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   }, [orgId]);
 
   useEffect(() => {
-    if (accountView === "notifications" || isDesktopRuntime()) return;
+    if ((accountOpen && accountView === "notifications") || isDesktopRuntime()) return;
     void refreshUnread();
     const refreshWhileVisible = () => {
       if (document.visibilityState === "visible") void refreshUnread();
@@ -120,7 +127,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhileVisible);
     };
-  }, [accountView, refreshUnread]);
+  }, [accountOpen, accountView, refreshUnread]);
 
   useEffect(() => {
     let active = true;
@@ -251,12 +258,13 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
   return (
     <>
+      <div className={cn("flex min-w-0 items-center gap-1", collapsed && "flex-col")}>
       <button
         type="button"
         onClick={() => setAccountOpen(true)}
         title="Account menu"
         className={cn(
-          "relative flex min-h-11 w-full items-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text",
+          "relative flex min-h-11 min-w-0 flex-1 items-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text",
           collapsed ? "justify-center p-2.5" : "gap-2.5 px-3 py-2.5",
         )}
       >
@@ -271,6 +279,17 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
           </>
         ) : null}
       </button>
+      <button
+        type="button"
+        onClick={() => { setAccountView("notifications"); setAccountOpen(true); }}
+        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        title="Notifications"
+        className="relative flex size-11 shrink-0 items-center justify-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text"
+      >
+        <Bell className="size-4" />
+        {unread > 0 ? <span className="absolute right-0 top-0 flex min-w-4 items-center justify-center rounded-full bg-fire-500 px-1 text-[9px] font-semibold leading-4 text-black">{unread > 99 ? "99+" : unread}</span> : null}
+      </button>
+      </div>
 
       <Dialog open={accountOpen} onOpenChange={closeAccount}>
         <DialogContent
@@ -374,7 +393,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
           {accountView === "notifications" ? (
             <Suspense fallback={<AccountPanelFallback />}>
-              <NotificationInbox orgId={orgId} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
+              <NotificationInbox key={orgId} orgId={orgId} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
             </Suspense>
           ) : null}
 

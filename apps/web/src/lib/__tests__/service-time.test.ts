@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTimeInput, formatWallTime, serviceTimeToIso } from "../utils";
+import { editServiceTimeToIso, formatTimeInput, formatWallTime, serviceTimeToIso } from "../utils";
 
 describe("organization service wall times", () => {
   it("round-trips a venue time independently of the device timezone", () => {
@@ -46,5 +46,30 @@ describe("organization service wall times", () => {
   it("formats custom call times without applying the device timezone", () => {
     expect(formatWallTime("17:15")).toBe("5:15 PM");
     expect(formatWallTime("not-a-time")).toBe("");
+  });
+
+  it("shows the same saved call at each device's local hour", () => {
+    const call = serviceTimeToIso("2026-09-28", "08:00", "America/Toronto");
+    expect(formatTimeInput(call, "America/Toronto")).toBe("08:00");
+    expect(formatTimeInput(call, "Africa/Accra")).toBe("12:00");
+    expect(formatTimeInput(call, "America/Los_Angeles")).toBe("05:00");
+  });
+
+  it("preserves the local date when editing an instant on the previous day", () => {
+    expect(editServiceTimeToIso({
+      serviceDate: "2026-09-28", time: "21:30", timeZone: "America/Toronto",
+      referenceTime: "2026-09-28T01:00:00.000Z",
+    })).toBe("2026-09-28T01:30:00.000Z");
+  });
+
+  it("does not reinterpret an unchanged time during the autumn clock change", () => {
+    const referenceTime = "2026-11-01T06:30:00.000Z";
+    expect(editServiceTimeToIso({ serviceDate: "2026-11-01", time: "01:30", timeZone: "America/Toronto", referenceTime }))
+      .toBe(referenceTime);
+  });
+
+  it("uses a stable UTC fallback when the caller has no timezone", () => {
+    expect(serviceTimeToIso("2026-09-28", "08:00")).toBe("2026-09-28T08:00:00.000Z");
+    expect(formatTimeInput("2026-09-28T08:00:00.000Z")).toBe("08:00");
   });
 });

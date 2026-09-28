@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Pause, Play, Radio } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
+import { nextPlayableItem } from "@/lib/rundown-transport";
 import { getActiveRundownTarget } from "@/lib/rundown";
 
 export const ACTIVE_RUNDOWN_CHANGED_EVENT = "showpilot:active-rundown-changed";
@@ -35,6 +37,7 @@ function ActiveRundownSession({ target, orgId, slug, canControl }: LiveRundownBa
     target.showId,
   );
   const [now, setNow] = useState(Date.now());
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${target.showId ?? target.serviceDate}:${timer.currentItemId}:${timer.playback === "stop"}`);
 
   useEffect(() => {
     if (timer.playback !== "play") return;
@@ -56,6 +59,7 @@ function ActiveRundownSession({ target, orgId, slug, canControl }: LiveRundownBa
 
   return (
     <div className="relative z-30 flex min-h-12 items-center gap-2 border-b border-fire-500/25 bg-[#15130f] px-3 text-board-text shadow-[0_6px_24px_rgba(0,0,0,0.2)] sm:px-4">
+      {endShowDialog}
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-400">
         <Radio className="h-3.5 w-3.5" />
       </span>
@@ -99,7 +103,10 @@ function ActiveRundownSession({ target, orgId, slug, canControl }: LiveRundownBa
             type="button"
             aria-label="Next rundown item"
             disabled={!connected}
-            onClick={() => sendCommand("timer-next")}
+            onClick={() => {
+              if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow(() => sendCommand("timer-next"));
+              else sendCommand("timer-next");
+            }}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-board-muted hover:bg-white/5 hover:text-board-text disabled:opacity-35"
           >
             <ChevronRight className="h-4 w-4" />

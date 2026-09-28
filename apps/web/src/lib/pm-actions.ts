@@ -22,6 +22,7 @@ async function assertOrgPermission(orgId: string, permission: Permission) {
 // ─── Create the next service ─────────────────────────────────
 
 const createServiceInputSchema = z.object({
+  timeZone: z.string().min(1).max(100).optional(),
   orgId: idSchema,
   serviceDate: serviceDateSchema,
   /** Service to clone the rundown from. Omit for an empty one. */

@@ -1,3 +1,5 @@
+import { getDeviceTimeZone, useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
+import { useRundownSync } from "@/hooks/useRundownSync";
 import {
   createFileRoute,
   Link,
@@ -45,7 +47,7 @@ import {
   type SavedRundownSource,
 } from "@/lib/show-inventory";
 import { getOrgSettings } from "@/lib/settings";
-import { formatTimeInput, formatWallTime, getTodayDateString } from "@/lib/utils";
+import { formatTimeInput, getTodayDateString } from "@/lib/utils";
 import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
@@ -94,9 +96,6 @@ function timeLabel(value: string | null, timeZone?: string) {
 }
 function inputTime(value: string | null, timeZone?: string) {
   return formatTimeInput(value, timeZone || "UTC");
-}
-function wallTimeLabel(value: string) {
-  return formatWallTime(value) || "Service start";
 }
 function providerName(provider: ScheduleProvider, label = "") {
   return (
@@ -182,6 +181,7 @@ type ResponseFilter =
 
 function SchedulePage() {
   const data = Route.useLoaderData();
+  const deviceTimeZone = useDeviceTimeZone();
   const { show: requestedShowId, date: requestedDate } = Route.useSearch();
   const { slug } = Route.useParams();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -248,12 +248,14 @@ function SchedulePage() {
       if (document.visibilityState === "visible") void refresh();
     };
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("focus", refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("focus", refreshWhenVisible);
     };
-  }, [data.orgId, selected?.id]);
+  }, [data.orgId, data.assignments, selected?.id]);
   const selectedAssignments = useMemo(
     () =>
       liveAssignments.filter(
@@ -310,6 +312,7 @@ function SchedulePage() {
 
   return (
     <div className="h-full overflow-auto bg-board-bg">
+      {selected ? <ScheduleLiveDetails key={selected.id} orgId={data.orgId} service={selected} /> : null}
       <header className="sticky top-0 z-20 border-b border-board-border bg-board-bg/95 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="mx-auto flex max-w-[1700px] flex-wrap items-center gap-3">
           <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-tight text-board-text">
@@ -385,7 +388,7 @@ function SchedulePage() {
                   {service.name}
                 </p>
                 <p className="mt-1 text-[11px] text-board-muted">
-                  {timeLabel(service.scheduledStartTime, data.orgTimezone)} ·{" "}
+                  {timeLabel(service.scheduledStartTime, deviceTimeZone)} ·{" "}
                   {service.id === selected?.id
                     ? selectedAssignments.filter(
                         (assignment) => assignment.status === "confirmed",
@@ -427,7 +430,7 @@ function SchedulePage() {
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Clock3 className="h-3.5 w-3.5" />
-                        {timeLabel(selected.scheduledStartTime, data.orgTimezone)}
+                        {timeLabel(selected.scheduledStartTime, deviceTimeZone)}
                       </span>
                       {selected.location ? (
                         <span className="flex items-center gap-1.5">
@@ -683,8 +686,9 @@ function SchedulePage() {
       ) : null}
       {serviceOpen && selected ? (
         <ServiceDetailsModal
+          key={selected.id}
           orgId={data.orgId}
-          orgTimezone={data.orgTimezone}
+          orgTimezone={deviceTimeZone}
           service={selected}
           confirm={confirm}
           onClose={() => setServiceOpen(false)}
@@ -939,6 +943,7 @@ function RosterMobileCard({
   onChanged: () => Promise<void>;
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
+  const deviceTimeZone = useDeviceTimeZone();
   const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
   const closed =
@@ -984,7 +989,7 @@ function RosterMobileCard({
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="break-words text-sm font-medium text-board-text">{assignment.role}</p>
-          <p className="mt-1 text-[10px] text-board-muted">Call {wallTimeLabel(assignment.callTime)} · {assignment.department}</p>
+          <p className="mt-1 text-[10px] text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone)} · {assignment.department}</p>
         </div>
         <span className={`shrink-0 text-[10px] font-medium capitalize ${statusClass}`}>{responseLabel}</span>
       </div>
@@ -1025,6 +1030,7 @@ function RosterRow({
   onChanged: () => Promise<void>;
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
+  const deviceTimeZone = useDeviceTimeZone();
   const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
   const closed =
@@ -1051,7 +1057,7 @@ function RosterRow({
         className="text-left font-medium text-board-text disabled:cursor-default"
       >
         {assignment.role}
-        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {wallTimeLabel(assignment.callTime)}</span>
+        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone)}</span>
       </button>
       <button
         disabled={!canManage}
@@ -1214,6 +1220,7 @@ function CreateServiceModal({
                 name,
                 startTime: time,
                 callTime: callTime || undefined,
+                timeZone: getDeviceTimeZone(),
                 location,
                 copyFrom: copy ? previousDate : undefined,
                 copyFromShowId: copy ? previousShowId : undefined,
@@ -1485,6 +1492,32 @@ function ShowInventoryModal({
   );
 }
 
+function ScheduleLiveDetails({ orgId, service }: {
+  orgId: string;
+  service: Awaited<ReturnType<typeof getSchedule>>["services"][number];
+}) {
+  const router = useRouter();
+  const { hydrated, stateShowId, serviceName, scheduledStartTime, scheduledCallTime } = useRundownSync(orgId, service.serviceDate, service.id);
+  useEffect(() => {
+    if (!hydrated || stateShowId !== service.id) return;
+    if ((serviceName !== null && serviceName !== service.name)
+      || (scheduledStartTime !== undefined && scheduledStartTime !== service.scheduledStartTime)
+      || (scheduledCallTime !== undefined && scheduledCallTime !== service.scheduledCallTime)) {
+      void router.invalidate();
+    }
+  }, [hydrated, stateShowId, serviceName, scheduledStartTime, scheduledCallTime, service.id, service.name, service.scheduledStartTime, service.scheduledCallTime, router]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") void router.invalidate(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [router]);
+  return null;
+}
+
 function ServiceDetailsModal({
   orgId,
   orgTimezone,
@@ -1502,6 +1535,8 @@ function ServiceDetailsModal({
   onSaved: () => void;
   onDeleted: () => void | Promise<void>;
 }) {
+  // Background live updates must not let an older open form overwrite newer edits.
+  const [expectedUpdatedAt] = useState(() => new Date(service.updatedAt).toISOString());
   const [name, setName] = useState(service.name);
   const [time, setTime] = useState(inputTime(service.scheduledStartTime, orgTimezone));
   const [callTime, setCallTime] = useState(inputTime(service.scheduledCallTime, orgTimezone));
@@ -1526,7 +1561,8 @@ function ServiceDetailsModal({
                 startTime: time,
                 callTime,
                 location,
-                expectedUpdatedAt: new Date(service.updatedAt).toISOString(),
+                expectedUpdatedAt,
+                timeZone: getDeviceTimeZone(),
               },
             });
             onSaved();
@@ -1553,7 +1589,7 @@ function ServiceDetailsModal({
             className={FORM_CONTROL}
           />
         </Field>
-        <Field label="Crew call time">
+        <Field label={`Crew call time (${getDeviceTimeZone()})`}>
           <input
             type="time"
             value={callTime}
@@ -1830,6 +1866,7 @@ function AssignmentModal({
   const [callTime, setCallTime] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const selectedCrew = crew.find((person) => person.id === crewId);
   return (
     <Modal title="Add position" onClose={onClose}>
@@ -1837,6 +1874,7 @@ function AssignmentModal({
         onSubmit={async (event) => {
           event.preventDefault();
           setBusy(true);
+          setSaveError(null);
           try {
             await saveServiceAssignment({
               data: {
@@ -1848,10 +1886,13 @@ function AssignmentModal({
                 crewMemberId: crewId || null,
                 status: "assigned",
                 callTime,
+                timeZone: getDeviceTimeZone(),
                 notes,
               },
             });
             onSaved();
+          } catch (cause) {
+            setSaveError(cause instanceof Error ? cause.message : "Assignment did not save");
           } finally {
             setBusy(false);
           }
@@ -1899,8 +1940,9 @@ function AssignmentModal({
         </Field>
         <Field label="Custom call time (optional)">
           <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
-          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">Leave blank to use the service start time.</p>
+          <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
         </Field>
+        {saveError ? <p role="alert" className="text-sm text-red-300">{saveError}</p> : null}
         <Field label="Manager note (optional)">
           <textarea
             value={notes}
@@ -1963,9 +2005,10 @@ function EditAssignmentModal({
     assignment.department || inferredDepartment(assignment.role),
   );
   const [crewId, setCrewId] = useState(assignment.crewMemberId ?? "");
-  const [callTime, setCallTime] = useState(assignment.callTime);
+  const [callTime, setCallTime] = useState(assignment.callTime ? formatTimeInput(assignment.effectiveCallTime, getDeviceTimeZone()) : "");
   const [notes, setNotes] = useState(assignment.notes);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const selectedCrew = crew.find((person) => person.id === crewId);
   const personChanged = crewId !== (assignment.crewMemberId ?? "");
   const submit = async () => {
@@ -1980,6 +2023,7 @@ function EditAssignmentModal({
       if (!approved) return;
     }
     setBusy(true);
+    setSaveError(null);
     try {
       await saveServiceAssignment({
         data: {
@@ -1992,10 +2036,13 @@ function EditAssignmentModal({
           crewMemberId: crewId || null,
           status: assignment.status as "assigned" | "confirmed" | "declined",
           callTime,
+          timeZone: getDeviceTimeZone(),
           notes,
         },
       });
       onSaved();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "Assignment did not save");
     } finally {
       setBusy(false);
     }
@@ -2066,8 +2113,9 @@ function EditAssignmentModal({
         </Field>
         <Field label="Custom call time (optional)">
           <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
-          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">Leave blank to use the service start time.</p>
+          <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
         </Field>
+        {saveError ? <p role="alert" className="text-sm text-red-300">{saveError}</p> : null}
         <Field label="Manager note">
           <textarea
             value={notes}

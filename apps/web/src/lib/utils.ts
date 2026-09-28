@@ -88,7 +88,7 @@ export function getTodayDateString(timeZone?: string): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Format a stored instant as an HH:mm wall time in the organization's zone. */
+/** Format a stored instant as an HH:mm wall time in the supplied zone. */
 export function formatTimeInput(
   value: string | Date | null | undefined,
   timeZone?: string,
@@ -96,12 +96,9 @@ export function formatTimeInput(
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  if (!timeZone) {
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-  }
   try {
     const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone,
+      timeZone: timeZone || "UTC",
       hour: "2-digit",
       minute: "2-digit",
       hourCycle: "h23",
@@ -110,7 +107,7 @@ export function formatTimeInput(
     const minute = parts.find((part) => part.type === "minute")?.value;
     return hour && minute ? `${hour}:${minute}` : "";
   } catch {
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
   }
 }
 
@@ -156,7 +153,22 @@ function timeZoneOffsetMs(date: Date, timeZone: string): number {
   );
 }
 
-/** Convert a service-date wall time in the organization's zone to a stable ISO instant. */
+/** Edit a clock time on the instant's local date, including across timezone day boundaries. */
+export function editServiceTimeToIso(input: {
+  serviceDate: string;
+  time: string;
+  timeZone: string;
+  referenceTime?: string | Date | null;
+}): string | null {
+  const reference = input.referenceTime ? new Date(input.referenceTime) : null;
+  if (reference && formatTimeInput(reference, input.timeZone) === input.time) return reference.toISOString();
+  const date = reference
+    ? new Intl.DateTimeFormat("en-CA", { timeZone: input.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(reference)
+    : input.serviceDate;
+  return serviceTimeToIso(date, input.time, input.timeZone);
+}
+
+/** Convert a wall time in the supplied timezone to a stable ISO instant. */
 export function serviceTimeToIso(
   serviceDate: string,
   time: string,
@@ -170,7 +182,7 @@ export function serviceTimeToIso(
   const minute = Number(match[2]);
   if (!year || !month || !day || hour > 23 || minute > 59) return null;
   if (!timeZone)
-    return new Date(year, month - 1, day, hour, minute, 0, 0).toISOString();
+    return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0)).toISOString();
   try {
     const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
     const offsets = new Set<number>();

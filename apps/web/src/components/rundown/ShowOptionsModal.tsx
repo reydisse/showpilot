@@ -111,11 +111,11 @@ export function ShowOptionsModal({
               <input type="text" value={serviceName} onChange={(event) => onNameChange(event.target.value)} maxLength={120} placeholder="Name this show" className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50 sm:col-span-2" />
             </label>
             <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
-              <span>Start time</span>
+              <span>Start time · {timeZone || "UTC"}</span>
               <input type="time" value={startTime} onChange={(event) => onStartTimeChange(event.target.value)} className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50" />
             </label>
             <label className="space-y-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
-              <span>Crew call</span>
+              <span>Crew call · {timeZone || "UTC"}</span>
               <input type="time" value={callTime} onChange={(event) => onCallTimeChange(event.target.value)} className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50" />
               <span className="block text-[10px] font-normal normal-case tracking-normal">Leave blank to use the organization default.</span>
             </label>

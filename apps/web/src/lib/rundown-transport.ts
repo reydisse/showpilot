@@ -110,12 +110,12 @@ export function stop(items: RundownItem[], timer: NativeTimerState): TransportSt
  * The same next row is used by transport and every confidence display.
  * Match RundownRelay: section headings and completed rows are not up next.
  */
-export function nextPlayableItem<T extends Pick<RundownItem, "id" | "status" | "type">>(
+export function nextPlayableItem<T extends { id: string; status: string; type?: string }>(
   items: T[],
   currentItemId: string | null,
 ): T | null {
   const currentIndex = items.findIndex((item) => item.id === currentItemId);
-  return items.find((item, index) => index > currentIndex && item.status !== "complete" && !isHeaderItem(item)) ?? null;
+  return items.find((item, index) => index > currentIndex && item.status !== "complete" && item.type !== "header") ?? null;
 }
 
 /**

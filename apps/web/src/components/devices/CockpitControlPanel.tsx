@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleStop,
   Lightbulb,
@@ -40,19 +40,22 @@ export function CockpitControlPanel({ module, status, feedbacks, definition }: C
   const surface = resolveDeviceControlSurface(actions, definition.category);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const commandInFlight = useRef(false);
   const connected = status === "connected";
   const run = useCallback<RunCommand>(async (actionId, params = {}) => {
-    if (!module || !connected || pendingAction) return;
-    setPendingAction(actionId);
+    if (!module || !connected || commandInFlight.current) return;
+    commandInFlight.current = true;
+    setPendingAction(`${actionId}:${JSON.stringify(params)}`);
     setCommandError(null);
     try {
       await module.executeAction(actionId, params);
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : "The device command failed.");
     } finally {
+      commandInFlight.current = false;
       setPendingAction(null);
     }
-  }, [connected, module, pendingAction]);
+  }, [connected, module]);
 
   const common = { actions, connected, feedbacks, pendingAction, run };
 
@@ -65,6 +68,12 @@ export function CockpitControlPanel({ module, status, feedbacks, definition }: C
       {surface === "lighting" ? <LightingSurface {...common} /> : null}
       {surface === "automation" || surface === "generic" ? (
         <GenericControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} />
+      ) : null}
+      {surface !== "automation" && surface !== "generic" ? (
+        <details className="rounded-xl border border-board-border bg-board-card">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-board-text">All device controls</summary>
+          <div className="min-w-0 p-3"><GenericControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} /></div>
+        </details>
       ) : null}
       {commandError ? (
         <div role="alert" className="rounded-lg border border-red-500/25 bg-red-500/[0.07] px-3 py-2 text-xs text-red-300">
@@ -91,7 +100,7 @@ function SurfaceHeader({ icon: Icon, title, detail }: { icon: React.ElementType;
   return (
     <div className="flex items-center gap-3 border-b border-board-border px-4 py-3">
       <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-board-border bg-board-bg"><Icon className="h-4 w-4 text-fire-500" /></span>
-      <div><h3 className="text-xs font-semibold text-board-text">{title}</h3><p className="mt-0.5 text-[10px] text-board-muted">{detail}</p></div>
+      <div className="min-w-0"><h3 className="text-sm font-semibold text-board-text">{title}</h3><p className="mt-1 text-xs leading-5 text-board-muted">{detail}</p></div>
     </div>
   );
 }
@@ -120,7 +129,7 @@ function CommandButton({ action, connected, pendingAction, params, run, tone = "
     danger: "border-red-500/45 bg-red-500/[0.08] text-red-300 hover:bg-red-500/15",
     amber: "border-fire-500/45 bg-fire-500/[0.08] text-fire-400 hover:bg-fire-500/15",
   };
-  const pending = pendingAction === action.id;
+  const pending = pendingAction === `${action.id}:${JSON.stringify(params ?? {})}`;
   return (
     <button
       type="button"
@@ -130,7 +139,7 @@ function CommandButton({ action, connected, pendingAction, params, run, tone = "
         setArmed(false);
         void run(action.id, params);
       }}
-      className={`min-h-11 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`}
+      className={`min-h-11 min-w-0 rounded-lg border px-3 py-2 text-xs font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`}
     >
       {pending ? "Sending…" : armed ? `Confirm ${label ?? action.label}` : label ?? action.label}
     </button>
@@ -148,7 +157,7 @@ function SwitcherSurface(props: SurfaceProps) {
   return (
     <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
       <SurfaceHeader icon={Video} title="Switcher" detail="Program, preview, transitions, keyers and macros" />
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_180px]">
+      <div className="grid gap-5 p-3 sm:p-5">
         <div className="space-y-4">
           <SourceRow label="PROGRAM" tone="program" selected={program} inputs={inputs} action={programAction} {...props} />
           <SourceRow label="PREVIEW" tone="preview" selected={preview} inputs={inputs} action={previewAction} {...props} />
@@ -158,12 +167,9 @@ function SwitcherSurface(props: SurfaceProps) {
             <CommandButton action={actionById(props.actions, "fade_to_black")} label="FADE TO BLACK" tone="danger" guarded {...props} />
           </div>
         </div>
-        <div className="rounded-lg border border-board-border bg-board-bg p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-board-muted">Transition</p>
-          <div className="mt-3 h-40 overflow-hidden rounded bg-black/40 p-2">
-            <div className="relative mx-auto h-full w-3 rounded-full bg-board-border"><span className="absolute inset-x-[-8px] h-3 rounded bg-board-text shadow" style={{ bottom: `${Math.max(0, Math.min(100, transition * 100))}%` }} /></div>
-          </div>
-          <p className="mt-2 text-center text-xs tabular-nums text-board-muted">{Math.round(transition * 100)}%</p>
+        <div className="border-t border-board-border pt-4">
+          <div className="mb-2 flex items-center justify-between text-xs text-board-muted"><span>Transition progress</span><span className="tabular-nums">{Math.round(transition * 100)}%</span></div>
+          <div role="progressbar" aria-label="Transition progress" aria-valuenow={Math.round(transition * 100)} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-board-border"><div className="h-full rounded-full bg-fire-500 transition-[width]" style={{ width: `${Math.max(0, Math.min(100, transition * 100))}%` }} /></div>
         </div>
       </div>
     </section>
@@ -185,12 +191,18 @@ function MixerSurface(props: SurfaceProps) {
   const faders = parseNumberArrayFeedback(props.feedbacks.get("channel_fader"));
   const mutes = parseBooleanArrayFeedback(props.feedbacks.get("channel_mute"));
   const maximumChannel = Number(actionById(props.actions, "set_channel_fader")?.params.find((param) => param.id === "channel")?.max ?? 16);
-  const channels = Array.from({ length: Math.min(40, maximumChannel) }, (_, index) => index + 1);
+  const channelCount = Math.min(40, maximumChannel);
+  const [bank, setBank] = useState(0);
+  const bankCount = Math.ceil(channelCount / 8);
+  const activeBank = Math.min(bank, bankCount - 1);
+  const channels = Array.from({ length: Math.min(8, channelCount - activeBank * 8) }, (_, index) => activeBank * 8 + index + 1);
   return (
     <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
       <SurfaceHeader icon={SlidersHorizontal} title="Audio mixer" detail="Live fader state, channel mute and console scenes" />
-      <div className="flex items-center gap-2 border-b border-board-border px-4 py-2"><span className="rounded-md border border-fire-500/40 bg-fire-500/10 px-3 py-1.5 text-[10px] font-semibold text-fire-400">MAIN</span><span className="px-3 py-1.5 text-[10px] text-board-muted">STREAM</span><span className="px-3 py-1.5 text-[10px] text-board-muted">MONITORS</span><span className="ml-auto text-[10px] text-board-muted">Horizontal scroll for all channels</span></div>
-      <div className="overflow-x-auto p-4"><div className="flex min-w-max gap-2">{channels.map((channel) => <MixerChannelStrip key={channel} channel={channel} level={faders[channel - 1] ?? null} muted={mutes[channel - 1] ?? null} {...props} />)}</div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-board-border px-3 py-3 sm:px-5" aria-label="Channel banks">
+        {Array.from({ length: bankCount }, (_, index) => <button key={index} type="button" aria-label={`Channels ${index * 8 + 1} to ${Math.min(channelCount, index * 8 + 8)}`} aria-pressed={activeBank === index} onClick={() => setBank(index)} className={`min-h-11 rounded-lg px-3 text-xs font-semibold transition-colors ${activeBank === index ? "bg-fire-500 text-black" : "bg-board-bg text-board-muted hover:text-board-text"}`}>{index * 8 + 1}–{Math.min(channelCount, index * 8 + 8)}</button>)}
+      </div>
+      <div className="p-3 sm:p-5"><div className="grid grid-cols-4 gap-2 xl:grid-cols-8">{channels.map((channel) => <MixerChannelStrip key={channel} channel={channel} level={faders[channel - 1] ?? null} muted={mutes[channel - 1] ?? null} {...props} />)}</div></div>
       <div className="flex flex-wrap gap-2 border-t border-board-border p-4"><SceneControl {...props} /><CommandButton action={actionById(props.actions, "mute_dca")} params={{ dca: 1, muted: true }} label="Mute DCA 1" tone="danger" guarded {...props} /></div>
     </section>
   );
@@ -199,15 +211,15 @@ function MixerSurface(props: SurfaceProps) {
 function MixerChannelStrip({ channel, level, muted, actions, connected, pendingAction, run }: SurfaceProps & { channel: number; level: number | null; muted: boolean | null }) {
   const [localLevel, setLocalLevel] = useState(level ?? 0);
   useEffect(() => { if (level !== null) setLocalLevel(level); }, [level]);
-  const commit = () => void run("set_channel_fader", { channel, level: localLevel });
+  const commit = (event: React.SyntheticEvent<HTMLInputElement>) => void run("set_channel_fader", { channel, level: Number(event.currentTarget.value) });
   return (
-    <div className="w-[76px] rounded-lg border border-board-border bg-board-bg p-2 text-center">
+    <div className={`flex min-w-0 flex-col items-stretch rounded-xl border bg-board-bg px-1.5 py-3 text-center ${muted ? "border-red-500/30" : "border-board-border"}`}>
       <p className="truncate text-[10px] font-semibold text-board-text">CH {channel}</p>
-      <div className="mt-2 flex h-44 items-stretch justify-center gap-2">
+      <div className="mt-3 flex h-32 items-stretch justify-center gap-3 sm:h-40">
         <div className="relative w-2 overflow-hidden rounded-full bg-black/60"><span className="absolute inset-x-0 bottom-0 bg-green-500" style={{ height: level === null ? "0%" : `${Math.max(2, Math.min(100, level * 100))}%` }} /></div>
-        <input aria-label={`Channel ${channel} fader`} type="range" min={0} max={1} step={0.01} value={localLevel} disabled={!connected || pendingAction !== null} onChange={(event) => setLocalLevel(Number(event.target.value))} onPointerUp={commit} onKeyUp={commit} className="h-44 w-5 accent-fire-500 [direction:rtl] [writing-mode:vertical-lr]" />
+        <input aria-label={`Channel ${channel} fader`} type="range" min={0} max={1} step={0.01} value={localLevel} disabled={!connected || pendingAction !== null} onChange={(event) => setLocalLevel(Number(event.target.value))} onPointerUp={commit} onKeyUp={commit} className="h-32 w-8 touch-none accent-fire-500 [direction:rtl] [writing-mode:vertical-lr] sm:h-40" />
       </div>
-      <p className="mt-1 text-[10px] tabular-nums text-board-muted">{level === null ? "—" : `${Math.round(localLevel * 100)}%`}</p>
+      <p className="my-3 text-xs tabular-nums text-board-muted">{level === null ? "—" : `${Math.round(localLevel * 100)}%`}</p>
       <CommandButton action={actionById(actions, "mute_channel")} connected={connected} pendingAction={pendingAction} run={run} params={{ channel, muted: !(muted ?? false) }} label={muted ? "UNMUTE" : "MUTE"} tone={muted ? "danger" : "default"} />
     </div>
   );
@@ -236,9 +248,9 @@ function DisplaySurface(props: SurfaceProps) {
       <div className="grid gap-3 p-4 lg:grid-cols-2">
         <div className="rounded-lg border border-board-border bg-board-bg p-4"><p className="text-[10px] text-board-muted">POWER</p><p className={`mt-1 text-lg font-semibold ${power === true || power === "on" ? "text-green-400" : "text-board-text"}`}>{power === undefined || power === null || power === "" ? "UNKNOWN" : typeof power === "boolean" ? power ? "ON" : "OFF" : String(power).toUpperCase()}</p><div className="mt-4 grid grid-cols-2 gap-2"><CommandButton action={actionById(props.actions, "power_on")} label="POWER ON" tone="preview" {...props} /><CommandButton action={actionById(props.actions, "power_off")} label="POWER OFF" tone="danger" guarded {...props} /></div></div>
         <div className="rounded-lg border border-board-border bg-board-bg p-4"><p className="text-[10px] text-board-muted">CURRENT INPUT</p><p className="mt-1 text-lg font-semibold text-board-text">{input}</p>{setInput ? <div className="mt-4 flex gap-2"><select value={selectedInput} onChange={(event) => setSelectedInput(event.target.value)} className="min-h-11 min-w-0 flex-1 rounded-lg border border-board-border bg-board-card px-3 text-xs text-board-text">{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><CommandButton action={setInput} params={{ input: selectedInput }} label="Route" tone="amber" {...props} /></div> : null}</div>
-        {actionById(props.actions, "set_volume") ? <div className="rounded-lg border border-board-border bg-board-bg p-4 lg:col-span-2"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs text-board-text"><Volume2 className="h-4 w-4" />Volume</span><span className="text-xs tabular-nums text-board-muted">{selectedVolume}</span></div><input aria-label="Display volume" type="range" min={volumeParam?.min ?? 0} max={volumeParam?.max ?? 100} step={volumeParam?.step ?? 1} value={selectedVolume} onChange={(event) => setSelectedVolume(Number(event.target.value))} onPointerUp={() => void props.run("set_volume", { level: selectedVolume })} onKeyUp={() => void props.run("set_volume", { level: selectedVolume })} className="mt-3 w-full accent-fire-500" /></div> : null}
+        {actionById(props.actions, "set_volume") ? <div className="rounded-lg border border-board-border bg-board-bg p-4 lg:col-span-2"><div className="flex items-center justify-between"><span className="flex items-center gap-2 text-xs text-board-text"><Volume2 className="h-4 w-4" />Volume</span><span className="text-xs tabular-nums text-board-muted">{selectedVolume}</span></div><input aria-label="Display volume" type="range" min={volumeParam?.min ?? 0} max={volumeParam?.max ?? 100} step={volumeParam?.step ?? 1} value={selectedVolume} onChange={(event) => setSelectedVolume(Number(event.target.value))} disabled={!props.connected || props.pendingAction !== null} onPointerUp={(event) => void props.run("set_volume", { level: Number(event.currentTarget.value) })} onKeyUp={(event) => void props.run("set_volume", { level: Number(event.currentTarget.value) })} className="mt-3 w-full accent-fire-500" /></div> : null}
       </div>
-      <div className="flex flex-wrap gap-2 border-t border-board-border p-4"><CommandButton action={actionById(props.actions, "shutter_close") ?? actionById(props.actions, "mute_video")} params={{ state: true }} label="BLANK" tone="danger" guarded {...props} /><CommandButton action={actionById(props.actions, "shutter_open")} label="UNBLANK" {...props} /><CommandButton action={actionById(props.actions, "mute")} label="MUTE" {...props} /><CommandButton action={actionById(props.actions, "unmute")} label="UNMUTE" {...props} /></div>
+      <div className="flex flex-wrap gap-2 border-t border-board-border p-4"><CommandButton action={actionById(props.actions, "shutter_close") ?? actionById(props.actions, "mute_video")} params={{ state: true }} label="BLANK" tone="danger" guarded {...props} /><CommandButton action={actionById(props.actions, "shutter_open") ?? actionById(props.actions, "mute_video")} params={{ state: false }} label="UNBLANK" {...props} /><CommandButton action={actionById(props.actions, "mute") ?? actionById(props.actions, "mute_audio")} params={{ state: true }} label="MUTE" {...props} /><CommandButton action={actionById(props.actions, "unmute") ?? actionById(props.actions, "mute_audio")} params={{ state: false }} label="UNMUTE" {...props} /></div>
     </section>
   );
 }

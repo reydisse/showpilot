@@ -47,37 +47,65 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
   const [preferencesLoading, setPreferencesLoading] = useState(true);
   const [savingPreference, setSavingPreference] = useState<string | null>(null);
   const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
+  const olderLoadedRef = useRef(false);
+  const mutationVersionRef = useRef(0);
+  const pendingReadsRef = useRef(new Set<string>());
+  const unreadRef = useRef(0);
 
-  const refresh = useCallback(async () => {
-    if (refreshInFlightRef.current) return;
+  const updateUnread = useCallback((count: number) => {
+    unreadRef.current = count;
+    setUnread(count);
+    onUnreadChange?.(count);
+  }, [onUnreadChange]);
+
+  const refresh = useCallback(async function refreshInbox() {
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+    if (pendingReadsRef.current.size > 0) return;
     refreshInFlightRef.current = true;
+    const version = mutationVersionRef.current;
     try {
       const result = await getPersonalNotifications({ data: { orgId } });
-      setItems(result.notifications);
-      setNextCursor(result.nextCursor);
-      setUnread(result.unread);
-      onUnreadChange?.(result.unread);
-      setActionError(null);
+      if (version !== mutationVersionRef.current) return;
+      setItems((current) => {
+        if (!olderLoadedRef.current) return result.notifications;
+        const refreshedIds = new Set(result.notifications.map((item) => item.id));
+        const last = result.notifications.at(-1);
+        return [...result.notifications, ...current.filter((item) => !refreshedIds.has(item.id) && last && (
+          Date.parse(item.createdAt) < Date.parse(last.createdAt)
+          || Date.parse(item.createdAt) === Date.parse(last.createdAt) && item.id < last.id
+        ))];
+      });
+      if (!olderLoadedRef.current) setNextCursor(result.nextCursor);
+      updateUnread(result.unread);
     } catch {
       setActionError("Notifications could not be refreshed. Check your connection and try again.");
     } finally {
       setLoaded(true);
       refreshInFlightRef.current = false;
+      if (refreshQueuedRef.current) {
+        refreshQueuedRef.current = false;
+        void refreshInbox();
+      }
     }
-  }, [orgId, onUnreadChange]);
+  }, [orgId, updateUnread]);
 
   const loadOlder = async () => {
     if (!nextCursor || loadingOlder) return;
     setLoadingOlder(true);
+    const version = mutationVersionRef.current;
     try {
       const result = await getPersonalNotifications({ data: { orgId, cursor: nextCursor } });
+      if (version !== mutationVersionRef.current) return;
+      olderLoadedRef.current = true;
       setItems((current) => {
         const known = new Set(current.map((item) => item.id));
         return [...current, ...result.notifications.filter((item) => !known.has(item.id))];
       });
       setNextCursor(result.nextCursor);
-      setUnread(result.unread);
-      onUnreadChange?.(result.unread);
       setActionError(null);
     } catch {
       setActionError("Older notifications could not be loaded. Try again.");
@@ -94,10 +122,13 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
         if (document.visibilityState === "visible") void refresh();
       }, 20_000);
     const onFocus = () => void refresh();
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       if (timer !== undefined) window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh]);
 
@@ -137,33 +168,41 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
   }, [refresh]);
 
   const markRead = async (item: PersonalNotification) => {
+    if (item.readAt || pendingReadsRef.current.has(item.id)) return;
+    pendingReadsRef.current.add(item.id);
+    mutationVersionRef.current += 1;
     const wasUnread = !item.readAt;
     if (wasUnread) {
       setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, readAt: new Date().toISOString() } : entry));
-      const nextUnread = Math.max(0, unread - 1);
-      setUnread(nextUnread);
-      onUnreadChange?.(nextUnread);
+      updateUnread(Math.max(0, unreadRef.current - 1));
     }
     try {
       await markPersonalNotificationRead({ data: { orgId, id: item.id } });
     } catch {
       setActionError("That notification could not be marked as read.");
+      pendingReadsRef.current.delete(item.id);
       await refresh();
+    } finally {
+      pendingReadsRef.current.delete(item.id);
     }
   };
 
   const markAllRead = async () => {
+    if (markingAll) return;
+    mutationVersionRef.current += 1;
+    pendingReadsRef.current.add("all");
     setMarkingAll(true);
     setItems((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
-    setUnread(0);
-    onUnreadChange?.(0);
+    updateUnread(0);
     try {
       await markAllPersonalNotificationsRead({ data: { orgId } });
       setActionError(null);
     } catch {
       setActionError("Notifications could not be marked as read. Please try again.");
+      pendingReadsRef.current.delete("all");
       await refresh();
     } finally {
+      pendingReadsRef.current.delete("all");
       setMarkingAll(false);
     }
   };
@@ -236,7 +275,7 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
         </div>
       ) : null}
 
-      {actionError ? <p role="alert" className="shrink-0 border-b border-red-500/20 bg-red-500/[0.06] px-5 py-2 text-xs text-red-700 dark:text-red-300 sm:px-6">{actionError}</p> : null}
+      {actionError ? <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-red-500/20 bg-red-500/[0.06] px-5 py-2 text-xs text-red-700 dark:text-red-300 sm:px-6"><p className="flex-1">{actionError}</p><button type="button" className="min-h-11 px-2 font-semibold" onClick={() => { setActionError(null); void refresh(); }}>Retry</button></div> : null}
 
       <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/70 overflow-y-auto overscroll-contain">
         {!loaded ? <NotificationSkeleton /> : null}
@@ -254,8 +293,9 @@ export function NotificationInbox({ orgId, slug, onUnreadChange, onNavigate }: N
             key={item.id}
             item={item}
             onOpen={async () => {
-              onNavigate?.();
               void markRead(item);
+              if (!getNotificationDestination(item.actionUrl)) return;
+              onNavigate?.();
               await navigateToNotification(navigate, slug, item.actionUrl);
             }}
           />

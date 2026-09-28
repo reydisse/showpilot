@@ -14,7 +14,7 @@ const actionSchema = z.enum([
 export type TmControlAction = z.infer<typeof actionSchema>;
 export interface TmControlState {
   timer: { playback: string; elapsed: number };
-  currentItem: { title: string } | null;
+  currentItem: { id: string; title: string } | null;
   nextItem: { title: string } | null;
   lyricsEnabled: boolean;
   kioskBlanked: boolean;
@@ -46,7 +46,7 @@ export const getTmControlState = createServerFn({ method: "GET" })
     const body = result.body as Record<string, any>;
     return {
       timer: { playback: String(body.timer?.playback ?? "stop"), elapsed: Number(body.timer?.elapsed ?? 0) },
-      currentItem: body.currentItem ? { title: String(body.currentItem.title ?? "") } : null,
+      currentItem: body.currentItem ? { id: String(body.currentItem.id ?? ""), title: String(body.currentItem.title ?? "") } : null,
       nextItem: body.nextItem ? { title: String(body.nextItem.title ?? "") } : null,
       lyricsEnabled: Boolean(body.lyricsEnabled),
       kioskBlanked: Boolean(body.kioskBlanked),

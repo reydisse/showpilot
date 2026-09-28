@@ -125,6 +125,32 @@ describe("NotificationInbox", () => {
     expect(screen.getByText("Newest alert")).not.toBe(undefined);
     expect(await screen.findByText("Older alert")).not.toBe(undefined);
     expect(screen.queryByRole("button", { name: "Load older notifications" })).toBeNull();
+
+    mocks.getNotifications.mockResolvedValueOnce({
+      unread: 2,
+      nextCursor: cursor,
+      notifications: [{ id: "notification-new", type: "assignment", severity: "info", title: "Newest alert", message: "New", actionUrl: "schedule", source: "new", createdAt: "2026-09-21T12:00:00.000Z", readAt: null }],
+    });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(mocks.getNotifications).toHaveBeenCalledTimes(3));
+    expect(screen.getByText("Older alert")).not.toBe(undefined);
+    expect(screen.queryByRole("button", { name: "Load older notifications" })).toBeNull();
+  });
+
+  it("does not resurrect unread state when an older refresh finishes after mark all read", async () => {
+    const notification = { id: "race", type: "assignment", severity: "info", title: "Crew call", message: "Arrive at 8", actionUrl: "", source: "show", createdAt: "2026-09-28T12:00:00Z", readAt: null };
+    const page = { notifications: [notification], unread: 1, nextCursor: null };
+    mocks.getNotifications.mockResolvedValueOnce(page);
+    mocks.markAllRead.mockResolvedValue({ ok: true });
+    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    await screen.findByText("Crew call");
+    let finishRefresh: (value: typeof page) => void = () => {};
+    mocks.getNotifications.mockReturnValueOnce(new Promise<typeof page>((resolve) => { finishRefresh = resolve; }));
+    act(() => window.dispatchEvent(new Event("focus")));
+    fireEvent.click(screen.getByRole("button", { name: "Mark all read" }));
+    await act(async () => { finishRefresh(page); });
+    expect(screen.queryByText("Unread")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull();
   });
 
   it("always keeps the inbox on and exposes one device-alert choice per category", async () => {

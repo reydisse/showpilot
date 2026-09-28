@@ -1,3 +1,4 @@
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
@@ -317,11 +318,7 @@ function ChatPanel({
         typingUsers={typingUsers}
         onTypingChange={setTyping}
         title="Team Chat"
-        subtitle={
-          gatewayStatus.platform === null
-            ? userName
-            : `${userName} · ${gatewayStatus.platform} synced`
-        }
+        subtitle={userName}
         currentUserName={userName}
         currentUserId={userId}
         mentionMembers={mentionMembers.filter(
@@ -349,12 +346,12 @@ function ShowPage() {
     showId,
     today,
     clockFormat,
-    timeZone,
     initialNow,
     userName,
     userId,
     userRole,
   } = Route.useLoaderData();
+  const timeZone = useDeviceTimeZone();
   const [members, setMembers] = useState(initialMembers);
 
   useEffect(() => {

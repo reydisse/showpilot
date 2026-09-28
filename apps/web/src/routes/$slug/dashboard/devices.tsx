@@ -119,8 +119,8 @@ function DevicesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               Devices
@@ -134,7 +134,7 @@ function DevicesPage() {
               setEditDevice(null);
               setShowForm(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-white text-sm font-semibold hover:bg-fire-600 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-black text-sm font-semibold hover:bg-fire-600 transition-colors"
           >
             <Plus className="w-4 h-4" />
             Add Device
@@ -161,25 +161,33 @@ function DevicesPage() {
           />
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 divide-x divide-board-border overflow-hidden rounded-xl border border-board-border bg-board-card">
+            <div className="hidden grid-cols-3 divide-x divide-board-border overflow-hidden rounded-xl border border-board-border bg-board-card sm:grid">
               <FleetStat label="Configured" value={devices.length} icon={Server} />
               <FleetStat label="Enabled" value={enabledCount} icon={Wifi} tone="text-green-400" />
               <FleetStat label="Protocols" value={protocolCount} icon={Activity} />
             </div>
-            <div className="grid min-h-[580px] overflow-hidden rounded-xl border border-board-border bg-board-card lg:grid-cols-[320px_minmax(0,1fr)_280px]">
-              <aside className="border-b border-board-border lg:border-b-0 lg:border-r">
+            <div className="grid min-w-0 overflow-hidden rounded-xl border border-board-border bg-board-card lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]">
+              <aside className="min-w-0 border-b border-board-border lg:row-span-2 lg:border-b-0 lg:border-r">
+                <div className="p-3 lg:hidden">
+                  <label htmlFor="cockpit-device" className="mb-2 block text-xs font-medium text-board-muted">Control device</label>
+                  <select id="cockpit-device" value={selectedDevice?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)} className="min-h-12 w-full rounded-lg border border-board-border bg-board-bg px-3 text-base text-board-text">
+                    {devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+                  </select>
+                </div>
+                <div className="hidden lg:block">
                 <div className="border-b border-board-border p-3"><label className="relative block"><Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-board-muted" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices" className="w-full rounded-lg border border-board-border bg-board-bg py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50" /></label></div>
-                <div className="max-h-[520px] overflow-auto py-1">
+                <div className="max-h-[70dvh] overflow-auto py-1">
                   {filteredDevices.map((device) => { const Icon = CATEGORY_ICONS[device.category as DeviceCategory] ?? Monitor; return <button type="button" key={device.id} onClick={() => setSelectedId(device.id)} className={`flex w-full items-center gap-3 border-l-2 px-3 py-3 text-left transition-colors ${selectedDevice?.id === device.id ? "border-fire-500 bg-fire-500/[0.06]" : "border-transparent hover:bg-board-bg/60"}`}><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-board-bg"><Icon className={`h-4 w-4 ${device.enabled ? "text-board-text" : "text-board-muted"}`} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-board-text">{device.name}</span><span className="mt-0.5 block truncate text-[10px] text-board-muted">{getAdapterLabel(device.adapterType)}</span></span><span className={`h-2 w-2 shrink-0 rounded-full ${device.enabled ? "bg-fire-500" : "bg-board-muted/40"}`} title={device.enabled ? "Ready to connect" : "Disabled"} /></button>; })}
+                </div>
                 </div>
               </aside>
 
-              {selectedDevice ? <main className="min-w-0 border-b border-board-border lg:border-b-0 lg:border-r">
-                <div className="flex flex-wrap items-center gap-3 border-b border-board-border px-5 py-4"><div className="min-w-0 flex-1"><h2 className="truncate text-base font-semibold text-board-text">{selectedDevice.name}</h2><p className="mt-0.5 text-xs text-board-muted">{getAdapterLabel(selectedDevice.adapterType)} · {CATEGORY_LABELS[selectedDevice.category as DeviceCategory] ?? selectedDevice.category}</p></div><span className="rounded-lg border border-board-border bg-board-bg px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-board-muted">Live cockpit</span></div>
+              {selectedDevice ? <main className="min-w-0">
+                <div className="flex flex-wrap items-center gap-3 border-b border-board-border px-5 py-4"><div className="min-w-0 flex-1"><h2 className="truncate text-base font-semibold text-board-text">{selectedDevice.name}</h2><p className="mt-0.5 text-xs text-board-muted">{getAdapterLabel(selectedDevice.adapterType)} · {CATEGORY_LABELS[selectedDevice.category as DeviceCategory] ?? selectedDevice.category}</p></div></div>
                 <InlineDeviceControls key={selectedDevice.id} device={selectedDevice} orgId={orgId} />
               </main> : null}
 
-              {selectedDevice ? <aside className="p-4"><p className="text-xs font-semibold text-board-text">Device inspector</p><div className="mt-4 space-y-4"><InspectorRow label="Status" value={selectedDevice.enabled ? "Enabled" : "Disabled"} /><InspectorRow label="Adapter" value={getAdapterLabel(selectedDevice.adapterType)} /><InspectorRow label="Category" value={CATEGORY_LABELS[selectedDevice.category as DeviceCategory] ?? selectedDevice.category} />{getSafeDeviceDetails(selectedDevice.settings).map(([label, value]) => <InspectorRow key={label} label={label} value={value} />)}</div><div className="mt-6 grid gap-2"><button type="button" onClick={() => void handleToggleEnabled(selectedDevice.id, selectedDevice.enabled)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text hover:bg-board-bg">{selectedDevice.enabled ? "Disable device" : "Enable device"}</button><button type="button" onClick={() => { setEditDevice(selectedDevice); setShowForm(true); }} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text hover:bg-board-bg">Edit configuration</button><button type="button" onClick={() => setDeleteTarget({ id: selectedDevice.id, name: selectedDevice.name })} className="rounded-lg px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10">Remove device</button></div></aside> : null}
+              {selectedDevice ? <details className="min-w-0 border-t border-board-border p-4 lg:col-start-2"><summary className="cursor-pointer text-sm font-medium text-board-text">Configuration &amp; device details</summary><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><InspectorRow label="Status" value={selectedDevice.enabled ? "Enabled" : "Disabled"} /><InspectorRow label="Adapter" value={getAdapterLabel(selectedDevice.adapterType)} /><InspectorRow label="Category" value={CATEGORY_LABELS[selectedDevice.category as DeviceCategory] ?? selectedDevice.category} />{getSafeDeviceDetails(selectedDevice.settings).map(([label, value]) => <InspectorRow key={label} label={label} value={value} />)}</div><div className="mt-6 grid gap-2"><button type="button" onClick={() => void handleToggleEnabled(selectedDevice.id, selectedDevice.enabled)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text hover:bg-board-bg">{selectedDevice.enabled ? "Disable device" : "Enable device"}</button><button type="button" onClick={() => { setEditDevice(selectedDevice); setShowForm(true); }} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text hover:bg-board-bg">Edit configuration</button><button type="button" onClick={() => setDeleteTarget({ id: selectedDevice.id, name: selectedDevice.name })} className="rounded-lg px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10">Remove device</button></div></details> : null}
             </div>
           </div>
         )}
@@ -250,7 +258,7 @@ function DevicesPage() {
 function InlineDeviceControls({ device, orgId }: { device: Awaited<ReturnType<typeof getDevices>>[number]; orgId: string }) {
   const { module, status, feedbacks, definition, bridgeOnline, connect, disconnect, error } = useDeviceModule(device, orgId);
   const connecting = status === "connecting";
-  return <div className="max-h-[640px] overflow-auto p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><span className={`h-2 w-2 rounded-full ${status === "connected" ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-400" : status === "error" || status === "bridge-required" ? "bg-red-500" : "bg-board-muted/40"}`} /><span role="status" aria-live="polite" className="text-xs font-medium capitalize text-board-text">{status.replace("-", " ")}</span>{definition?.connectivity === "bridge-required" ? <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${bridgeOnline ? "border-green-500/25 bg-green-500/[0.07] text-green-400" : "border-red-500/25 bg-red-500/[0.07] text-red-300"}`}>Venue Bridge {bridgeOnline ? "online" : "offline"}</span> : null}{status === "connected" ? <button type="button" onClick={disconnect} className="ml-auto rounded-lg border border-board-border px-3 py-1.5 text-xs text-board-muted hover:text-red-400">Disconnect</button> : status !== "bridge-required" ? <button type="button" onClick={() => void connect()} disabled={connecting} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-3 py-1.5 text-xs font-semibold text-fire-400 disabled:cursor-wait disabled:opacity-70">{connecting ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}{connecting ? "Connecting..." : "Connect"}</button> : null}</div>{error ? <div role="alert" className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5 text-xs leading-5 text-red-300">{error}</div> : null}<DeviceControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} device={device} /></div>;
+  return <div className="min-w-0 p-3 sm:p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><span className={`h-2 w-2 rounded-full ${status === "connected" ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-400" : status === "error" || status === "bridge-required" ? "bg-red-500" : "bg-board-muted/40"}`} /><span role="status" aria-live="polite" className="text-xs font-medium capitalize text-board-text">{status.replace("-", " ")}</span>{definition?.connectivity === "bridge-required" ? <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${bridgeOnline ? "border-green-500/25 bg-green-500/[0.07] text-green-400" : "border-red-500/25 bg-red-500/[0.07] text-red-300"}`}>Venue Bridge {bridgeOnline ? "online" : "offline"}</span> : null}{status === "connected" ? <button type="button" onClick={disconnect} className="ml-auto min-h-11 rounded-lg border border-board-border px-3 py-1.5 text-xs text-board-muted hover:text-red-400">Disconnect</button> : status !== "bridge-required" ? <button type="button" onClick={() => void connect()} disabled={connecting} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-3 py-1.5 text-xs font-semibold text-fire-400 disabled:cursor-wait disabled:opacity-70">{connecting ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}{connecting ? "Connecting..." : "Connect"}</button> : null}</div>{error ? <div role="alert" className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5 text-xs leading-5 text-red-300">{error}</div> : null}<DeviceControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} device={device} /></div>;
 }
 
 function FleetStat({ label, value, icon: Icon, tone = "text-board-text" }: { label: string; value: number; icon: React.ElementType; tone?: string }) {

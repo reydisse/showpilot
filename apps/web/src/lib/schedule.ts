@@ -5,7 +5,7 @@ import { getD1 } from "@/lib/d1";
 import { assertOrgPermission, getRequestOrgAccess } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
-import { serviceTimeToIso } from "@/lib/utils";
+import { editServiceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
@@ -13,6 +13,7 @@ import { deleteServiceForOrg } from "@/lib/service-deletion.server";
 import { deliverScheduleAssignmentInvitation } from "@/lib/schedule-assignment-delivery.server";
 import { env } from "cloudflare:workers";
 import { updateRundownMetadataThroughRelay } from "@/lib/rundown-meta-update.server";
+import { assignmentCallTimeForStorage, getAssignmentCallTime } from "@/lib/assignment-call-time";
 import { assignmentResponseVersion } from "@/lib/assignment-response-version";
 
 const rangeInput = z.object({
@@ -114,6 +115,7 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
         ]).default(""),
         location: z.string().trim().max(240),
         expectedUpdatedAt: z.string().min(1).max(64),
+        timeZone: z.string().min(1).max(100).optional(),
       }),
       value,
     ),
@@ -126,16 +128,16 @@ export const saveServiceDetails = createServerFn({ method: "POST" })
         orgId: data.orgId,
         serviceDate: data.serviceDate,
       },
-      select: { id: true },
+      select: { id: true, scheduledStartTime: true, scheduledCallTime: true },
     });
     if (!show) throw new Error("Show not found");
     const timezone = await getPrisma().appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
       select: { value: true },
     });
-    const scheduledStartIso = serviceTimeToIso(data.serviceDate, data.startTime, timezone?.value);
+    const scheduledStartIso = editServiceTimeToIso({ serviceDate: data.serviceDate, time: data.startTime, timeZone: data.timeZone || timezone?.value || "UTC", referenceTime: show.scheduledStartTime });
     const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
-    const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime, timezone?.value);
+    const scheduledCallIso = editServiceTimeToIso({ serviceDate: data.serviceDate, time: data.callTime, timeZone: data.timeZone || timezone?.value || "UTC", referenceTime: show.scheduledCallTime ?? show.scheduledStartTime });
     const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
     await updateRundownMetadataThroughRelay({
       env: env as unknown as {
@@ -348,6 +350,13 @@ export const getSchedule = createServerFn({ method: "GET" })
       selectedDate: selectedDate ?? null,
       assignments: assignments.map((assignment) => ({
         ...assignment,
+        effectiveCallTime: getAssignmentCallTime({
+          ...assignment,
+          scheduledStartTime: assignment.showId ? serviceById.get(assignment.showId)?.scheduledStartTime : null,
+          scheduledCallTime: assignment.showId ? serviceById.get(assignment.showId)?.scheduledCallTime : null,
+          callLeadMinutes,
+          timeZone: providerMap["org-timezone"],
+        }),
         canRespond:
           Boolean(assignment.crewMember?.email) &&
           assignment.crewMember!.email.toLowerCase() === viewer.email,
@@ -402,13 +411,14 @@ export const getServiceAssignments = createServerFn({ method: "GET" })
         select: {
           serviceDate: true,
           scheduledStartTime: true,
+          scheduledCallTime: true,
           items: { select: { duration: true } },
         },
       }),
       prisma.appSetting.findMany({
         where: {
           orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes"] },
+          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
         },
         select: { key: true, value: true },
       }),
@@ -420,6 +430,13 @@ export const getServiceAssignments = createServerFn({ method: "GET" })
     const nowMs = Date.now();
     return assignments.map((assignment) => ({
       ...assignment,
+      effectiveCallTime: getAssignmentCallTime({
+        ...assignment,
+        scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+        scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+        callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+        timeZone: settingMap["org-timezone"],
+      }),
       canRespond:
         Boolean(assignment.crewMember?.email) &&
         assignment.crewMember!.email.toLowerCase() === viewer.email,
@@ -480,6 +497,7 @@ export const getMyAssignments = createServerFn({ method: "GET" })
             select: {
               name: true,
               scheduledStartTime: true,
+              scheduledCallTime: true,
               location: true,
               items: { select: { duration: true } },
             },
@@ -491,7 +509,7 @@ export const getMyAssignments = createServerFn({ method: "GET" })
       prisma.appSetting.findMany({
         where: {
           orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes"] },
+          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
         },
         select: { key: true, value: true },
       }),
@@ -513,6 +531,13 @@ export const getMyAssignments = createServerFn({ method: "GET" })
         department: assignment.department,
         status: assignment.status,
         callTime: assignment.callTime,
+        effectiveCallTime: getAssignmentCallTime({
+          ...assignment,
+          scheduledStartTime: assignment.show?.scheduledStartTime?.toISOString(),
+          scheduledCallTime: assignment.show?.scheduledCallTime?.toISOString(),
+          callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+          timeZone: settingMap["org-timezone"],
+        }),
         notes: assignment.notes,
         responseNote: assignment.responseNote,
         respondedAt: assignment.respondedAt?.toISOString() ?? null,
@@ -664,6 +689,7 @@ export const respondToMyAssignment = createServerFn({ method: "POST" })
 
 const assignmentInput = z.object({
   orgId: idSchema,
+  timeZone: z.string().min(1).max(100).optional(),
   id: idSchema.optional(),
   showId: idSchema,
   serviceDate: serviceDateSchema,
@@ -681,7 +707,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
     const actor = await assertAccess(data.orgId, true);
     const show = await getPrisma().rundown.findFirst({
       where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
-      select: { id: true },
+      select: { id: true, scheduledStartTime: true, scheduledCallTime: true },
     });
     if (!show) throw new Error("Show not found");
     if (data.crewMemberId) {
@@ -690,11 +716,23 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
       });
       if (!valid) throw new Error("Crew member not found");
     }
-    if (data.id) {
-      const existing = await getPrisma().serviceAssignment.findFirst({
-        where: { id: data.id, orgId: data.orgId },
-      });
-      if (!existing) throw new Error("Assignment not found");
+    const existing = data.id ? await getPrisma().serviceAssignment.findFirst({
+      where: { id: data.id, orgId: data.orgId },
+    }) : null;
+    if (data.id && !existing) throw new Error("Assignment not found");
+    const venueTimezone = data.timeZone ? await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } }, select: { value: true },
+    }) : null;
+    const callTime = data.timeZone ? assignmentCallTimeForStorage({
+      serviceDate: data.serviceDate,
+      callTime: data.callTime,
+      deviceTimeZone: data.timeZone,
+      venueTimeZone: venueTimezone?.value || "UTC",
+      referenceTime: existing?.callTime ? getAssignmentCallTime({
+        serviceDate: existing.serviceDate, callTime: existing.callTime, timeZone: venueTimezone?.value,
+      }) : show.scheduledCallTime?.toISOString() ?? show.scheduledStartTime?.toISOString(),
+    }) : data.callTime;
+    if (existing) {
       const personChanged = existing.crewMemberId !== data.crewMemberId;
       // A decline is part of the service record. Reassigning that position
       // creates a fresh invitation while leaving the declined response and
@@ -710,7 +748,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
             crewMemberId: data.crewMemberId,
             assignedByUserId: actor.userId,
             status: "assigned",
-            callTime: data.callTime,
+            callTime,
             notes: data.notes,
             invitedAt: null,
           },
@@ -733,12 +771,12 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
         return replacement;
       }
       const updated = await getPrisma().serviceAssignment.update({
-        where: { id: data.id },
+        where: { id: existing.id },
         data: {
           role: data.role,
           department: data.department,
           crewMemberId: data.crewMemberId,
-          callTime: data.callTime,
+          callTime,
           notes: data.notes,
           ...(personChanged
             ? {
@@ -783,7 +821,7 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
         crewMemberId: data.crewMemberId,
         assignedByUserId: actor.userId,
         status: data.status,
-        callTime: data.callTime,
+        callTime,
         notes: data.notes,
         invitedAt: null,
       },

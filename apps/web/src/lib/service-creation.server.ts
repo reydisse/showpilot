@@ -11,6 +11,7 @@ import { serviceTimeToIso } from "@/lib/utils";
 
 export interface CreateServiceForOrgInput {
   orgId: string;
+  timeZone?: string;
   requestId?: string;
   serviceDate: string;
   copyFrom?: string;
@@ -37,6 +38,7 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   const inventory = data.inventoryId
     ? await readShowInventoryItem(data.orgId, data.inventoryId)
     : null;
+  const startTimeZone = data.startTime ? data.timeZone || timezone?.value : timezone?.value;
   if (data.requestId) {
     const existing = await prisma.rundown.findUnique({
       where: { id: data.requestId },
@@ -47,12 +49,12 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
       const expectedStart = serviceTimeToIso(
         data.serviceDate,
         data.startTime || inventory?.defaultStartTime || "",
-        timezone?.value,
+        startTimeZone,
       );
       const expectedCall = serviceTimeToIso(
         data.serviceDate,
         data.callTime || "",
-        timezone?.value,
+        data.timeZone || timezone?.value,
       );
       if (
         existing.serviceDate !== data.serviceDate
@@ -89,9 +91,9 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
   }
 
   const startTime = data.startTime || inventory?.defaultStartTime || "";
-  const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, timezone?.value);
+  const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, startTimeZone);
   const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
-  const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime || "", timezone?.value);
+  const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime || "", data.timeZone || timezone?.value);
   const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
   const rundown = await prisma.rundown.create({
     data: {

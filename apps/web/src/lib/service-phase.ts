@@ -71,12 +71,12 @@ function positive(value: number | undefined, fallback: number): number {
  */
 export function getServiceTiming(input: PhaseInput): ServiceTiming {
   const scheduledStartMs = toMs(input.scheduledStartTime);
+  const explicitCallTimeMs = toMs(input.scheduledCallTime);
   if (scheduledStartMs === null) {
-    return { scheduledStartMs: null, callTimeMs: null, expectedEndMs: null };
+    return { scheduledStartMs: null, callTimeMs: explicitCallTimeMs, expectedEndMs: null };
   }
 
   const callLead = positive(input.callLeadMinutes, DEFAULT_CALL_LEAD_MINUTES);
-  const explicitCallTimeMs = toMs(input.scheduledCallTime);
   const windowMinutes = positive(input.serviceWindowMinutes, DEFAULT_SERVICE_WINDOW_MINUTES);
   const durationMs = positive(input.plannedDurationMs, windowMinutes * MINUTE_MS);
 

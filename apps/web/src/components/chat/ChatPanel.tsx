@@ -229,7 +229,7 @@ function ChatMessageRow({
       id={`chat-message-${message.id}`}
       data-chat-message-id={message.id}
       className={cn(
-        "group flex w-full min-w-0 max-w-full items-end gap-2 overflow-hidden px-4",
+        "group flex w-full min-w-0 max-w-full items-end gap-2 px-4",
         isOwn && "justify-end",
         grouped ? "py-0.5" : "pb-1 pt-2.5",
         isFocused && "rounded-lg bg-sky-400/[0.08] ring-2 ring-sky-400/50 ring-inset",
@@ -251,7 +251,7 @@ function ChatMessageRow({
         <div
           data-attachment-layout={containsOnlyImages ? "image-only" : undefined}
           className={cn(
-            "min-w-12 overflow-hidden",
+            "min-w-0 max-w-full overflow-hidden",
             containsOnlyImages
               ? "rounded-xl bg-transparent p-0 shadow-none"
               : isOwn
@@ -260,11 +260,11 @@ function ChatMessageRow({
           )}
         >
         {message.replyTo && (
-          <div className={cn("mb-2 flex max-w-2xl items-stretch gap-2 rounded-lg px-2 py-1.5 text-[11px]", isOwn ? "bg-black/10" : "bg-white/[0.035]")}>
+          <div className={cn("mb-2 flex min-w-0 max-w-full items-stretch gap-2 rounded-lg px-2 py-1.5 text-[11px]", isOwn ? "bg-black/10" : "bg-white/[0.035]")}>
             <span className={cn("w-0.5 shrink-0 rounded-full", isOwn ? "bg-black/55" : "bg-fire-400/65")} />
             <div className="min-w-0 py-0.5">
               <span className={cn("font-semibold", isOwn ? "text-black/80" : "text-fire-300/90")}>{message.replyTo.senderName}</span>
-              <p className={cn("truncate", isOwn ? "text-black/65" : "text-board-muted/75")}>{message.replyTo.text || "Attachment"}</p>
+              <p className={cn("line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere]", isOwn ? "text-black/65" : "text-board-muted/75")}>{message.replyTo.text || "Attachment"}</p>
             </div>
           </div>
         )}
@@ -772,7 +772,7 @@ export function ChatPanel({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -782,8 +782,21 @@ export function ChatPanel({
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+    const resize = () => {
+      if (ta.clientWidth === 0) return;
+      ta.style.height = "auto";
+      ta.style.height = `${Math.max(44, Math.min(ta.scrollHeight, 120))}px`;
+    };
+    resize();
+    if (typeof ResizeObserver === "undefined") return;
+    let width = ta.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (ta.clientWidth === width) return;
+      width = ta.clientWidth;
+      resize();
+    });
+    observer.observe(ta);
+    return () => observer.disconnect();
   }, [inputText]);
 
   // Separate pinned alerts from regular messages
@@ -967,7 +980,7 @@ export function ChatPanel({
       )}
 
       {/* Input area */}
-      <div className="safe-area-bottom shrink-0 border-t border-board-border bg-board-bg/40 p-3">
+      <div className="min-w-0 shrink-0 border-t border-board-border bg-board-bg/40 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
         {pollOpen && <div className="mb-2 rounded-xl border border-board-border bg-board-card p-3 shadow-xl"><div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-xs font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto text-board-muted" aria-label="Close poll composer"><X className="h-4 w-4" /></button></div><input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-3 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />{pollOptions.map((option, index) => <input key={index} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-2 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />)}<div className="mt-3 flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions((items) => [...items, ""])} className="flex items-center gap-1 text-[10px] text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter((item) => item.trim()).length < 2} onClick={sendPoll} className="ml-auto rounded-lg bg-sky-400 px-3 py-2 text-[10px] font-semibold text-black disabled:opacity-40">Send poll</button></div></div>}
         {mentionSuggestions.length > 0 && !editingMessage && (
           <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
@@ -999,7 +1012,7 @@ export function ChatPanel({
               {Array.from({ length: uploadingCount }, (_, index) => <div key={`uploading-${index}`} className="flex h-9 w-24 shrink-0 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-card text-[10px] text-board-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading</div>)}
             </div>
           )}
-          <div className="flex items-center border-b border-board-border/70 px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-y-1 border-b border-board-border/70 px-2 py-1.5">
             {allowOperationalMessages && !editingMessage ? (
               <MessageTypeSelector value={messageType} onChange={setMessageType} />
             ) : (
@@ -1029,7 +1042,7 @@ export function ChatPanel({
             }
             rows={1}
             className={cn(
-              "min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm text-board-text placeholder:text-board-muted/45 outline-none modern-scrollbar",
+              "min-h-11 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 text-board-text placeholder:text-board-muted/60 outline-none modern-scrollbar sm:text-sm",
               messageType === "cue" && "font-mono",
             )}
           />

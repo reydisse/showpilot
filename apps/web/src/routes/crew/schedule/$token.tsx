@@ -18,7 +18,7 @@ import {
   respondToCrewScheduleInvite,
 } from "@/lib/crew-schedule";
 import { orgTerms } from "@/lib/org-terminology";
-import { formatWallTime } from "@/lib/utils";
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { isCrewScheduleResponseOpen } from "@/lib/crew-schedule-response";
 
 export const Route = createFileRoute("/crew/schedule/$token")({
@@ -54,6 +54,7 @@ function formatTime(value: string | null, timeZone?: string) {
 
 function CrewSchedulePortal() {
   const data = Route.useLoaderData();
+  const deviceTimeZone = useDeviceTimeZone();
   const { token } = Route.useParams();
   const { assignment: requestedId } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -187,7 +188,7 @@ function CrewSchedulePortal() {
         <Detail
           icon={Clock3}
           label="Call time"
-          value={formatWallTime(selected.callTime) || formatTime(selected.scheduledStartTime, data.orgTimezone)}
+          value={formatTime(selected.effectiveCallTime, deviceTimeZone)}
         />
         {selected.location ? (
           <Detail icon={MapPin} label="Location" value={selected.location} />

@@ -42,6 +42,8 @@ import {
 } from "@/components/ui/dialog";
 import { StatusMetric } from "@/components/ui/status-metric";
 import { useRundownSync } from "@/hooks/useRundownSync";
+import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
+import { nextPlayableItem } from "@/lib/rundown-transport";
 import type { RundownState } from "@/types/rundown";
 import { isHeaderItem } from "@/types/rundown";
 
@@ -88,7 +90,12 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
   const playable = activeItems.filter((item) => !isHeaderItem(item));
   const current = playable.find((item) => item.id === activeTimer.currentItemId) ?? null;
   const first = playable.find((item) => item.status !== "complete") ?? playable[0];
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${showId ?? serviceDate}:${activeTimer.currentItemId}:${activeTimer.playback === "stop"}`);
   const command = (action: string, payload?: Record<string, unknown>) => {
+    if (action === "timer-stop" || (action === "timer-next" && !nextPlayableItem(activeItems, activeTimer.currentItemId))) {
+      requestEndShow(() => sendCommand(action, payload));
+      return;
+    }
     sendCommand(action, payload);
   };
   const start = () => {
@@ -112,6 +119,7 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
 
   return (
     <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
+      {endShowDialog}
       <header className="flex items-center gap-3 border-b border-board-border px-4 py-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><RadioTower className="h-4 w-4" /></span>
         <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>

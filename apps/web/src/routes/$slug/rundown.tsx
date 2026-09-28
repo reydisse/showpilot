@@ -1,3 +1,5 @@
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
+import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { nextPlayableItem } from "@/lib/rundown-transport";
@@ -74,6 +76,7 @@ import {
   formatWallTime,
   getTodayDateString,
   serviceTimeToIso,
+  editServiceTimeToIso,
 } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -319,6 +322,7 @@ function RundownPage() {
     shows,
     initialNow,
   } = Route.useLoaderData();
+  const deviceTimeZone = useDeviceTimeZone();
   const navigate = useNavigate({ from: Route.fullPath });
   const canEditRundown = hasEffectivePermission(
     role,
@@ -449,18 +453,10 @@ function RundownPage() {
     startedAt: initialState.timer.startedAt,
     mode: initialState.timer.mode,
   });
-  const [scheduledStartTime, setScheduledStartTime] = useState<string>(
-    formatTimeInput(
-      initialState.meta?.scheduledStartTime,
-      settings["org-timezone"],
-    ),
-  );
-  const [scheduledCallTime, setScheduledCallTime] = useState<string>(
-    formatTimeInput(
-      initialState.meta?.scheduledCallTime,
-      settings["org-timezone"],
-    ),
-  );
+  const [scheduledStartIso, setScheduledStartIso] = useState<string | null>(initialState.meta?.scheduledStartTime ?? null);
+  const [scheduledCallIso, setScheduledCallIso] = useState<string | null>(initialState.meta?.scheduledCallTime ?? null);
+  const scheduledStartTime = formatTimeInput(scheduledStartIso, deviceTimeZone);
+  const scheduledCallTime = formatTimeInput(scheduledCallIso, deviceTimeZone);
   const [serviceName, setServiceName] = useState<string>(
     initialState.meta?.name ?? "",
   );
@@ -519,28 +515,21 @@ function RundownPage() {
         false,
         {
           serviceName,
-          scheduledStartTime: serviceTimeToIso(
-            serviceDate,
-            scheduledStartTime,
-            settings["org-timezone"],
-          ),
-          scheduledCallTime: serviceTimeToIso(
-            serviceDate,
-            scheduledCallTime,
-            settings["org-timezone"],
-          ),
+          scheduledStartTime: scheduledStartIso,
+          scheduledCallTime: scheduledCallIso,
         },
       );
     } else if (sameRoom && syncedInitialized) {
       hasSeededRef.current = true;
     }
   }, [
-    scheduledCallTime,
-    scheduledStartTime,
+    scheduledCallIso,
+    scheduledStartIso,
     seedState,
     serviceDate,
     serviceName,
     settings,
+    deviceTimeZone,
     showId,
     syncHydrated,
     syncedInitialized,
@@ -552,25 +541,20 @@ function RundownPage() {
   // Shared with the dashboard header — see components/ui/scroll-edges.
 
   useEffect(() => {
-    if (!relayMatchesTarget) return;
+    if (!relayMatchesTarget || syncSaving || metaSavePending) return;
     if (syncedServiceName !== null) setServiceName(syncedServiceName);
     if (syncedScheduledStartTime !== undefined) {
-      setScheduledStartTime(
-        syncedScheduledStartTime
-          ? formatTimeInput(syncedScheduledStartTime, settings["org-timezone"])
-          : "",
-      );
+      setScheduledStartIso(syncedScheduledStartTime);
     }
     if (syncedScheduledCallTime !== undefined) {
-      setScheduledCallTime(
-        syncedScheduledCallTime
-          ? formatTimeInput(syncedScheduledCallTime, settings["org-timezone"])
-          : "",
-      );
+      setScheduledCallIso(syncedScheduledCallTime);
     }
   }, [
     relayMatchesTarget,
+    syncSaving,
+    metaSavePending,
     settings,
+    deviceTimeZone,
     syncedScheduledCallTime,
     syncedScheduledStartTime,
     syncedServiceName,
@@ -641,14 +625,16 @@ function RundownPage() {
 
   const handleScheduledStartChange = useCallback(
     (timeStr: string) => {
-      setScheduledStartTime(timeStr);
       setSaveError(null);
+      let isoTime: string | null;
+      try {
+        isoTime = editServiceTimeToIso({ serviceDate, time: timeStr, timeZone: deviceTimeZone, referenceTime: scheduledStartIso });
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "Service time is invalid");
+        return;
+      }
+      setScheduledStartIso(isoTime);
       setMetaFieldPending("time", true);
-      const isoTime = serviceTimeToIso(
-        serviceDate,
-        timeStr,
-        settings["org-timezone"],
-      );
       if (showId) {
         sendCommand("update-meta", { scheduledStartTime: isoTime });
         setMetaFieldPending("time", false);
@@ -683,20 +669,24 @@ function RundownPage() {
       serviceDate,
       setMetaFieldPending,
       settings,
+      deviceTimeZone,
+      scheduledStartIso,
       showId,
     ],
   );
 
   const handleScheduledCallChange = useCallback(
     (timeStr: string) => {
-      setScheduledCallTime(timeStr);
       setSaveError(null);
+      let isoTime: string | null;
+      try {
+        isoTime = editServiceTimeToIso({ serviceDate, time: timeStr, timeZone: deviceTimeZone, referenceTime: scheduledCallIso ?? scheduledStartIso });
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "Crew call is invalid");
+        return;
+      }
+      setScheduledCallIso(isoTime);
       setMetaFieldPending("call", true);
-      const isoTime = serviceTimeToIso(
-        serviceDate,
-        timeStr,
-        settings["org-timezone"],
-      );
       if (showId) {
         setMetaFieldPending("call", false);
         sendCommand("update-meta", { scheduledCallTime: isoTime });
@@ -729,6 +719,9 @@ function RundownPage() {
       serviceDate,
       setMetaFieldPending,
       settings,
+      deviceTimeZone,
+      scheduledStartIso,
+      scheduledCallIso,
       showId,
     ],
   );
@@ -1011,22 +1004,8 @@ function RundownPage() {
         startedAt: state.timer.startedAt,
         mode: state.timer.mode,
       });
-      setScheduledStartTime(
-        state.meta?.scheduledStartTime
-          ? formatTimeInput(
-              state.meta.scheduledStartTime,
-              settings["org-timezone"],
-            )
-          : "",
-      );
-      setScheduledCallTime(
-        state.meta?.scheduledCallTime
-          ? formatTimeInput(
-              state.meta.scheduledCallTime,
-              settings["org-timezone"],
-            )
-          : "",
-      );
+      setScheduledStartIso(state.meta?.scheduledStartTime ?? null);
+      setScheduledCallIso(state.meta?.scheduledCallTime ?? null);
       showCreationRef.current = null;
       setTarget({ serviceDate: date, showId: nextShowId });
       setSaveError(null);
@@ -1056,6 +1035,7 @@ function RundownPage() {
         serviceDate: input.serviceDate,
         name: input.name,
         startTime: input.startTime,
+        timeZone: deviceTimeZone,
         callTime: input.callTime,
         location: input.location,
         copyFrom: input.copyCurrent ? serviceDate : undefined,
@@ -1099,16 +1079,8 @@ function RundownPage() {
             mode: timerRef.current.mode,
           },
           serviceName,
-          scheduledStartTime: serviceTimeToIso(
-            serviceDate,
-            scheduledStartTime,
-            settings["org-timezone"],
-          ),
-          scheduledCallTime: serviceTimeToIso(
-            serviceDate,
-            scheduledCallTime,
-            settings["org-timezone"],
-          ),
+          scheduledStartTime: scheduledStartIso,
+          scheduledCallTime: scheduledCallIso,
         });
       }
 
@@ -1116,12 +1088,13 @@ function RundownPage() {
     },
     [
       relayNeedsPriming,
-      scheduledCallTime,
-      scheduledStartTime,
+      scheduledCallIso,
+      scheduledStartIso,
       sendCommand,
       serviceDate,
       serviceName,
       settings,
+      deviceTimeZone,
     ],
   );
 
@@ -1249,7 +1222,9 @@ function RundownPage() {
     }
   }, [canControlRundown, timer, sendRundownCommand]);
 
-  const handleStop = useCallback(() => {
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${showId ?? serviceDate}:${timer.currentItemId}:${timer.playback === "stop"}`);
+
+  const stopConfirmed = useCallback(() => {
     if (!canControlRundown) return;
     setItems((prev) =>
       prev.map((i) =>
@@ -1268,8 +1243,17 @@ function RundownPage() {
     sendRundownCommand("timer-stop");
   }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand]);
 
+  const handleStop = useCallback(() => {
+    if (!canControlRundown || timer.playback === "stop") return;
+    requestEndShow(stopConfirmed);
+  }, [canControlRundown, timer.playback, requestEndShow, stopConfirmed]);
+
   const handleNext = useCallback(() => {
     if (!canControlRundown) return;
+    if (timer.playback !== "stop" && !nextPlayableItem(items, timer.currentItemId)) {
+      requestEndShow(stopConfirmed);
+      return;
+    }
     // Local optimistic update
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx >= 0) {
@@ -1310,6 +1294,9 @@ function RundownPage() {
     items,
     timer.currentItemId,
     timer.mode,
+    timer.playback,
+    requestEndShow,
+    stopConfirmed,
     sendRundownCommand,
   ]);
 
@@ -1458,9 +1445,13 @@ function RundownPage() {
 
   const handleRemoveItem = (id: string) => {
     if (!canEditRundown) return;
-    if (timer.currentItemId === id) handleStop();
-    sendRundownCommand("remove-item", { id });
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    const remove = () => {
+      if (timer.currentItemId === id) stopConfirmed();
+      sendRundownCommand("remove-item", { id });
+      setItems((prev) => prev.filter((i) => i.id !== id));
+    };
+    if (timer.currentItemId === id) requestEndShow(remove);
+    else remove();
   };
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
@@ -1570,7 +1561,7 @@ function RundownPage() {
           : serviceTimeToIso(
               serviceDate,
               loaded.scheduledStartTime,
-              settings["org-timezone"],
+              deviceTimeZone,
             );
       if (showId) {
         // Seed DO with loaded items so all devices get them.
@@ -1594,7 +1585,7 @@ function RundownPage() {
         setServiceName(loaded.serviceName);
       }
       if (loaded.scheduledStartTime !== undefined) {
-        setScheduledStartTime(loaded.scheduledStartTime);
+        setScheduledStartIso(scheduled ?? null);
       }
       if (
         !showId &&
@@ -1623,6 +1614,7 @@ function RundownPage() {
       sendCommand,
       serviceDate,
       settings,
+      deviceTimeZone,
       showId,
     ],
   );
@@ -1669,11 +1661,9 @@ function RundownPage() {
   useEffect(() => {
     if (!canControlRundown) return;
     const handler = (e: KeyboardEvent) => {
-      if (
-        (e.target as HTMLElement).tagName === "INPUT" ||
-        (e.target as HTMLElement).tagName === "TEXTAREA"
-      )
-        return;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
+      const target = e.target;
+      if (!(target instanceof HTMLElement) || target.isContentEditable || target.closest('input, textarea, select, button, a, [role="button"]')) return;
       if (e.key === " ") {
         e.preventDefault();
         if (timer.playback === "play") handlePause();
@@ -1722,14 +1712,10 @@ function RundownPage() {
       ? `${window.location.origin}/timer/${slug}`
       : `/timer/${slug}`;
 
-  const rundownMeta = scheduledStartTime
+  const rundownMeta = scheduledStartIso
     ? {
         serviceDate,
-        scheduledStartTime: serviceTimeToIso(
-          serviceDate,
-          scheduledStartTime,
-          settings["org-timezone"],
-        )!,
+        scheduledStartTime: scheduledStartIso,
         status: "stopped" as const,
       }
     : undefined;
@@ -1760,16 +1746,8 @@ function RundownPage() {
     : "";
   const phaseSettings = readPhaseSettings(settings);
   const effectiveCallTimeMs = getServiceTiming({
-    scheduledStartTime: serviceTimeToIso(
-      serviceDate,
-      scheduledStartTime,
-      settings["org-timezone"],
-    ),
-    scheduledCallTime: serviceTimeToIso(
-      serviceDate,
-      scheduledCallTime,
-      settings["org-timezone"],
-    ),
+    scheduledStartTime: scheduledStartIso,
+    scheduledCallTime: scheduledCallIso,
     callLeadMinutes: phaseSettings.callLeadMinutes,
   }).callTimeMs;
   const selectedShowCall =
@@ -1777,7 +1755,7 @@ function RundownPage() {
       ? ""
       : formatTimeInput(
           new Date(effectiveCallTimeMs),
-          settings["org-timezone"],
+          deviceTimeZone,
         );
   const activeStageMessage = decodeStageMessage(syncedStageMessage);
 
@@ -2814,7 +2792,7 @@ function RundownPage() {
                                       <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
                                         {formatTimeInput(
                                           item.scheduledStart,
-                                          settings["org-timezone"],
+                                          deviceTimeZone,
                                         )}{" "}
                                         sched
                                       </span>
@@ -2836,10 +2814,10 @@ function RundownPage() {
                                       >
                                         {formatTimeInput(
                                           item.actualStart,
-                                          settings["org-timezone"],
+                                          deviceTimeZone,
                                         )}
                                         {item.actualEnd &&
-                                          ` – ${formatTimeInput(item.actualEnd, settings["org-timezone"])}`}
+                                          ` – ${formatTimeInput(item.actualEnd, deviceTimeZone)}`}
                                         {item.status === "complete" &&
                                           (() => {
                                             const overrun = itemOverrunMs(item);
@@ -2971,7 +2949,7 @@ function RundownPage() {
         {canEditRundown && showLoadModal && (
           <LoadRundownModal
             orgId={orgId}
-            timeZone={settings["org-timezone"]}
+            timeZone={deviceTimeZone}
             onLoad={handleLoadItems}
             onClose={() => setShowLoadModal(false)}
           />
@@ -3009,7 +2987,7 @@ function RundownPage() {
             callTime={scheduledCallTime}
             shows={shows}
             startTime={scheduledStartTime}
-            timeZone={settings["org-timezone"]}
+            timeZone={deviceTimeZone}
           />
         ) : null}
         {canCreateShow && showCreateModal ? (
@@ -3021,6 +2999,7 @@ function RundownPage() {
             onClose={() => setShowCreateModal(false)}
           />
         ) : null}
+        {endShowDialog}
         <ConfirmDialog
           open={showTakeLiveConfirmation}
           onOpenChange={setShowTakeLiveConfirmation}

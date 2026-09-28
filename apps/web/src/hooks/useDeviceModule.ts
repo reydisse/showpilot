@@ -34,6 +34,7 @@ export function useDeviceModule(
   const [bridgeOnline, setBridgeOnline] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const moduleRef = useRef<DeviceModule | null>(null);
+  const [module, setModule] = useState<DeviceModule | null>(null);
   const moduleDeviceIdRef = useRef<string | null>(null);
   const definition = device ? moduleRegistry.get(device.adapterType) : undefined;
 
@@ -69,6 +70,7 @@ export function useDeviceModule(
   useEffect(() => {
     if (!device || !definition) {
       moduleRef.current = null;
+      setModule(null);
       moduleDeviceIdRef.current = null;
       setStatus("disconnected");
       return;
@@ -81,6 +83,7 @@ export function useDeviceModule(
     ) {
       setStatus("bridge-required");
       moduleRef.current = null;
+      setModule(null);
       moduleDeviceIdRef.current = null;
       return;
     }
@@ -94,7 +97,10 @@ export function useDeviceModule(
 
     const mod = definition.createInstance({ ...settings, orgId });
     moduleRef.current = mod;
+    setModule(mod);
     moduleDeviceIdRef.current = device.id;
+    setStatus(mod.connectionStatus());
+    setFeedbacks(new Map());
 
     // Wire listeners
     const unsubStatus = mod.onStatusChange((s, message) => {
@@ -112,7 +118,11 @@ export function useDeviceModule(
 
     // Auto-connect if enabled
     if (device.enabled) {
-      mod.connect();
+      void mod.connect().catch((cause: unknown) => {
+        if (moduleRef.current !== mod) return;
+        setStatus("error");
+        setError(cause instanceof Error ? cause.message : "Connection failed");
+      });
     }
 
     return () => {
@@ -138,7 +148,13 @@ export function useDeviceModule(
     }
 
     setError(null);
-    await mod.connect();
+    try {
+      await mod.connect();
+    } catch (cause) {
+      if (moduleRef.current !== mod) return;
+      setStatus("error");
+      setError(cause instanceof Error ? cause.message : "Connection failed");
+    }
   }, [bridgeOnline, definition?.connectivity]);
 
   const disconnect = useCallback(() => {
@@ -146,7 +162,7 @@ export function useDeviceModule(
   }, []);
 
   return {
-    module: moduleDeviceIdRef.current === device?.id ? moduleRef.current : null,
+    module: moduleDeviceIdRef.current === device?.id ? module : null,
     status,
     feedbacks,
     definition,

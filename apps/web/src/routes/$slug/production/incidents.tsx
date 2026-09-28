@@ -5,6 +5,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -18,6 +19,8 @@ import {
   Send,
   History,
   SmilePlus,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
@@ -215,12 +218,12 @@ function IncidentsPage() {
   const [loadingIncidents, setLoadingIncidents] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [comments, setComments] = useState<IncidentComment[]>(initialComments);
-  const [openComments, setOpenComments] = useState<Set<string>>(() =>
-    focusedIncidentId ? new Set([focusedIncidentId]) : new Set(),
-  );
-  const [openHistoryIncident, setOpenHistoryIncident] = useState<string | null>(
-    null,
-  );
+  const [openIncidentId, setOpenIncidentId] = useState<string | null>(focusedIncidentId ?? null);
+  const requestVersion = useRef(0);
+  const scrolledIncident = useRef<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<{ incidentId: string; message: string } | null>(null);
+  const toggleIncident = (id: string) => setOpenIncidentId((current) => current === id ? null : id);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     {},
   );
@@ -249,18 +252,26 @@ function IncidentsPage() {
   const today = getTodayDateString(orgTimezone);
 
   useEffect(() => {
-    if (!focusedIncidentId) return;
-    setOpenComments((current) => {
-      if (current.has(focusedIncidentId)) return current;
-      const next = new Set(current);
-      next.add(focusedIncidentId);
-      return next;
-    });
+    setOpenIncidentId(focusedIncidentId ?? null);
   }, [focusedIncidentId]);
+
+  useEffect(() => {
+    if (!openIncidentId) { scrolledIncident.current = null; return; }
+    if (loadingIncidents || scrolledIncident.current === openIncidentId) return;
+    const frame = requestAnimationFrame(() => {
+      const card = document.getElementById(`incident-${openIncidentId}`);
+      if (!card) return;
+      scrolledIncident.current = openIncidentId;
+      card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [openIncidentId, loadingIncidents]);
 
   const loadIncidents = useCallback(
     async (date: string, targetShowId: string | null) => {
+      const version = ++requestVersion.current;
       setLoadingIncidents(true);
+      setLoadError(null);
       try {
         const [latest, latestComments] = await Promise.all([
           getIncidents({
@@ -278,10 +289,13 @@ function IncidentsPage() {
             },
           }),
         ]);
+        if (version !== requestVersion.current) return;
         setIncidents(latest.map(normalizeIncident));
         setComments(latestComments);
+      } catch (cause) {
+        if (version === requestVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load incidents. Try again.");
       } finally {
-        setLoadingIncidents(false);
+        if (version === requestVersion.current) setLoadingIncidents(false);
       }
     },
     [orgId],
@@ -297,6 +311,8 @@ function IncidentsPage() {
   });
 
   useEffect(() => {
+    requestVersion.current += 1;
+    setLoadingIncidents(false);
     setServiceDate(initialServiceDate);
     setShowId(initialShowId);
     setIncidents(initialIncidents);
@@ -313,7 +329,9 @@ function IncidentsPage() {
   }, [showForm]);
 
   useEffect(() => {
+    setOpenIncidentId(focusedIncidentId ?? null);
     void loadIncidents(serviceDate, showId);
+    return () => { requestVersion.current += 1; };
   }, [loadIncidents, serviceDate, showId]);
 
   useEffect(() => {
@@ -322,11 +340,13 @@ function IncidentsPage() {
       setReactions([]);
       return;
     }
+    let active = true;
     void getContentReactions({
       data: { orgId, targetType: "incident-comment", targetIds },
     })
-      .then(setReactions)
-      .catch(() => setReactions([]));
+      .then((rows) => { if (active) setReactions(rows); })
+      .catch(() => { if (active) setReactions([]); });
+    return () => { active = false; };
   }, [comments, orgId]);
 
   useServiceDateRollover({
@@ -383,7 +403,8 @@ function IncidentsPage() {
 
   const submitComment = async (incidentId: string) => {
     const body = commentDrafts[incidentId]?.trim();
-    if (!body) return;
+    if (!body || commentBusy) return;
+    setCommentError(null);
     setCommentBusy(incidentId);
     try {
       const comment = await addIncidentComment({
@@ -404,6 +425,8 @@ function IncidentsPage() {
         action: "commented",
         at: Date.now(),
       });
+    } catch (cause) {
+      setCommentError({ incidentId, message: cause instanceof Error ? cause.message : "Comment did not send. Your draft has been kept." });
     } finally {
       setCommentBusy(null);
     }
@@ -482,7 +505,7 @@ function IncidentsPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-3xl mx-auto">
+      <div className="mx-auto max-w-3xl p-4 sm:p-6">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fire-400">
@@ -496,6 +519,7 @@ function IncidentsPage() {
             {formatDisplayDate(serviceDate)}
           </span>
         </div>
+        {loadError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-red-300"><p className="flex-1">{loadError}</p><button className="min-h-11 px-2 font-semibold" onClick={() => void loadIncidents(serviceDate, showId)}>Retry</button></div> : null}
         {loadingIncidents && (
           <p className="mb-3 text-xs text-board-muted">
             Loading incidents for {formatDisplayDate(serviceDate)}...
@@ -507,55 +531,25 @@ function IncidentsPage() {
               <div
                 id={`incident-${incident.id}`}
                 key={incident.id}
-                ref={(node) => {
-                  if (node && incident.id === focusedIncidentId)
-                    window.setTimeout(
-                      () =>
-                        node.scrollIntoView({
-                          behavior: "smooth",
-                          block: "center",
-                        }),
-                      80,
-                    );
-                }}
-                className={`group p-4 rounded-xl bg-board-card border transition-all ${incident.id === focusedIncidentId ? "border-fire-500/70 ring-2 ring-fire-500/15" : "border-board-border hover:border-fire-500/20"}`}
+                className={`group scroll-mt-28 rounded-xl bg-board-card border transition-colors ${incident.id === openIncidentId ? "border-fire-500/70" : "border-board-border hover:border-fire-500/20"}`}
               >
-                <div
-                  className="flex cursor-pointer items-start justify-between gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50"
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={openComments.has(incident.id)}
-                  onClick={() =>
-                    setOpenComments((current) => {
-                      const next = new Set(current);
-                      next.has(incident.id)
-                        ? next.delete(incident.id)
-                        : next.add(incident.id);
-                      return next;
-                    })
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setOpenComments((current) => {
-                        const next = new Set(current);
-                        next.has(incident.id)
-                          ? next.delete(incident.id)
-                          : next.add(incident.id);
-                        return next;
-                      });
-                    }
-                  }}
+                <div className="flex items-start gap-1 p-4">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50"
+                  aria-expanded={openIncidentId === incident.id}
+                  aria-controls={`discussion-${incident.id}`}
+                  onClick={() => toggleIncident(incident.id)}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <AlertTriangle
                       className={`w-4 h-4 mt-0.5 shrink-0 ${incident.severity === "critical" ? "text-red-400" : incident.severity === "high" ? "text-orange-400" : "text-yellow-400"}`}
                     />
-                    <div>
-                      <p className="text-sm text-board-text">
+                    <div className="min-w-0">
+                      <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm text-board-text">
                         {incident.description}
                       </p>
-                      <div className="flex items-center gap-2 mt-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span
                           className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[incident.severity] || SEVERITY_COLORS.medium}`}
                         >
@@ -593,6 +587,7 @@ function IncidentsPage() {
                       </p>
                     </div>
                   </div>
+                </button>
                   {canManageIncidents && (
                     <button
                       type="button"
@@ -607,20 +602,15 @@ function IncidentsPage() {
                     </button>
                   )}
                 </div>
-                <div className="mt-3 border-t border-board-border/60 pt-3">
+                <div className="border-t border-board-border/60 px-4 pb-4">
                   <button
                     type="button"
-                    onClick={() =>
-                      setOpenComments((current) => {
-                        const next = new Set(current);
-                        next.has(incident.id)
-                          ? next.delete(incident.id)
-                          : next.add(incident.id);
-                        return next;
-                      })
-                    }
-                    className="flex items-center gap-1.5 text-[11px] font-medium text-board-muted hover:text-board-text"
+                    aria-expanded={openIncidentId === incident.id}
+                    aria-controls={`discussion-${incident.id}`}
+                    onClick={() => toggleIncident(incident.id)}
+                    className="flex min-h-11 w-full flex-wrap items-center gap-2 py-2 text-xs font-medium text-board-muted hover:text-board-text"
                   >
+                    <span className="text-fire-400">{openIncidentId === incident.id ? "Close discussion" : "Open discussion"}</span>
                     <MessageCircle className="h-3.5 w-3.5" />
                     {
                       comments.filter(
@@ -636,9 +626,11 @@ function IncidentsPage() {
                     {incident.status === "resolved"
                       ? " · resolution notes"
                       : ""}
+                    <ChevronDown className={`ml-auto h-4 w-4 transition-transform ${openIncidentId === incident.id ? "rotate-180" : ""}`} />
                   </button>
-                  {openComments.has(incident.id) && (
-                    <div className="mt-3 space-y-3">
+                  {openIncidentId === incident.id && (
+                    <div id={`discussion-${incident.id}`} className="space-y-3">
+                      {!comments.some((comment) => comment.incidentId === incident.id) ? <p className="text-sm text-board-muted">No updates yet. Add the first update below.</p> : null}
                       {comments
                         .filter(
                           (comment) =>
@@ -680,8 +672,10 @@ function IncidentsPage() {
                           </button>
                         </div>
                       ) : null}
+                      {commentError?.incidentId === incident.id ? <p role="alert" className="text-sm text-red-300">{commentError.message}</p> : null}
                       <div className="flex items-end gap-2">
                         <textarea
+                          aria-label={`Update for ${incident.description}`}
                           value={commentDrafts[incident.id] ?? ""}
                           onChange={(event) =>
                             setCommentDrafts((current) => ({
@@ -698,12 +692,12 @@ function IncidentsPage() {
                           }
                           rows={2}
                           maxLength={2000}
-                          className="min-w-0 flex-1 resize-none rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none placeholder:text-board-muted/50 focus:border-fire-500/40"
+                          className="min-w-0 flex-1 resize-none rounded-lg border border-board-border bg-board-bg px-3 py-2 text-base sm:text-sm text-board-text outline-none placeholder:text-board-muted/50 focus:border-fire-500/40"
                         />
                         <button
                           type="button"
                           disabled={
-                            commentBusy === incident.id ||
+                            commentBusy !== null ||
                             !commentDrafts[incident.id]?.trim()
                           }
                           onClick={() => void submitComment(incident.id)}
@@ -763,82 +757,20 @@ function IncidentsPage() {
           {recentHistory.incidents.length > 0 ? (
             <div className="overflow-hidden rounded-xl border border-board-border bg-board-card">
               {recentHistory.incidents.map((incident) => (
-                <div
+                <Link
                   key={incident.id}
-                  className="border-t border-board-border/70 first:border-t-0"
+                  to="/$slug/production/incidents"
+                  params={{ slug }}
+                  search={{ incident: incident.id, date: incident.serviceDate, show: incident.showId ?? undefined }}
+                  className="flex min-h-16 items-center gap-3 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55"
                 >
-                  <button
-                    type="button"
-                    aria-expanded={openHistoryIncident === incident.id}
-                    onClick={() =>
-                      setOpenHistoryIncident((current) =>
-                        current === incident.id ? null : incident.id,
-                      )
-                    }
-                    className="grid w-full gap-2 p-4 text-left hover:bg-board-bg/55 sm:grid-cols-[100px_minmax(0,1fr)_auto]"
-                  >
-                    <div>
-                      <p className="text-xs font-medium text-board-text">
-                        {incident.serviceDate}
-                      </p>
-                      <p className="mt-1 text-[10px] text-board-muted">
-                        {incident.category}
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-board-text">
-                        {incident.description}
-                      </p>
-                      <p className="mt-1 text-[10px] text-board-muted">
-                        {incident.assignedName || "Unassigned"} ·{" "}
-                        {incident.commentCount} comment
-                        {incident.commentCount === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                    <span
-                      className={`self-start text-[9px] font-semibold uppercase ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}
-                    >
-                      {incident.status}
-                    </span>
-                  </button>
-                  {openHistoryIncident === incident.id && (
-                    <div className="border-t border-board-border/50 bg-board-bg/35 px-4 py-3 text-xs text-board-muted sm:pl-[120px]">
-                      <p>
-                        Reported by{" "}
-                        <span className="text-board-text">
-                          {incident.reportedBy || "Unknown"}
-                        </span>
-                      </p>
-                      <p className="mt-1">
-                        Severity{" "}
-                        <span className="capitalize text-board-text">
-                          {incident.severity}
-                        </span>
-                        {incident.resolvedBy ? (
-                          <>
-                            {" "}
-                            · Resolved by{" "}
-                            <span className="text-board-text">
-                              {incident.resolvedBy}
-                            </span>
-                          </>
-                        ) : null}
-                      </p>
-                      <Link
-                        to="/$slug/production/incidents"
-                        params={{ slug }}
-                        search={{
-                          incident: incident.id,
-                          date: incident.serviceDate,
-                          show: incident.showId ?? undefined,
-                        }}
-                        className="mt-3 inline-flex text-[11px] font-semibold text-fire-400 hover:text-fire-300"
-                      >
-                        Open full incident and comments
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 [overflow-wrap:anywhere] text-sm text-board-text">{incident.description}</p>
+                    <p className="mt-1 text-xs text-board-muted">{incident.serviceDate} · {incident.category} · {incident.commentCount} comments</p>
+                    <p className={`mt-1 text-xs capitalize ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}>{incident.status} · {incident.assignedName || "Unassigned"}</p>
+                  </div>
+                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-board-muted" />
+                </Link>
               ))}
             </div>
           ) : (

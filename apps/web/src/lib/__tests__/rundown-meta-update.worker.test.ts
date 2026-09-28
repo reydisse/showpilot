@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
+import { editServiceTimeToIso, formatTimeInput } from "../utils";
 import {
   RundownMetadataConflictError,
   updateRundownMetadataThroughRelay,
@@ -60,6 +61,39 @@ describe("schedule metadata live authority", () => {
       scheduledCallTime: "2026-09-27T12:30:00.000Z",
       location: "Main room",
     });
+
+    // Edit the same saved call from Rundown on a Toronto device.
+    const nextCall = editServiceTimeToIso({
+      serviceDate,
+      time: "09:15",
+      timeZone: "America/Toronto",
+      referenceTime: String(state.scheduledCallTime),
+    });
+    const commandUrl = `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`;
+    const response = await relay.fetch(new Request(commandUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: crypto.randomUUID(), expectedRevision: state.revision, action: "update-meta", payload: { scheduledCallTime: nextCall } }),
+    }));
+    expect(response.ok).toBe(true);
+    const updated = await env.DB.prepare("SELECT scheduledCallTime FROM rundown WHERE id = ?")
+      .bind(showId).first<{ scheduledCallTime: string }>();
+    expect(updated?.scheduledCallTime).toBe(nextCall);
+    expect(formatTimeInput(updated?.scheduledCallTime, "America/Toronto")).toBe("09:15");
+    expect(formatTimeInput(updated?.scheduledCallTime, "Africa/Accra")).toBe("13:15");
+
+    // Clearing the override from Schedule must clear the live state too.
+    const version = await env.DB.prepare("SELECT updatedAt FROM rundown WHERE id = ?")
+      .bind(showId).first<{ updatedAt: string }>();
+    expect(version).not.toBeNull();
+    await updateRundownMetadataThroughRelay({
+      env, orgId, showId, serviceDate, expectedUpdatedAt: version?.updatedAt ?? "",
+      payload: { serviceName: "New title", scheduledStartTime: "2026-09-27T13:30:00.000Z", scheduledCallTime: null, location: "Main room" },
+    });
+    const cleared = await (await relay.fetch(new Request(
+      `https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`,
+    ))).json<{ scheduledCallTime: string | null }>();
+    expect(cleared.scheduledCallTime).toBeNull();
 
     await expect(updateRundownMetadataThroughRelay({
       env,

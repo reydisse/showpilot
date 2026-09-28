@@ -19,7 +19,7 @@ function DeviceDetailPage() {
   const { device } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const context = Route.useRouteContext() as { orgId?: string };
-  const { module, status, feedbacks, definition, connect, disconnect } =
+  const { module, status, feedbacks, definition, error, connect, disconnect } =
     useDeviceModule(device, context.orgId);
 
   return (
@@ -65,8 +65,11 @@ function DeviceDetailPage() {
         </div>
       </div>
 
+      {error ? <p role="alert" className="mb-4 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">{error}</p> : null}
+
       {/* Control Panel */}
       <DeviceControlPanel
+        key={device.id}
         module={module}
         status={status}
         feedbacks={feedbacks}

@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { LowerThirdPayload } from "@/lib/lowerthirds";
+import { nextPlayableItem } from "@/lib/rundown-transport";
 
 export interface RelayTimer {
   playback: "stop" | "play" | "pause";
@@ -25,6 +26,7 @@ export interface RelayTimer {
 }
 
 export interface RelayItem {
+  type?: string;
   id: string;
   title: string;
   status: string;
@@ -84,7 +86,7 @@ export interface CompanionResult {
 function transportSummary(state: RelayState): Record<string, unknown> {
   const idx = state.items.findIndex((i) => i.id === state.timer.currentItemId);
   const current = idx >= 0 ? state.items[idx] : null;
-  const nextItem = idx >= 0 ? state.items[idx + 1] ?? null : state.items[0] ?? null;
+  const nextItem = nextPlayableItem(state.items, state.timer.currentItemId);
   return {
     ok: true,
     playback: state.timer.playback,
@@ -247,7 +249,7 @@ export async function getState(deps: CompanionDeps, orgId: string): Promise<Comp
 
   const idx = state.items.findIndex((i) => i.id === state.timer.currentItemId);
   const current = idx >= 0 ? state.items[idx] : null;
-  const nextItem = idx >= 0 ? state.items[idx + 1] ?? null : state.items[0] ?? null;
+  const nextItem = nextPlayableItem(state.items, state.timer.currentItemId);
 
   return {
     status: 200,

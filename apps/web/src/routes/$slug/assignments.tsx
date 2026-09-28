@@ -1,3 +1,4 @@
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Check, Clock3, MapPin, X } from "lucide-react";
 import { useState } from "react";
@@ -5,7 +6,6 @@ import {
   getMyAssignments,
   respondToMyAssignment,
 } from "@/lib/schedule";
-import { formatWallTime } from "@/lib/utils";
 
 export const Route = createFileRoute("/$slug/assignments")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -34,6 +34,7 @@ type Assignment = Awaited<
 
 function MyAssignmentsPage() {
   const { orgId, slug, data } = Route.useLoaderData();
+  const deviceTimeZone = useDeviceTimeZone();
   const { assignment: requestedAssignment } = Route.useSearch();
   const router = useRouter();
   const [responding, setResponding] = useState<string | null>(null);
@@ -161,15 +162,13 @@ function MyAssignmentsPage() {
                     </p>
                     <p className="flex items-center gap-2">
                       <Clock3 className="h-4 w-4" />
-                      {assignment.callTime
-                        ? `Call ${formatWallTime(assignment.callTime)}`
-                        : assignment.scheduledStartTime
+                      {assignment.effectiveCallTime
                           ? new Date(
-                              assignment.scheduledStartTime,
+                              assignment.effectiveCallTime,
                             ).toLocaleTimeString([], {
                               hour: "numeric",
                               minute: "2-digit",
-                              timeZone: data.orgTimezone,
+                              timeZone: deviceTimeZone,
                             })
                           : "Time to be confirmed"}
                     </p>

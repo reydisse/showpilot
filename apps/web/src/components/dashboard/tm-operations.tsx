@@ -3,12 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Captions, ChevronLeft, ChevronRight, CircleStop, Clock3, ExternalLink, MonitorOff, MonitorUp, Play, RadioTower, RotateCcw, TimerReset, Wifi, WifiOff } from "lucide-react";
 import { getLiveInputStatus } from "@/lib/stream";
 import { getTmControlState, runTmControl, type TmControlAction } from "@/lib/tm-operations";
+import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 
 type Input = { id: string; name: string; status: string };
 type Destination = { id: string; name: string; platform: string; enabled: boolean; connected: boolean };
 type ControlState = {
   timer?: { playback?: string; elapsed?: number };
-  currentItem?: { title?: string } | null;
+  currentItem?: { id?: string; title?: string } | null;
   nextItem?: { title?: string } | null;
   lyricsEnabled?: boolean;
   kioskBlanked?: boolean;
@@ -110,6 +111,7 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
   const [busy, setBusy] = useState<TmControlAction | null>(null);
   const [armed, setArmed] = useState<TmControlAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${state.currentItem?.id}:${state.timer?.playback === "stop"}`);
   const refreshInFlightRef = useRef(false);
   const refresh = useCallback(async () => {
     if (document.visibilityState !== "visible" || refreshInFlightRef.current) return;
@@ -127,7 +129,11 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
     };
   }, [refresh]);
   useEffect(() => { if (!armed) return; const timer = window.setTimeout(() => setArmed(null), 4_000); return () => window.clearTimeout(timer); }, [armed]);
-  const run = async (control: (typeof CONTROLS)[number]) => {
+  const run = async (control: (typeof CONTROLS)[number], endConfirmed = false) => {
+    if (!endConfirmed && (control.action === "timer-stop" || (control.action === "rundown-next" && !state.nextItem))) {
+      requestEndShow(() => { void run(control, true); });
+      return;
+    }
     if (control.dangerous && armed !== control.action) { setArmed(control.action); setMessage("Press again within four seconds to confirm"); return; }
     setArmed(null); setBusy(control.action); setMessage(null);
     try { await runTmControl({ data: { orgId, action: control.action } }); await refresh(); setMessage(`${control.label} completed`); }
@@ -136,6 +142,7 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
   };
   const elapsed = useMemo(() => formatElapsed(state.timer?.elapsed ?? 0), [state.timer?.elapsed]);
   return <section className="rounded-xl border border-board-border bg-board-card overflow-hidden">
+    {endShowDialog}
     <header className="flex items-center gap-3 px-4 py-3 border-b border-board-border"><span className="w-9 h-9 rounded-lg bg-fire-500/10 text-fire-400 flex items-center justify-center"><RadioTower className="w-4 h-4" /></span><div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Technical control pad</h2><p className="text-[11px] text-board-muted truncate">{state.currentItem?.title ?? "No active rundown item"} · {elapsed}</p></div><span className={`ml-auto text-[10px] uppercase tracking-wider ${state.timer?.playback === "play" ? "text-green-400" : "text-board-muted"}`}>{state.timer?.playback ?? "offline"}</span></header>
     <div className={`grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 ${wide ? "lg:grid-cols-5 xl:grid-cols-7" : "2xl:grid-cols-4"}`}>{CONTROLS.map((control) => { const Icon = control.icon; const isActive = control.active?.(state); const isArmed = armed === control.action; return <button key={control.action} type="button" disabled={busy !== null} onClick={() => void run(control)} className={`min-h-[72px] text-left rounded-lg border p-3 transition-colors disabled:opacity-50 ${isArmed ? "border-red-500 bg-red-500/15 text-red-300" : isActive ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}><span className="flex items-center justify-between"><Icon className="w-4 h-4" />{isActive ? <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> : null}</span><span className="block text-[11px] font-medium mt-2">{isArmed ? `Confirm ${control.label}` : control.label}</span><span className="block text-[9px] text-board-muted mt-0.5">{control.detail}</span></button>; })}</div>
     <div aria-live="polite" className="min-h-8 flex items-center gap-2 px-4 py-2 border-t border-board-border text-[10px] text-board-muted"><Clock3 className="w-3 h-3" />{busy ? "Sending command…" : message ?? `Next: ${state.nextItem?.title ?? "—"}`}</div>

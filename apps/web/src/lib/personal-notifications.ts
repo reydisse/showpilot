@@ -108,6 +108,25 @@ export const getPersonalNotificationPreferences = createServerFn({ method: "GET"
     return readNotificationPreferences(data.orgId, userId);
   });
 
+/** Remember the last active device zone for assignment emails and push alerts. */
+export const savePersonalNotificationTimeZone = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    timeZone: z.string().min(1).max(100).refine((timeZone) => {
+      try { new Intl.DateTimeFormat("en", { timeZone }); return true; } catch { return false; }
+    }, "Invalid timezone"),
+  }), data))
+  .handler(async ({ data }) => {
+    const userId = await assertInboxAccess(data.orgId);
+    const key = `notification-timezone:${userId}`;
+    await getPrisma().appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key } },
+      create: { orgId: data.orgId, key, value: data.timeZone },
+      update: { value: data.timeZone },
+    });
+    return { ok: true };
+  });
+
 const updateNotificationPreferenceSchema = z.object({
   orgId: idSchema,
   category: z.enum(NOTIFICATION_CATEGORIES),

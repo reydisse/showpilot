@@ -4,8 +4,9 @@ import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { parseOrThrow } from "@/lib/validation";
 import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
-import { formatWallTime, getTodayDateString, serviceTimeToIso } from "@/lib/utils";
+import { getTodayDateString } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
+import { getAssignmentCallTime } from "@/lib/assignment-call-time";
 import { readPhaseSettings } from "@/lib/service-phase";
 import { assignmentResponseVersion } from "@/lib/assignment-response-version";
 
@@ -49,7 +50,7 @@ export async function sendCrewScheduleInvite(input: {
     select: { showId: true, serviceDate: true, role: true, callTime: true, status: true },
   });
   if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
-  const [crew, org, rundown, terminologySetting, timezoneSetting, serviceWindowSetting] = await Promise.all([
+  const [crew, org, rundown, terminologySetting, timezoneSetting, serviceWindowSetting, callLeadSetting] = await Promise.all([
     prisma.crewMember.findFirst({
       where: { id: input.crewMemberId, orgId: input.orgId },
       select: { name: true, email: true },
@@ -64,7 +65,7 @@ export async function sendCrewScheduleInvite(input: {
         : { orgId: input.orgId, serviceDate: assignment.serviceDate },
       select: {
         name: true,
-        scheduledStartTime: true,
+        scheduledStartTime: true, scheduledCallTime: true,
         location: true,
         items: { select: { duration: true } },
       },
@@ -84,6 +85,10 @@ export async function sendCrewScheduleInvite(input: {
           key: "default-service-window-minutes",
         },
       },
+      select: { value: true },
+    }),
+    prisma.appSetting.findUnique({
+      where: { orgId_key: { orgId: input.orgId, key: "default-call-lead-minutes" } },
       select: { value: true },
     }),
   ]);
@@ -111,13 +116,25 @@ export async function sendCrewScheduleInvite(input: {
   }
 
   const serviceName = rundown?.name || "Service";
-  const start = (assignment.callTime ? formatWallTime(assignment.callTime) : "") || (rundown?.scheduledStartTime
-    ? new Date(rundown.scheduledStartTime).toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: timezoneSetting?.value,
+  const effectiveCallTime = getAssignmentCallTime({
+    ...assignment,
+    scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+    scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+    callLeadMinutes: readPhaseSettings({ "default-call-lead-minutes": callLeadSetting?.value ?? "" }).callLeadMinutes,
+    timeZone: timezoneSetting?.value,
+  });
+  const recipientZone = await getD1().prepare(
+    `SELECT s.value FROM app_setting s
+     JOIN member m ON m.organizationId = s.orgId AND s.key = 'notification-timezone:' || m.userId
+     JOIN user u ON u.id = m.userId
+     WHERE s.orgId = ? AND LOWER(u.email) = ? LIMIT 1`,
+  ).bind(input.orgId, crew.email.trim().toLowerCase()).first<{ value: string }>();
+  const start = effectiveCallTime
+    ? new Date(effectiveCallTime).toLocaleTimeString([], {
+        hour: "numeric", minute: "2-digit", timeZoneName: "short",
+        timeZone: recipientZone?.value || timezoneSetting?.value || "UTC",
       })
-    : "Time to be confirmed");
+    : "Time to be confirmed";
   const parsedTerminology = orgTerminologyProfileSchema.safeParse(
     terminologySetting?.value,
   );
@@ -266,25 +283,31 @@ export async function getCrewScheduleCalendar(
     select: { id: true, showId: true, serviceDate: true, role: true, notes: true, callTime: true },
   });
   if (!assignment) throw new Error("Assignment not found");
-  const [rundown, timezoneSetting] = await Promise.all([
+  const [rundown, timezoneSetting, callLeadSetting] = await Promise.all([
     getPrisma().rundown.findFirst({
       where: assignment.showId
         ? { id: assignment.showId, orgId: access.orgId }
         : { orgId: access.orgId, serviceDate: assignment.serviceDate },
-      select: { name: true, scheduledStartTime: true, location: true },
+      select: { name: true, scheduledStartTime: true, scheduledCallTime: true, location: true },
     }),
     getPrisma().appSetting.findUnique({
       where: { orgId_key: { orgId: access.orgId, key: "org-timezone" } },
       select: { value: true },
     }),
+    getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: access.orgId, key: "default-call-lead-minutes" } },
+      select: { value: true },
+    }),
   ]);
-  const customStartIso = assignment.callTime
-    ? serviceTimeToIso(assignment.serviceDate, assignment.callTime, timezoneSetting?.value)
-    : null;
-  const start =
-    (customStartIso ? new Date(customStartIso) : null) ??
-    rundown?.scheduledStartTime ??
-    new Date(`${assignment.serviceDate}T09:00:00Z`);
+  const callIso = getAssignmentCallTime({
+    ...assignment,
+    scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+    scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+    callLeadMinutes: readPhaseSettings({ "default-call-lead-minutes": callLeadSetting?.value ?? "" }).callLeadMinutes,
+    timeZone: timezoneSetting?.value,
+  });
+  if (!callIso) throw new Error("Set a call time or show start time before downloading the calendar.");
+  const start = new Date(callIso);
   const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
   const title = `${rundown?.name || "Service"} — ${assignment.role}`;
   const content = [
@@ -340,6 +363,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
               "terminology-profile",
               "org-timezone",
               "default-service-window-minutes",
+              "default-call-lead-minutes",
             ],
           },
         },
@@ -372,7 +396,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
             id: true,
             serviceDate: true,
             name: true,
-            scheduledStartTime: true,
+            scheduledStartTime: true, scheduledCallTime: true,
             location: true,
             items: { select: { duration: true } },
           },
@@ -410,6 +434,13 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
           scheduledStartTime:
             rundown?.scheduledStartTime?.toISOString() ?? null,
           callTime: assignment.callTime,
+          effectiveCallTime: getAssignmentCallTime({
+            ...assignment,
+            scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+            scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+            callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+            timeZone: settingMap["org-timezone"],
+          }),
           location: rundown?.location ?? "",
           responseWindow: getCrewScheduleResponseWindow(
             {
@@ -468,7 +499,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
         ? prisma.rundown.findFirst({
             where: { id: assignment.showId, orgId: access.orgId },
             select: {
-              scheduledStartTime: true,
+              scheduledStartTime: true, scheduledCallTime: true,
               items: { select: { duration: true } },
             },
           })
