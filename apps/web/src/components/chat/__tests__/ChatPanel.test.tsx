@@ -12,15 +12,28 @@ let triggerResize = () => {};
 beforeAll(() => {
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 100 });
   HTMLElement.prototype.scrollIntoView = vi.fn();
-  class MockResizeObserver {
-    constructor(callback: ResizeObserverCallback) {
-      triggerResize = () => callback([], this as unknown as ResizeObserver);
+  const observers = new Set<MockResizeObserver>();
+  class MockResizeObserver implements ResizeObserver {
+    private targets = new Set<Element>();
+    constructor(private callback: ResizeObserverCallback) {}
+    observe(target: Element) {
+      this.targets.add(target);
+      observers.add(this);
     }
-    observe() {}
-    disconnect() {}
-    unobserve() {}
+    disconnect() {
+      this.targets.clear();
+      observers.delete(this);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+      if (this.targets.size === 0) observers.delete(this);
+    }
+    notify() {
+      this.callback([], this);
+    }
   }
-  globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+  triggerResize = () => observers.forEach((observer) => observer.notify());
+  globalThis.ResizeObserver = MockResizeObserver;
 });
 
 const messages: ChatMessage[] = [
