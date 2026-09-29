@@ -92,7 +92,50 @@ jobs:
           VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
-          VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify deployed web commit and record release
+        env:
+          EXPECTED_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFile } from 'node:fs/promises';
+          const endpoint = 'https://showpilot.tech/api/health';
+          const expected = process.env.EXPECTED_COMMIT;
+          let health;
+          for (let attempt = 0; attempt < 12; attempt++) {
+            try {
+              const response = await fetch(`${endpoint}?release=${expected}`, {
+                cache: 'no-store', signal: AbortSignal.timeout(10_000),
+              });
+              if (response.ok) health = await response.json();
+              if (health?.status === 'ok' && health.commit === expected) break;
+            } catch (error) {
+              console.log(`Health request failed: ${error.message}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 5_000));
+          }
+          if (health?.status !== 'ok' || health.commit !== expected) {
+            throw new Error(`Deployment did not serve the CI-approved commit ${expected}; received ${JSON.stringify(health)}`);
+          }
+          const release = {
+            webCommit: expected,
+            ciRun: process.env.CI_RUN_URL,
+            deployRun: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            verifiedAt: new Date().toISOString(),
+            healthEndpoint: endpoint,
+            nativeRelease: 'not included',
+          };
+          await writeFile('web-release.json', JSON.stringify(release, null, 2) + '\n');
+          console.log(JSON.stringify(release, null, 2));
+          NODE
+
+      - name: Save web release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-release-${{ github.event.workflow_run.head_sha }}
+          path: web-release.json
 
       - name: Deploy apps/landing
         run: pnpm --filter @showpilot/landing run deploy

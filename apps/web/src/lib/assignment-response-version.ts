@@ -3,6 +3,7 @@ export interface AssignmentResponseDetails {
   serviceDate: string;
   role: string;
   callTime: string;
+  effectiveCallTime: string | null;
   scheduledStartTime: string | null;
 }
 
@@ -17,6 +18,7 @@ export function assignmentResponseVersion(details: AssignmentResponseDetails) {
     details.serviceDate,
     details.role,
     details.callTime,
+    details.effectiveCallTime ?? "",
     details.scheduledStartTime ?? "",
   ]);
 }

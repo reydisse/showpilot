@@ -9,6 +9,7 @@ import {
 } from "@showpilot/shared";
 import { getAuth } from "./auth";
 import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
+import { getAssignmentCallTime } from "./assignment-call-time";
 import { assignmentResponseVersion } from "./assignment-response-version";
 import {
   resolveAccessGrantAuthorityForAccess,
@@ -212,6 +213,7 @@ interface MobileAssignmentRow {
   respondedAt: string | null;
   updatedAt: string;
   scheduledStartTime: string | null;
+  scheduledCallTime: string | null;
   plannedDurationMs: number;
   responseVersion?: string;
 }
@@ -227,6 +229,7 @@ interface MobileAssignmentResponseRow {
   crewName: string;
   crewEmail: string;
   scheduledStartTime: string | null;
+  scheduledCallTime: string | null;
   plannedDurationMs: number;
   assignedByUserId: string | null;
 }
@@ -2320,7 +2323,7 @@ async function schedule(
   const [settingsResult, selectedAssignment] = await Promise.all([
     db
       .prepare(
-        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile')",
+        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile')",
       )
       .bind(access.orgId)
       .all<{ key: string; value: string }>(),
@@ -2395,7 +2398,7 @@ async function schedule(
           `SELECT a.id, a.showId, a.serviceDate, a.role, a.department, a.status,
               a.callTime, a.notes, a.responseNote, a.crewMemberId, a.invitedAt,
               a.respondedAt, a.updatedAt, c.name AS crewName, c.email AS crewEmail,
-              r.scheduledStartTime,
+              r.scheduledStartTime, r.scheduledCallTime,
               COALESCE((
                 SELECT SUM(ri.duration) FROM rundown_item ri
                 WHERE ri.orgId = a.orgId AND ri.showId = a.showId
@@ -2476,6 +2479,11 @@ async function schedule(
     ...inventoryData,
     services,
     assignments: assignments.map((assignment) => {
+      const effectiveCallTime = getAssignmentCallTime({
+        ...assignment,
+        callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+        timeZone,
+      });
       const responseWindow = getCrewScheduleResponseWindow(
         {
           serviceDate: assignment.serviceDate,
@@ -2492,7 +2500,9 @@ async function schedule(
         assignment.crewEmail?.toLowerCase() === access.identity.email;
       return {
         ...assignment,
+        effectiveCallTime,
         responseVersion: assignmentResponseVersion({
+          effectiveCallTime,
           showId: assignment.showId,
           serviceDate: assignment.serviceDate,
           role: assignment.role,
@@ -3297,7 +3307,7 @@ async function respondToAssignment(
     db
       .prepare(
         `SELECT a.id, a.showId, a.crewMemberId, a.assignedByUserId, a.role, a.callTime, a.serviceDate, a.status,
-              c.name AS crewName, c.email AS crewEmail, r.scheduledStartTime,
+              c.name AS crewName, c.email AS crewEmail, r.scheduledStartTime, r.scheduledCallTime,
               COALESCE((
                 SELECT SUM(ri.duration) FROM rundown_item ri
                 WHERE ri.orgId = a.orgId AND ri.showId = a.showId
@@ -3311,7 +3321,7 @@ async function respondToAssignment(
       .first<MobileAssignmentResponseRow>(),
     db
       .prepare(
-        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes')",
+        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes')",
       )
       .bind(access.orgId)
       .all<{ key: string; value: string }>(),
@@ -3322,7 +3332,19 @@ async function respondToAssignment(
   ) {
     return json({ error: "Assignment not found." }, 404);
   }
+  const settingMap = Object.fromEntries(
+    (settingsResult.results ?? []).map((setting) => [
+      setting.key,
+      setting.value,
+    ]),
+  );
+  const { serviceWindowMinutes } = readPhaseSettings(settingMap);
   const currentVersion = assignmentResponseVersion({
+    effectiveCallTime: getAssignmentCallTime({
+      ...assignment,
+      callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+      timeZone: settingMap["org-timezone"],
+    }),
     showId: assignment.showId,
     serviceDate: assignment.serviceDate,
     role: assignment.role,
@@ -3338,13 +3360,6 @@ async function respondToAssignment(
       409,
     );
   }
-  const settingMap = Object.fromEntries(
-    (settingsResult.results ?? []).map((setting) => [
-      setting.key,
-      setting.value,
-    ]),
-  );
-  const { serviceWindowMinutes } = readPhaseSettings(settingMap);
   const responseWindow = getCrewScheduleResponseWindow(
     {
       serviceDate: assignment.serviceDate,

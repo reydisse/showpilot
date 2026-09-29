@@ -235,7 +235,7 @@ async function isShowAvailable(orgId: string, showId: string, db: Env["DB"]): Pr
   return Boolean(show);
 }
 
-// Build-time commit SHA, injected by deploy.yml (VITE_COMMIT_SHA=${{ github.sha }}).
+// Build-time commit SHA of the source validated by CI, injected by deploy.yml.
 const COMMIT_SHA =
   ((import.meta as unknown as { env?: Record<string, string | undefined> }).env
     ?.VITE_COMMIT_SHA as string | undefined) ?? "dev";

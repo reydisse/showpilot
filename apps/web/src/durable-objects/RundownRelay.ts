@@ -227,7 +227,7 @@ export class RundownRelay extends DurableObject {
       ));
       if (this.state.showId) {
         statements.push(env.DB.prepare(
-          "UPDATE rundown SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?",
+          "UPDATE rundown SET status = ?, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?",
         ).bind(
           persistedRundownStatus(this.state.timer.playback),
           this.state.showId,
@@ -357,7 +357,7 @@ export class RundownRelay extends DurableObject {
       }
       if (assignments.length > 0) {
         statements.push(env.DB.prepare(
-          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?`,
+          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?`,
         ).bind(...values, this.state.showId, this.orgId));
       }
     }

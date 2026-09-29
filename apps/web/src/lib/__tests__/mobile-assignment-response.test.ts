@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMobileApi, type MobileApiDatabase } from "../mobile-api.server";
+import { getAssignmentCallTime } from "../assignment-call-time";
 import { assignmentResponseVersion } from "../assignment-response-version";
 
 const mocks = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ interface AssignmentFixture {
   crewName: string;
   crewEmail: string;
   scheduledStartTime: string | null;
+  scheduledCallTime: string | null;
   plannedDurationMs: number;
   assignedByUserId: string | null;
 }
@@ -138,6 +140,7 @@ function assignment(overrides: Partial<AssignmentFixture> = {}): AssignmentFixtu
     crewName: "Test Person",
     crewEmail: "test@example.com",
     scheduledStartTime: null,
+    scheduledCallTime: null,
     plannedDurationMs: 0,
     assignedByUserId: "scheduler-1",
     ...overrides,
@@ -153,6 +156,7 @@ async function respond(db: MobileApiDatabase, reviewed: AssignmentFixture = assi
         orgId: "org-1",
         assignmentId: "assignment-1",
         reviewedVersion: assignmentResponseVersion({
+          effectiveCallTime: getAssignmentCallTime({ ...reviewed, timeZone: "Africa/Accra" }),
           showId: reviewed.showId,
           serviceDate: reviewed.serviceDate,
           role: reviewed.role,
@@ -251,6 +255,25 @@ describe("mobile assignment responses", () => {
     expect(mocks.notifyOperationalEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ includeLeadership: true }),
     );
+  });
+
+  it("rejects a response after the inherited show call time changes", async () => {
+    const calls: StatementCall[] = [];
+    const serviceDate = futureDate();
+    const reviewed = assignment({
+      showId: "show-1",
+      serviceDate,
+      scheduledStartTime: `${serviceDate}T10:00:00.000Z`,
+      scheduledCallTime: `${serviceDate}T09:00:00.000Z`,
+    });
+    const response = await respond(fakeDatabase({
+      assignment: { ...reviewed, scheduledCallTime: `${serviceDate}T08:00:00.000Z` },
+      calls,
+    }), reviewed);
+
+    expect(response.status).toBe(409);
+    expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
+    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
   });
 
   it("does not expose another crew member's assignment", async () => {

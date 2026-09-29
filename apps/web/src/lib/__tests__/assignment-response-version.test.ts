@@ -6,11 +6,12 @@ const details = {
   serviceDate: "2026-09-27",
   role: "Camera operator",
   callTime: "08:00",
+  effectiveCallTime: "2026-09-27T08:00:00.000Z",
   scheduledStartTime: "2026-09-27T09:00:00.000Z",
 };
 
 describe("assignment response version", () => {
-  it.each(["showId", "serviceDate", "role", "callTime", "scheduledStartTime"] as const)(
+  it.each(["showId", "serviceDate", "role", "callTime", "effectiveCallTime", "scheduledStartTime"] as const)(
     "changes when %s changes",
     (field) => {
       expect(assignmentResponseVersion({ ...details, [field]: `${details[field]}-changed` }))

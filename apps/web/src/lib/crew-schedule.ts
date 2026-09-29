@@ -421,9 +421,17 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         : "general",
       assignments: rows.map((assignment) => {
         const rundown = assignment.showId ? rundownMap.get(assignment.showId) : undefined;
+        const effectiveCallTime = getAssignmentCallTime({
+          ...assignment,
+          scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+          scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+          callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+          timeZone: settingMap["org-timezone"],
+        });
         return {
           ...assignment,
           responseVersion: assignmentResponseVersion({
+            effectiveCallTime,
             showId: assignment.showId,
             serviceDate: assignment.serviceDate,
             role: assignment.role,
@@ -434,13 +442,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
           scheduledStartTime:
             rundown?.scheduledStartTime?.toISOString() ?? null,
           callTime: assignment.callTime,
-          effectiveCallTime: getAssignmentCallTime({
-            ...assignment,
-            scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
-            scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
-            callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
-            timeZone: settingMap["org-timezone"],
-          }),
+          effectiveCallTime,
           location: rundown?.location ?? "",
           responseWindow: getCrewScheduleResponseWindow(
             {
@@ -507,7 +509,7 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       prisma.appSetting.findMany({
         where: {
           orgId: access.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes"] },
+          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
         },
         select: { key: true, value: true },
       }),
@@ -517,6 +519,13 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
     );
     const { serviceWindowMinutes } = readPhaseSettings(settingMap);
     const currentVersion = assignmentResponseVersion({
+      effectiveCallTime: getAssignmentCallTime({
+        ...assignment,
+        scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
+        scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
+        callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+        timeZone: settingMap["org-timezone"],
+      }),
       showId: assignment.showId,
       serviceDate: assignment.serviceDate,
       role: assignment.role,

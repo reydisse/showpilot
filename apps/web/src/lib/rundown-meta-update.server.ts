@@ -29,16 +29,21 @@ export async function updateRundownMetadataThroughRelay(input: {
     location: string;
   };
 }): Promise<{ revision?: number }> {
-  const row = await input.env.DB.prepare(
-    "SELECT updatedAt FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? LIMIT 1",
-  ).bind(input.showId, input.orgId, input.serviceDate).first<{ updatedAt: string }>();
-  if (!row) throw new Error("Show not found");
-  if (!sameInstant(row.updatedAt, input.expectedUpdatedAt)) throw new RundownMetadataConflictError();
+  const readExpectedVersion = async () => {
+    const row = await input.env.DB.prepare(
+      "SELECT updatedAt FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? LIMIT 1",
+    ).bind(input.showId, input.orgId, input.serviceDate).first<{ updatedAt: string }>();
+    if (!row) throw new Error("Show not found");
+    if (!sameInstant(row.updatedAt, input.expectedUpdatedAt)) throw new RundownMetadataConflictError();
+    return row;
+  };
 
   if (!input.env.RUNDOWN_RELAY) {
+    const row = await readExpectedVersion();
     const result = await input.env.DB.prepare(
       `UPDATE rundown
-       SET name = ?, scheduledStartTime = ?, scheduledCallTime = ?, location = ?, updatedAt = CURRENT_TIMESTAMP
+       SET name = ?, scheduledStartTime = ?, scheduledCallTime = ?, location = ?,
+           updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000))
        WHERE id = ? AND orgId = ? AND serviceDate = ? AND updatedAt = ?`,
     ).bind(
       input.payload.serviceName,
@@ -63,6 +68,10 @@ export async function updateRundownMetadataThroughRelay(input: {
   if (!Number.isSafeInteger(state.revision) || (state.revision ?? -1) < 0) {
     throw new Error("Live rundown returned an invalid revision.");
   }
+
+  // Capture the relay revision first. An intervening edit must then conflict
+  // with either the database version here or the serialized relay command.
+  await readExpectedVersion();
 
   const response = await relay.fetch(new Request(`https://rundown.local/command?${query}`, {
     method: "POST",

@@ -523,51 +523,55 @@ export const getMyAssignments = createServerFn({ method: "GET" })
       crewName: crew.name,
       requestedFound: !data.assignmentId || assignments.length === 1,
       orgTimezone: settingMap["org-timezone"] || "UTC",
-      assignments: assignments.map((assignment) => ({
-        id: assignment.id,
-        showId: assignment.showId,
-        serviceDate: assignment.serviceDate,
-        role: assignment.role,
-        department: assignment.department,
-        status: assignment.status,
-        callTime: assignment.callTime,
-        effectiveCallTime: getAssignmentCallTime({
+      assignments: assignments.map((assignment) => {
+        const effectiveCallTime = getAssignmentCallTime({
           ...assignment,
           scheduledStartTime: assignment.show?.scheduledStartTime?.toISOString(),
           scheduledCallTime: assignment.show?.scheduledCallTime?.toISOString(),
           callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
           timeZone: settingMap["org-timezone"],
-        }),
-        notes: assignment.notes,
-        responseNote: assignment.responseNote,
-        respondedAt: assignment.respondedAt?.toISOString() ?? null,
-        serviceName: assignment.show?.name || "Show",
-        scheduledStartTime:
-          assignment.show?.scheduledStartTime?.toISOString() ?? null,
-        location: assignment.show?.location ?? "",
-        responseVersion: assignmentResponseVersion({
+        });
+        return {
+          id: assignment.id,
           showId: assignment.showId,
           serviceDate: assignment.serviceDate,
           role: assignment.role,
+          department: assignment.department,
+          status: assignment.status,
           callTime: assignment.callTime,
+          effectiveCallTime,
+          notes: assignment.notes,
+          responseNote: assignment.responseNote,
+          respondedAt: assignment.respondedAt?.toISOString() ?? null,
+          serviceName: assignment.show?.name || "Show",
           scheduledStartTime:
             assignment.show?.scheduledStartTime?.toISOString() ?? null,
-        }),
-        responseWindow: getCrewScheduleResponseWindow(
-          {
+          location: assignment.show?.location ?? "",
+          responseVersion: assignmentResponseVersion({
+            effectiveCallTime,
+            showId: assignment.showId,
             serviceDate: assignment.serviceDate,
+            role: assignment.role,
+            callTime: assignment.callTime,
             scheduledStartTime:
-              assignment.show?.scheduledStartTime?.toISOString(),
-            plannedDurationMs: assignment.show?.items.reduce(
-              (sum, item) => sum + item.duration,
-              0,
-            ),
-            serviceWindowMinutes,
-            timeZone: settingMap["org-timezone"],
-          },
-          nowMs,
-        ),
-      })),
+              assignment.show?.scheduledStartTime?.toISOString() ?? null,
+          }),
+          responseWindow: getCrewScheduleResponseWindow(
+            {
+              serviceDate: assignment.serviceDate,
+              scheduledStartTime:
+                assignment.show?.scheduledStartTime?.toISOString(),
+              plannedDurationMs: assignment.show?.items.reduce(
+                (sum, item) => sum + item.duration,
+                0,
+              ),
+              serviceWindowMinutes,
+              timeZone: settingMap["org-timezone"],
+            },
+            nowMs,
+          ),
+        };
+      }),
     };
   });
 
@@ -598,6 +602,7 @@ export const respondToMyAssignment = createServerFn({ method: "POST" })
           show: {
             select: {
               scheduledStartTime: true,
+              scheduledCallTime: true,
               items: { select: { duration: true } },
             },
           },
@@ -606,13 +611,23 @@ export const respondToMyAssignment = createServerFn({ method: "POST" })
       prisma.appSetting.findMany({
         where: {
           orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes"] },
+          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
         },
         select: { key: true, value: true },
       }),
     ]);
     if (!assignment) throw new Error("Assignment not found");
+    const settingMap = Object.fromEntries(
+      settings.map((setting) => [setting.key, setting.value]),
+    );
     const currentVersion = assignmentResponseVersion({
+      effectiveCallTime: getAssignmentCallTime({
+        ...assignment,
+        scheduledStartTime: assignment.show?.scheduledStartTime?.toISOString(),
+        scheduledCallTime: assignment.show?.scheduledCallTime?.toISOString(),
+        callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
+        timeZone: settingMap["org-timezone"],
+      }),
       showId: assignment.showId,
       serviceDate: assignment.serviceDate,
       role: assignment.role,
@@ -625,9 +640,6 @@ export const respondToMyAssignment = createServerFn({ method: "POST" })
         "This assignment changed. Review the updated details before responding.",
       );
     }
-    const settingMap = Object.fromEntries(
-      settings.map((setting) => [setting.key, setting.value]),
-    );
     const { serviceWindowMinutes } = readPhaseSettings(settingMap);
     const responseWindow = getCrewScheduleResponseWindow(
       {

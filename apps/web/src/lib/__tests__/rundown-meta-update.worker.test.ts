@@ -42,7 +42,7 @@ describe("schedule metadata live authority", () => {
     expect(result.revision).toBeGreaterThan(0);
 
     const row = await env.DB.prepare(
-      "SELECT name, scheduledStartTime, scheduledCallTime, location FROM rundown WHERE id = ?",
+      "SELECT name, scheduledStartTime, scheduledCallTime, location, updatedAt FROM rundown WHERE id = ?",
     ).bind(showId).first<Record<string, string>>();
     expect(row).toMatchObject({
       name: "New title",
@@ -76,9 +76,14 @@ describe("schedule metadata live authority", () => {
       body: JSON.stringify({ id: crypto.randomUUID(), expectedRevision: state.revision, action: "update-meta", payload: { scheduledCallTime: nextCall } }),
     }));
     expect(response.ok).toBe(true);
-    const updated = await env.DB.prepare("SELECT scheduledCallTime FROM rundown WHERE id = ?")
-      .bind(showId).first<{ scheduledCallTime: string }>();
+    const updated = await env.DB.prepare("SELECT scheduledCallTime, updatedAt FROM rundown WHERE id = ?")
+      .bind(showId).first<{ scheduledCallTime: string; updatedAt: string }>();
     expect(updated?.scheduledCallTime).toBe(nextCall);
+    expect(Date.parse(updated?.updatedAt ?? "")).toBeGreaterThan(Date.parse(row?.updatedAt ?? ""));
+    await expect(updateRundownMetadataThroughRelay({
+      env, orgId, showId, serviceDate, expectedUpdatedAt: row?.updatedAt ?? "",
+      payload: { serviceName: "Old form", scheduledStartTime: null, scheduledCallTime: null, location: "" },
+    })).rejects.toBeInstanceOf(RundownMetadataConflictError);
     expect(formatTimeInput(updated?.scheduledCallTime, "America/Toronto")).toBe("09:15");
     expect(formatTimeInput(updated?.scheduledCallTime, "Africa/Accra")).toBe("13:15");
 
