@@ -303,13 +303,20 @@ a fresh local state directory.
 
 ### Current state
 
-The production manifest records every migration through `0039_auth_rate_limit.sql`.
+The production manifest records every migration through `0046_equipment_revision.sql`.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
 required preflight returned zero and a D1 Time Travel bookmark was captured.
 Every migration postcondition passed, and `PRAGMA foreign_key_check` returned
 no rows after each rollout.
+
+The September web audit release includes migrations 0040 through 0046 in the
+production manifest. Read-only production checks on 28 September confirmed
+their required columns, indexes and member-limit triggers. Three older
+notification creation timestamps retain valid `+00:00` suffixes; inbox readers
+compare parsed instants. See the [audit release evidence](docs/audit-status-2026-09-28.md)
+for the exact deployed commit, CI result and remaining acceptance limits.
 
 ---
 

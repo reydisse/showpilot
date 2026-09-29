@@ -1,0 +1,8 @@
+{
+  "webCommit": "4660b7040fceb164e04286210e8911db82877416",
+  "ciRun": "https://github.com/reydisse/showpilot/actions/runs/36501228350",
+  "deployRun": "https://github.com/reydisse/showpilot/actions/runs/36501645745",
+  "verifiedAt": "2026-09-29T00:10:40.370Z",
+  "healthEndpoint": "https://showpilot.tech/api/health",
+  "nativeRelease": "not included"
+}
