@@ -180,7 +180,7 @@ function InvitePage() {
           <button
             onClick={handleDecline}
             disabled={loading}
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-red-500/30 hover:bg-red-500/5"
+            className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-red-500/30 hover:bg-red-500/5"
           >
             Decline
           </button>
@@ -209,7 +209,7 @@ function InvitePage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
-                className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
               />
             </div>
           )}
@@ -228,7 +228,7 @@ function InvitePage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+              className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
             />
           </div>
 
@@ -247,7 +247,7 @@ function InvitePage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-board-text placeholder:text-board-muted/50 outline-none transition-all duration-200 focus:border-fire-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-fire-500/20"
+              className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
             />
           </div>
 
@@ -270,13 +270,13 @@ function InvitePage() {
           </button>
 
           <div className="my-4 flex items-center gap-3">
-            <div className="h-px flex-1 bg-white/[0.06]" />
+            <div className="h-px flex-1 bg-board-border" />
             <span className="text-xs text-board-muted">
               {isSignUp
                 ? "Already have an account?"
                 : "New to ShowPilot?"}
             </span>
-            <div className="h-px flex-1 bg-white/[0.06]" />
+            <div className="h-px flex-1 bg-board-border" />
           </div>
 
           <button
@@ -285,7 +285,7 @@ function InvitePage() {
               setIsSignUp(!isSignUp);
               setError(null);
             }}
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/30 hover:bg-white/[0.05]"
+            className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/30 hover:bg-board-bg"
           >
             {isSignUp ? "Sign in instead" : "Create an account"}
           </button>
@@ -297,7 +297,13 @@ function InvitePage() {
 
 function InviteShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
+    <main
+      className="flex min-h-dvh items-center justify-center bg-board-bg py-8 text-board-text"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at top, color-mix(in srgb, var(--color-fire-500) 8%, transparent), transparent 42%)",
+      }}
+    >
       <div className="w-full max-w-md px-4">
         <div className="animate-float-in">
           <div className="mb-8 flex flex-col items-center">
@@ -307,18 +313,12 @@ function InviteShell({ children }: { children: React.ReactNode }) {
             </h1>
           </div>
 
-          <div
-            className="rounded-2xl border border-white/[0.08] p-8 shadow-2xl backdrop-blur-xl"
-            style={{
-              background:
-                "linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)",
-            }}
-          >
+          <div className="rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
             {children}
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 
