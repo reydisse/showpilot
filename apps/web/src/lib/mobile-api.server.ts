@@ -4359,6 +4359,9 @@ function serializeMobileRundownItem(item: MobileRundownItemRow) {
     cue: item.cue,
     status: item.status,
     sortOrder: item.sortOrder,
+    // D1 rows are unversioned snapshots. Match the mobile relay normalizer's
+    // initial row revision; edit conflicts use the room revision separately.
+    revision: 0,
     hardStop: Boolean(item.hardStop),
     lowerThirdId: item.lowerThirdId ?? undefined,
     scheduledStart: item.scheduledStart,
