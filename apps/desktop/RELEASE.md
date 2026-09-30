@@ -87,6 +87,7 @@ The local script records Apple's submission IDs, notarizes and staples the app
 before packaging it, then signs, notarizes and staples the DMG. It writes Apple
 logs and a SHA-256 checksum next to the installer. If Apple is still processing
 after 15 minutes, rerun the same command to resume the existing submission.
+Use `--wait-timeout 24h` when leaving the packaging job running for a longer wait.
 Use a new output folder when rebuilding the app. These installers do not create
 or publish updater artifacts, and do not change the public download manifest.
 

@@ -41,6 +41,8 @@ parser.add_argument("app", type=Path)
 parser.add_argument("output", type=Path)
 parser.add_argument("--identity", required=True)
 parser.add_argument("--profile", default="ShowPilot-notarization")
+parser.add_argument("--wait-timeout", default="15m",
+                    help="Maximum wait per Apple submission, for example 15m or 24h")
 args = parser.parse_args()
 source = args.app.resolve()
 output = args.output.resolve()
@@ -79,7 +81,7 @@ def notarize(artifact, label, staple_target):
                             *auth, capture=True).stdout)
     if status["status"] == "In Progress":
         run("xcrun", "notarytool", "wait", submission_id, "--keychain-profile",
-            args.profile, "--timeout", "15m")
+            args.profile, "--timeout", args.wait_timeout)
         status = json.loads(run("xcrun", "notarytool", "info", submission_id,
                                 *auth, capture=True).stdout)
     (output / f"{label}-status.json").write_text(json.dumps(status, indent=2) + "\n")
