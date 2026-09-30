@@ -8,6 +8,7 @@ import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
 import { handleMobileApi } from "./lib/mobile-api.server";
 import { isAllowedApiOrigin } from "./lib/auth-origins";
+import { landingRedirect } from "./lib/domain-routing";
 import { parseSlackEventEnvelope, verifySlackSignature } from "./lib/slack-events";
 import {
   contentLengthExceeds,
@@ -242,6 +243,8 @@ const COMMIT_SHA =
 
 const appServer = {
   async fetch(request: Request, env: unknown, _ctx: unknown) {
+    const redirect = landingRedirect(request);
+    if (redirect) return redirect;
     const url = new URL(request.url);
     const e = env as Env;
 

@@ -101,7 +101,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { writeFile } from 'node:fs/promises';
-          const endpoint = 'https://showpilot.tech/api/health';
+          const endpoint = 'https://app.showpilot.tech/api/health';
           const expected = process.env.EXPECTED_COMMIT;
           let health;
           for (let attempt = 0; attempt < 12; attempt++) {

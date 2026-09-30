@@ -9,6 +9,7 @@ import { getAuth } from "@/lib/auth";
 import { sendEmail, waitlistInviteEmail } from "@/lib/email";
 import { getPrisma } from "@/lib/db";
 import { z } from "zod";
+import { APP_ORIGIN } from "@/lib/domain-routing";
 import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
 import {
   PUBLIC_LAUNCH_DATE_KEY,
@@ -222,7 +223,7 @@ export const sendWaitlistInvite = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireSuperAdmin();
-    const signupUrl = "https://showpilot.tech/login";
+    const signupUrl = `${APP_ORIGIN}/login`;
     const { subject, html } = waitlistInviteEmail(data.name, signupUrl);
     await sendEmail({ to: data.email, subject, html });
     return { sent: true };

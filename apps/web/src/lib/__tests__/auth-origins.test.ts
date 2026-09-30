@@ -8,6 +8,7 @@ import {
 
 describe("auth runtime configuration", () => {
   it("accepts production and explicitly local origins", () => {
+    expect(requireShowPilotBaseUrl("https://app.showpilot.tech")).toBe("https://app.showpilot.tech");
     expect(requireShowPilotBaseUrl("https://showpilot.tech")).toBe("https://showpilot.tech");
     expect(requireShowPilotBaseUrl("http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000");
     expect(requireBetterAuthRuntimeConfig({
@@ -53,6 +54,8 @@ describe("development auth origins", () => {
 
 describe("credentialed API origins", () => {
   it("allows ShowPilot HTTPS applications to call production", () => {
+    expect(isAllowedApiOrigin("https://app.showpilot.tech", "https://app.showpilot.tech/api/auth/get-session")).toBe(true);
+    expect(isAllowedApiOrigin("https://showpilot.tech", "https://app.showpilot.tech/api/auth/get-session")).toBe(true);
     expect(
       isAllowedApiOrigin("https://showpilot.tech", "https://showpilot.tech/api/mobile/v1/bootstrap"),
     ).toBe(true);

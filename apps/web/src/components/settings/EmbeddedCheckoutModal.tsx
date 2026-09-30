@@ -8,7 +8,7 @@ import { X, AlertTriangle } from "lucide-react";
 import { getStripePublishableKey } from "@/lib/checkout";
 
 // Embedded Stripe Checkout in a broadcast-dark modal — payment never leaves
-// showpilot.tech. Only rendered when the publishable key is configured; the
+// ShowPilot. Only rendered when the publishable key is configured; the
 // caller falls back to hosted checkout otherwise (see resolveCheckoutUiMode).
 
 let stripePromiseCache: ReturnType<typeof loadStripe> | null = null;
@@ -42,7 +42,7 @@ export default function EmbeddedCheckoutModal({
               Subscribe to {planName}
             </h3>
             <p className="text-[11px] text-board-muted mt-0.5">
-              Payment is processed securely by Stripe — you stay on showpilot.tech.
+              Payment is processed securely by Stripe.
             </p>
           </div>
           <button

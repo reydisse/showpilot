@@ -54,6 +54,10 @@
 	},
 	"routes": [
 		{
+			"pattern": "app.showpilot.tech",
+			"custom_domain": true
+		},
+		{
 			"pattern": "showpilot.tech",
 			"custom_domain": true
 		},

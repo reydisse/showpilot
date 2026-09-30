@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { APP_ORIGIN } from "@/lib/domain-routing";
 import { Plus, Trash2, KeyRound, Copy, Check, Gamepad2 } from "lucide-react";
 import {
   createCompanionToken,
@@ -97,7 +98,7 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
   const [copiedRecipe, setCopiedRecipe] = useState<string | null>(null);
   const [activeTokenId, setActiveTokenId] = useState<string | null>(null);
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://showpilot.tech";
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : APP_ORIGIN;
 
   const reload = useCallback(async () => {
     const rows = (await listCompanionTokens({ data: { orgId } })) as CompanionTokenRow[];

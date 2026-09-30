@@ -1,7 +1,12 @@
 # Deploying ShowPilot
 
 ShowPilot's product app (`apps/web`) deploys to Cloudflare Workers and serves
-https://showpilot.tech and https://admin.showpilot.tech. Bindings (D1
+https://app.showpilot.tech and https://admin.showpilot.tech. The old
+https://showpilot.tech origin remains attached for installed Desktop/Bridge
+clients, companion windows, existing links and webhook endpoints. Its browser
+homepage redirects to the marketing page at https://www.showpilot.tech;
+Desktop's `ShowPilotDesktop/` user agent keeps loading the application there.
+Bindings (D1
 `showpilot-db`, R2 `showpilot-storage`, six Durable Object relays) are
 defined in `apps/web/wrangler.jsonc` — that file is the source of truth.
 
@@ -69,7 +74,7 @@ Notes:
   Cloudflare account).
 - The social card is `static/og.png`, regenerated from `og-source.svg`
   with `npx @resvg/resvg-js-cli og-source.svg static/og.png`.
-- Landing CTAs deep-link to `https://showpilot.tech/login?signup=1` and
+- Landing CTAs deep-link to `https://app.showpilot.tech/login?signup=1` and
   forward `utm_*` params for attribution.
 - Run `pnpm verify` before deploying, then run
   `pnpm smoke -- https://www.showpilot.tech` afterward. The download buttons
@@ -128,9 +133,16 @@ simulcast, `src/lib/stream*.ts`) — these throw at first use if missing:
 > the fallback in `src/lib/stream.ts` / `stream-destinations.ts` can be
 > removed.
 
-Optional: `BETTER_AUTH_URL` — the app defaults to `https://showpilot.tech`
-when unset (`src/lib/auth.ts`, `src/lib/billing.ts`); only set it for a
-non-production host.
+Required: `BETTER_AUTH_URL=https://app.showpilot.tech`. Auth, billing returns
+and invitation emails use this configured origin. Set it with
+`wrangler secret put BETTER_AUTH_URL` from `apps/web`. Keep `BETTER_AUTH_SECRET`
+unchanged during a domain move. Browser cookies remain scoped to their host,
+so users may need to sign in once on the new app domain.
+
+When introducing the app domain, deploy its custom-domain route first, confirm
+HTTPS and `/api/auth/ok`, then update `BETTER_AUTH_URL` and deploy the landing
+CTA change. Keep legacy API, WebSocket, Stripe and Slack webhook URLs working;
+do not transfer the apex custom domain to the static landing Worker.
 
 ---
 

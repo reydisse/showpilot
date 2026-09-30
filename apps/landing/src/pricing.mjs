@@ -38,7 +38,7 @@ export const PRICING = {
   annualNote: "Annual billing (2 months free) coming soon",
 };
 
-export const APP_URL = "https://showpilot.tech";
+export const APP_URL = "https://app.showpilot.tech";
 export const SIGNUP_URL = `${APP_URL}/login?signup=1`;
 export const LOGIN_URL = `${APP_URL}/login`;
 export const SUPPORT_EMAIL = "support@showpilot.tech";

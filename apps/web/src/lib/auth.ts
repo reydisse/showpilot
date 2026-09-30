@@ -5,7 +5,7 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
-import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig } from "@/lib/auth-origins";
+import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig, requireShowPilotBaseUrl } from "@/lib/auth-origins";
 import { createD1RateLimitStorage } from "@/lib/auth-rate-limit.server";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 import {
@@ -77,7 +77,10 @@ const orgConfig = {
     organization: { name: string };
     inviter: { user: { name: string } };
   }) => {
-    const inviteUrl = `https://showpilot.tech/invite/${data.id}`;
+    const inviteUrl = new URL(
+      `/invite/${encodeURIComponent(data.id)}`,
+      requireShowPilotBaseUrl(env.BETTER_AUTH_URL),
+    ).href;
     const { subject, html } = invitationEmail(
       data.organization.name,
       data.inviter.user.name,
@@ -143,6 +146,7 @@ export function getAuth() {
       },
     },
     trustedOrigins: [
+      "https://app.showpilot.tech",
       "https://showpilot.tech",
       "https://www.showpilot.tech",
       "https://admin.showpilot.tech",

@@ -2,7 +2,7 @@
 
 ShowPilot is a cloud-native live production management platform for
 churches and live event teams. This is a **live, deployed product**
-(https://showpilot.tech) — every change must keep production working.
+(https://app.showpilot.tech) — every change must keep production working.
 
 ─────────────────────────────────────────
 GROUND RULES

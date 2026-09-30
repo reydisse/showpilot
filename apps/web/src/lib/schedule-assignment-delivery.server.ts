@@ -1,4 +1,5 @@
-import { getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
+import { requireShowPilotBaseUrl } from "@/lib/auth-origins";
 
 export async function deliverScheduleAssignmentInvitation(
   orgId: string,
@@ -10,11 +11,7 @@ export async function deliverScheduleAssignmentInvitation(
 ) {
   try {
     const { sendCrewScheduleInvite } = await import("@/lib/crew-schedule");
-    const headers = getRequestHeaders();
-    const host = headers.get("x-forwarded-host") ?? headers.get("host");
-    const protocol = headers.get("x-forwarded-proto")
-      ?? (host?.includes("localhost") || host?.startsWith("127.0.0.1") ? "http" : "https");
-    const origin = headers.get("origin") ?? (host ? `${protocol}://${host}` : "https://showpilot.tech");
+    const origin = requireShowPilotBaseUrl(env.BETTER_AUTH_URL);
     return await sendCrewScheduleInvite({
       orgId,
       assignmentId,
