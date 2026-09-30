@@ -230,14 +230,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
           />
         ) : initials}
       </div>
-      {unread > 0 ? (
-        <span
-          aria-label={`${unread} unread notification${unread === 1 ? "" : "s"}`}
-          className="absolute -bottom-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-board-card bg-fire-500 px-0.5 text-[8px] font-extrabold leading-none text-black shadow-sm"
-        >
-          {unread > 99 ? "99+" : unread}
-        </span>
-      ) : null}
     </div>
   );
 
