@@ -63,6 +63,37 @@ EXE installer, and MSI installer all have valid Authenticode signatures.
 Never send certificate files, private keys, passwords or notarization credentials
 in chat or commit them to the repository.
 
+## Local signed Mac installers
+
+With the Developer ID identity in the login Keychain and a validated
+`ShowPilot-notarization` profile saved by `xcrun notarytool store-credentials`,
+build the current Mac architecture without putting passwords in the shell:
+
+```sh
+APPLE_SIGNING_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+  pnpm --filter @showpilot/desktop desktop:build --ci --bundles app
+python3 scripts/notarize-macos-local.py \
+  'apps/desktop/src-tauri/target/release/bundle/macos/ShowPilot Desktop.app' \
+  '/path/to/empty/desktop-output' \
+  --identity 'Developer ID Application: Your Name (TEAMID)'
+bash scripts/verify-macos-release.sh '/path/to/empty/desktop-output' 'ShowPilot Desktop'
+```
+
+For Bridge, use `@showpilot/bridge-desktop`, the `apps/bridge-desktop` bundle
+path, `ShowPilot Bridge.app`, and a separate output folder. Build each product's
+sidecar before running its Rust tests, or run the full Tauri build first.
+
+The local script records Apple's submission IDs, notarizes and staples the app
+before packaging it, then signs, notarizes and staples the DMG. It writes Apple
+logs and a SHA-256 checksum next to the installer. If Apple is still processing
+after 15 minutes, rerun the same command to resume the existing submission.
+Use a new output folder when rebuilding the app. These installers do not create
+or publish updater artifacts, and do not change the public download manifest.
+
+The release verifier also runs the packaged engine against a local WebSocket
+server, checking authentication, status and 10,000 message round trips. It does
+not use saved device configuration or connect to production equipment.
+
 ## Internal Windows test build
 
 Until the Windows signing credentials are configured, maintainers can manually

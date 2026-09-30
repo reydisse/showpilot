@@ -42,6 +42,12 @@ verify_developer_id_signature() {
 
 verify_developer_id_signature "$app_path"
 verify_developer_id_signature "$dmg_path"
+verify_developer_id_signature "$app_path/Contents/MacOS/showpilot-bridge"
+
+# A valid signature alone does not prove the compiled JavaScript engine runs
+# under the release signature and hardened runtime.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+node "$script_dir/smoke-macos-engine.mjs" "$app_path/Contents/MacOS/showpilot-bridge"
 
 xcrun stapler validate "$app_path"
 spctl --assess --type execute --verbose=4 "$app_path"

@@ -1,5 +1,8 @@
 # ShowPilot Bridge release checklist
 
+For a local signed Mac installer using credentials already stored in Keychain,
+follow the [local Mac build instructions](../desktop/RELEASE.md#local-signed-mac-installers).
+
 ShowPilot Bridge is released independently from the complete ShowPilot Desktop
 operator product. It serves remote devices, browser-only operators, and
 headless production computers; ShowPilot Desktop embeds the same local engine.
