@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const storage = vi.hoisted(() => ({ platform: { OS: "ios" }, values: new Map<string, string>() }));
+const storage = vi.hoisted(() => ({ platform: { OS: "ios" }, values: new Map() }));
 vi.mock("react-native", () => ({ Platform: storage.platform }));
 vi.mock("expo-secure-store", () => {
-  function validate(key: string) {
+  function validate(key) {
     if (!/^[\w.-]+$/.test(key)) throw new Error("Invalid key provided to SecureStore");
   }
   return {
-    getItemAsync: async (key: string) => { validate(key); return storage.values.get(key) ?? null; },
-    setItemAsync: async (key: string, value: string) => { validate(key); storage.values.set(key, value); },
-    deleteItemAsync: async (key: string) => { validate(key); storage.values.delete(key); },
+    getItemAsync: async (key) => { validate(key); return storage.values.get(key) ?? null; },
+    setItemAsync: async (key, value) => { validate(key); storage.values.set(key, value); },
+    deleteItemAsync: async (key) => { validate(key); storage.values.delete(key); },
   };
 });
 import { clearStoredRundownPin, getStoredRundownPin, setStoredRundownPin } from "../../../../mobile/src/lib/rundown-pin";

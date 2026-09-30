@@ -5,7 +5,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.{ts,tsx}"],
+    // Native adapter tests use JavaScript to keep React Native ambient globals
+    // out of the web TypeScript project. Their source is checked by mobile tsc.
+    include: ["src/**/*.test.{js,ts,tsx}"],
     exclude: ["src/**/*.worker.test.{ts,tsx}"],
   },
   resolve: {
