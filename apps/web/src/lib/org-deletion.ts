@@ -30,9 +30,7 @@ async function cancelStripeSubscription(subscriptionId: string): Promise<void> {
   }
 }
 
-// All org-owned R2 objects live under this prefix. (Today nothing writes to
-// it — avatars are user-scoped — but deletion clears it so future org assets
-// are covered automatically.)
+// Chat attachments and other organization-owned files use this prefix.
 async function deleteR2Prefix(orgId: string): Promise<number> {
   const bucket = env.STORAGE;
   const prefix = `orgs/${orgId}/`;
@@ -122,6 +120,7 @@ async function purgeOrganizationExternalState(orgId: string): Promise<void> {
 const deleteOrganizationSchema = z.object({
   orgId: idSchema,
   confirmName: z.string().min(1).max(200),
+  continueAccountDeletion: z.boolean().optional(),
 });
 
 export const deleteOrganization = createServerFn({ method: "POST" })
@@ -161,11 +160,14 @@ export const deleteOrganization = createServerFn({ method: "POST" })
       purgeExternalState: purgeOrganizationExternalState,
     });
 
-    // Revoke the acting session — the org it pointed at no longer exists.
-    try {
-      await auth.api.signOut({ headers });
-    } catch {
-      // Session row may already be gone; the client redirects regardless.
+    // Account deletion continues in the same session after the core clears
+    // its active organization. Other entry points keep their sign-out flow.
+    if (!data.continueAccountDeletion) {
+      try {
+        await auth.api.signOut({ headers });
+      } catch {
+        // Session row may already be gone; the client redirects regardless.
+      }
     }
 
     return { alreadyDeleted: result.alreadyDeleted };

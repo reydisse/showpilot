@@ -178,13 +178,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const requestedOrgId = url.searchParams.get("orgId") ?? "";
-    if (this.orgId && requestedOrgId && requestedOrgId !== this.orgId) {
-      return new Response("Organization mismatch", { status: 403 });
-    }
-    if (!this.orgId) this.orgId = requestedOrgId;
-    if (!this.orgId) return new Response("Organization is required", { status: 400 });
-
+    // Deletion addresses the durable object by organization ID. It must also
+    // work before the first Bridge connection establishes in-memory scope.
     if (url.pathname === "/internal/purge-org" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
         return new Response("Unauthorized", { status: 401 });
@@ -200,6 +195,13 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       return Response.json({ ok: true });
     }
+
+    const requestedOrgId = url.searchParams.get("orgId") ?? "";
+    if (this.orgId && requestedOrgId && requestedOrgId !== this.orgId) {
+      return new Response("Organization mismatch", { status: 403 });
+    }
+    if (!this.orgId) this.orgId = requestedOrgId;
+    if (!this.orgId) return new Response("Organization is required", { status: 400 });
 
     if (url.pathname === "/ws") {
       if (request.method !== "GET") {

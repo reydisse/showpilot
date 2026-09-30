@@ -16,6 +16,7 @@ export default defineConfig(async () => {
       cloudflareTest({
         main: "./src/test/worker-entry.ts",
         miniflare: {
+          modulesRules: [{ type: "CompiledWasm", include: ["**/*.wasm", "**/*.wasm?module"] }],
           compatibilityDate: "2026-02-28",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["DB"],
@@ -26,7 +27,7 @@ export default defineConfig(async () => {
             RUNDOWN_RELAY: "TestRundownRelay",
             TIMECODE_RELAY: "TestTimecodeRelay",
           },
-          bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: "worker-test-secret" },
+          bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only", BETTER_AUTH_URL: "https://app.showpilot.tech" },
         },
       }),
     ],

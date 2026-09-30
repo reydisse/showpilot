@@ -53,6 +53,20 @@ function nextClose(socket: WebSocket): Promise<CloseEvent> {
 }
 
 describe("BridgeRelay device dispatch", () => {
+  it("requires the internal secret and can purge an unused organization without a prior connection", async () => {
+    const stub = env.BRIDGE_RELAY.getByName("unused-organization-purge");
+    const url = "https://bridge.test/internal/purge-org";
+    expect((await stub.fetch(new Request(url, { method: "POST" }))).status).toBe(401);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await stub.fetch(new Request(url, {
+        method: "POST",
+        headers: { "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
+      }));
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ ok: true });
+    }
+  });
+
   it("closes a displaced bridge with the terminal takeover code", async () => {
     const first = await openBridge("bridge-takeover-org");
     const closed = nextClose(first.socket);

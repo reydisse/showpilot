@@ -15,7 +15,7 @@ export const Route = createFileRoute("/privacy")({
 
 function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="June 11, 2026">
+    <LegalPage title="Privacy Policy" updated="September 30, 2026">
       <p>
         ShowPilot is operated from Canada and handles personal information in
         accordance with the Personal Information Protection and Electronic
@@ -28,6 +28,8 @@ function PrivacyPage() {
         <li><strong>Account information</strong> — name, email address, password (stored as a salted hash), and optional profile photo.</li>
         <li><strong>Organization data</strong> — your organization's name, members and their roles, rundowns, schedules, checklists, and production notes your team creates.</li>
         <li><strong>Crew and volunteer information</strong> — names, optional emails, roles, and check-in/check-out timestamps recorded when crew check in for a show. Church member and crew data is personal information and is treated as such.</li>
+        <li><strong>Team communications</strong> — chat messages, attachments, reactions, incident comments, content reports, and blocked-user preferences.</li>
+        <li><strong>Notifications</strong> — in-app notifications, delivery preferences, and device or browser push registrations when enabled.</li>
         <li><strong>Billing information</strong> — subscription status and plan. Payment card details go directly to Stripe; we never see or store card numbers.</li>
         <li><strong>Usage data</strong> — when analytics is enabled, product usage events (pages used, features clicked) tied to your account, collected via PostHog.</li>
       </ul>
@@ -58,7 +60,8 @@ function PrivacyPage() {
       <ul>
         <li>Organization data is retained while the organization exists.</li>
         <li>Deleting an organization permanently removes its data — members, crew records, rundowns, settings, and stored files — from our systems.</li>
-        <li>You can permanently delete your ShowPilot account and account-linked personal data from the <a href="/delete-account">account deletion page</a>. If you are the last owner of a workspace, you must first transfer ownership or delete that workspace so other members do not lose their organization data.</li>
+        <li>You can permanently delete your ShowPilot account and account-linked personal data from the <a href="/delete-account">account deletion page</a>. Confirm deletion with your password. If you are the last owner of a workspace, the same page lets you delete it or transfer ownership to preserve it for your team. Deleting a workspace cancels its ShowPilot subscription.</li>
+        <li>Account deletion removes your account, sessions, profile photo, personal preferences, notifications, push registrations, account-linked chat messages and uploads, and crew contact records matched to your verified email. Shared production records in workspaces that remain are retained; personal author references are removed where those records are linked to your account. Security and moderation records may retain a de-identified record of an action.</li>
         <li>You may also make an access, correction, or deletion request by writing to <a href="mailto:support@showpilot.tech">support@showpilot.tech</a>; we respond within a reasonable time as required by PIPEDA.</li>
       </ul>
 

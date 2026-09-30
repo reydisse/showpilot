@@ -79,9 +79,16 @@ async function deleteNativeChatData(
   }));
 }
 
-async function deleteDatabaseUserContent(userId: string, email: string): Promise<void> {
+async function deleteDatabaseUserContent(userId: string, email: string, emailVerified: boolean): Promise<void> {
   const db = getD1();
   await db.batch([
+    // Crew profiles predate login accounts and link by verified email. Never
+    // let an unverified signup erase a crew member who owns that address.
+    db.prepare("UPDATE service_assignment SET responseNote = '', respondedAt = NULL WHERE crewMemberId IN (SELECT id FROM crew_member WHERE ? = 1 AND lower(trim(email)) = lower(?))").bind(emailVerified ? 1 : 0, email),
+    db.prepare("DELETE FROM crew_member WHERE ? = 1 AND lower(trim(email)) = lower(?)").bind(emailVerified ? 1 : 0, email),
+    db.prepare("UPDATE service_assignment SET assignedByUserId = NULL WHERE assignedByUserId = ?").bind(userId),
+    db.prepare("DELETE FROM app_setting WHERE key IN (?, ?, ?)").bind(`notification-timezone:${userId}`, `onboarding-role:${userId}`, `onboarding-first-session:${userId}`),
+    db.prepare("DELETE FROM invitation WHERE ? = 1 AND lower(email) = lower(?)").bind(emailVerified ? 1 : 0, email),
     db.prepare("DELETE FROM push_subscription WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM chat_user_room WHERE userId = ?").bind(userId),
     db.prepare("DELETE FROM content_reaction WHERE userId = ?").bind(userId),
@@ -91,8 +98,22 @@ async function deleteDatabaseUserContent(userId: string, email: string): Promise
     db.prepare("UPDATE incident SET assignedTo = NULL, assignedName = '', acknowledgedAt = NULL, assignedAt = NULL WHERE assignedTo = ?").bind(userId),
     db.prepare("UPDATE kiosk_token SET createdBy = 'deleted-account' WHERE createdBy = ?").bind(userId),
     db.prepare("UPDATE companion_token SET createdBy = 'deleted-account' WHERE createdBy = ?").bind(userId),
-    db.prepare("DELETE FROM verification WHERE identifier = ?").bind(email),
+    db.prepare("DELETE FROM verification WHERE identifier = ? OR value = ?").bind(email, userId),
   ]);
+}
+
+async function deleteUploadedChatFiles(userId: string, orgIds: Set<string>): Promise<void> {
+  // Include uploads that were never sent as messages. Their uploader metadata
+  // is authoritative; filenames and display names cannot establish ownership.
+  for (const orgId of orgIds) {
+    let cursor: string | undefined;
+    do {
+      const listing = await env.STORAGE.list({ prefix: `orgs/${orgId}/chat/`, cursor, include: ["customMetadata"] });
+      const keys = listing.objects.filter((object) => object.customMetadata?.uploadedBy === userId).map((object) => object.key);
+      if (keys.length > 0) await env.STORAGE.delete(keys);
+      cursor = listing.truncated ? listing.cursor : undefined;
+    } while (cursor);
+  }
 }
 
 async function preserveOrganizationAuditLinks(
@@ -115,7 +136,7 @@ async function preserveOrganizationAuditLinks(
   if (statements.length > 0) await db.batch(statements);
 }
 
-export async function beforeDeleteAccount(user: { id: string; email: string }): Promise<void> {
+export async function beforeDeleteAccount(user: { id: string; email: string; emailVerified: boolean }): Promise<void> {
   const { blockers, memberships } = await getAccountDeletionOwnershipStatus(user.id);
   if (blockers.length > 0) {
     throw new APIError("BAD_REQUEST", {
@@ -124,10 +145,14 @@ export async function beforeDeleteAccount(user: { id: string; email: string }): 
   }
 
   // Every operation is idempotent. If an external storage call fails, Better
-  // Auth keeps the user row and the confirmed deletion can be retried safely.
+  // Auth keeps the user row. Password confirmation allows the same request
+  // to be retried without consuming a one-time email token.
+  const indexedRooms = await getD1().prepare("SELECT DISTINCT orgId FROM chat_user_room WHERE userId = ?").bind(user.id).all<{ orgId: string }>();
+  const orgIds = new Set([...memberships.map((m) => m.organization.id), ...indexedRooms.results.map((r) => r.orgId)]);
   await deleteNativeChatData(user.id, memberships);
+  await deleteUploadedChatFiles(user.id, orgIds);
   const cfEnv = env as unknown as AccountDeletionEnv;
   await cfEnv.STORAGE.delete(`avatars/${user.id}.jpg`);
   await preserveOrganizationAuditLinks(user.id, memberships);
-  await deleteDatabaseUserContent(user.id, user.email);
+  await deleteDatabaseUserContent(user.id, user.email, user.emailVerified);
 }

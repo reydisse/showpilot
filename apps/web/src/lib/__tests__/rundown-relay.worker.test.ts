@@ -150,7 +150,7 @@ describe("RundownRelay live authority", () => {
 
     const purged = await relayFor(orgId).fetch(new Request(
       `https://rundown.test/internal/purge-show?orgId=${orgId}&showId=show-1&serviceDate=${serviceDate}`,
-      { method: "POST", headers: { "x-showpilot-internal-secret": "worker-test-secret" } },
+      { method: "POST", headers: { "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } },
     ));
     expect(purged.status).toBe(200);
     await expect(closed).resolves.toMatchObject({ code: 4404, reason: "Show deleted" });
@@ -184,7 +184,7 @@ describe("RundownRelay live authority", () => {
       `https://rundown.test/internal/purge-org?orgId=${orgId}`,
       {
         method: "POST",
-        headers: { "x-showpilot-internal-secret": "worker-test-secret" },
+        headers: { "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
       },
     ));
     expect(purged.status).toBe(200);

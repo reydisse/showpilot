@@ -240,7 +240,7 @@ const workflowContracts = [
 const storeDocumentContracts = [
   ["store/README.md", "Do not commit App Review passwords"],
   ["store/listing/en-US.md", "Run synchronized shows, crews, cues, timers, chat, and production devices."],
-  ["store/privacy-data-safety.md", "https://showpilot.tech/delete-account"],
+  ["store/privacy-data-safety.md", "https://app.showpilot.tech/delete-account"],
   ["store/screenshots.md", "1320 × 2868"],
   ["store/screenshots.md", "2064 × 2752"],
   ["store/screenshots.md", "1024 × 500"],
@@ -451,9 +451,9 @@ if (appleStoreInfo.keywords.join(",").length > 100) {
 }
 const requiredStoreUrls = {
   marketingUrl: "https://showpilot.tech",
-  supportUrl: "https://showpilot.tech/support",
-  privacyPolicyUrl: "https://showpilot.tech/privacy",
-  privacyChoicesUrl: "https://showpilot.tech/delete-account",
+  supportUrl: "https://app.showpilot.tech/support",
+  privacyPolicyUrl: "https://app.showpilot.tech/privacy",
+  privacyChoicesUrl: "https://app.showpilot.tech/delete-account",
 };
 for (const [field, expected] of Object.entries(requiredStoreUrls)) {
   if (appleStoreInfo[field] !== expected) throw new Error(`Apple ${field} must remain ${expected}.`);

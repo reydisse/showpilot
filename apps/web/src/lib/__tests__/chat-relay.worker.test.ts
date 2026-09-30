@@ -70,7 +70,7 @@ describe("ChatRelay threads", () => {
 
     const cleanup = await stub.fetch(new Request("https://chat.test/internal/delete-user-data", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": "worker-test-secret" },
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
       body: JSON.stringify({ userId: "user-1" }),
     }));
     await expect(cleanup.json()).resolves.toMatchObject({ filesDeleted: 0 });

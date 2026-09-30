@@ -20,8 +20,9 @@ This is a submission worksheet, not legal advice. Confirm it against the product
 - Data is encrypted in transit with HTTPS/WSS.
 - ShowPilot does not sell personal information and does not use it for advertising.
 - Payment card details are entered with Stripe and are not stored by ShowPilot.
-- Users can start permanent account deletion at https://showpilot.tech/delete-account.
-- Organization owners can permanently delete an organization and its organization-owned data.
+- Users can start permanent account deletion at https://app.showpilot.tech/delete-account.
+- Account deletion requires the account password. Sole owners can delete their workspace from the same page or transfer ownership first. Deletion can be retried after a service interruption without a new email token.
+- Organization owners can permanently delete an organization and its organization-owned data; this also cancels its ShowPilot subscription.
 - Optional system permissions are limited to notifications and photo-library selection. The Android manifest blocks camera, microphone, broad storage, and overlay permissions.
 - Users can report chat messages and block organization members in the app. Organization administrators can review open reports in **Team > Reports**.
 - ShowPilot checks chat messages and incident comments for prohibited threats, sexual content involving minors, and link spam before publication.
