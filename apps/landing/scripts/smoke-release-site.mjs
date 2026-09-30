@@ -26,11 +26,11 @@ function validateLanding(response, body, origin) {
     'data-download-id="bridge-macos-arm64"',
     'data-download-id="mobile-ios"',
     'data-download-id="mobile-android"',
-    'href="https://showpilot.tech/login"',
-    'href="https://showpilot.tech/login?signup=1"',
-    'href="https://showpilot.tech/terms"',
-    'href="https://showpilot.tech/privacy"',
-    'href="mailto:support@showpilot.tech"',
+    `href="${LOGIN_URL}"`,
+    `href="${SIGNUP_URL}"`,
+    `href="${APP_URL}/terms"`,
+    `href="${APP_URL}/privacy"`,
+    `href="mailto:${SUPPORT_EMAIL}"`,
   ];
   const missing = requiredMarkers.filter((marker) => !body.includes(marker));
   if (missing.length > 0)
@@ -138,3 +138,4 @@ try {
   );
   process.exitCode = 1;
 }
+import { APP_URL, LOGIN_URL, SIGNUP_URL, SUPPORT_EMAIL } from "../src/pricing.mjs";
