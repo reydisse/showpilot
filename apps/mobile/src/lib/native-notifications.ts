@@ -48,7 +48,7 @@ export async function getNativeNotificationPermissionState(): Promise<NativeNoti
 
 export async function enableNativeNotifications() {
   if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
-  if (!isNativePushConfigured()) throw new Error("Push notifications require a configured signed build.");
+  if (!isNativePushConfigured()) throw new Error("Device alerts are not available. You can still read notifications in your inbox.");
   const Notifications = await import("expo-notifications");
 
   if (Platform.OS === "android") {
@@ -66,7 +66,7 @@ export async function enableNativeNotifications() {
 
   const token = await getNativePushToken();
   if (!token) {
-    return { granted: true as const, token: null };
+    throw new Error("Could not register this device for alerts. Please try again.");
   }
   return { granted: true as const, token };
 }

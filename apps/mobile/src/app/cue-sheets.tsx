@@ -11,8 +11,10 @@ import X from "lucide-react-native/icons/x";
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -220,8 +222,9 @@ function PhoneCueRow({ columns, departmentId, index, row, onEdit }: {
         <Text style={styles.cueNumber}>{index + 1}</Text>
         <StatusDot status={row.status} />
         <View style={styles.cueCopy}>
-          <Text numberOfLines={1} style={styles.cueTitle}>{row.title}</Text>
-          <Text numberOfLines={1} style={styles.cueMeta}>{formatDuration(row.duration)}{row.assignee ? ` · ${row.assignee}` : ""}{row.cue ? ` · ${row.cue}` : ""}</Text>
+          <Text style={styles.cueTitle}>{row.title}</Text>
+          <Text style={styles.cueMeta}>{formatDuration(row.duration)}{row.assignee ? ` · ${row.assignee}` : ""}</Text>
+          {row.cue ? <Text style={styles.cueInstruction}>{row.cue}</Text> : null}
         </View>
       </View>
       <View style={departmentId === "all" ? styles.noteGrid : styles.focusedNoteWrap}>
@@ -230,10 +233,10 @@ function PhoneCueRow({ columns, departmentId, index, row, onEdit }: {
           return (
             <Pressable accessibilityLabel={`Edit ${column.label} note for ${row.title}`} accessibilityRole="button" key={column.id} onPress={() => onEdit(row, column)} style={({ pressed }) => [departmentId === "all" ? styles.noteTile : styles.focusedNote, pressed && styles.notePressed]}>
               <View style={styles.noteHeading}>
-                <Text numberOfLines={1} style={styles.noteDepartment}>{column.label}</Text>
+                <Text style={styles.noteDepartment}>{column.label}</Text>
                 <Pencil color={colors.textFaint} size={14} />
               </View>
-              <Text numberOfLines={departmentId === "all" ? 2 : 3} style={[styles.noteText, !note?.text && styles.emptyNote]}>{note?.text || "No instruction"}</Text>
+              <Text style={[styles.noteText, !note?.text && styles.emptyNote]}>{note?.text || "No instruction"}</Text>
             </Pressable>
           );
         })}
@@ -420,7 +423,7 @@ export default function CueSheetsScreen() {
         </View>
       ) : (
         <View style={styles.phoneWorkspace}>
-          <ScrollView contentContainerStyle={styles.departmentFilters} horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView style={styles.departmentFilterScroll} contentContainerStyle={styles.departmentFilters} horizontal showsHorizontalScrollIndicator={false}>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: activeDepartmentId === "all" }} onPress={() => setDepartmentId("all")} style={({ pressed }) => [styles.filterButton, activeDepartmentId === "all" && styles.filterButtonActive, pressed && styles.pressed]}><Text style={[styles.filterText, activeDepartmentId === "all" && styles.filterTextActive]}>All</Text></Pressable>
             {data.columns.map((column) => (
               <Pressable accessibilityRole="button" accessibilityState={{ selected: activeDepartmentId === column.id }} key={column.id} onPress={() => setDepartmentId(column.id)} style={({ pressed }) => [styles.filterButton, activeDepartmentId === column.id && styles.filterButtonActive, pressed && styles.pressed]}><Text numberOfLines={1} style={[styles.filterText, activeDepartmentId === column.id && styles.filterTextActive]}>{column.label}</Text></Pressable>
@@ -448,10 +451,10 @@ export default function CueSheetsScreen() {
       ) : null}
       {!isTablet && selected && selectedRow && selectedColumn && data?.canAddNotes ? (
         <Modal animationType="slide" onRequestClose={() => setSelected(null)} transparent visible>
-          <View style={styles.sheetOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.sheetOverlay}>
             <Pressable accessibilityLabel="Close note editor" onPress={() => setSelected(null)} style={StyleSheet.absoluteFill} />
             <NoteEditor column={selectedColumn} compact draft={selected.draft} onCancel={() => setSelected(null)} onChange={(draft) => setSelected((current) => current ? { ...current, draft } : null)} onSave={saveSelected} pending={mutation.isPending} row={selectedRow} />
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       ) : null}
     </Page>
@@ -469,13 +472,14 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   showMeta: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 17 },
   emptyState: { flex: 1, justifyContent: "center" },
   phoneWorkspace: { flex: 1, minHeight: 0, gap: 9 },
+  departmentFilterScroll: { flexGrow: 0, flexShrink: 0 },
   departmentFilters: { gap: 8, paddingVertical: 1, paddingRight: 12 },
   filterButton: { minWidth: 66, height: 42, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 16 },
   filterButtonActive: { borderColor: colors.amber, backgroundColor: colors.amber },
   filterText: { color: colors.textMuted, fontFamily, fontSize: 13, fontWeight: "700" },
   filterTextActive: { color: colors.black },
   phoneCueList: { paddingBottom: 28 },
-  phoneCueRow: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 13, gap: 11 },
+  phoneCueRow: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 20, gap: 14 },
   cueIdentity: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 },
   cueNumber: { width: 24, color: colors.textMuted, fontFamily, fontSize: 13, fontVariant: ["tabular-nums"], textAlign: "center" },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
@@ -483,16 +487,17 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   statusLive: { backgroundColor: colors.amber },
   statusReady: { backgroundColor: colors.textFaint },
   cueCopy: { flex: 1, minWidth: 0, gap: 2 },
-  cueTitle: { color: colors.text, fontFamily, fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  cueTitle: { color: colors.text, fontFamily, fontSize: 17, lineHeight: 24, fontWeight: "800" },
   cueMeta: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 17 },
-  noteGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingLeft: 44 },
-  focusedNoteWrap: { paddingLeft: 44 },
-  noteTile: { width: "48%", minWidth: 142, flexGrow: 1, gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 10 },
-  focusedNote: { minHeight: 68, gap: 5, borderLeftWidth: 2, borderLeftColor: colors.amber, backgroundColor: colors.panel, paddingHorizontal: 12, paddingVertical: 10 },
+  cueInstruction: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 21, marginTop: 5 },
+  noteGrid: { gap: 10 },
+  focusedNoteWrap: { gap: 10 },
+  noteTile: { minHeight: 80, gap: 8, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 14 },
+  focusedNote: { minHeight: 80, gap: 8, borderLeftWidth: 2, borderLeftColor: colors.amber, backgroundColor: colors.panel, paddingHorizontal: 14, paddingVertical: 14 },
   notePressed: { opacity: 0.68, borderColor: colors.amberBorder },
   noteHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   noteDepartment: { flex: 1, color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 15, fontWeight: "800", textTransform: "uppercase" },
-  noteText: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 18 },
+  noteText: { color: colors.text, fontFamily, fontSize: 15, lineHeight: 23 },
   emptyNote: { color: colors.textFaint, fontStyle: "italic" },
   noDepartments: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18, paddingVertical: 8 },
   tabletWorkspace: { flex: 1, minHeight: 0, flexDirection: "row", overflow: "hidden", borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised },
@@ -524,7 +529,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   inspectorEmptyTitle: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "800", textAlign: "center" },
   inspectorEmptyText: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18, textAlign: "center" },
   editor: { flex: 1, gap: spacing.medium },
-  editorCompact: { flex: 0, maxHeight: "86%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.medium, paddingBottom: 28 },
+  editorCompact: { flexGrow: 0, flexShrink: 1, flexBasis: "auto", maxHeight: "86%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.medium, paddingBottom: 28 },
   editorHeading: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   editorCopy: { flex: 1, minWidth: 0, gap: 3 },
   editorTitle: { color: colors.text, fontFamily, fontSize: 17, lineHeight: 22, fontWeight: "900" },

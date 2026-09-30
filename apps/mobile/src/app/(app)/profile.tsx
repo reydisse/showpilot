@@ -106,7 +106,7 @@ export default function ProfileScreen() {
           <View style={styles.identityCopy}>
             <Text style={styles.name}>{session?.user.name || "ShowPilot user"}</Text>
             <Text style={styles.email}>{session?.user.email}</Text>
-            <View style={styles.verifiedBadge}><BadgeCheck size={13} color={session?.user.emailVerified ? colors.green : colors.amberText} /><Text style={[styles.verifiedText, session?.user.emailVerified && styles.verifiedTextReady]}>{session?.user.emailVerified ? "Verified account" : "Verification required"}</Text></View>
+            <Pressable accessibilityRole="button" accessibilityLabel={session?.user.emailVerified ? "Account verification details" : "Verify your email"} onPress={() => router.push("/settings")} style={styles.verifiedBadge}><BadgeCheck size={13} color={session?.user.emailVerified ? colors.green : colors.amberText} /><Text style={[styles.verifiedText, session?.user.emailVerified && styles.verifiedTextReady]}>{session?.user.emailVerified ? "Verified account" : "Verify your email"}</Text></Pressable>
           </View>
         </View>
         {savingAvatar ? <Text style={styles.savingText}>Preparing and saving your photo…</Text> : null}

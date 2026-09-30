@@ -26,6 +26,7 @@
     "@showpilot/shared": "workspace:*",
     "@better-auth/expo": "1.7.2",
     "@cloudflare/vite-plugin": "1.54.1",
+    "@noble/hashes": "2.3.0",
     "@prisma/adapter-d1": "7.10.0",
     "@prisma/client": "7.10.0",
     "@stripe/react-stripe-js": "^6.6.0",

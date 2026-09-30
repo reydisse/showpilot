@@ -11,6 +11,7 @@
       "policy": "appVersion"
     },
     "ios": {
+      "buildNumber": "2",
       "icon": "./assets/showpilot-app-icon.png",
       "bundleIdentifier": "tech.showpilot.mobile",
       "supportsTablet": true,

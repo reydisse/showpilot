@@ -350,7 +350,6 @@ export default function ChatScreen() {
   const [customReaction, setCustomReaction] = useState("");
   const [showLatestButton, setShowLatestButton] = useState(false);
   const listRef = useRef<FlatList<MobileChatMessage>>(null);
-  const initialScrollDoneRef = useRef(false);
   const focusScrollDoneRef = useRef<string | null>(null);
   const stickToBottomRef = useRef(true);
   const userHasScrolledRef = useRef(false);
@@ -395,10 +394,10 @@ export default function ChatScreen() {
     const blocked = new Set(safetyQuery.data?.blockedUserIds ?? []);
     return relay.messages.filter((message) => message.type !== "system" && (!message.senderId || !blocked.has(message.senderId)));
   }, [relay.messages, safetyQuery.data?.blockedUserIds]);
-  const displayMessages = visibleMessages;
+  // Offset zero is the newest message, so opening a long room needs no scroll.
+  const displayMessages = useMemo(() => [...visibleMessages].reverse(), [visibleMessages]);
 
   useEffect(() => {
-    initialScrollDoneRef.current = false;
     focusScrollDoneRef.current = null;
     stickToBottomRef.current = true;
     userHasScrolledRef.current = false;
@@ -421,6 +420,8 @@ export default function ChatScreen() {
     const index = displayMessages.findIndex((message) => message.id === focusedMessageId);
     if (index < 0) return;
     focusScrollDoneRef.current = focusedMessageId;
+    stickToBottomRef.current = false;
+    setShowLatestButton(index > 0);
     requestAnimationFrame(() => listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 }));
   }, [displayMessages, focusedMessageId]);
 
@@ -665,42 +666,34 @@ export default function ChatScreen() {
 
   function trackScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     if (!userHasScrolledRef.current) return;
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const isAtBottom = contentSize.height - layoutMeasurement.height - contentOffset.y < 96;
+    const isAtBottom = event.nativeEvent.contentOffset.y < 96;
     stickToBottomRef.current = isAtBottom;
     setShowLatestButton(!isAtBottom);
     if (isAtBottom) {
-      const latest = displayMessages.at(-1)?.timestamp;
+      const latest = displayMessages[0]?.timestamp;
       if (latest) markRead(latest);
     }
   }
 
   function keepLatestMessageVisible() {
-    if (!hydrated || !currentUserId || !displayMessages.length || focusedMessageId || !initialScrollDoneRef.current) return;
-    if (stickToBottomRef.current) {
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: initialScrollDoneRef.current }));
-      const latest = displayMessages.at(-1)?.timestamp;
-      if (latest) markRead(latest);
-    }
+    if (!hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
+    // Image/layout changes must not animate through history or move a reader
+    // who has scrolled up. The latest edge always has a known offset.
+    listRef.current?.scrollToOffset({ animated: false, offset: 0 });
   }
 
+  const latestMessageTimestamp = displayMessages[0]?.timestamp;
   useEffect(() => {
-    if (!hydrated || !currentUserId || initialScrollDoneRef.current || displayMessages.length === 0) return;
-    initialScrollDoneRef.current = true;
-    if (focusedMessageId) return;
-    stickToBottomRef.current = true;
-    setShowLatestButton(false);
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
-    const latest = displayMessages.at(-1)?.timestamp;
-    if (latest) markRead(latest);
-  }, [currentUserId, displayMessages, focusedMessageId, hydrated, markRead]);
+    if (!hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
+    if (latestMessageTimestamp !== undefined) markRead(latestMessageTimestamp);
+  }, [currentUserId, focusedMessageId, hydrated, latestMessageTimestamp, markRead]);
 
   const scrollToLatest = useCallback(() => {
     stickToBottomRef.current = true;
     userHasScrolledRef.current = true;
     setShowLatestButton(false);
-    listRef.current?.scrollToEnd({ animated: true });
-    const latest = displayMessages.at(-1)?.timestamp;
+    listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+    const latest = displayMessages[0]?.timestamp;
     if (latest) markRead(latest);
   }, [displayMessages, markRead]);
 
@@ -712,8 +705,8 @@ export default function ChatScreen() {
           avatarUrl={item.senderId ? memberImageById.get(item.senderId) : null}
           currentUserId={currentUserId}
           focused={item.id === focusedMessageId}
-          groupedWithNext={messagesBelongToSameGroup(item, displayMessages[index + 1])}
-          groupedWithPrevious={messagesBelongToSameGroup(displayMessages[index - 1], item)}
+          groupedWithNext={messagesBelongToSameGroup(item, displayMessages[index - 1])}
+          groupedWithPrevious={messagesBelongToSameGroup(displayMessages[index + 1], item)}
           message={item}
           onLongPress={openMessageActions}
           onOpenAttachment={openMessageAttachment}
@@ -747,6 +740,8 @@ export default function ChatScreen() {
         {liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
         <View style={styles.listWrap}>
           <FlatList
+            key={roomId}
+            inverted
             ref={listRef}
             style={styles.list}
             contentContainerStyle={styles.listContent}
@@ -756,7 +751,7 @@ export default function ChatScreen() {
             initialNumToRender={18}
             maxToRenderPerBatch={12}
             windowSize={7}
-            ListHeaderComponent={relay.hasOlder ? (
+            ListFooterComponent={relay.hasOlder ? (
               <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder }} disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
                 <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
               </Pressable>
@@ -946,7 +941,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.medium },
   listWrap: { flex: 1, position: "relative" },
-  listContent: { flexGrow: 1, justifyContent: "flex-end", paddingTop: 12, paddingBottom: 8 },
+  listContent: { flexGrow: 1, justifyContent: "flex-start", paddingTop: 8, paddingBottom: 12 },
   newMessagesDivider: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 14, marginVertical: 8 },
   newMessagesLine: { flex: 1, height: 1, backgroundColor: colors.amberBorder },
   newMessagesText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },

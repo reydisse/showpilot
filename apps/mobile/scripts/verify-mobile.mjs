@@ -143,7 +143,7 @@ const sourceContract = [
   ["src/app/chat.tsx", "styles.attachmentImageFrame"],
   ["src/app/chat.tsx", "!isImage ? <View style={styles.attachmentCopy}"],
   ["src/app/chat.tsx", "styles.composerToolButton"],
-  ["src/app/chat.tsx", "const displayMessages = visibleMessages"],
+  ["src/app/chat.tsx", "[...visibleMessages].reverse()"],
   ["src/app/chat.tsx", "setPreviewAttachment(file)"],
   ["src/app/chat.tsx", "setPreviewUri(absoluteChatFileUrl(file.url))"],
   ["src/app/chat.tsx", "source={{ uri: previewUri, headers: attachmentHeaders }}"],

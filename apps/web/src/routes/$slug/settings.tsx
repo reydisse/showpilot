@@ -1651,47 +1651,21 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
             </div>
           </IntegrationCard>
 
-          {/* Planning Center — no adapter implementation yet. Connect stays
-              disabled (comingSoon); Disconnect remains live so orgs that
-              previously selected it can revert to native. */}
-          <IntegrationCard
-            name="Planning Center"
-            icon={<Clock className="w-4 h-4" />}
-            description="Pull service plans from Planning Center Services (read-only)"
-            connected={rundownAdapter === "planning-center"}
-            comingSoon
-            onConnect={() => {}}
-            onDisconnect={() => saveSetting("rundown-adapter", "native")}
-          />
+          {rundownAdapter === "planning-center" ? (
+            <div className="rounded-xl border border-board-border bg-board-card p-4">
+              <p className="text-sm text-board-text">Planning Center is unavailable. Switch to ShowPilot to manage your rundown here.</p>
+              <button
+                onClick={() => saveSetting("rundown-adapter", "native")}
+                className="mt-3 rounded-lg bg-fire-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-fire-600"
+              >
+                Use ShowPilot rundown
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Future Integrations */}
-      <div>
-        <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
-          Future Integrations
-        </p>
-        <div className="space-y-3">
-          <IntegrationCard
-            name="FreeCom"
-            icon={<MessageSquare className="w-4 h-4" />}
-            description="Browser-based WebRTC party-line intercom for production teams"
-            connected={false}
-            comingSoon
-            onConnect={() => {}}
-            onDisconnect={() => {}}
-          />
-          <IntegrationCard
-            name="OpenClaw"
-            icon={<Shield className="w-4 h-4" />}
-            description="AI production agent for automation and intelligent show management"
-            connected={false}
-            comingSoon
-            onConnect={() => {}}
-            onDisconnect={() => {}}
-          />
-        </div>
-      </div>
+
     </div>
   );
 }

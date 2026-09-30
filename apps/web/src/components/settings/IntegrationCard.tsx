@@ -21,7 +21,6 @@ interface IntegrationCardProps {
   onDisconnect: () => void | Promise<void>;
   onTest?: () => Promise<{ ok: boolean; error?: string } | void>;
   disabled?: boolean;
-  comingSoon?: boolean;
   children?: React.ReactNode;
 }
 
@@ -56,7 +55,6 @@ export function IntegrationCard({
   onDisconnect,
   onTest,
   disabled = false,
-  comingSoon = false,
   children,
 }: IntegrationCardProps) {
   const [testing, setTesting] = useState(false);
@@ -113,7 +111,7 @@ export function IntegrationCard({
         connected
           ? "bg-board-card border-green-500/20"
           : "bg-board-card border-board-border"
-      } ${comingSoon ? "opacity-60" : ""}`}
+      }`}
     >
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-lg bg-board-bg border border-board-border flex items-center justify-center shrink-0 text-board-muted">
@@ -123,11 +121,7 @@ export function IntegrationCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <h3 className="text-sm font-semibold text-board-text">{name}</h3>
-            {comingSoon && (
-              <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-fire-500/15 text-fire-500 border border-fire-500/25">
-                Coming Soon
-              </span>
-            )}
+
           </div>
           <p className="text-xs text-board-muted mb-3">{description}</p>
 
@@ -153,7 +147,7 @@ export function IntegrationCard({
             {!connected ? (
               <button
                 onClick={handleConnect}
-                disabled={disabled || comingSoon || connecting}
+                disabled={disabled || connecting}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {connecting ? (

@@ -61,37 +61,32 @@ const notificationCategoryCopy: Record<NotificationCategory, { label: string; de
   system: { label: "Admin and safety", description: "Workspace administration and content-safety reviews" },
 };
 
-function notificationStatusCopy(state: NativeNotificationPermissionState | null, pushConfigured: boolean) {
-  if (!state) return { label: "Checking", detail: "Reading this device’s notification permission." };
-  if (state.status === "granted" && pushConfigured) {
-    return { label: "Permission on", detail: "ShowPilot has OS permission. Remote registration refreshes whenever the app opens." };
-  }
+function notificationStatusCopy(state: NativeNotificationPermissionState | null) {
+  if (!state || state.status === "unsupported") return null;
   if (state.status === "granted") {
-    return { label: "Permission on", detail: "Remote alert registration will finish in the signed ShowPilot build." };
+    return { label: "Permission on", detail: "ShowPilot is allowed to send alerts to this device." };
   }
   if (state.status === "denied") {
     return { label: "Blocked", detail: "ShowPilot alerts are turned off in this device’s settings." };
   }
-  if (state.status === "undetermined") {
-    return { label: "Not set up", detail: "Turn on alerts for assignments, mentions, and live operations." };
-  }
-  return { label: "Signed app required", detail: "Native notifications are available on physical iOS and Android devices." };
+  return { label: "Not set up", detail: "Turn on alerts for assignments, mentions, and live operations." };
 }
 
 export default function SettingsScreen() {
   const { colors, preference } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending, refetch: refetchSession } = authClient.useSession();
   const { data: organization } = authClient.useActiveOrganization();
   const [permission, setPermission] = useState<NativeNotificationPermissionState | null>(null);
   const [updatingNotifications, setUpdatingNotifications] = useState(false);
+  const [sendingVerification, setSendingVerification] = useState(false);
   const [savingPreference, setSavingPreference] = useState<string | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "development";
   const pushConfigured = isNativePushConfigured();
-  const platformLabel = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web preview";
+  const platformLabel = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web";
   const apiLabel = SHOWPILOT_URL.replace(/^https?:\/\//, "");
-  const notificationCopy = notificationStatusCopy(permission, pushConfigured);
+  const notificationCopy = pushConfigured ? notificationStatusCopy(permission) : null;
   const preferenceQueryKey = ["mobile-notification-preferences", organization?.id] as const;
   const notificationPreferences = useQuery({
     queryKey: preferenceQueryKey,
@@ -106,7 +101,8 @@ export default function SettingsScreen() {
 
   useFocusEffect(useCallback(() => {
     void refreshPermission();
-  }, [refreshPermission]));
+    void refetchSession({ query: { disableCookieCache: true } });
+  }, [refreshPermission, refetchSession]));
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -114,6 +110,20 @@ export default function SettingsScreen() {
     });
     return () => subscription.remove();
   }, [refreshPermission]);
+
+  async function sendVerificationEmail() {
+    if (!session?.user.email) return;
+    setSendingVerification(true);
+    try {
+      const result = await authClient.sendVerificationEmail({ email: session.user.email, callbackURL: "/verify-email" });
+      if (result.error) throw new Error(result.error.message || "Please try again.");
+      Alert.alert("Check your email", `Open the verification link sent to ${session.user.email}, then return to ShowPilot.`);
+    } catch (error) {
+      Alert.alert("Email not sent", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      setSendingVerification(false);
+    }
+  }
 
   async function selectAppearance(nextPreference: ThemePreference) {
     try {
@@ -137,12 +147,7 @@ export default function SettingsScreen() {
         await saveMobilePushToken(organization.id, result.token, nativePlatform);
       }
       await refreshPermission();
-      Alert.alert(
-        result.token ? "Notifications are ready" : "Notification permission is on",
-        result.token
-          ? "This device can receive ShowPilot assignments, mentions, and operational alerts."
-          : "Remote alert registration will finish when the signed ShowPilot build is connected to its notification service.",
-      );
+      Alert.alert("Notifications are ready", "This device can receive ShowPilot assignments, mentions, and operational alerts.");
     } catch (caught) {
       await refreshPermission();
       Alert.alert("Notifications not enabled", caught instanceof Error ? caught.message : "Please try again.");
@@ -223,8 +228,8 @@ export default function SettingsScreen() {
         </View>
       </SettingsSection>
 
-      <SettingsSection title="Notifications" description="Everything stays in your inbox. Choose which categories may interrupt you with a device alert.">
-        <View style={styles.notificationCard}>
+      <SettingsSection title="Notifications" description="Everything stays in your inbox. These alert choices apply across your connected devices.">
+        {notificationCopy ? <View style={styles.notificationCard}>
           <View style={styles.notificationTop}>
             <View style={styles.sectionIcon}><BellRing size={21} color={colors.amberText} /></View>
             <View style={styles.notificationCopy}>
@@ -245,7 +250,7 @@ export default function SettingsScreen() {
               onPress={configureNotifications}
             />
           ) : null}
-        </View>
+        </View> : null}
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceHeaderSpacer} />
@@ -298,6 +303,7 @@ export default function SettingsScreen() {
             <Text style={styles.linkDescription}>{session.user.emailVerified ? "Verified" : "Verification still required"}</Text>
           </View>
         </View>
+        {!session.user.emailVerified ? <AppButton label="Send verification email" loading={sendingVerification} onPress={sendVerificationEmail} variant="secondary" /> : null}
         <SettingsLink
           icon={<Trash2 size={20} color={colors.red} />}
           title="Delete account"

@@ -37,7 +37,7 @@ if (Platform.OS !== "web") {
 
 export function AppProviders({ children }: PropsWithChildren) {
   const { colors } = useAppTheme();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const { data: session, isPending: sessionPending, refetch: refetchSession } = authClient.useSession();
   const [queryClient] = useState(
     () => new QueryClient({
       defaultOptions: {
@@ -80,6 +80,7 @@ export function AppProviders({ children }: PropsWithChildren) {
       if (state !== "active") {
         void queryClient.cancelQueries();
       } else if (returningToForeground) {
+        void refetchSession({ query: { disableCookieCache: true } });
         // Refetch only mounted screens. This avoids a thundering herd after a
         // long background period while still restoring live control state.
         void queryClient.invalidateQueries({ refetchType: "active" });
@@ -89,7 +90,7 @@ export function AppProviders({ children }: PropsWithChildren) {
       subscription.remove();
       focusManager.setFocused(undefined);
     };
-  }, [queryClient]);
+  }, [queryClient, refetchSession]);
 
   return (
     <SafeAreaProvider>

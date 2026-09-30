@@ -1,9 +1,10 @@
+import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+
 const HASH_PREFIX = "pbkdf2-sha256";
 const HASH_ITERATIONS = 210_000;
 const SALT_BYTES = 16;
-const DERIVED_KEY_BITS = 256;
-
-const encoder = new TextEncoder();
+const DERIVED_KEY_BYTES = 32;
 
 function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -24,31 +25,10 @@ function decodeBase64Url(value: string): Uint8Array | null {
   }
 }
 
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return copy.buffer;
-}
-
 async function derivePin(pin: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(pin),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: toArrayBuffer(salt),
-      iterations,
-    },
-    key,
-    DERIVED_KEY_BITS,
-  );
-  return new Uint8Array(bits);
+  // Workers caps Web Crypto PBKDF2 at 100,000 iterations. Use the portable
+  // implementation to retain the existing work factor and stored PIN hashes.
+  return pbkdf2(sha256, pin, salt, { c: iterations, dkLen: DERIVED_KEY_BYTES });
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -93,7 +73,8 @@ export async function verifyStoredRundownPin(
   const iterations = Number(iterationsText);
   const salt = decodeBase64Url(saltText);
   const expected = decodeBase64Url(expectedText);
-  if (!Number.isSafeInteger(iterations) || iterations < 100_000 || !salt || !expected) {
+  if (!Number.isSafeInteger(iterations) || iterations < 100_000 || iterations > HASH_ITERATIONS
+    || salt?.length !== SALT_BYTES || expected?.length !== DERIVED_KEY_BYTES) {
     return false;
   }
 
