@@ -109,7 +109,7 @@ export default function ScheduleScreen() {
   async function refreshSchedule() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }),
-      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }),
     ]);
   }
 

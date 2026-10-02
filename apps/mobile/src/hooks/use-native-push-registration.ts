@@ -2,14 +2,16 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NotificationResponse } from "expo-notifications";
 import { router } from "expo-router";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { authClient } from "@/lib/auth-client";
 import { markNotificationRead, saveMobilePushToken } from "@/lib/mobile-api";
-import { getNativePushToken, isNativePushConfigured } from "@/lib/native-notifications";
+import { registerNativeNotifications, isNativePushConfigured } from "@/lib/native-notifications";
 import { openNotificationDestination } from "@/lib/notification-destination";
 
 export function useNativePushRegistration(orgId?: string) {
   const queryClient = useQueryClient();
+  const { data: session } = authClient.useSession();
+  const userId = session?.user.id;
   const activeOrgId = useRef(orgId);
   const nativePlatform = (Platform.OS === "ios" || Platform.OS === "android") && isNativePushConfigured()
     ? Platform.OS
@@ -18,23 +20,52 @@ export function useNativePushRegistration(orgId?: string) {
     activeOrgId.current = orgId;
   }, [orgId]);
   useEffect(() => {
-    if (!orgId || !nativePlatform) return;
+    if (!orgId || !nativePlatform || !userId) return;
+    const registrationOrgId = orgId;
+    const registrationPlatform = nativePlatform;
     let disposed = false;
+    let registering = false;
+    let refreshQueued = false;
+    let failures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let removeTokenListener: (() => void) | undefined;
 
-    void import("expo-notifications").then(async (Notifications) => {
-      const permission = await Notifications.getPermissionsAsync();
-      if (disposed || permission.status !== "granted") return;
-      const token = await getNativePushToken();
-      if (!disposed && token) await saveMobilePushToken(orgId, token, nativePlatform);
-    }).catch(() => {
-      // Registration is retried on the next authenticated launch. It must not
-      // block access to the app when notification services are unavailable.
+    async function register() {
+      if (disposed || AppState.currentState !== "active") return;
+      if (registering) { refreshQueued = true; return; }
+      registering = true;
+      clearTimeout(retryTimer);
+      try {
+        const token = await registerNativeNotifications(true);
+        if (!disposed && token) await saveMobilePushToken(registrationOrgId, token, registrationPlatform);
+        failures = 0;
+      } catch (error) {
+        // A temporary network/APNs failure should recover without an app restart.
+        if (!disposed && failures < 3) {
+          retryTimer = setTimeout(() => void register(), [1_000, 5_000, 15_000][failures++]);
+        }
+        console.warn("[push] Device registration failed", { message: error instanceof Error ? error.message : "Unknown registration error" });
+      } finally {
+        registering = false;
+        if (!disposed && refreshQueued) { refreshQueued = false; void register(); }
+      }
+    }
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") { failures = 0; void register(); }
     });
-
+    void import("expo-notifications").then((Notifications) => {
+      if (disposed) return;
+      const subscription = Notifications.addPushTokenListener(() => { void register(); });
+      removeTokenListener = () => subscription.remove();
+    }).catch(() => undefined);
+    void register();
     return () => {
       disposed = true;
+      clearTimeout(retryTimer);
+      appState.remove();
+      removeTokenListener?.();
     };
-  }, [nativePlatform, orgId]);
+  }, [nativePlatform, orgId, userId]);
 
   useEffect(() => {
     if (!nativePlatform) return;
@@ -42,7 +73,7 @@ export function useNativePushRegistration(orgId?: string) {
     const removeListeners: (() => void)[] = [];
     const refreshOrganization = (targetOrgId: unknown) => {
       if (typeof targetOrgId !== "string" || !targetOrgId) return;
-      void queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", targetOrgId] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
     };
     const openNotification = async (response: NotificationResponse) => {
       const data = response.notification.request.content.data;
@@ -59,7 +90,7 @@ export function useNativePushRegistration(orgId?: string) {
         await markNotificationRead(targetOrgId, notificationId).catch(() => undefined);
       }
       if (targetOrgId) {
-        await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", targetOrgId] });
+        await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
       }
       if (!disposed) openNotificationDestination(data?.url);
     };
@@ -69,7 +100,9 @@ export function useNativePushRegistration(orgId?: string) {
         refreshOrganization(notification.request.content.data?.orgId);
       });
       const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-        void openNotification(response);
+        void openNotification(response).catch(() => {
+          if (!disposed) router.push("/inbox");
+        });
       });
       removeListeners.push(
         () => receivedSubscription.remove(),

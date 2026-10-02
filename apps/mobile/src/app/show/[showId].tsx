@@ -330,7 +330,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
       copyFromShowId: draft.copyCurrent ? detail.show.id : undefined,
     });
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }),
       queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }),
     ]);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

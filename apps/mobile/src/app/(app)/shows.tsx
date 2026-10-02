@@ -59,7 +59,7 @@ export default function ShowsScreen() {
     onSuccess: async (result) => {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCreating(false);
-      await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", organization?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
       router.push({ pathname: "/show/[showId]", params: { showId: result.showId } });
     },
     onError: (createError) => {

@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isEmojiReaction } from "@showpilot/shared";
 import { useQuery } from "@tanstack/react-query";
-import ArrowLeft from "lucide-react-native/icons/arrow-left";
 import Check from "lucide-react-native/icons/check";
 import ChevronDown from "lucide-react-native/icons/chevron-down";
 import CornerUpLeft from "lucide-react-native/icons/corner-up-left";
@@ -44,6 +43,7 @@ import {
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
+import { useScreenFocus } from "@/hooks/use-screen-polling";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import { authClient } from "@/lib/auth-client";
@@ -284,6 +284,7 @@ export default function ChatScreen() {
   const styles = useStyles();
   const router = useRouter();
   const viewport = useWindowDimensions();
+  const isScreenFocused = useScreenFocus();
   const params = useLocalSearchParams<{ message?: string; room?: string }>();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: session } = authClient.useSession();
@@ -676,7 +677,7 @@ export default function ChatScreen() {
   }
 
   function keepLatestMessageVisible() {
-    if (!hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
+    if (!isScreenFocused || !hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
     // Image/layout changes must not animate through history or move a reader
     // who has scrolled up. The latest edge always has a known offset.
     listRef.current?.scrollToOffset({ animated: false, offset: 0 });
@@ -684,9 +685,9 @@ export default function ChatScreen() {
 
   const latestMessageTimestamp = displayMessages[0]?.timestamp;
   useEffect(() => {
-    if (!hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
+    if (!isScreenFocused || !hydrated || !currentUserId || (focusedMessageId && !userHasScrolledRef.current) || !stickToBottomRef.current) return;
     if (latestMessageTimestamp !== undefined) markRead(latestMessageTimestamp);
-  }, [currentUserId, focusedMessageId, hydrated, latestMessageTimestamp, markRead]);
+  }, [currentUserId, focusedMessageId, hydrated, isScreenFocused, latestMessageTimestamp, markRead]);
 
   const scrollToLatest = useCallback(() => {
     stickToBottomRef.current = true;
@@ -728,7 +729,6 @@ export default function ChatScreen() {
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={0}>
       <Page scroll={false}>
         <View style={styles.roomHeader}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Back to operations" onPress={() => router.canGoBack() ? router.back() : router.replace("/(app)/operations")} style={styles.backButton}><ArrowLeft color={colors.text} size={21} /></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={`Switch chat room. Current room: ${roomTitle}`} onPress={() => setRoomPickerOpen(true)} style={styles.roomSwitcher}>
               <View style={styles.roomCopy}><Text style={styles.roomTitle}>{roomTitle}</Text><Text numberOfLines={1} style={[styles.roomSubtitle, relay.status === "connected" && styles.connected]}>{relay.status === "connected" ? `● Connected${gatewayLabel ? ` · ${gatewayLabel}` : ""}` : relay.status}</Text></View>
               <ChevronDown color={colors.textMuted} size={17} />
@@ -737,7 +737,7 @@ export default function ChatScreen() {
         </View>
         {relay.lastError ? <Text style={styles.error}>{relay.lastError}</Text> : null}
         {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
-        {liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
+        {isScreenFocused && liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
         <View style={styles.listWrap}>
           <FlatList
             key={roomId}
@@ -927,7 +927,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.stage },
   roomHeader: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, paddingBottom: 8 },
   roomSwitcher: { minWidth: 0, flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  backButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginLeft: -10 },
   roomCopy: { flex: 1, gap: 2 },
   roomTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "900", letterSpacing: -0.2 },
   roomSubtitle: { color: colors.textMuted, fontFamily, fontSize: 11 },

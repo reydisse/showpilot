@@ -98,7 +98,7 @@
       "webPath": "chat",
       "status": "complete",
       "nativeRoutes": [
-        "src/app/chat.tsx"
+        "src/app/(app)/chat.tsx"
       ],
       "apiContracts": [
         "/api/mobile/v1/bootstrap",

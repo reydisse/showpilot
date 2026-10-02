@@ -3,7 +3,7 @@ import Bell from "lucide-react-native/icons/bell";
 import CalendarDays from "lucide-react-native/icons/calendar-days";
 import Gauge from "lucide-react-native/icons/gauge";
 import SlidersHorizontal from "lucide-react-native/icons/sliders-horizontal";
-import UserRound from "lucide-react-native/icons/user-round";
+import MessagesSquare from "lucide-react-native/icons/messages-square";
 import { Redirect, Tabs } from "expo-router";
 import { LoadingView } from "@/components/loading-view";
 import { SessionRecoveryView } from "@/components/session-recovery-view";
@@ -61,6 +61,7 @@ export default function AppLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: colors.amberText,
         tabBarInactiveTintColor: colors.textFaint,
         tabBarStyle: { backgroundColor: colors.stageRaised, borderTopColor: colors.borderSoft, height: 66, paddingTop: 6 },
@@ -85,7 +86,8 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
         }}
       />
-      <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: ({ color, size }) => <UserRound color={color} size={size} /> }} />
+      <Tabs.Screen name="chat" options={{ title: "Chats", tabBarIcon: ({ color, size }) => <MessagesSquare color={color} size={size} /> }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }

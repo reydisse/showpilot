@@ -46,11 +46,10 @@ export async function getNativeNotificationPermissionState(): Promise<NativeNoti
   }
 }
 
-export async function enableNativeNotifications() {
-  if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
-  if (!isNativePushConfigured()) throw new Error("Device alerts are not available. You can still read notifications in your inbox.");
+/** Returns null when the user declines; iOS owns whether it may prompt again. */
+export async function registerNativeNotifications(requestPermission = false) {
+  if (!Device.isDevice || !isNativePushConfigured()) return null;
   const Notifications = await import("expo-notifications");
-
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("show-operations", {
       name: "Show operations",
@@ -59,14 +58,22 @@ export async function enableNativeNotifications() {
       lightColor: "#FFC107",
     });
   }
-
-  const current = await Notifications.getPermissionsAsync();
-  const permission = current.status === "granted" ? current : await Notifications.requestPermissionsAsync();
-  if (permission.status !== "granted") throw new Error("Notification permission was not granted.");
-
-  const token = await getNativePushToken();
-  if (!token) {
-    throw new Error("Could not register this device for alerts. Please try again.");
+  let permission = await Notifications.getPermissionsAsync();
+  if (permission.status === "undetermined" && requestPermission && permission.canAskAgain) {
+    permission = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+    });
   }
+  if (permission.status !== "granted") return null;
+  const token = await getNativePushToken();
+  if (!token) throw new Error("Could not register this device for alerts. Please try again.");
+  return token;
+}
+
+export async function enableNativeNotifications() {
+  if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
+  if (!isNativePushConfigured()) throw new Error("Device alerts are not available. You can still read notifications in your inbox.");
+  const token = await registerNativeNotifications(true);
+  if (!token) throw new Error("Notification permission was not granted.");
   return { granted: true as const, token };
 }

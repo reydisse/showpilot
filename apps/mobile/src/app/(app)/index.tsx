@@ -1,6 +1,7 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router } from "expo-router";
 import BellRing from "lucide-react-native/icons/bell-ring";
+import UserRound from "lucide-react-native/icons/user-round";
 import Radio from "lucide-react-native/icons/radio";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
 import { Page } from "@/components/page";
@@ -18,7 +19,11 @@ export default function HomeScreen() {
   const nextShow = liveShow ?? data?.shows[0];
 
   return (
-    <Page eyebrow="COMMAND CENTER" title={organization.name} onRefresh={refetch}>
+    <Page eyebrow="COMMAND CENTER" title={organization.name} onRefresh={refetch} action={
+      <Pressable accessibilityRole="button" accessibilityLabel="Profile and settings" onPress={() => router.push("/(app)/profile")} style={({ pressed }) => [styles.profileButton, pressed && { opacity: 0.6 }]}>
+        <UserRound size={22} color={colors.text} />
+      </Pressable>
+    }>
       {error ? (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>Could not sync ShowPilot</Text>
@@ -49,6 +54,7 @@ export default function HomeScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  profileButton: { width: 44, height: 44, borderRadius: radii.pill, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   stats: { flexDirection: "row", gap: 10 },
   stat: { flex: 1, minWidth: 0, gap: 6, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 13 },
   statValue: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "800", textTransform: "capitalize" },

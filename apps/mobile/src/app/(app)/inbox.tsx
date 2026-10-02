@@ -51,7 +51,7 @@ export default function InboxScreen() {
       try {
         await markNotificationRead(activeOrganizationId, id);
         await Haptics.selectionAsync();
-        await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", activeOrganizationId] });
+        await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
       } catch (markError) {
         Alert.alert("Notification not marked read", markError instanceof Error ? markError.message : "Try again from the Inbox.");
       }
@@ -62,7 +62,7 @@ export default function InboxScreen() {
     try {
       await markAllNotificationsRead(activeOrganizationId);
       await Haptics.selectionAsync();
-      await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", activeOrganizationId] });
+      await queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
     } catch (markError) {
       Alert.alert("Notifications not updated", markError instanceof Error ? markError.message : "Try again in a moment.");
     }

@@ -131,24 +131,24 @@ const sourceContract = [
   ["src/app/_layout.tsx", "<Stack.Protected guard={Boolean(session)}>"],
   ["src/app/_layout.tsx", "!session && error"],
   ["src/components/session-recovery-view.tsx", "Your sign-in is still stored safely on this device"],
-  ["src/app/chat.tsx", "memo(function MessageCard"],
-  ["src/app/chat.tsx", "PanResponder.create"],
-  ["src/app/chat.tsx", "Swipe right to reply"],
-  ["src/app/chat.tsx", "gesture.dx >= 54"],
-  ["src/app/chat.tsx", "messagesBelongToSameGroup"],
-  ["src/app/chat.tsx", "groupedWithPrevious"],
-  ["src/app/chat.tsx", "groupedWithNext"],
-  ["src/app/chat.tsx", "styles.avatarSpacer"],
-  ["src/app/chat.tsx", "styles.messageColumnOperational"],
-  ["src/app/chat.tsx", "styles.attachmentImageFrame"],
-  ["src/app/chat.tsx", "!isImage ? <View style={styles.attachmentCopy}"],
-  ["src/app/chat.tsx", "styles.composerToolButton"],
-  ["src/app/chat.tsx", "[...visibleMessages].reverse()"],
-  ["src/app/chat.tsx", "setPreviewAttachment(file)"],
-  ["src/app/chat.tsx", "setPreviewUri(absoluteChatFileUrl(file.url))"],
-  ["src/app/chat.tsx", "source={{ uri: previewUri, headers: attachmentHeaders }}"],
-  ["src/app/chat.tsx", "maximumZoomScale={4}"],
-  ["src/app/_layout.tsx", 'name="chat" options={{ headerShown: false }}'],
+  ["src/app/(app)/chat.tsx", "memo(function MessageCard"],
+  ["src/app/(app)/chat.tsx", "PanResponder.create"],
+  ["src/app/(app)/chat.tsx", "Swipe right to reply"],
+  ["src/app/(app)/chat.tsx", "gesture.dx >= 54"],
+  ["src/app/(app)/chat.tsx", "messagesBelongToSameGroup"],
+  ["src/app/(app)/chat.tsx", "groupedWithPrevious"],
+  ["src/app/(app)/chat.tsx", "groupedWithNext"],
+  ["src/app/(app)/chat.tsx", "styles.avatarSpacer"],
+  ["src/app/(app)/chat.tsx", "styles.messageColumnOperational"],
+  ["src/app/(app)/chat.tsx", "styles.attachmentImageFrame"],
+  ["src/app/(app)/chat.tsx", "!isImage ? <View style={styles.attachmentCopy}"],
+  ["src/app/(app)/chat.tsx", "styles.composerToolButton"],
+  ["src/app/(app)/chat.tsx", "[...visibleMessages].reverse()"],
+  ["src/app/(app)/chat.tsx", "setPreviewAttachment(file)"],
+  ["src/app/(app)/chat.tsx", "setPreviewUri(absoluteChatFileUrl(file.url))"],
+  ["src/app/(app)/chat.tsx", "source={{ uri: previewUri, headers: attachmentHeaders }}"],
+  ["src/app/(app)/chat.tsx", "maximumZoomScale={4}"],
+  ["src/app/(app)/_layout.tsx", 'name="chat" options={{ title: "Chats"'],
   ["src/app/_layout.tsx", 'name="settings" options={{ headerShown: false }}'],
   ["src/components/page.tsx", "backTo?: Href"],
   ["src/components/page.tsx", "router.canGoBack() ? router.back() : router.replace(backTo)"],
@@ -161,9 +161,9 @@ const sourceContract = [
 const forbiddenSourceContract = [
   ["src/app/(app)/profile.tsx", "requestMediaLibraryPermissionsAsync"],
   ["src/app/show/[showId].tsx", "items.map((item"],
-  ["src/app/chat.tsx", "styles.composerTools"],
-  ["src/app/chat.tsx", "setActiveThreadId"],
-  ["src/app/chat.tsx", "imageViewerTitle"],
+  ["src/app/(app)/chat.tsx", "styles.composerTools"],
+  ["src/app/(app)/chat.tsx", "setActiveThreadId"],
+  ["src/app/(app)/chat.tsx", "imageViewerTitle"],
 ];
 const apiContract = [
   "/api/mobile/v1/bootstrap",
@@ -367,7 +367,7 @@ const signedInRoutes = rootLayout.match(
 if (!signedOutRoutes?.includes('name="(auth)"')) {
   throw new Error("Native authentication screens must remain inside the signed-out route guard.");
 }
-for (const route of ["organizations", "(app)", "settings", "show/[showId]", "live-show", "timecode", "schedule", "chat", "incidents", "incidents-history", "checklist", "cue-sheets", "checkin", "show-board", "team", "devices", "device/[deviceId]", "asset-inventory", "stream", "multi-platform", "lower-thirds", "prod-manager", "reports", "tech-manager", "audio"]) {
+for (const route of ["organizations", "(app)", "settings", "show/[showId]", "live-show", "timecode", "schedule", "incidents", "incidents-history", "checklist", "cue-sheets", "checkin", "show-board", "team", "devices", "device/[deviceId]", "asset-inventory", "stream", "multi-platform", "lower-thirds", "prod-manager", "reports", "tech-manager", "audio"]) {
   const marker = `name="${route}"`;
   if (!signedInRoutes?.includes(marker) || rootLayout.split(marker).length !== 2) {
     throw new Error(`Native protected route must appear exactly once inside the signed-in guard: ${route}`);

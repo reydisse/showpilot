@@ -69,7 +69,6 @@ function RootNavigator() {
           <Stack.Screen name="live-show" options={{ headerShown: false }} />
           <Stack.Screen name="timecode" options={{ headerShown: false }} />
           <Stack.Screen name="schedule" options={{ headerShown: false }} />
-          <Stack.Screen name="chat" options={{ headerShown: false }} />
           <Stack.Screen name="incidents" options={{ headerShown: false }} />
           <Stack.Screen name="incidents-history" options={{ headerShown: false }} />
           <Stack.Screen name="checklist" options={{ headerShown: false }} />

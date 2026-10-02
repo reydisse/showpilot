@@ -10,13 +10,20 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "updates": {
+      "enabled": false,
+      "url": "https://u.expo.dev/7b9f4408-17fe-4362-8f7f-e0ad378a8479"
+    },
     "ios": {
-      "buildNumber": "2",
+      "buildNumber": "3",
       "icon": "./assets/showpilot-app-icon.png",
       "bundleIdentifier": "tech.showpilot.mobile",
       "supportsTablet": true,
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "aps-environment": "development"
       }
     },
     "android": {
@@ -65,6 +72,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7b9f4408-17fe-4362-8f7f-e0ad378a8479"
+      }
+    },
+    "owner": "reydisse"
   }
 }
