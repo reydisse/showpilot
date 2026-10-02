@@ -85,19 +85,19 @@ endpoints.
 Complete these steps only from the reviewed release branch and only after the relevant account and production approvals are available:
 
 1. From `apps/mobile`, authenticate the approved Expo account with
-   `pnpm dlx eas-cli@22.4.0 login`, then run
-   `pnpm dlx eas-cli@22.4.0 init`. Link the existing ShowPilot project if one
+   `pnpm dlx eas-cli@24.8.0 login`, then run
+   `pnpm dlx eas-cli@24.8.0 init`. Link the existing ShowPilot project if one
    exists; do not create a duplicate. Commit the resulting `owner` and
    `extra.eas.projectId` only after checking the account and project name.
-2. Run `pnpm dlx eas-cli@22.4.0 update:configure`. The committed update URL
-   must be exactly `https://u.expo.dev/<projectId>`; the runtime policy remains
-   `appVersion` and the build channels remain development, preview, and
-   production.
+2. The project is linked to `@reydisse/showpilot`. Keep the update URL matched
+   to `extra.eas.projectId`. OTA updates are currently disabled; releases go
+   through signed store builds. Before enabling OTA, review native runtime
+   compatibility and configure the development, preview, and production channels.
 3. In each EAS environment, set the non-secret
-   `EXPO_PUBLIC_SHOWPILOT_URL=https://showpilot.tech`. Configure APNs, FCM v1,
+   `EXPO_PUBLIC_SHOWPILOT_URL=https://app.showpilot.tech`. Configure APNs, FCM v1,
    iOS distribution, and Android production-keystore credentials through EAS.
 4. Initialize EAS remote build numbers from any existing store versions, then
-   run `pnpm dlx eas-cli@22.4.0 workflow:run
+   run `pnpm dlx eas-cli@24.8.0 workflow:run
    .eas/workflows/create-internal-builds.yml --wait`. This workflow is manual
    and produces signed preview builds for both platforms.
 5. Apply migrations `0030_multitenant_push_subscriptions.sql` through

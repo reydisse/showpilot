@@ -410,7 +410,7 @@ if (packageConfig.version !== appConfig.expo?.version) {
 if (appConfig.expo?.runtimeVersion?.policy !== "appVersion") {
   throw new Error("Mobile runtimeVersion must use the appVersion compatibility policy.");
 }
-if (easConfig.cli?.version !== ">= 22.4.0 < 23.0.0") {
+if (easConfig.cli?.version !== ">= 24.8.0 < 25.0.0") {
   throw new Error("eas.json must enforce the reviewed EAS CLI major version.");
 }
 if (easConfig.cli?.appVersionSource !== "remote") {
