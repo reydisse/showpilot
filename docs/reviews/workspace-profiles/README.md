@@ -10,7 +10,7 @@ Implemented from `SPEC-workspace-profiles.md` on `feature/workspace-profiles`.
 - Existing installed mobile apps still receive only `general` or `church`. Old `general` provider saves preserve non-church types and never change modules.
 - New mobile clients use the cached bootstrap profile, hide disabled tools and Chats, and show an Enable/Ask an admin screen for disabled deep links.
 - All workspace writes use the same validated command implementation. Reserved workspace keys cannot bypass it through generic settings. D1 batches and Prisma transactions keep type and legacy wording synchronized.
-- Platform administration can filter organizations by type using one settings query. Landing copy includes live events, schools, theatres, and churches; pricing is unchanged.
+- Platform administration can filter organizations by type using one settings query. The separate [landing copy PR #49](https://github.com/reydisse/showpilot/pull/49) includes live events, schools, theatres, and churches; pricing is unchanged.
 
 ## Verification
 
@@ -28,7 +28,7 @@ Implemented from `SPEC-workspace-profiles.md` on `feature/workspace-profiles`.
 
 Section 2 of the supplied spec says **“confirm before merge”** for the fallback: an organization with neither an explicit workspace type nor a legacy terminology setting will now resolve to Church, so Schedule calls its events “services” instead of “shows.” This is implemented and covered by tests; approval remains outstanding.
 
-After sign-off: merge, wait for CI and the server deployment, smoke-test login and existing organizations first, then the five new types, feature toggles, token-based displays/overlays, the installed mobile binary, and realtime propagation. Deploy the landing copy separately. Only then bump the mobile version/build, run the store build, perform the native checks from §11, and submit to TestFlight. OTA remains disabled; older binaries continue to work and show all features.
+After sign-off: merge, wait for CI and the server deployment, smoke-test login and existing organizations first, then the five new types, feature toggles, token-based displays/overlays, the installed mobile binary, and realtime propagation. Then merge [landing copy PR #49](https://github.com/reydisse/showpilot/pull/49) for its separate release. The current main pipeline deploys both Workers; keeping the copy in a second PR means the first release retains the existing landing text. Only then bump the mobile version/build, run the store build, perform the native checks from §11, and submit to TestFlight. OTA remains disabled; older binaries continue to work and show all features.
 
 Lower-third verse/sermon templates are not currently filtered by workspace type. They remain available as the spec explicitly permits; the default presenter/event preview data is type-aware. Device modules, permissions/plan tables, schema, migrations, and pricing were not changed.
 
