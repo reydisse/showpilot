@@ -28,13 +28,33 @@ export function workspaceCopy(text: string, terms: WorkspaceTerms): string {
     .replace(/Advance to sermon/gi, "Advance to next segment");
   if (!church) {
     copy = copy
+      .replace(
+        /Add the people who serve on your production team\./g,
+        "Add the people on your production team.",
+      )
+      .replace(/for service\b/gi, () => insert(`for the ${terms.event}`))
       .replace(/Sunday(?: morning)?(?: service)?(?: standard)?/gi, () =>
         insert(terms.eventNameExample),
       )
       .replace(/Scan to serve/gi, () => insert(terms.checkinCta));
   }
-  copy = copy.replace(/\bservices?\b/gi, (match) =>
-    insert(casing(match, /s$/i.test(match) ? terms.eventPlural : terms.event)),
+  copy = copy.replace(
+    /\b(a\s+|an\s+)?(services?)\b/gi,
+    (_match, article: string | undefined, noun: string) => {
+      const word = casing(
+        noun,
+        /s$/i.test(noun) ? terms.eventPlural : terms.event,
+      );
+      if (!article) return insert(word);
+      const indefinite = /^[aeiou]/i.test(word) ? "an" : "a";
+      const prefix =
+        noun === noun.toUpperCase()
+          ? indefinite.toUpperCase()
+          : /^[A-Z]/.test(article)
+            ? indefinite.charAt(0).toUpperCase() + indefinite.slice(1)
+            : indefinite;
+      return insert(`${prefix} ${word}`);
+    },
   );
   if (church) return finish(copy);
   copy = copy
@@ -60,7 +80,10 @@ export function workspaceCopy(text: string, terms: WorkspaceTerms): string {
       ),
     )
     .replace(/\b(?:serving|serve)\b/gi, (match) =>
-      casing(match, "participate"),
+      casing(
+        match,
+        match.toLowerCase() === "serving" ? "working" : "participate",
+      ),
     );
   return finish(copy);
 }

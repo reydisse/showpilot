@@ -1,5 +1,3 @@
-import { workspaceCopy } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -1297,7 +1295,6 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
 function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
-  const workspaceTerms = useWorkspaceTerms();
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -1305,10 +1302,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
     <div>
       <SectionHeader
         title="Integrations"
-        description={workspaceCopy(
-          "Connect external tools to ShowPilot's shared services",
-          workspaceTerms,
-        )}
+        description={"Connect external tools to ShowPilot's shared services"}
       />
 
       {/* Invite form */}

@@ -352,7 +352,7 @@ function ShowBoardPage() {
               </h2>
               <p className="text-center text-board-muted text-sm leading-relaxed max-w-sm mx-auto mb-10">
                 {workspaceCopy(
-                  "\n                Add your team members and they&apos;ll appear here in real time\n                as they check in for service.\n              ",
+                  "\n                Add your team members and they'll appear here in real time\n                as they check in for service.\n              ",
                   workspaceTerms,
                 )}
               </p>

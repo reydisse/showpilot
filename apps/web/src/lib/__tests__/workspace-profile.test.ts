@@ -282,3 +282,9 @@ it("does not translate a custom noun a second time", () => {
  expect(workspaceCopy("Next service", terms)).toBe("Next sunday");
  expect(workspaceCopy("Service title", terms)).toBe("Sunday title");
 });
+it("keeps school articles and crew activity copy grammatical", () => {
+ const terms = resolveTerms("school");
+ expect(workspaceCopy("Plan a service", terms)).toBe("Plan an event");
+ expect(workspaceCopy("See who's serving in real time", terms)).toBe("See who's working in real time");
+ expect(workspaceCopy("Check in for service.", terms)).toBe("Check in for the event.");
+});

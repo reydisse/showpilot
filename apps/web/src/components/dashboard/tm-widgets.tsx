@@ -324,7 +324,6 @@ function EquipmentRotator({
 }: {
   items: TmDashboardModel["equipmentFaults"];
 }) {
-  const workspaceTerms = useWorkspaceTerms();
   const pageCount = Math.ceil(items.length / EQUIPMENT_PAGE_SIZE);
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -346,7 +345,7 @@ function EquipmentRotator({
             <p className="text-board-text flex items-center gap-1.5"><Wrench className="w-3 h-3 text-board-muted shrink-0" aria-hidden="true" />{item.name}</p>
             <p className={item.status === "out-of-service" ? "text-red-400 mt-0.5" : "text-yellow-400 mt-0.5"}>
               {item.status === "out-of-service"
-                ? workspaceCopy("Out of service", workspaceTerms)
+                ? "Out of service"
                 : item.status === "in-repair" ? "In repair" : "Needs repair"}
             </p>
           </li>

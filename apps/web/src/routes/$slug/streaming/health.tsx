@@ -398,7 +398,7 @@ function StreamHealthPage() {
                     <span className="text-board-text font-medium">Live Stream</span>{" "}
                     section, select{" "}
                     <span className="text-board-text font-medium">
-                      {workspaceCopy("Service: Custom", workspaceTerms)}
+                      {"Service: Custom"}
                     </span>{" "}
                     from the dropdown
                   </li>
@@ -463,7 +463,7 @@ function StreamHealthPage() {
                   <li>
                     Set{" "}
                     <span className="text-board-text font-medium">
-                      {workspaceCopy("Service", workspaceTerms)}
+                      {"Service"}
                     </span>{" "}
                     to{" "}
                     <span className="text-board-text font-medium">Custom...</span>
