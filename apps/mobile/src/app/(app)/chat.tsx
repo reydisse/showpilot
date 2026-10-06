@@ -16,6 +16,7 @@ import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Sharing from "expo-sharing";
 import {
   ActivityIndicator,
@@ -96,7 +97,6 @@ function absoluteChatFileUrl(url: string) {
 interface MessageCardProps {
   attachmentHeaders: Record<string, string>;
   currentUserId?: string;
-  focused: boolean;
   groupedWithNext: boolean;
   groupedWithPrevious: boolean;
   message: MobileChatMessage;
@@ -113,7 +113,6 @@ interface MessageCardProps {
 const MessageCard = memo(function MessageCard({
   attachmentHeaders,
   currentUserId,
-  focused,
   groupedWithNext,
   groupedWithPrevious,
   message,
@@ -174,7 +173,6 @@ const MessageCard = memo(function MessageCard({
           own && !operational && styles.messageRowOwn,
           operational && styles.messageRowOperational,
           groupedWithPrevious && !operational && styles.messageRowGrouped,
-          focused && styles.messageFocused,
         ]}
       >
       {!own && !operational ? (showAvatar
@@ -335,6 +333,9 @@ export default function ChatScreen() {
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const attachmentBusyRef = useRef(false);
+  const pendingToolRef = useRef<"photo" | "document" | "poll" | null>(null);
+  const attachmentContextRef = useRef(0);
   const [pollOpen, setPollOpen] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
@@ -356,6 +357,13 @@ export default function ChatScreen() {
   const userHasScrolledRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingNotificationsRef = useRef(new Map<string, { text: string; mentionedUserIds: string[] }>());
+  useEffect(() => {
+    setAttachment(null);
+    return () => {
+      attachmentContextRef.current += 1;
+      pendingToolRef.current = null;
+    };
+  }, [organization?.id, roomId]);
   useEffect(() => {
     let active = true;
     void getNativeCookieHeader().then((headers) => {
@@ -485,24 +493,35 @@ export default function ChatScreen() {
   }
 
   async function chooseAttachment() {
-    if (!organization) return;
-    setUploading(true);
+    if (!organization || attachmentBusyRef.current) return;
+    attachmentBusyRef.current = true;
+    const context = attachmentContextRef.current;
     try {
       const selection = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
-      if (selection.canceled) return;
+      if (selection.canceled || context !== attachmentContextRef.current) return;
+      setUploading(true);
       const asset = selection.assets[0];
-      const uploaded = await uploadMobileChatAttachment({ orgId: organization.id, roomId, uri: asset.uri, name: asset.fileName });
-      setAttachment(uploaded);
+      // iPhone libraries can return HEIC originals, which the chat server does
+      // not accept. Preserve other formats (including animated GIFs).
+      const isHeic = /image\/hei[cf]/i.test(asset.mimeType ?? "") || /\.hei[cf]$/i.test(asset.fileName ?? asset.uri);
+      const prepared = isHeic
+        ? await ImageManipulator.manipulateAsync(asset.uri, [], { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG })
+        : asset;
+      const name = isHeic ? `${(asset.fileName ?? "photo").replace(/\.[^.]+$/, "")}.jpg` : asset.fileName;
+      const uploaded = await uploadMobileChatAttachment({ orgId: organization.id, roomId, uri: prepared.uri, name });
+      if (context === attachmentContextRef.current) setAttachment(uploaded);
     } catch (error) {
       Alert.alert("Attachment not added", error instanceof Error ? error.message : "Choose another image.");
     } finally {
+      attachmentBusyRef.current = false;
       setUploading(false);
     }
   }
 
   async function chooseDocument() {
-    if (!organization) return;
-    setUploading(true);
+    if (!organization || attachmentBusyRef.current) return;
+    attachmentBusyRef.current = true;
+    const context = attachmentContextRef.current;
     try {
       const selection = await DocumentPicker.getDocumentAsync({
         type: [
@@ -515,15 +534,34 @@ export default function ChatScreen() {
         multiple: false,
         base64: false,
       });
-      if (selection.canceled) return;
+      if (selection.canceled || context !== attachmentContextRef.current) return;
+      setUploading(true);
       const file = selection.assets[0];
       const uploaded = await uploadMobileChatAttachment({ orgId: organization.id, roomId, uri: file.uri, name: file.name });
-      setAttachment(uploaded);
+      if (context === attachmentContextRef.current) setAttachment(uploaded);
     } catch (error) {
       Alert.alert("Attachment not added", error instanceof Error ? error.message : "Choose another file.");
     } finally {
+      attachmentBusyRef.current = false;
       setUploading(false);
     }
+  }
+
+  function runPendingTool() {
+    const tool = pendingToolRef.current;
+    pendingToolRef.current = null;
+    if (tool === "photo") void chooseAttachment();
+    else if (tool === "document") void chooseDocument();
+    else if (tool === "poll") setPollOpen(true);
+  }
+
+  function chooseTool(tool: "photo" | "document" | "poll") {
+    if (attachmentBusyRef.current || pendingToolRef.current) return;
+    pendingToolRef.current = tool;
+    setToolsOpen(false);
+    // iOS must finish dismissing the native modal before presenting a picker.
+    // Web pickers need the original user gesture; Android has no onDismiss.
+    if (Platform.OS !== "ios") runPendingTool();
   }
 
   const shareAttachment = useCallback(async (file: MobileChatAttachment) => {
@@ -705,7 +743,6 @@ export default function ChatScreen() {
           attachmentHeaders={attachmentHeaders}
           avatarUrl={item.senderId ? memberImageById.get(item.senderId) : null}
           currentUserId={currentUserId}
-          focused={item.id === focusedMessageId}
           groupedWithNext={messagesBelongToSameGroup(item, displayMessages[index - 1])}
           groupedWithPrevious={messagesBelongToSameGroup(displayMessages[index + 1], item)}
           message={item}
@@ -719,7 +756,7 @@ export default function ChatScreen() {
         />
       </View>
     ),
-    [attachmentHeaders, beginReply, currentUserId, displayMessages, focusedMessageId, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
+    [attachmentHeaders, beginReply, currentUserId, displayMessages, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;
@@ -824,15 +861,15 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      <Modal animationType="fade" onRequestClose={() => setToolsOpen(false)} transparent visible={toolsOpen}>
-        <Pressable onPress={() => setToolsOpen(false)} style={styles.modalBackdropCenter}>
-          <Pressable onPress={() => undefined} style={styles.toolsSheet}>
+      <Modal animationType="fade" onDismiss={runPendingTool} onRequestClose={() => setToolsOpen(false)} transparent visible={toolsOpen}>
+        <Pressable accessible={false} onPress={() => setToolsOpen(false)} style={styles.modalBackdropCenter}>
+          <Pressable accessible={false} onPress={() => undefined} style={styles.toolsSheet}>
             <View style={styles.toolsHeader}><View><Text style={styles.sheetEyebrow}>MESSAGE TOOLS</Text><Text style={styles.toolsTitle}>What are you sending?</Text></View><Pressable accessibilityLabel="Close message tools" onPress={() => setToolsOpen(false)}><X color={colors.textMuted} size={21} /></Pressable></View>
             <View style={styles.messageKinds}>{(["text", "cue", "alert"] as const).map((type) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: messageType === type }} key={type} onPress={() => setMessageType(type)} style={[styles.messageKind, messageType === type && styles.messageKindActive, type === "alert" && messageType === type && styles.messageKindAlert]}><Text style={[styles.messageKindText, messageType === type && styles.messageKindTextActive, type === "alert" && messageType === type && styles.messageKindTextAlert]}>{type === "text" ? "Message" : type}</Text></Pressable>)}</View>
             <View style={styles.toolsDivider} />
-            <Pressable accessibilityRole="button" disabled={uploading} onPress={() => { setToolsOpen(false); void chooseAttachment(); }} style={styles.toolRow}><View style={styles.toolIcon}><ImageIcon color={colors.amberText} size={19} /></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Photo</Text><Text style={styles.toolDetail}>Choose an image from your library</Text></View></Pressable>
-            <Pressable accessibilityRole="button" disabled={uploading} onPress={() => { setToolsOpen(false); void chooseDocument(); }} style={styles.toolRow}><View style={styles.toolIcon}><Text style={styles.toolIconText}>FILE</Text></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Document</Text><Text style={styles.toolDetail}>Attach a PDF, sheet, or document</Text></View></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => { setToolsOpen(false); setPollOpen(true); }} style={styles.toolRow}><View style={styles.toolIcon}><Text style={styles.toolIconText}>POLL</Text></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Quick poll</Text><Text style={styles.toolDetail}>Get a decision from the crew</Text></View></Pressable>
+            <Pressable accessibilityRole="button" disabled={uploading} onPress={() => chooseTool("photo")} style={styles.toolRow}><View style={styles.toolIcon}><ImageIcon color={colors.amberText} size={19} /></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Photo</Text><Text style={styles.toolDetail}>Choose an image from your library</Text></View></Pressable>
+            <Pressable accessibilityRole="button" disabled={uploading} onPress={() => chooseTool("document")} style={styles.toolRow}><View style={styles.toolIcon}><Text style={styles.toolIconText}>FILE</Text></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Document</Text><Text style={styles.toolDetail}>Attach a PDF, sheet, or document</Text></View></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => chooseTool("poll")} style={styles.toolRow}><View style={styles.toolIcon}><Text style={styles.toolIconText}>POLL</Text></View><View style={styles.toolCopy}><Text style={styles.toolTitle}>Quick poll</Text><Text style={styles.toolDetail}>Get a decision from the crew</Text></View></Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -955,7 +992,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageRowOwn: { justifyContent: "flex-end" },
   messageRowOperational: { paddingTop: 10, paddingBottom: 2 },
   messageRowGrouped: { paddingTop: 2 },
-  messageFocused: { backgroundColor: colors.amberSoft },
   avatarBubble: { width: 30, height: 30, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: colors.panelStrong },
   avatarImage: { width: 30, height: 30, flexShrink: 0, borderRadius: 15 },
   avatarSpacer: { width: 30, flexShrink: 0 },

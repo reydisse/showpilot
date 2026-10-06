@@ -15,7 +15,7 @@
       "url": "https://u.expo.dev/7b9f4408-17fe-4362-8f7f-e0ad378a8479"
     },
     "ios": {
-      "buildNumber": "3",
+      "buildNumber": "4",
       "icon": "./assets/showpilot-app-icon.png",
       "bundleIdentifier": "tech.showpilot.mobile",
       "supportsTablet": true,

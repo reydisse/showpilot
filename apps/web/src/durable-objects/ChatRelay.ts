@@ -599,6 +599,18 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return Response.json({ referenced: this.attachmentIsReferenced(attachmentUrl) });
     }
 
+    if (url.pathname === "/unread" && request.method === "GET") {
+      const userId = url.searchParams.get("userId");
+      if (!userId) return new Response("Unauthorized", { status: 401 });
+      const rows = this.ctx.storage.sql.exec<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM chat_messages
+         WHERE timestamp > COALESCE((SELECT read_at FROM chat_reads WHERE user_id = ?), 0)
+           AND COALESCE(json_extract(payload, '$.senderId'), '') <> ?
+           AND json_extract(payload, '$.deletedAt') IS NULL`, userId, userId,
+      ).toArray();
+      return Response.json({ unread: rows[0]?.count ?? 0 });
+    }
+
     if (url.pathname === "/history") {
       const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
       const limit = Number.isFinite(requestedLimit)

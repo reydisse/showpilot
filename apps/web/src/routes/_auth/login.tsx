@@ -65,7 +65,7 @@ function LoginPage() {
       </div>
 
       {/* Card */}
-      <div className="rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
+      <div className="auth-signin-card rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
         <h2 className="mb-6 text-center text-xl font-semibold text-board-text">
           {isSignUp ? "Create your account" : "Welcome back"}
         </h2>

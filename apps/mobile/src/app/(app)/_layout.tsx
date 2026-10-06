@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Bell from "lucide-react-native/icons/bell";
 import CalendarDays from "lucide-react-native/icons/calendar-days";
 import Gauge from "lucide-react-native/icons/gauge";
@@ -9,7 +10,9 @@ import { LoadingView } from "@/components/loading-view";
 import { SessionRecoveryView } from "@/components/session-recovery-view";
 import { useNativePushRegistration } from "@/hooks/use-native-push-registration";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import { authClient } from "@/lib/auth-client";
+import { getMobileChatUnread } from "@/lib/mobile-api";
 import { fontFamily, useAppTheme } from "@/theme/tokens";
 
 export default function AppLayout() {
@@ -27,6 +30,14 @@ export default function AppLayout() {
   const { data: bootstrap } = useMobileBootstrap({ enabled: Boolean(session), poll: true });
   const unreadCount = bootstrap?.unreadNotifications ?? 0;
   const unreadBadge = unreadCount > 99 ? "99+" : unreadCount || undefined;
+  const pollingInterval = useScreenPollingInterval(30_000);
+  const { data: chatUnread } = useQuery({
+    queryKey: ["mobile-chat-unread", session?.user.id, organization?.id],
+    queryFn: () => getMobileChatUnread(organization!.id),
+    enabled: Boolean(session && organization && bootstrap?.identity.permissions.includes("chat:access")),
+    refetchInterval: pollingInterval,
+  });
+  const chatBadge = chatUnread?.unread ? (chatUnread.unread > 99 ? "99+" : chatUnread.unread) : undefined;
   useNativePushRegistration(organization?.id);
 
   useEffect(() => {
@@ -86,7 +97,7 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
         }}
       />
-      <Tabs.Screen name="chat" options={{ title: "Chats", tabBarIcon: ({ color, size }) => <MessagesSquare color={color} size={size} /> }} />
+      <Tabs.Screen name="chat" options={{ title: "Chats", tabBarBadge: chatBadge, tabBarBadgeStyle: { backgroundColor: colors.amber, color: colors.black }, tabBarIcon: ({ color, size }) => <MessagesSquare color={color} size={size} /> }} />
       <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );

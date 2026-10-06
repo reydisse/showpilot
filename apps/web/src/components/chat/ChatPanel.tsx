@@ -161,7 +161,6 @@ function ChatMessageRow({
   currentUserId,
   onVotePoll,
   onToggleReaction,
-  isFocused = false,
   onOpenImage,
   onRetryQueued,
   onCancelQueued,
@@ -178,7 +177,6 @@ function ChatMessageRow({
   currentUserId?: string;
   onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
-  isFocused?: boolean;
   onOpenImage?: (image: { name: string; url: string }) => void;
   onRetryQueued?: (messageId: string) => void;
   onCancelQueued?: (messageId: string) => void;
@@ -202,7 +200,7 @@ function ChatMessageRow({
 
   if (isEvent) {
     return (
-      <div id={`chat-message-${message.id}`} data-chat-message-id={message.id} className={cn("px-4", grouped ? "pt-1" : "pt-3", isFocused && "rounded-lg ring-2 ring-sky-400/50 ring-inset")}>
+      <div id={`chat-message-${message.id}`} data-chat-message-id={message.id} className={cn("px-4", grouped ? "pt-1" : "pt-3")}>
         <div className={cn(
           "flex gap-2.5 rounded-lg border px-3 py-2.5 shadow-sm",
           message.type === "alert" ? "border-red-500/25 bg-red-500/[0.08]" : "border-amber-400/20 bg-amber-400/[0.06]",
@@ -232,7 +230,6 @@ function ChatMessageRow({
         "group flex w-full min-w-0 max-w-full items-end gap-2 px-4",
         isOwn && "justify-end",
         grouped ? "py-0.5" : "pb-1 pt-2.5",
-        isFocused && "rounded-lg bg-sky-400/[0.08] ring-2 ring-sky-400/50 ring-inset",
       )}
     >
       {!isOwn && !grouped && (
@@ -952,7 +949,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isFocused={msg.id === focusedMessageId} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage} />
             </div>
           );
           })}

@@ -74,6 +74,7 @@ export function useNativePushRegistration(orgId?: string) {
     const refreshOrganization = (targetOrgId: unknown) => {
       if (typeof targetOrgId !== "string" || !targetOrgId) return;
       void queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] });
+      void queryClient.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
     };
     const openNotification = async (response: NotificationResponse) => {
       const data = response.notification.request.content.data;

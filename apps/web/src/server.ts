@@ -548,6 +548,28 @@ const appServer = {
         return new Response("Unauthorized", { status: 401 });
       }
       const roomId = url.searchParams.get("room") ?? "production";
+      if (subpath === "unread" && request.method === "GET") {
+        if (!access.identity || !canUse(access, "chat:access")) return new Response("Unauthorized", { status: 401 });
+        const userId = access.identity.userId;
+        const indexed = await e.DB.prepare("SELECT DISTINCT roomId FROM chat_user_room WHERE orgId = ?")
+          .bind(orgId).all<{ roomId: string }>();
+        const rooms = new Set(["production", "planning"]);
+        for (const row of indexed.results ?? []) {
+          const parts = row.roomId.split(":");
+          if (parts.length === 3 && parts[0] === "dm" && parts[1] < parts[2] && parts.slice(1).includes(userId)) {
+            if (await canAccessChatRoom(row.roomId, access, orgId, e.DB, false)) rooms.add(row.roomId);
+          }
+        }
+        let unread = 0;
+        for (const room of rooms) {
+          const stub = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, room)));
+          const response = await stub.fetch(`https://chat.internal/unread?orgId=${encodeURIComponent(orgId)}&room=${encodeURIComponent(room)}&userId=${encodeURIComponent(userId)}`);
+          if (!response.ok) return new Response("Unread counts are temporarily unavailable", { status: 503 });
+          const result = await response.json<{ unread: number }>();
+          unread += result.unread;
+        }
+        return Response.json({ unread }, { headers: { "Cache-Control": "no-store" } });
+      }
       if (!await canAccessChatRoom(roomId, access, orgId, e.DB, guestAllowed)) {
         return new Response("Forbidden", { status: 403 });
       }

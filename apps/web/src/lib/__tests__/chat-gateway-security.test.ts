@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   storageGet: vi.fn(),
   storageDelete: vi.fn(),
   tombstoned: false,
+  rooms: [] as string[],
 }));
 vi.mock("@tanstack/react-start/server-entry", () => ({ default: { fetch: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession: mocks.session } }) }));
@@ -28,12 +29,14 @@ const testEnv = {
   KIOSK_SECRET: "test-only-secret",
   DB: {
     prepare: (sql: string) => ({
-      bind: () => ({
+      bind: (...params: unknown[]) => ({
         first: async () => {
           if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org" };
           if (sql.includes("organization-deleting")) return mocks.tombstoned ? { value: "deleting" } : null;
+          if (sql.startsWith("SELECT userId FROM member")) return params[1] === "removed" ? null : { userId: params[1] };
           return null;
         },
+        all: async () => ({ results: mocks.rooms.map((roomId) => ({ roomId })) }),
         run: async () => ({ success: true }),
       }),
     }),
@@ -51,9 +54,30 @@ beforeEach(() => {
   mocks.storageGet.mockResolvedValue(null);
   mocks.storageDelete.mockResolvedValue(undefined);
   mocks.tombstoned = false;
+  mocks.rooms = [];
 });
 
 describe("chat gateway authority boundary", () => {
+  it("counts only the authenticated user's group rooms and accessible DMs", async () => {
+    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Crew" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
+    mocks.rooms = ["production", "planning", "dm:member-1:member-2", "dm:member-2:member-3", "dm:member-1:removed"];
+    mocks.relay.mockImplementation(async () => Response.json({ unread: 2 }));
+    const response = await server.fetch(new Request("https://chat.test/api/chat/org/unread?userId=member-2"), testEnv, {});
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ unread: 6 });
+    const requests = mocks.relay.mock.calls.map(([url]) => new URL(String(url)));
+    expect(requests.map((url) => url.searchParams.get("room"))).toEqual(["production", "planning", "dm:member-1:member-2"]);
+    expect(requests.every((url) => url.searchParams.get("userId") === "member-1" && url.searchParams.get("orgId") === "org")).toBe(true);
+  });
+
+  it("does not expose unread counts to guests or members without chat access", async () => {
+    expect((await server.fetch(new Request("https://chat.test/api/chat/org/unread?guestToken=valid"), testEnv, {})).status).toBe(401);
+    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Crew" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: [] });
+    expect((await server.fetch(new Request("https://chat.test/api/chat/org/unread"), testEnv, {})).status).toBe(401);
+    expect(mocks.relay).not.toHaveBeenCalled();
+  });
   it("rejects every old relay path once organization deletion is tombstoned", async () => {
     mocks.tombstoned = true;
     const response = await server.fetch(new Request("https://chat.test/api/chat/org/ws?guestToken=valid"), testEnv, {});

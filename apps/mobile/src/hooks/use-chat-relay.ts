@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
 import {
@@ -73,6 +74,7 @@ function historyUrl(orgId: string, roomId: string, cursor: ChatHistoryCursor) {
 }
 
 export function useChatRelay(orgId: string | undefined, roomId = "production") {
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<MobileChatMessage[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
   const [lastError, setLastError] = useState<string | null>(null);
@@ -204,7 +206,10 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
             setHydrated(true);
           } else if ("type" in payload && (payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted")) {
             const message = "message" in payload ? parseChatMessage(payload.message) : null;
-            if (message) setMessages((current) => mergeChatMessage(current, message));
+            if (message) {
+              setMessages((current) => mergeChatMessage(current, message));
+              void queryClient.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
+            }
           } else if ("type" in payload && payload.type === "mutation-result" && "requestId" in payload && typeof payload.requestId === "string") {
             const pending = pendingMutationsRef.current.get(payload.requestId);
             if (pending) {
@@ -228,6 +233,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
             const userId = payload.userId;
             const readAt = payload.readAt;
             setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] ?? 0, readAt) }));
+            void queryClient.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
           } else if ("type" in payload && payload.type === "gateway-status"
             && "status" in payload && (payload.status === "disabled" || payload.status === "connecting" || payload.status === "connected" || payload.status === "error")) {
             const platform = "platform" in payload && (payload.platform === "mattermost" || payload.platform === "slack" || payload.platform === "discord" || payload.platform === "teams")
@@ -279,7 +285,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
       typingTimers.clear();
       socket?.close();
     };
-  }, [flush, orgId, roomId]);
+  }, [flush, orgId, queryClient, roomId]);
 
   const send = useCallback((text: string, messageType: MobileChatMessage["type"] = "text", options?: MobileChatSendOptions) => {
     const clean = text.trim().slice(0, 4_000);

@@ -5913,7 +5913,11 @@ async function notifyMobileChatMessage(
   )
     return json({ error: "Invalid chat notification." }, 400);
 
-  const recipients = new Map<string, "dm" | "mention">();
+  const recipients = new Map<string, "dm" | "mention" | "group">();
+  const { groupChatNotificationRecipients } = await import("./chat-notification-recipients.server");
+  for (const userId of await groupChatNotificationRecipients(db, access.orgId, access.identity.userId, roomId)) {
+    recipients.set(userId, "group");
+  }
   if (directParticipants) {
     const recipientId = directParticipants.find(
       (userId) => userId !== access.identity.userId,
@@ -5921,7 +5925,7 @@ async function notifyMobileChatMessage(
     if (recipientId) recipients.set(recipientId, "dm");
   }
   for (const userId of mentionedUserIds) {
-    if (userId !== access.identity.userId) recipients.set(userId, "mention");
+    if (recipients.has(userId)) recipients.set(userId, "mention");
   }
   if (
     recipients.size === 0 ||
@@ -5929,12 +5933,12 @@ async function notifyMobileChatMessage(
   )
     return json({ notified: 0 });
 
-  const validMembers = await db
+  const validMembers = directParticipants ? await db
     .prepare(
       `SELECT userId FROM member WHERE organizationId = ? AND userId IN (${[...recipients].map(() => "?").join(",")})`,
     )
     .bind(access.orgId, ...recipients.keys())
-    .all<{ userId: string }>();
+    .all<{ userId: string }>() : { results: [...recipients.keys()].map((userId) => ({ userId })) };
   const memberIds = new Set(
     (validMembers.results ?? []).map((member) => member.userId),
   );
@@ -5946,7 +5950,7 @@ async function notifyMobileChatMessage(
   try {
     const { notifyOperationalEvent } =
       await import("./operational-notifications.server");
-    for (const kind of ["dm", "mention"] as const) {
+    for (const kind of ["dm", "mention", "group"] as const) {
       const recipientIds = [...recipients]
         .filter(
           ([userId, recipientKind]) =>
@@ -5959,15 +5963,16 @@ async function notifyMobileChatMessage(
         actorId: access.identity.userId,
         recipientIds,
         category: "chat",
-        type: kind === "dm" ? "chat-direct-message" : "chat-mention",
+        type: kind === "dm" ? "chat-direct-message" : kind === "mention" ? "chat-mention" : "chat-group-message",
         title:
           kind === "dm"
             ? `New message from ${access.identity.name}`
-            : `${access.identity.name} mentioned you`,
+            : kind === "mention" ? `${access.identity.name} mentioned you`
+              : `${access.identity.name} in ${roomId === "planning" ? "Planning" : "Production"} Chat`,
         message: cleanText,
         actionUrl,
         source: messageId ?? `chat:${roomId}`,
-        pushTag: kind === "dm" ? `chat-dm-${roomId}` : `chat-mention-${roomId}`,
+        pushTag: `chat-${kind}-${roomId}`,
         ...(messageId
           ? { dedupeKey: `chat-message:${messageId}:${kind}` }
           : {}),

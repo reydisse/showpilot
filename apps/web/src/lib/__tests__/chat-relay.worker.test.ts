@@ -46,6 +46,27 @@ async function openChat(orgId: string, roomId = "production", expectEmpty = true
 }
 
 describe("ChatRelay threads", () => {
+  it("counts incoming unread messages and clears them after a read receipt", async () => {
+    const { stub, socket } = await openChat("unread-count-org");
+    const mine = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "My own message", clientMessageId: crypto.randomUUID() }));
+    await mine;
+    const incoming = nextFrame(socket, "message");
+    await stub.fetch(new Request("https://chat.test/send?orgId=unread-count-org", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderId: "user-2", senderName: "Sam", text: "Incoming group message" }),
+    }));
+    await incoming;
+    const count = () => stub.fetch("https://chat.test/unread?orgId=unread-count-org&userId=user-1").then((response) => response.json());
+    expect(await count()).toEqual({ unread: 1 });
+    const receipt = nextFrame(socket, "read-receipt");
+    socket.send(JSON.stringify({ type: "read", readAt: Date.now() }));
+    await receipt;
+    expect(await count()).toEqual({ unread: 0 });
+    expect((await stub.fetch("https://chat.test/unread?orgId=unread-count-org")).status).toBe(401);
+    socket.close();
+  });
+
   it("accepts only server-owned attachments uploaded by the sending member", async () => {
     const orgId = "attachment-owner-org";
     const fileId = "file-owned-by-user-2";

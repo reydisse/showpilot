@@ -54,6 +54,9 @@ function fakeDatabase(input: {
             { userId: "operator-2", role: "member", name: "Sam Crew", image: "/api/user/avatar/operator-2.jpg" },
           ] as T[] };
         }
+        if (sql === "SELECT userId FROM member WHERE organizationId = ?") {
+          return { results: (input.memberIds ?? ["operator-1", "operator-2", "operator-3"]).map((userId) => ({ userId })) as T[] };
+        }
         if (sql.startsWith("SELECT userId FROM member WHERE organizationId = ? AND userId IN")) {
           const allowed = new Set(input.memberIds ?? ["operator-1", "operator-2", "operator-3"]);
           return { results: params.slice(1).filter((userId) => allowed.has(String(userId))).map((userId) => ({ userId })) as T[] };
@@ -116,6 +119,24 @@ describe("mobile chat collaboration", () => {
     expect(calls.find((call) => call.sql.includes("JOIN user u"))?.params).toEqual(["org-1"]);
   });
 
+  it.each(["production", "planning"])("notifies group members without requiring mentions in %s", async (roomId) => {
+    const response = await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", {
+      roomId, text: "Rehearsal starts in ten minutes", messageId: "group-message-1",
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      recipientIds: ["operator-2", "operator-3"], type: "chat-group-message",
+    }));
+  });
+
+  it("sends one notification per member when a group message also mentions them", async () => {
+    await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", {
+      roomId: "production", text: "<@operator-2|Sam> check audio", mentionedUserIds: ["operator-2"], messageId: "group-message-2",
+    });
+    const recipients = mocks.notify.mock.calls.flatMap(([event]) => event.recipientIds);
+    expect(recipients.sort()).toEqual(["operator-2", "operator-3"]);
+  });
+
   it("notifies a canonical direct-message participant", async () => {
     const response = await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", {
       roomId: "dm:operator-1:operator-2",
@@ -131,6 +152,18 @@ describe("mobile chat collaboration", () => {
       type: "chat-direct-message",
       dedupeKey: "chat-message:message-1:dm",
     }));
+  });
+
+  it("excludes members without room access even when they are mentioned", async () => {
+    mocks.resolveAccess.mockImplementation(async (_db, userId) => ({
+      role: "member", permissions: userId === "operator-3" ? [] : ["chat:access"], today: "2026-08-27",
+    }));
+    const response = await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", {
+      roomId: "production", text: "Crew update", messageId: "group-no-access", mentionedUserIds: ["operator-3"],
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.notify).toHaveBeenCalledTimes(1);
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ recipientIds: ["operator-2"] }));
   });
 
   it("drops mention targets that are outside the organization", async () => {

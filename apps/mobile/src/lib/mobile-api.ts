@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { rundownSchema, rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
-export { rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
 import {
   isEmojiReaction,
   NOTIFICATION_CATEGORIES,
@@ -17,12 +16,14 @@ import {
   getNativeCookieHeader,
 } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
+import { withUploadTimeout } from "./upload-timeout";
 import {
   getStoredRundownPin,
   orgIdFromPinProtectedPath,
 } from "@/lib/rundown-pin";
 
 const managedAvatarPath = /^\/api\/user\/avatar\/[^/?#]+\.jpg$/;
+export { rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
 
 export function resolveMobileAvatarUrl(
   value: string | null | undefined,
@@ -1227,31 +1228,40 @@ export async function blockMobileUser(input: {
   return z.object({ ok: z.literal(true) }).parse(await response.json());
 }
 
+export async function getMobileChatUnread(orgId: string) {
+  const response = await authenticatedFetch(`/api/chat/${encodeURIComponent(orgId)}/unread`);
+  return z.object({ unread: z.number().int().nonnegative() }).parse(await response.json());
+}
+
 export async function uploadMobileChatAttachment(input: {
   orgId: string;
   roomId: string;
   uri: string;
   name?: string | null;
 }) {
-  const form = new FormData();
-  if (Platform.OS === "web") {
-    const fileResponse = await expoFetch(input.uri);
-    if (!fileResponse.ok)
-      throw new Error("The selected attachment could not be opened.");
-    const file = await fileResponse.blob();
-    if (file.size === 0) throw new Error("The selected attachment is empty.");
-    form.append("file", file, input.name?.trim() || "attachment");
-  } else {
-    const file = new File(input.uri);
-    if (!file.exists || file.size === 0)
-      throw new Error("The selected attachment could not be opened.");
-    form.append("file", file);
-  }
-  const response = await authenticatedFetch(
-    `/api/chat/${encodeURIComponent(input.orgId)}/upload?room=${encodeURIComponent(input.roomId)}`,
-    { method: "POST", body: form },
-  );
-  return chatAttachmentSchema.parse(await response.json());
+  return withUploadTimeout(async (signal) => {
+    const form = new FormData();
+    if (Platform.OS === "web") {
+      const fileResponse = await expoFetch(input.uri, { signal });
+      if (!fileResponse.ok)
+        throw new Error("The selected attachment could not be opened.");
+      const file = await fileResponse.blob();
+      if (file.size === 0) throw new Error("The selected attachment is empty.");
+      if (file.size > 15 * 1024 * 1024) throw new Error("Choose an attachment smaller than 15 MB.");
+      form.append("file", file, input.name?.trim() || "attachment");
+    } else {
+      const file = new File(input.uri);
+      if (!file.exists || file.size === 0)
+        throw new Error("The selected attachment could not be opened.");
+      if (file.size > 15 * 1024 * 1024) throw new Error("Choose an attachment smaller than 15 MB.");
+      form.append("file", file);
+    }
+    const response = await authenticatedFetch(
+      `/api/chat/${encodeURIComponent(input.orgId)}/upload?room=${encodeURIComponent(input.roomId)}`,
+      { method: "POST", body: form, signal },
+    );
+    return chatAttachmentSchema.parse(await response.json());
+  });
 }
 
 export async function downloadMobileChatAttachment(

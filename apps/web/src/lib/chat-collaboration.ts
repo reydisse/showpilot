@@ -4,6 +4,8 @@ import { isEmojiReaction } from "@showpilot/shared";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
+import { getD1 } from "@/lib/d1";
+import { groupChatNotificationRecipients } from "./chat-notification-recipients.server";
 
 const roomIdSchema = z.string().min(1).max(220);
 const mentionPattern = /<@([^|>]+)\|([^>]+)>/g;
@@ -47,13 +49,16 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
   }), data))
   .handler(async ({ data }) => {
     const sender = await assertChatMember(data.orgId);
-    const recipients = new Map<string, "dm" | "mention">();
+    const recipients = new Map<string, "dm" | "mention" | "group">();
+    for (const userId of await groupChatNotificationRecipients(getD1(), data.orgId, sender.id, data.roomId)) {
+      recipients.set(userId, "group");
+    }
     const dmParts = data.roomId.split(":");
     if (dmParts.length === 3 && dmParts[0] === "dm" && dmParts.slice(1).includes(sender.id)) {
       const recipientId = dmParts.slice(1).find((id) => id !== sender.id);
       if (recipientId) recipients.set(recipientId, "dm");
     }
-    for (const userId of data.mentionedUserIds ?? []) if (userId !== sender.id) recipients.set(userId, "mention");
+    for (const userId of data.mentionedUserIds ?? []) if (recipients.has(userId)) recipients.set(userId, "mention");
     if (recipients.size === 0) return { notified: 0 };
     const chatNotifications = await getPrisma().appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "notify-app-chat" } },
@@ -63,16 +68,20 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
     // until the owner explicitly turns them off.
     if (chatNotifications?.value === "false") return { notified: 0 };
 
-    const validMembers = await getPrisma().member.findMany({
-      where: { organizationId: data.orgId, userId: { in: [...recipients.keys()] } },
-      select: { userId: true },
-    });
+    // Group recipients were already checked against effective membership.
+    // Only direct recipients still need membership validation here.
+    const validMembers = data.roomId === "production" || data.roomId === "planning"
+      ? [...recipients.keys()].map((userId) => ({ userId }))
+      : await getPrisma().member.findMany({
+        where: { organizationId: data.orgId, userId: { in: [...recipients.keys()] } },
+        select: { userId: true },
+      });
     const cleanText = data.text.replace(mentionPattern, "@$2").trim().slice(0, 240) || "Shared an attachment";
     const actionUrl = `chat?room=${encodeURIComponent(data.roomId)}${data.messageId ? `&message=${encodeURIComponent(data.messageId)}` : ""}`;
     const validMemberIds = new Set(validMembers.map(({ userId }) => userId));
     const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
     let notified = 0;
-    for (const kind of ["dm", "mention"] as const) {
+    for (const kind of ["dm", "mention", "group"] as const) {
       const recipientIds = [...recipients]
         .filter(([userId, recipientKind]) => recipientKind === kind && validMemberIds.has(userId))
         .map(([userId]) => userId);
@@ -82,12 +91,12 @@ export const notifyChatMessage = createServerFn({ method: "POST" })
         actorId: sender.id,
         recipientIds,
         category: "chat",
-        type: kind === "dm" ? "chat-direct-message" : "chat-mention",
-        title: kind === "dm" ? `New message from ${sender.name}` : `${sender.name} mentioned you`,
+        type: kind === "dm" ? "chat-direct-message" : kind === "mention" ? "chat-mention" : "chat-group-message",
+        title: kind === "dm" ? `New message from ${sender.name}` : kind === "mention" ? `${sender.name} mentioned you` : `${sender.name} in ${data.roomId === "planning" ? "Planning" : "Production"} Chat`,
         message: cleanText,
         actionUrl,
         source: data.messageId ?? `chat:${data.roomId}`,
-        pushTag: kind === "dm" ? `chat-dm-${data.roomId}` : `chat-mention-${data.roomId}`,
+        pushTag: `chat-${kind}-${data.roomId}`,
         ...(data.messageId ? { dedupeKey: `chat-message:${data.messageId}:${kind}` } : {}),
       });
       notified += result.notified;
