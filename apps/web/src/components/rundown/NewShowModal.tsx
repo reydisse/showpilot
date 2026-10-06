@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 
@@ -38,6 +40,7 @@ export function NewShowModal({
   onCreate,
   onClose,
 }: NewShowModalProps) {
+  const workspaceTerms = useWorkspaceTerms();
   const [serviceDate, setServiceDate] = useState(currentDate);
   const [name, setName] = useState("");
   const [startTime, setStartTime] = useState(() => nextStartTime(currentStartTime));
@@ -107,7 +110,10 @@ export function NewShowModal({
               autoFocus
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Evening service, rehearsal, conference session..."
+              placeholder={workspaceCopy(
+                "Evening service, rehearsal, conference session...",
+                workspaceTerms,
+              )}
               maxLength={120}
               className={FORM_CONTROL}
             />

@@ -1,3 +1,5 @@
+import { WorkspacePicker } from "@/components/workspace-picker";
+import { saveMobileInitialWorkspace, type MobileBootstrap } from "@/lib/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Building2 from "lucide-react-native/icons/building-2";
@@ -30,7 +32,9 @@ function normalizeWorkspaceSlug(value: string): string {
 }
 
 function validWorkspaceSlug(value: string): boolean {
-  return value.length >= 3 && value.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+  return (
+    value.length >= 3 && value.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  );
 }
 
 export default function OrganizationsScreen() {
@@ -40,6 +44,8 @@ export default function OrganizationsScreen() {
   const { data: session, isPending: sessionPending, refetch: refetchSession } = authClient.useSession();
   const { data: organizations, isPending, isRefetching, error: organizationsError, refetch: refetchOrganizations } = authClient.useListOrganizations();
   const { data: activeOrganization } = authClient.useActiveOrganization();
+  const [initialOrgId, setInitialOrgId] = useState<string | null>(null);
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
   const [choosingId, setChoosingId] = useState<string | null>(null);
   const [selectionError, setSelectionError] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
@@ -97,13 +103,15 @@ export default function OrganizationsScreen() {
       if (created.error || !created.data) {
         throw new Error(created.error?.message || "The workspace could not be created.");
       }
+      setInitialOrgId(created.data.id);
+      autoSelectionAttempted.current = true;
       const active = await authClient.organization.setActive({ organizationId: created.data.id });
       if (active.error) {
         await refetchOrganizations();
         throw new Error(active.error.message || "The workspace was created but could not be opened. Select it above to continue.");
       }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/(app)");
+      await refetchOrganizations();
     } catch (caught) {
       setSelectionError(caught instanceof Error ? caught.message : "The workspace could not be created.");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -143,14 +151,70 @@ export default function OrganizationsScreen() {
   }, [choosingId]);
 
   useEffect(() => {
-    if (organizations?.length === 1 && !activeOrganization && !autoSelectionAttempted.current) {
+    if (
+      !initialOrgId &&
+      !creatingWorkspace &&
+      organizations?.length === 1 &&
+      !activeOrganization &&
+      !autoSelectionAttempted.current
+    ) {
       autoSelectionAttempted.current = true;
       void chooseOrganization(organizations[0].id);
     }
-  }, [activeOrganization, chooseOrganization, organizations]);
+  }, [
+    activeOrganization,
+    chooseOrganization,
+    organizations,
+    initialOrgId,
+    creatingWorkspace,
+  ]);
 
   if (sessionPending || isPending) return <LoadingView label="Loading your workspaces…" />;
   if (!session) return <Redirect href="/sign-in" />;
+
+  if (initialOrgId)
+    return (
+      <Page eyebrow="WORKSPACE">
+        <WorkspacePicker
+          busy={savingWorkspace}
+          onSelect={async (type, label) => {
+            setSavingWorkspace(true);
+            setSelectionError("");
+            try {
+              const active = await authClient.organization.setActive({
+                organizationId: initialOrgId,
+              });
+              if (active.error)
+                throw new Error(
+                  active.error.message || "Could not open workspace",
+                );
+              const workspace = await saveMobileInitialWorkspace({
+                orgId: initialOrgId,
+                type,
+                label,
+              });
+              queryClient.setQueryData<MobileBootstrap>(["mobile-bootstrap", session.user.id, initialOrgId], current => current ? { ...current, workspace } : current);
+              router.replace("/(app)");
+            } catch (e) {
+              setSelectionError(
+                e instanceof Error
+                  ? e.message
+                  : "Could not save workspace. Try again.",
+              );
+            } finally {
+              setSavingWorkspace(false);
+            }
+          }}
+        />
+        {selectionError ? (
+          <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text>
+        ) : null}
+        <AppButton
+          label="Finish later"
+          onPress={() => void chooseOrganization(initialOrgId)}
+        />
+      </Page>
+    );
 
   const hasOrganizations = Boolean(organizations?.length);
   const noOrganizations = organizations?.length === 0;
@@ -160,8 +224,12 @@ export default function OrganizationsScreen() {
 
   return (
     <Page eyebrow="WORKSPACE" title={pageTitle} subtitle="Your shows, crew, and permissions stay isolated inside each organization." refreshing={isRefetching || refreshingVerification} onRefresh={refreshVerification}>
-      {selectionError ? <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text> : null}
-      {organizationsError ? <Text accessibilityRole="alert" onPress={refreshVerification} style={styles.error}>{organizationsError.message || "Your workspaces could not be loaded."} · Tap to retry</Text> : null}
+      {selectionError ? (
+        <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text>
+      ) : null}
+      {organizationsError ? (
+        <Text accessibilityRole="alert" onPress={refreshVerification} style={styles.error}>{organizationsError.message || "Your workspaces could not be loaded."} · Tap to retry</Text>
+      ) : null}
       <View style={styles.list}>
         {organizations?.map((organization) => {
           const active = organization.id === activeOrganization?.id;
@@ -173,7 +241,13 @@ export default function OrganizationsScreen() {
                 <Text style={styles.name}>{organization.name}</Text>
                 <Text style={styles.slug}>{organization.slug}</Text>
               </View>
-              {choosing ? <ActivityIndicator color={colors.amberText} /> : active ? <Check size={20} color={colors.amberText} /> : <ChevronRight size={20} color={colors.textFaint} />}
+              {choosing ? (
+                <ActivityIndicator color={colors.amberText} />
+              ) : active ? (
+                <Check size={20} color={colors.amberText} />
+              ) : (
+                <ChevronRight size={20} color={colors.textFaint} />
+              )}
             </Pressable>
           );
         })}
@@ -183,8 +257,12 @@ export default function OrganizationsScreen() {
           <View style={styles.onboardingIcon}><MailCheck size={24} color={colors.amberText} /></View>
           <Text style={styles.emptyTitle}>Verify your email</Text>
           <Text style={styles.emptyCopy}>We sent a verification link to {session.user.email}. Open it, then return here to continue.</Text>
-          {verificationSent ? <Text style={styles.success}>Verification email sent. Check your inbox and spam folder.</Text> : null}
-          {verificationChecked ? <Text style={styles.checkHint}>This account is not verified yet. Open the newest email link, then refresh again.</Text> : null}
+          {verificationSent ? (
+            <Text style={styles.success}>Verification email sent. Check your inbox and spam folder.</Text>
+          ) : null}
+          {verificationChecked ? (
+            <Text style={styles.checkHint}>This account is not verified yet. Open the newest email link, then refresh again.</Text>
+          ) : null}
           <AppButton label={verificationSent ? "Verification email sent" : "Resend verification email"} loading={sendingVerification} disabled={verificationSent} variant="secondary" onPress={resendVerification} />
           <AppButton label="I verified my email" loading={refreshingVerification} onPress={refreshVerification} />
           <AppButton label="Use another account" loading={signingOut} variant="secondary" onPress={useAnotherAccount} />
@@ -204,7 +282,7 @@ export default function OrganizationsScreen() {
             }}
             autoCapitalize="words"
             maxLength={120}
-            placeholder="Faithfire Church"
+            placeholder="Northside Productions"
           />
           <AppField
             label="Workspace URL"
@@ -216,10 +294,12 @@ export default function OrganizationsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             maxLength={40}
-            placeholder="faithfire-church"
+            placeholder="northside-productions"
             error={workspaceSlug.length > 0 && !validWorkspaceSlug(workspaceSlug) ? "Use 3–40 letters, numbers, or hyphens; begin and end with a letter or number." : undefined}
           />
-          {workspaceSlug ? <Text style={styles.urlPreview}>showpilot.tech/{workspaceSlug}</Text> : null}
+          {workspaceSlug ? (
+            <Text style={styles.urlPreview}>showpilot.tech/{workspaceSlug}</Text>
+          ) : null}
           <AppButton label="Create workspace" loading={creatingWorkspace} disabled={!canCreateWorkspace} onPress={createWorkspace} />
           <View style={styles.refreshHint}><RefreshCw size={13} color={colors.textFaint} /><Text style={styles.refreshHintText}>Already invited? Pull down or reopen this page after accepting your invitation.</Text></View>
           <AppButton label="Use another account" loading={signingOut} variant="secondary" onPress={useAnotherAccount} />

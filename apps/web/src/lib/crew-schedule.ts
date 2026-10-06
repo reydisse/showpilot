@@ -1,9 +1,13 @@
+import {
+  resolveWorkspaceProfile,
+  WORKSPACE_SETTING_KEYS,
+  legacyTerminologyProfile,
+} from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { parseOrThrow } from "@/lib/validation";
-import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { getTodayDateString } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getAssignmentCallTime } from "@/lib/assignment-call-time";
@@ -50,7 +54,14 @@ export async function sendCrewScheduleInvite(input: {
     select: { showId: true, serviceDate: true, role: true, callTime: true, status: true },
   });
   if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
-  const [crew, org, rundown, terminologySetting, timezoneSetting, serviceWindowSetting, callLeadSetting] = await Promise.all([
+  const [
+    crew,
+    org,
+    rundown,
+    timezoneSetting,
+    serviceWindowSetting,
+    callLeadSetting,
+  ] = await Promise.all([
     prisma.crewMember.findFirst({
       where: { id: input.crewMemberId, orgId: input.orgId },
       select: { name: true, email: true },
@@ -69,10 +80,6 @@ export async function sendCrewScheduleInvite(input: {
         location: true,
         items: { select: { duration: true } },
       },
-    }),
-    prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: input.orgId, key: "terminology-profile" } },
-      select: { value: true },
     }),
     prisma.appSetting.findUnique({
       where: { orgId_key: { orgId: input.orgId, key: "org-timezone" } },
@@ -135,9 +142,6 @@ export async function sendCrewScheduleInvite(input: {
         timeZone: recipientZone?.value || timezoneSetting?.value || "UTC",
       })
     : "Time to be confirmed";
-  const parsedTerminology = orgTerminologyProfileSchema.safeParse(
-    terminologySetting?.value,
-  );
   let notifiedInApp = false;
   let emailAccessId: string | null = null;
   try {
@@ -187,9 +191,10 @@ export async function sendCrewScheduleInvite(input: {
       location: rundown?.location,
       link,
       reminder: input.reminder,
-      terminologyProfile: parsedTerminology.success
-        ? parsedTerminology.data
-        : "general",
+      terms: resolveWorkspaceProfile(Object.fromEntries((await prisma.appSetting.findMany({
+        where: { orgId: input.orgId, key: { in: [...WORKSPACE_SETTING_KEYS] } },
+        select: { key: true, value: true },
+      })).map(setting => [setting.key, setting.value]))).terms,
     });
     await sendEmail({
       to: crew.email,
@@ -361,6 +366,9 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
           key: {
             in: [
               "terminology-profile",
+              "workspace-type",
+              "workspace-modules",
+              "workspace-custom",
               "org-timezone",
               "default-service-window-minutes",
               "default-call-lead-minutes",
@@ -405,9 +413,6 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     const rundownMap = new Map(
       rundowns.map((rundown) => [rundown.id, rundown]),
     );
-    const parsedTerminology = orgTerminologyProfileSchema.safeParse(
-      settingMap["terminology-profile"],
-    );
     const { serviceWindowMinutes } = readPhaseSettings(settingMap);
     const nowMs = Date.now();
     return {
@@ -416,9 +421,10 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       today,
       responseAsOf: nowMs,
       orgTimezone: settingMap["org-timezone"],
-      terminologyProfile: parsedTerminology.success
-        ? parsedTerminology.data
-        : "general",
+      terminologyProfile: legacyTerminologyProfile(
+        resolveWorkspaceProfile(settingMap).type,
+      ),
+      workspace: resolveWorkspaceProfile(settingMap),
       assignments: rows.map((assignment) => {
         const rundown = assignment.showId ? rundownMap.get(assignment.showId) : undefined;
         const effectiveCallTime = getAssignmentCallTime({
@@ -549,7 +555,9 @@ export const respondToCrewScheduleInvite = createServerFn({ method: "POST" })
       throw new Error("A response has already been recorded for this assignment");
     }
     if (responseWindow.status === "closed") {
-      throw new Error("This assignment is closed because the service has ended");
+      throw new Error(
+        "This assignment is closed because its scheduled event has ended",
+      );
     }
     const result = await getD1()
       .prepare(

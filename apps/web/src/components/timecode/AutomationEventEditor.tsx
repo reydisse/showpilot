@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import type {
@@ -11,7 +13,11 @@ interface AutomationEventEditorProps {
   format: import("@/types/timecode").TimecodeFormat;
 }
 
-const ACTION_OPTIONS: { value: AutomationActionType; label: string; category: string }[] = [
+const ACTION_OPTIONS: {
+  value: AutomationActionType;
+  label: string;
+  category: string;
+}[] = [
   { value: "lower-third-show", label: "Show Lower Third", category: "Lower Thirds" },
   { value: "lower-third-clear", label: "Clear Lower Third", category: "Lower Thirds" },
   { value: "rundown-advance", label: "Advance Rundown", category: "Rundown" },
@@ -34,6 +40,7 @@ const ACTION_OPTIONS: { value: AutomationActionType; label: string; category: st
 ];
 
 export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorProps) {
+  const workspaceTerms = useWorkspaceTerms();
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
@@ -125,7 +132,10 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder='e.g. "Fade to worship set"'
+          placeholder={workspaceCopy(
+            'e.g. "Fade to worship set"',
+            workspaceTerms,
+          )}
           className={INPUT_CLASS}
         />
       </div>
@@ -145,9 +155,7 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
         </p>
       </div>
 
-      {error && (
-        <p className="text-xs text-red-400">{error}</p>
-      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
 
       <button
         type="submit"

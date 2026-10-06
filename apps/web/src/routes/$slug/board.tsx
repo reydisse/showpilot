@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
 import { useMemo, useState, useEffect } from "react";
@@ -207,6 +209,7 @@ function Carousel({
 // ─── QR Code Panel ───────────────────────────────────────────
 
 function QRCodePanel({ slug }: { slug: string }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [checkinUrl, setCheckinUrl] = useState("");
 
   useEffect(() => {
@@ -233,7 +236,7 @@ function QRCodePanel({ slug }: { slug: string }) {
       </div>
       <div>
         <p className="text-fire-500 font-[family-name:var(--font-display)] font-semibold text-base">
-          Scan to Serve
+          {workspaceCopy("\n          Scan to Serve\n        ", workspaceTerms)}
         </p>
         <p className="text-board-muted text-xs mt-0.5">
           Open your camera and point at the code
@@ -246,6 +249,7 @@ function QRCodePanel({ slug }: { slug: string }) {
 // ─── Show Board Page ─────────────────────────────────────────
 
 function ShowBoardPage() {
+  const workspaceTerms = useWorkspaceTerms();
   const {
     members: initialMembers,
     slug,
@@ -347,8 +351,10 @@ function ShowBoardPage() {
                 Your show board is ready
               </h2>
               <p className="text-center text-board-muted text-sm leading-relaxed max-w-sm mx-auto mb-10">
-                Add your team members and they&apos;ll appear here in real time
-                as they check in for service.
+                {workspaceCopy(
+                  "\n                Add your team members and they'll appear here in real time\n                as they check in for service.\n              ",
+                  workspaceTerms,
+                )}
               </p>
               <div className="flex justify-center mb-12">
                 <Link

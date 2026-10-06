@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import {
   createFileRoute,
   useNavigate,
@@ -17,7 +19,6 @@ import {
   getCrewSchedulePortal,
   respondToCrewScheduleInvite,
 } from "@/lib/crew-schedule";
-import { orgTerms } from "@/lib/org-terminology";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { isCrewScheduleResponseOpen } from "@/lib/crew-schedule-response";
 
@@ -53,6 +54,7 @@ function formatTime(value: string | null, timeZone?: string) {
 }
 
 function CrewSchedulePortal() {
+  const workspaceTerms = useWorkspaceTerms();
   const data = Route.useLoaderData();
   const deviceTimeZone = useDeviceTimeZone();
   const { token } = Route.useParams();
@@ -143,7 +145,7 @@ function CrewSchedulePortal() {
     !confirmed &&
     !declined &&
     !isCrewScheduleResponseOpen(selected.responseWindow, nowMs);
-  const terms = orgTerms(data.terminologyProfile);
+  const terms = data.workspace.terms;
 
   return (
     <PortalShell>
@@ -175,7 +177,10 @@ function CrewSchedulePortal() {
             : declined
               ? "Thanks for letting the team know."
               : closed
-                ? "This service ended before a response was received. Contact your team leader if the schedule needs to change."
+                ? workspaceCopy(
+                    "This service ended before a response was received. Contact your team leader if the schedule needs to change.",
+                    workspaceTerms,
+                  )
                 : `Hi ${data.crewName}, please respond to this ${terms.event} request.`}
         </p>
       </header>

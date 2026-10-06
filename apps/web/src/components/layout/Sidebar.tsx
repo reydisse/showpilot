@@ -1,3 +1,8 @@
+import {
+  useWorkspace,
+  useTerms,
+} from "@/components/workspace/WorkspaceProvider";
+import type { ModuleId } from "@showpilot/shared";
 import { useEffect } from "react";
 import {
   Link,
@@ -47,6 +52,7 @@ import { ROLE_COLOURS } from "./account-role";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
 
 interface NavItem {
+  module: ModuleId;
   icon: React.ElementType;
   label: string;
   path: string; // relative to /:slug/
@@ -54,28 +60,124 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
-  { icon: ListMusic, label: "Show", path: "show", permission: "show:view" },
-  { icon: CalendarDays, label: "Schedule", path: "schedule", permission: "schedule:view" },
-  { icon: MonitorPlay, label: "Show Board", path: "board", permission: "showboard:view" },
-  { icon: Timer, label: "Rundown", path: "rundown", permission: "rundown:view" },
-  { icon: Clock4, label: "Timecode", path: "timecode", permission: "timecode:access" },
-  { icon: LibraryBig, label: "Songs", path: "songs", permission: "songs:access" },
-  { icon: MessageSquare, label: "Chat", path: "chat", permission: "chat:access" },
-  { icon: Users, label: "Team", path: "team", permission: ["settings:members", "checkin:access"] },
+  {
+    icon: ListMusic,
+    label: "Show",
+    path: "show",
+    module: "show",
+    permission: "show:view",
+  },
+  {
+    icon: CalendarDays,
+    label: "Schedule",
+    path: "schedule",
+    module: "schedule",
+    permission: "schedule:view",
+  },
+  {
+    icon: MonitorPlay,
+    label: "Show Board",
+    path: "board",
+    module: "board",
+    permission: "showboard:view",
+  },
+  {
+    icon: Timer,
+    label: "Rundown",
+    path: "rundown",
+    module: "rundown",
+    permission: "rundown:view",
+  },
+  {
+    icon: Clock4,
+    label: "Timecode",
+    path: "timecode",
+    module: "timecode",
+    permission: "timecode:access",
+  },
+  {
+    icon: LibraryBig,
+    label: "Songs",
+    path: "songs",
+    module: "songs",
+    permission: "songs:access",
+  },
+  {
+    icon: MessageSquare,
+    label: "Chat",
+    path: "chat",
+    module: "chat",
+    permission: "chat:access",
+  },
+  {
+    icon: Users,
+    label: "Team",
+    path: "team",
+    module: "team",
+    permission: ["settings:members", "checkin:access"],
+  },
 ];
 
 const productionNav: NavItem[] = [
-  { icon: Clapperboard, label: "Cue Sheets", path: "production/cue-sheets", permission: ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"] },
-  { icon: ClipboardCheck, label: "Checklist", path: "production/checklist", permission: ["checklist:view", "checklist:access"] },
-  { icon: UserCheck, label: "Crew Check-in", path: "checkin", permission: "checkin:access" },
-  { icon: AlertTriangle, label: "Incidents", path: "production/incidents", permission: ["incidents:report", "incidents:access"] },
-  { icon: Package, label: "Assets", path: "production/assets", permission: "assets:view" },
+  {
+    icon: Clapperboard,
+    label: "Cue Sheets",
+    path: "production/cue-sheets",
+    module: "production",
+    permission: ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes"],
+  },
+  {
+    icon: ClipboardCheck,
+    label: "Checklist",
+    path: "production/checklist",
+    module: "production",
+    permission: ["checklist:view", "checklist:access"],
+  },
+  {
+    icon: UserCheck,
+    label: "Crew Check-in",
+    path: "checkin",
+    module: "board",
+    permission: "checkin:access",
+  },
+  {
+    icon: AlertTriangle,
+    label: "Incidents",
+    path: "production/incidents",
+    module: "production",
+    permission: ["incidents:report", "incidents:access"],
+  },
+  {
+    icon: Package,
+    label: "Assets",
+    path: "production/assets",
+    module: "production",
+    permission: "assets:view",
+  },
 ];
 
 const streamingNav: NavItem[] = [
-  { icon: Activity, label: "Stream", path: "streaming/health", permission: "stream_health:view" },
-  { icon: Radio, label: "Multi-Platform", path: "streaming/platforms", permission: "streaming_suite:access" },
-  { icon: Type, label: "Lower Thirds", path: "streaming/graphics", permission: "lowerthird:view" },
+  {
+    icon: Activity,
+    label: "Stream",
+    path: "streaming/health",
+    module: "streaming",
+    permission: "stream_health:view",
+  },
+  {
+    icon: Radio,
+    label: "Multi-Platform",
+    path: "streaming/platforms",
+    module: "streaming",
+    permission: "streaming_suite:access",
+  },
+  {
+    icon: Type,
+    label: "Lower Thirds",
+    path: "streaming/graphics",
+    module: "lower_thirds",
+    permission: "lowerthird:view",
+  },
 ];
 
 const dashboardNav: NavItem[] = [
@@ -83,12 +185,37 @@ const dashboardNav: NavItem[] = [
     icon: LayoutDashboard,
     label: "Prod Manager",
     path: "dashboard/prod-manager",
+    module: "dashboards",
     permission: "dashboard:pm",
   },
-  { icon: FileBarChart, label: "Reports & Notes", path: "reports", permission: "show:view" },
-  { icon: Wrench, label: "Tech Manager", path: "dashboard/tech-manager", permission: "dashboard:tm" },
-  { icon: Mic, label: "Audio", path: "dashboard/audio", permission: "dashboard:tm" },
-  { icon: Monitor, label: "Devices", path: "dashboard/devices", permission: "devices:access" },
+  {
+    icon: FileBarChart,
+    label: "Reports & Notes",
+    path: "reports",
+    module: "dashboards",
+    permission: "show:view",
+  },
+  {
+    icon: Wrench,
+    label: "Tech Manager",
+    path: "dashboard/tech-manager",
+    module: "dashboards",
+    permission: "dashboard:tm",
+  },
+  {
+    icon: Mic,
+    label: "Audio",
+    path: "dashboard/audio",
+    module: "dashboards",
+    permission: "dashboard:tm",
+  },
+  {
+    icon: Monitor,
+    label: "Devices",
+    path: "dashboard/devices",
+    module: "dashboards",
+    permission: "devices:access",
+  },
 ];
 
 function NavLink({
@@ -102,6 +229,8 @@ function NavLink({
   collapsed: boolean;
   active: boolean;
 }) {
+  const terms = useTerms();
+  const label = item.path === "show" ? terms.eventTitle : item.label;
   const Icon = item.icon;
   const resolvedTo = `/${slug}/${item.path}` as unknown as Parameters<
     typeof Link
@@ -109,7 +238,7 @@ function NavLink({
   return (
     <Link
       to={resolvedTo}
-      title={item.label}
+      title={label}
       className={`flex items-center rounded-lg transition-colors relative min-h-[44px] ${
         collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
       } ${
@@ -123,9 +252,7 @@ function NavLink({
       )}
       <Icon className="w-[18px] h-[18px] shrink-0" />
       {!collapsed && (
-        <span className="text-sm font-medium whitespace-nowrap">
-          {item.label}
-        </span>
+        <span className="text-sm font-medium whitespace-nowrap">{label}</span>
       )}
     </Link>
   );
@@ -180,6 +307,7 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
 }
 
 export function Sidebar() {
+  const workspace = useWorkspace();
   const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } =
     useSidebar();
   const { pathname } = useLocation();
@@ -244,7 +372,7 @@ export function Sidebar() {
             onClick={() => setMobileOpen(false)}
           />
         )}
-        {/* Slide-in drawer */}
+        {/* Backdrop */}
         <aside
           aria-hidden={!mobileOpen}
           inert={!mobileOpen}
@@ -252,8 +380,9 @@ export function Sidebar() {
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          {/* Drawer uses expanded layout (collapsed=false) */}
+          {/* Backdrop */}
           {renderSidebarContent({
+            modules: workspace.modules,
             collapsed: false,
             org,
             slug: slug!,
@@ -276,6 +405,7 @@ export function Sidebar() {
         className="fixed top-0 left-0 z-30 flex h-[100dvh] flex-col overflow-hidden border-r border-board-border bg-board-card"
       >
         {renderSidebarContent({
+          modules: workspace.modules,
           collapsed,
           org,
           slug: slug!,
@@ -287,7 +417,7 @@ export function Sidebar() {
         })}
       </aside>
 
-      {/* Spacer div to push main content right */}
+      {/* Backdrop */}
       <div
         className="shrink-0 hidden lg:block"
         style={{
@@ -302,6 +432,7 @@ export function Sidebar() {
 
 /** Shared sidebar content — used by both desktop sidebar and mobile drawer */
 function renderSidebarContent({
+  modules,
   collapsed,
   org,
   slug,
@@ -311,6 +442,7 @@ function renderSidebarContent({
   canManageAccess,
   user,
 }: {
+  modules: readonly ModuleId[];
   collapsed: boolean;
   org: { id: string; name: string; slug: string; logo: string | null } | null;
   slug: string;
@@ -330,9 +462,11 @@ function renderSidebarContent({
     hasEffectivePermission(role, grantedPermissions, permission);
   const canAny = (permissions: readonly Permission[]) =>
     hasAnyEffectivePermission(role, grantedPermissions, permissions);
-  const canOpen = (item: NavItem) => !item.permission || (typeof item.permission === "string"
+  const canOpen = (item: NavItem) =>
+    modules.includes(item.module) &&
+    (!item.permission || (typeof item.permission === "string"
     ? can(item.permission)
-    : canAny(item.permission));
+    : canAny(item.permission)));
 
   const visibleMainNav = mainNav.filter((item) => item.path === "team" ? canManageAccess || canOpen(item) : canOpen(item));
   const visibleProductionNav = productionNav.filter(canOpen);
@@ -343,7 +477,7 @@ function renderSidebarContent({
 
   return (
     <>
-      {/* Logo + Gear — role-accent left border */}
+      {/* Backdrop */}
       <div
         className={`py-5 flex items-center overflow-hidden ${
           collapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"
@@ -376,7 +510,7 @@ function renderSidebarContent({
         </div>
       )}
 
-      {/* Scrollable nav area */}
+      {/* Backdrop */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
         {/* Main nav */}
         <div className="px-2.5 space-y-0.5">
@@ -473,7 +607,7 @@ function renderSidebarContent({
         )}
       </div>
 
-      {/* One compact account surface pinned to the bottom. */}
+      {/* Backdrop */}
       <div className="shrink-0 border-t border-board-border px-2.5 py-3">
         {user && org && (
           <SidebarIdentity
@@ -483,19 +617,7 @@ function renderSidebarContent({
             orgName={org.name}
             orgId={org.id}
             slug={slug}
-            canAccessSettings={canAny([
-              "settings:organization",
-              "settings:members",
-              "settings:billing",
-              "settings:integrations",
-              "settings:production_defaults",
-              "settings:lowerthird_config",
-              "settings:notifications",
-              "settings:api_keys",
-              "settings:webhooks",
-              "settings:danger_zone",
-              "org:delete",
-            ])}
+            canAccessSettings={true}
           />
         )}
       </div>

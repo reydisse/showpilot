@@ -1,3 +1,4 @@
+import { resolveWorkspaceType } from "@showpilot/shared";
 /**
  * Super Admin — Platform-level queries across all orgs.
  * Only accessible by the hardcoded super admin email.
@@ -85,7 +86,21 @@ export const getAllOrgs = createServerFn({ method: "GET" }).handler(
       members.map((m) => [m.organizationId, m._count.id]),
     );
 
+    const workspaceSettings = await prisma.appSetting.findMany({
+      where: {
+        orgId: { in: orgs.map((org) => org.id) },
+        key: { in: ["workspace-type", "terminology-profile"] },
+      },
+      select: { orgId: true, key: true, value: true },
+    });
+    const profiles = new Map<string, Record<string, string>>();
+    for (const setting of workspaceSettings) {
+      const settings = profiles.get(setting.orgId) ?? {};
+      settings[setting.key] = setting.value;
+      profiles.set(setting.orgId, settings);
+    }
     return orgs.map((org) => ({
+      workspaceType: resolveWorkspaceType(profiles.get(org.id) ?? {}),
       ...org,
       memberCount: countMap.get(org.id) ?? 0,
       effectivePlan: getEffectivePlan(org, publicLaunchDate),

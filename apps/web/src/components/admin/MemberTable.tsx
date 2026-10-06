@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useState, useMemo } from "react";
 import { Pencil, Trash2, UserPlus, Users, Search, X } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -83,7 +85,8 @@ function MemberCard({
         </div>
       </div>
 
-      {canManage ? <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
+      {canManage ? (
+        <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
         <button
           type="button"
           onClick={() => onEdit(member)}
@@ -103,12 +106,17 @@ function MemberCard({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
-      </div> : null}
+      </div>
+      ) : null}
     </div>
   );
 }
 
-function EmptyState({ onAdd, canManage }: { onAdd: () => void; canManage: boolean }) {
+function EmptyState({ onAdd, canManage }: {
+  onAdd: () => void;
+  canManage: boolean;
+}) {
+  const workspaceTerms = useWorkspaceTerms();
   return (
     <div className="flex flex-col items-center py-20">
       <div className="relative mb-8">
@@ -128,7 +136,8 @@ function EmptyState({ onAdd, canManage }: { onAdd: () => void; canManage: boolea
         managers, and everyone in between.
       </p>
 
-      {canManage ? <button
+      {canManage ? (
+        <button
         onClick={onAdd}
         className="flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
         style={{
@@ -137,13 +146,21 @@ function EmptyState({ onAdd, canManage }: { onAdd: () => void; canManage: boolea
       >
         <UserPlus className="w-5 h-5" />
         Add Your First Member
-      </button> : null}
+      </button>
+      ) : null}
 
       <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg">
         {[
           { step: "1", title: "Add members", desc: "Name, role, and a photo" },
           { step: "2", title: "They check in", desc: "Scan a badge or tap in" },
-          { step: "3", title: "Go live", desc: "See who's serving in real time" },
+          {
+            step: "3",
+            title: "Go live",
+            desc: workspaceCopy(
+              "See who's serving in real time",
+              workspaceTerms,
+            ),
+          },
         ].map((item) => (
           <div
             key={item.step}
@@ -238,7 +255,11 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
     setShowForm(true);
   };
 
-  const filterTabs: { key: ViewFilter; label: string; config?: DepartmentConfig }[] = [
+  const filterTabs: {
+    key: ViewFilter;
+    label: string;
+    config?: DepartmentConfig;
+  }[] = [
     { key: "all", label: "All" },
     ...DEPARTMENT_ORDER.filter((dept) => counts[dept] > 0).map((dept) => ({
       key: dept as ViewFilter,

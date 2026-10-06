@@ -1,3 +1,4 @@
+import { resolveTerms, type WorkspaceTerms } from "@showpilot/shared";
 /**
  * Service phase — the single derived value that drives what a role
  * dashboard shows.
@@ -134,6 +135,7 @@ export function getPhaseCountdown(
   phase: ServicePhase,
   timing: ServiceTiming,
   nowMs: number,
+  terms: WorkspaceTerms = resolveTerms("church"),
 ): PhaseCountdown {
   const { scheduledStartMs, callTimeMs, expectedEndMs } = timing;
 
@@ -153,7 +155,7 @@ export function getPhaseCountdown(
     return {
       targetMs: expectedEndMs,
       remainingMs: expectedEndMs === null ? null : nowMs - expectedEndMs,
-      label: "since service ended",
+      label: `since ${terms.event} ended`,
       direction: "up",
     };
   }
@@ -162,7 +164,7 @@ export function getPhaseCountdown(
     return {
       targetMs: scheduledStartMs,
       remainingMs: scheduledStartMs === null ? null : scheduledStartMs - nowMs,
-      label: "to service start",
+      label: `to ${terms.event} start`,
       direction: "down",
     };
   }

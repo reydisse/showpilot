@@ -1,3 +1,4 @@
+import { resolveTerms, type WorkspaceTerms } from "@showpilot/shared";
 /**
  * Production dashboard derivation.
  *
@@ -534,6 +535,7 @@ export function deriveAttentionQueue(
   health: RundownHealth,
   phase: ServicePhase,
   crew: CrewBoard = emptyCrewBoard(),
+  terms: WorkspaceTerms = resolveTerms("church"),
 ): AttentionItem[] {
   const out: AttentionItem[] = [];
   const {
@@ -625,7 +627,7 @@ export function deriveAttentionQueue(
       out.push({
         id: "rundown:empty",
         severity: "critical",
-        title: "No rundown for this service",
+        title: `No rundown for this ${terms.event}`,
         detail: "Nothing to run, time, or cue from",
         source: "rundown",
         actionLabel: "Build",
@@ -675,7 +677,7 @@ export function deriveAttentionQueue(
         id: "rundown:overrun",
         severity: "warning",
         title: `Rundown runs ${formatMinutes(health.deltaMs)} over the window`,
-        detail: `Planned ${formatMinutes(health.plannedMs)} against a ${formatMinutes(health.windowMs)} service`,
+        detail: `Planned ${formatMinutes(health.plannedMs)} against a ${formatMinutes(health.windowMs)} ${terms.event}`,
         source: "rundown",
         actionLabel: "Trim",
         actionPath: showScopedPath("rundown", snapshot),
@@ -841,8 +843,8 @@ export function deriveAttentionQueue(
       out.push({
         id: "setup:checklist",
         severity: "info",
-        title: "No pre-service checklist",
-        detail: "Checks the crew ticks off before the service starts",
+        title: `No pre-${terms.event} checklist`,
+        detail: `Checks the crew ticks off before the ${terms.event} starts`,
         source: "checklist",
         actionLabel: "Set up",
         actionPath: showScopedPath("production/checklist", snapshot),
@@ -852,7 +854,7 @@ export function deriveAttentionQueue(
       out.push({
         id: "setup:crew",
         severity: "info",
-        title: "Nobody scheduled for this service",
+        title: `Nobody scheduled for this ${terms.event}`,
         detail: `${plural(snapshot.crew.length, "person")} on the roster and no positions assigned yet`,
         source: "crew",
         actionLabel: "Schedule",
@@ -864,8 +866,7 @@ export function deriveAttentionQueue(
         id: "setup:stream",
         severity: "info",
         title: "No stream destination",
-        detail:
-          "Add one if this service goes out to YouTube, Facebook or an RTMP endpoint",
+        detail: `Add one if this ${terms.event} goes out to YouTube, Facebook or an RTMP endpoint`,
         source: "stream",
         actionLabel: "Set up",
         actionPath: "streaming/platforms",
@@ -1543,7 +1544,10 @@ export function deriveUpcoming(snapshot: PmSnapshot): UpcomingService[] {
 
 // ─── Top level ───────────────────────────────────────────────
 
-export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
+export function derivePmDashboard(
+  snapshot: PmSnapshot,
+  terms: WorkspaceTerms = resolveTerms("church"),
+): PmDashboardModel {
   const rundownHealth = deriveRundownHealth(snapshot);
 
   const phaseInput = {
@@ -1557,7 +1561,7 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
 
   const phase = getServicePhase(phaseInput, snapshot.now);
   const timing = getServiceTiming(phaseInput);
-  const countdown = getPhaseCountdown(phase, timing, snapshot.now);
+  const countdown = getPhaseCountdown(phase, timing, snapshot.now, terms);
 
   const departments = deriveDepartments(snapshot, phase);
   const crew = deriveCrewBoard(snapshot);
@@ -1578,7 +1582,13 @@ export function derivePmDashboard(snapshot: PmSnapshot): PmDashboardModel {
       crew,
     ),
     rundownHealth,
-    attention: deriveAttentionQueue(snapshot, rundownHealth, phase, crew),
+    attention: deriveAttentionQueue(
+      snapshot,
+      rundownHealth,
+      phase,
+      crew,
+      terms,
+    ),
     departments,
     arrivals,
     upcoming: deriveUpcoming(snapshot),

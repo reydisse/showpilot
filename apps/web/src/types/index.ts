@@ -47,7 +47,14 @@ export const DEPARTMENTS: Record<RoleDepartment, DepartmentConfig> = {
   leadership: {
     label: "Leadership",
     color: "bg-fire-500/15 text-fire-400 border-fire-500/25",
-    roles: ["Media Pastor", "Lead Pastor", "Executive Pastor", "Technical Director"],
+    roles: [
+      "Media Pastor",
+      "Lead Pastor",
+      "Executive Pastor",
+      "Executive Producer",
+      "Show Director",
+      "Technical Director",
+    ],
     patterns: ["director", "pastor"],
   },
   production: {

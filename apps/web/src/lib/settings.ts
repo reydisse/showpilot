@@ -1,3 +1,4 @@
+import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
@@ -34,7 +35,7 @@ const settingValueSchema = z.string().max(200_000);
 const genericSettingKeySchema = settingKeySchema.refine(
   (key) => key !== RUNDOWN_PIN_SETTING_KEY,
   "Use the dedicated rundown PIN control.",
-);
+).refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.");
 const rundownPinSchema = z.string().regex(/^\d{4,8}$/u, "PIN must contain 4 to 8 digits.");
 const rundownPinUpdateSchema = z.discriminatedUnion("action", [
   z.object({ orgId: idSchema, action: z.literal("set"), pin: rundownPinSchema }),

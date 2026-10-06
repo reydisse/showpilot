@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 /**
  * Plan a service, from the dashboard.
  *
@@ -35,6 +37,7 @@ export function PlanServiceButton({
   open: boolean;
   onToggle: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   return (
     <button
       type="button"
@@ -43,7 +46,7 @@ export function PlanServiceButton({
       className="inline-flex shrink-0 items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
     >
       <CalendarPlus className="w-3.5 h-3.5" />
-      Plan a service
+      {workspaceCopy("\n      Plan a service\n    ", workspaceTerms)}
     </button>
   );
 }
@@ -60,6 +63,7 @@ export function PlanServicePanel({
   onPlanned: (showId: string, serviceDate: string) => void;
   onClose: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const router = useRouter();
   const [date, setDate] = useState(() => nextSunday());
   const [name, setName] = useState("");
@@ -94,7 +98,11 @@ export function PlanServicePanel({
       onClose();
       onPlanned(created.showId, date);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not plan that service");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : workspaceCopy("Could not plan that service", workspaceTerms),
+      );
     } finally {
       setBusy(false);
     }
@@ -104,8 +112,8 @@ export function PlanServicePanel({
   // or readiness during a live service.
   return (
     <div className="rounded-lg border border-board-border/70 bg-board-card px-4 py-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Date" htmlFor="plan-date">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Date" htmlFor="plan-date">
               <input
                 id="plan-date"
                 type="date"
@@ -115,19 +123,19 @@ export function PlanServicePanel({
               />
             </Field>
 
-            <Field label="Name" htmlFor="plan-name">
-              <input
-                id="plan-name"
-                type="text"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Regular service"
-                maxLength={120}
-                className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text w-[170px] placeholder:text-board-muted/50"
-              />
-            </Field>
+        <Field label="Name" htmlFor="plan-name">
+          <input
+            id="plan-name"
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={workspaceCopy("Regular service", workspaceTerms)}
+            maxLength={120}
+            className="bg-transparent border border-board-border/70 rounded px-2 py-1 text-xs text-board-text w-[170px] placeholder:text-board-muted/50"
+          />
+        </Field>
 
-            <Field label="Starts" htmlFor="plan-start">
+        <Field label="Starts" htmlFor="plan-start">
               <input
                 id="plan-start"
                 type="time"
@@ -138,7 +146,7 @@ export function PlanServicePanel({
               />
             </Field>
 
-            <Field label="Based on" htmlFor="plan-copy">
+        <Field label="Based on" htmlFor="plan-copy">
               <select
                 id="plan-copy"
                 value={copyFromShowId}
@@ -154,7 +162,7 @@ export function PlanServicePanel({
               </select>
             </Field>
 
-            <button
+        <button
               type="button"
               onClick={() => void submit()}
               disabled={busy || !date}
@@ -162,14 +170,14 @@ export function PlanServicePanel({
             >
               {busy ? "Planning…" : "Create"}
             </button>
-            <button
+        <button
               type="button"
               onClick={onClose}
               className="text-xs px-2.5 py-1.5 rounded-lg text-board-muted hover:text-board-text transition-colors"
             >
               Cancel
             </button>
-          </div>
+      </div>
 
       {error && <p className="text-[11px] text-red-400 mt-2">{error}</p>}
     </div>

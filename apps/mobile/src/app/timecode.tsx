@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
@@ -33,6 +35,7 @@ const automationActions = [
 ] as const;
 
 export default function TimecodeScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const styles = useStyles();
   const queryClient = useQueryClient();
   const { organization } = useMobileBootstrap();
@@ -117,7 +120,9 @@ export default function TimecodeScreen() {
         <AppField label="Set timecode" value={timecode} onChangeText={setTimecode} autoCapitalize="characters" placeholder="00:00:00:00" />
         <AppButton label="Set relay time" variant="secondary" disabled={command.isPending || data?.state.running} onPress={setManualTimecode} />
       </OperationsPanel>
-      {data?.state.lyrics ? <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel> : null}
+      {data?.state.lyrics ? (
+        <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel>
+      ) : null}
       <OperationsPanel title="Source and format" detail="This device can generate internal freerun. MTC, LTC, rundown, and network sources remain visible here when supplied by the desktop or bridge.">
         <View style={styles.buttonRow}>
           {[24, 25, 29.97, 30].map((frameRate) => (
@@ -126,16 +131,31 @@ export default function TimecodeScreen() {
         </View>
       </OperationsPanel>
       <OperationsPanel title="Automation" detail="Create the same shared actions used by web and desktop. Events fire when the relay crosses the selected frame.">
-        <AppField label="Event label" value={eventLabel} onChangeText={setEventLabel} placeholder="Advance to sermon" />
+        <AppField
+          label="Event label"
+          value={eventLabel}
+          onChangeText={setEventLabel}
+          placeholder={workspaceCopy("Advance to sermon", workspaceTerms)}
+        />
         <AppField label="Trigger timecode" value={eventTimecode} onChangeText={setEventTimecode} placeholder="00:00:10:00" />
         <Text style={styles.fieldLabel}>ACTION</Text>
-        <View style={styles.actionGrid}>{automationActions.map(([value, label]) => <Pressable accessibilityRole="button" accessibilityState={{ selected: eventAction === value }} key={value} onPress={() => setEventAction(value)} style={[styles.actionChoice, eventAction === value && styles.actionChoiceActive]}><Text style={[styles.actionChoiceText, eventAction === value && styles.actionChoiceTextActive]}>{label}</Text></Pressable>)}</View>
+        <View style={styles.actionGrid}>
+          {automationActions.map(([value, label]) => (
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: eventAction === value }} key={value} onPress={() => setEventAction(value)} style={[styles.actionChoice, eventAction === value && styles.actionChoiceActive]}><Text style={[styles.actionChoiceText, eventAction === value && styles.actionChoiceTextActive]}>{label}</Text></Pressable>
+          ))}
+        </View>
         <AppField label="Action details (JSON)" value={eventPayload} onChangeText={setEventPayload} multiline placeholder={eventAction === "stage-message" ? '{"message":"Stand by"}' : eventAction === "rundown-adjust" ? '{"deltaMs":30000}' : "{}"} />
         <AppButton label="Add automation event" disabled={command.isPending} onPress={addEvent} />
-        {data?.events.length ? data.events.map((event) => (
+        {data?.events.length ? (
+          data.events.map((event) => (
           <OperationsRow key={event.id} title={event.label} detail={`${event.triggerTimecode.hours.toString().padStart(2, "0")}:${event.triggerTimecode.minutes.toString().padStart(2, "0")}:${event.triggerTimecode.seconds.toString().padStart(2, "0")}:${event.triggerTimecode.frames.toString().padStart(2, "0")} · ${event.action}`} status={event.fired ? "Fired" : "Armed"} onPress={() => Alert.alert("Remove automation event?", `Remove “${event.label}” from the shared timecode relay?`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => run("remove-event", { id: event.id }) }])} />
-        )) : <OperationsEmpty>No automation events are armed.</OperationsEmpty>}
-        {data?.events.length ? <AppButton label="Reset fired events" variant="secondary" onPress={() => run("reset-events")} /> : null}
+        ))
+        ) : (
+          <OperationsEmpty>No automation events are armed.</OperationsEmpty>
+        )}
+        {data?.events.length ? (
+          <AppButton label="Reset fired events" variant="secondary" onPress={() => run("reset-events")} />
+        ) : null}
       </OperationsPanel>
     </Page>
   );

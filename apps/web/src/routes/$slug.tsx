@@ -1,3 +1,8 @@
+import { getWorkspaceProfile } from "@/lib/workspace/profile";
+import {
+  WorkspaceProvider,
+  WorkspaceRouteGate,
+} from "@/components/workspace/WorkspaceProvider";
 import {
   createFileRoute,
   Outlet,
@@ -46,6 +51,7 @@ export const Route = createFileRoute("/$slug")({
     }
 
     return {
+      workspace: await getWorkspaceProfile({ data: { orgId: org.id } }),
       user,
       org,
       orgId: org.id,
@@ -72,6 +78,15 @@ function OrgPending() {
 
 function OrgLayout() {
   const context = Route.useRouteContext();
+  return (
+    <WorkspaceProvider profile={context.workspace}>
+      <OrgContent />
+    </WorkspaceProvider>
+  );
+}
+
+function OrgContent() {
+  const context = Route.useRouteContext();
   const matchRoute = useMatchRoute();
   const isBoard = matchRoute({ to: "/$slug/board" });
   const isCrewChat = matchRoute({ to: "/$slug/crew-chat" });
@@ -92,13 +107,19 @@ function OrgLayout() {
     return (
       <ThemeProvider>
         <TimecodeProvider enabled={canUseTimecode} orgId={context.orgId}>
-        <div className={wrapperClassName}>
-          <AccessGrantSyncController
+          <div className={wrapperClassName}>
+            <AccessGrantSyncController
             orgId={context.orgId}
             revision={context.accessRevision}
           />
-          <Outlet />
-        </div>
+            <WorkspaceRouteGate
+              orgId={context.orgId}
+              slug={context.slug}
+              canManage={context.role === "owner" || context.role === "admin"}
+            >
+              <Outlet />
+            </WorkspaceRouteGate>
+          </div>
         </TimecodeProvider>
       </ThemeProvider>
     );
@@ -107,7 +128,7 @@ function OrgLayout() {
   return (
     <ThemeProvider>
       <TimecodeProvider enabled={canUseTimecode} orgId={context.orgId}>
-      <AppShell
+        <AppShell
         orgId={context.orgId}
         slug={context.slug}
         canControlRundown={hasEffectivePermission(
@@ -117,12 +138,18 @@ function OrgLayout() {
         )}
         showLiveRundown={!isRundown}
       >
-        <AccessGrantSyncController
-          orgId={context.orgId}
-          revision={context.accessRevision}
-        />
-        <Outlet />
-      </AppShell>
+          <AccessGrantSyncController
+            orgId={context.orgId}
+            revision={context.accessRevision}
+          />
+          <WorkspaceRouteGate
+            orgId={context.orgId}
+            slug={context.slug}
+            canManage={context.role === "owner" || context.role === "admin"}
+          >
+            <Outlet />
+          </WorkspaceRouteGate>
+        </AppShell>
       </TimecodeProvider>
     </ThemeProvider>
   );

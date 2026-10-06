@@ -35,3 +35,34 @@ describe("shared export contract", () => {
     expect([...numbers.values()]).toEqual(["1", "2", "2.1", "2.2", "3", "3.1"]);
   });
 });
+
+// Runtime entry-point guard: both web and Metro import this exact package root.
+import * as shared from "@showpilot/shared";
+it("exports the complete workspace contract", () => {
+  for (const key of [
+    "WORKSPACE_TYPES",
+    "WORKSPACE_SETTING_KEYS",
+    "MODULE_IDS",
+    "TERM_KEYS",
+    "CORE_MODULES",
+    "WORKSPACE_DEFINITIONS",
+    "WORKSPACE_MODULES",
+    "DEFAULT_WORKSPACE_MODULES",
+    "WORKSPACE_TERMS",
+    "MODULE_SURFACES",
+    "isWorkspaceType",
+    "isModuleId",
+    "isWorkspaceTerm",
+    "resolveWorkspaceType",
+    "resolveWorkspaceProfile",
+    "resolveModules",
+    "resolveTerms",
+    "parseWorkspaceCustom",
+    "legacyTerminologyProfile",
+    "legacyWorkspaceType",
+    "moduleForSurface",
+    "orgTerms",
+    "workspaceCopy",
+  ] as const)
+    expect(shared[key]).toBeDefined();
+});

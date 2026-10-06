@@ -51,27 +51,199 @@ export default function OperationsScreen() {
   return (
     <Page eyebrow="CONTROL SURFACES" title="Operations" subtitle="Native tools available to your current role and on-duty access grants.">
       <View style={styles.list}>
-        <FeatureLink icon={CalendarClock} title="Schedule" description="Your assignments and call times. Schedule roles also see the full crew plan." onPress={() => router.push("/schedule")} />
-        {canViewShow ? <FeatureLink icon={RadioTower} title="Live Show" description="Follow the authoritative timer, current and next cues, active crew, chat, and rundown from one workspace." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
-        {canTimecode ? <FeatureLink icon={Clock4} title="Timecode" description="Monitor and operate the shared SMPTE relay, source, format, and automation events." badge="LIVE" onPress={() => router.push("/timecode")} /> : null}
-        {canChat ? <FeatureLink icon={MessageSquareText} title="Production chat" description="The same live crew room used by web and desktop operators." badge="LIVE" onPress={() => router.push("/chat")} /> : null}
-        {canCueSheets ? <FeatureLink icon={ClipboardList} title="Cue sheets" description="Edit department columns and live instructions against the authoritative rundown." onPress={() => router.push("/cue-sheets")} /> : null}
-        {canChecklist ? <FeatureLink icon={ListChecks} title="Pre-show checklist" description="Prepare each department, generate checks from the rundown, and track completion live." onPress={() => router.push("/checklist")} /> : null}
-        {canCheckIn ? <FeatureLink icon={UserCheck} title="Crew check-in" description="Find crew by member ID or roster and keep attendance synchronized for every operator." onPress={() => router.push("/checkin")} /> : null}
-        {canShowBoard ? <FeatureLink icon={MonitorPlay} title="Show Board" description="Live crew status, venue clock, and the public check-in QR for phones and tablets." badge="LIVE" onPress={() => router.push("/show-board")} /> : null}
-        {canManageMembers ? <FeatureLink icon={UserCog} title="Organization members" description="Invite sign-in users, assign roles, cancel invitations, or revoke workspace membership." onPress={() => router.push("/team-members")} /> : null}
-        {canManageMembers ? <FeatureLink icon={UserRound} title="Crew roster" description="Create and maintain production identities, badges, roles, emails, and photos." onPress={() => router.push("/team-crew")} /> : null}
-        {canManageAccess ? <FeatureLink icon={UsersRound} title="Team access" description="Grant or revoke weekly and ongoing operational capabilities." onPress={() => router.push("/team")} /> : null}
-        {canIncidents ? <FeatureLink icon={AlertTriangle} title="Incidents" description="Report faults and follow ownership through resolution." onPress={() => router.push("/incidents")} /> : null}
-        {canAssets ? <FeatureLink icon={Package} title="Assets" description="Search, add, edit, and retire production equipment and metadata." onPress={() => router.push("/asset-inventory")} /> : null}
-        {canStream ? <FeatureLink icon={Radio} title="Stream health" description="Watch live input and distribution state with five-second provider polling." badge="LIVE" onPress={() => router.push("/stream")} /> : null}
-        {canMultiPlatform ? <FeatureLink icon={Share2} title="Multi-platform" description="Manage write-only RTMP credentials and connect or disconnect distribution outputs." onPress={() => router.push("/multi-platform")} /> : null}
-        {canLowerThirds ? <FeatureLink icon={Captions} title="Lower thirds" description="Create, edit, take, stack, and clear cloud graphics on air." badge="LIVE" onPress={() => router.push("/lower-thirds")} /> : null}
-        {canProdManager ? <FeatureLink icon={ClipboardList} title="Prod Manager" description="Crew, rundown, checklist, and planning readiness in one operational dashboard." onPress={() => router.push("/prod-manager")} /> : null}
-        {canReports ? <FeatureLink icon={FileChart} title="Reports & notes" description="Review show outcomes, read team handoffs, add manager notes, and export reports." onPress={() => router.push("/reports")} /> : null}
-        {canTechManager ? <FeatureLink icon={Wrench} title="Tech Manager" description="Fault, equipment, stream, device, and systems readiness with live drill-downs." onPress={() => router.push("/tech-manager")} /> : null}
-        {canTechManager ? <FeatureLink icon={AudioLines} title="Audio" description="Build and operate the show input list, patch, gain, phantom power, and mute plan." onPress={() => router.push("/audio")} /> : null}
-        {canDevices ? <FeatureLink icon={Cable} title="Devices" description="Venue and Bridge-connected production equipment." onPress={() => router.push("/devices")} /> : null}
+        <FeatureLink
+          icon={CalendarClock}
+          title="Schedule"
+          module="schedule"
+          description="Your assignments and call times. Schedule roles also see the full crew plan."
+          onPress={() => router.push("/schedule")}
+        />
+        {canViewShow ? (
+          <FeatureLink
+            icon={RadioTower}
+            title="Live Show"
+            module="show"
+            description="Follow the authoritative timer, current and next cues, active crew, chat, and rundown from one workspace."
+            badge="LIVE"
+            onPress={() => router.push("/live-show")}
+          />
+        ) : null}
+        {canTimecode ? (
+          <FeatureLink
+            icon={Clock4}
+            title="Timecode"
+            module="timecode"
+            description="Monitor and operate the shared SMPTE relay, source, format, and automation events."
+            badge="LIVE"
+            onPress={() => router.push("/timecode")}
+          />
+        ) : null}
+        {canChat ? (
+          <FeatureLink
+            icon={MessageSquareText}
+            title="Production chat"
+            module="chat"
+            description="The same live crew room used by web and desktop operators."
+            badge="LIVE"
+            onPress={() => router.push("/chat")}
+          />
+        ) : null}
+        {canCueSheets ? (
+          <FeatureLink
+            icon={ClipboardList}
+            title="Cue sheets"
+            module="production"
+            description="Edit department columns and live instructions against the authoritative rundown."
+            onPress={() => router.push("/cue-sheets")}
+          />
+        ) : null}
+        {canChecklist ? (
+          <FeatureLink
+            icon={ListChecks}
+            title="Pre-show checklist"
+            module="production"
+            description="Prepare each department, generate checks from the rundown, and track completion live."
+            onPress={() => router.push("/checklist")}
+          />
+        ) : null}
+        {canCheckIn ? (
+          <FeatureLink
+            icon={UserCheck}
+            title="Crew check-in"
+            module="board"
+            description="Find crew by member ID or roster and keep attendance synchronized for every operator."
+            onPress={() => router.push("/checkin")}
+          />
+        ) : null}
+        {canShowBoard ? (
+          <FeatureLink
+            icon={MonitorPlay}
+            title="Show Board"
+            module="board"
+            description="Live crew status, venue clock, and the public check-in QR for phones and tablets."
+            badge="LIVE"
+            onPress={() => router.push("/show-board")}
+          />
+        ) : null}
+        {canManageMembers ? (
+          <FeatureLink
+            icon={UserCog}
+            title="Organization members"
+            module="team"
+            description="Invite sign-in users, assign roles, cancel invitations, or revoke workspace membership."
+            onPress={() => router.push("/team-members")}
+          />
+        ) : null}
+        {canManageMembers ? (
+          <FeatureLink
+            icon={UserRound}
+            title="Crew roster"
+            module="team"
+            description="Create and maintain production identities, badges, roles, emails, and photos."
+            onPress={() => router.push("/team-crew")}
+          />
+        ) : null}
+        {canManageAccess ? (
+          <FeatureLink
+            icon={UsersRound}
+            title="Team access"
+            module="team"
+            description="Grant or revoke weekly and ongoing operational capabilities."
+            onPress={() => router.push("/team")}
+          />
+        ) : null}
+        {canIncidents ? (
+          <FeatureLink
+            icon={AlertTriangle}
+            title="Incidents"
+            module="production"
+            description="Report faults and follow ownership through resolution."
+            onPress={() => router.push("/incidents")}
+          />
+        ) : null}
+        {canAssets ? (
+          <FeatureLink
+            icon={Package}
+            title="Assets"
+            module="production"
+            description="Search, add, edit, and retire production equipment and metadata."
+            onPress={() => router.push("/asset-inventory")}
+          />
+        ) : null}
+        {canStream ? (
+          <FeatureLink
+            icon={Radio}
+            title="Stream health"
+            module="streaming"
+            description="Watch live input and distribution state with five-second provider polling."
+            badge="LIVE"
+            onPress={() => router.push("/stream")}
+          />
+        ) : null}
+        {canMultiPlatform ? (
+          <FeatureLink
+            icon={Share2}
+            title="Multi-platform"
+            module="streaming"
+            description="Manage write-only RTMP credentials and connect or disconnect distribution outputs."
+            onPress={() => router.push("/multi-platform")}
+          />
+        ) : null}
+        {canLowerThirds ? (
+          <FeatureLink
+            icon={Captions}
+            title="Lower thirds"
+            module="lower_thirds"
+            description="Create, edit, take, stack, and clear cloud graphics on air."
+            badge="LIVE"
+            onPress={() => router.push("/lower-thirds")}
+          />
+        ) : null}
+        {canProdManager ? (
+          <FeatureLink
+            icon={ClipboardList}
+            title="Prod Manager"
+            module="dashboards"
+            description="Crew, rundown, checklist, and planning readiness in one operational dashboard."
+            onPress={() => router.push("/prod-manager")}
+          />
+        ) : null}
+        {canReports ? (
+          <FeatureLink
+            icon={FileChart}
+            title="Reports & notes"
+            module="dashboards"
+            description="Review show outcomes, read team handoffs, add manager notes, and export reports."
+            onPress={() => router.push("/reports")}
+          />
+        ) : null}
+        {canTechManager ? (
+          <FeatureLink
+            icon={Wrench}
+            title="Tech Manager"
+            module="dashboards"
+            description="Fault, equipment, stream, device, and systems readiness with live drill-downs."
+            onPress={() => router.push("/tech-manager")}
+          />
+        ) : null}
+        {canTechManager ? (
+          <FeatureLink
+            icon={AudioLines}
+            title="Audio"
+            module="dashboards"
+            description="Build and operate the show input list, patch, gain, phantom power, and mute plan."
+            onPress={() => router.push("/audio")}
+          />
+        ) : null}
+        {canDevices ? (
+          <FeatureLink
+            icon={Cable}
+            title="Devices"
+            module="dashboards"
+            description="Venue and Bridge-connected production equipment."
+            onPress={() => router.push("/devices")}
+          />
+        ) : null}
       </View>
     </Page>
   );

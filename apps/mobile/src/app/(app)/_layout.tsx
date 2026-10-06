@@ -1,3 +1,4 @@
+import { useModuleEnabled } from "@/providers/workspace-provider";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Bell from "lucide-react-native/icons/bell";
@@ -16,6 +17,7 @@ import { getMobileChatUnread } from "@/lib/mobile-api";
 import { fontFamily, useAppTheme } from "@/theme/tokens";
 
 export default function AppLayout() {
+  const chatEnabled = useModuleEnabled("chat");
   const { colors } = useAppTheme();
   const { data: session, isPending } = authClient.useSession();
   const {
@@ -37,7 +39,9 @@ export default function AppLayout() {
     enabled: Boolean(session && organization && bootstrap?.identity.permissions.includes("chat:access")),
     refetchInterval: pollingInterval,
   });
-  const chatBadge = chatUnread?.unread ? (chatUnread.unread > 99 ? "99+" : chatUnread.unread) : undefined;
+  const chatBadge = chatUnread?.unread
+    ? chatUnread.unread > 99 ? "99+" : chatUnread.unread
+    : undefined;
   useNativePushRegistration(organization?.id);
 
   useEffect(() => {
@@ -64,7 +68,9 @@ export default function AppLayout() {
   if (isPending || (!organization && organizationPending && !organizationTimedOut)) return <LoadingView />;
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization && (organizationTimedOut || organizationError)) {
-    return <SessionRecoveryView error={organizationTimedOut ? "Workspace restore took too long. Check your connection and try again." : organizationError?.message} retrying={retryingOrganization} onRetry={() => void retryOrganization()} />;
+    return (
+      <SessionRecoveryView error={organizationTimedOut ? "Workspace restore took too long. Check your connection and try again." : organizationError?.message} retrying={retryingOrganization} onRetry={() => void retryOrganization()} />
+    );
   }
   if (!organization) return <Redirect href="/organizations" />;
 
@@ -80,8 +86,24 @@ export default function AppLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: ({ color, size }) => <Gauge color={color} size={size} /> }} />
-      <Tabs.Screen name="shows" options={{ title: "Shows", tabBarIcon: ({ color, size }) => <CalendarDays color={color} size={size} /> }} />
-      <Tabs.Screen name="operations" options={{ title: "Operate", tabBarIcon: ({ color, size }) => <SlidersHorizontal color={color} size={size} /> }} />
+      <Tabs.Screen
+        name="shows"
+        options={{
+          title: "Shows",
+          tabBarIcon: ({ color, size }) => (
+            <CalendarDays color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="operations"
+        options={{
+          title: "Operate",
+          tabBarIcon: ({ color, size }) => (
+            <SlidersHorizontal color={color} size={size} />
+          ),
+        }}
+      />
       <Tabs.Screen
         name="inbox"
         options={{
@@ -97,7 +119,16 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
         }}
       />
-      <Tabs.Screen name="chat" options={{ title: "Chats", tabBarBadge: chatBadge, tabBarBadgeStyle: { backgroundColor: colors.amber, color: colors.black }, tabBarIcon: ({ color, size }) => <MessagesSquare color={color} size={size} /> }} />
+      <Tabs.Screen
+        name="chat" options={{ title: "Chats",
+          href: chatEnabled ? undefined : null,
+          tabBarBadge: chatBadge,
+          tabBarBadgeStyle: { backgroundColor: colors.amber, color: colors.black },
+          tabBarIcon: ({ color, size }) => (
+            <MessagesSquare color={color} size={size} />
+          ),
+        }}
+      />
       <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );

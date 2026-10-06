@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -33,7 +35,13 @@ import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate } from "@/lib/rundown";
 
-type MicType = "wireless-handheld" | "wireless-lav" | "wired" | "headset" | "di-box" | "other";
+type MicType =
+  | "wireless-handheld"
+  | "wireless-lav"
+  | "wired"
+  | "headset"
+  | "di-box"
+  | "other";
 type ChannelGroup = "vocals" | "band" | "playback" | "sfx" | "other";
 
 const MIC_TYPE_LABELS: Record<MicType, { label: string; icon: React.ElementType }> = {
@@ -79,30 +87,40 @@ export const Route = createFileRoute("/$slug/dashboard/audio")({
 });
 
 function AudioPage() {
+  const workspaceTerms = useWorkspaceTerms();
   const { assignments: initialAssignments, orgId, initialServiceDate, initialShowId, shows, orgTimezone, mixers } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [showId, setShowId] = useState<string | null>(initialShowId);
   const [assignments, setAssignments] = useState(initialAssignments);
   const [showForm, setShowForm] = useState(false);
-  const [editAssignment, setEditAssignment] = useState<typeof assignments[0] | null>(null);
+  const [editAssignment, setEditAssignment] = useState<
+    (typeof assignments)[0] | null
+  >(null);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => initialAssignments[0]?.id ?? null);
   const assignmentRequestRef = useRef(0);
 
-  const loadAssignments = useCallback(async (date: string, targetShowId: string | null) => {
-    const requestId = ++assignmentRequestRef.current;
-    setLoading(true);
-    try {
-      const result = await getMicAssignments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } });
-      if (assignmentRequestRef.current !== requestId) return;
-      setAssignments(result);
-      setSelectedId((current) => result.some((assignment) => assignment.id === current) ? current : result[0]?.id ?? null);
-    } finally {
+  const loadAssignments = useCallback(
+    async (date: string, targetShowId: string | null) => {
+      const requestId = ++assignmentRequestRef.current;
+      setLoading(true);
+      try {
+        const result = await getMicAssignments({ data: { orgId, serviceDate: date, showId: targetShowId ?? undefined } });
+        if (assignmentRequestRef.current !== requestId) return;
+        setAssignments(result);
+        setSelectedId((current) =>
+          result.some((assignment) => assignment.id === current)
+            ? current
+            : (result[0]?.id ?? null),
+        );
+      } finally {
       if (assignmentRequestRef.current === requestId) setLoading(false);
     }
-  }, [orgId]);
+    },
+    [orgId],
+  );
 
   useServiceDateRollover({
     serviceDate,
@@ -191,7 +209,21 @@ function AudioPage() {
           <AudioStat label="Phantom power" value={phantomCount} icon={Zap} tone={phantomCount ? "text-yellow-400" : undefined} />
           <AudioStat label="Mixer control" value={enabledMixer ? "Available" : "Not connected"} icon={PlugZap} tone={enabledMixer ? "text-green-400" : "text-board-muted"} />
         </div>
-        {!enabledMixer && <div className="flex flex-col gap-3 rounded-xl border border-fire-500/20 bg-fire-500/[0.04] p-4 sm:flex-row sm:items-center"><PlugZap className="h-5 w-5 shrink-0 text-fire-500" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-board-text">Connect a mixer for live control</p><p className="mt-1 text-[11px] leading-5 text-board-muted">This page currently stores the service patch, gain notes, phantom and mute state. Add an OSC-compatible mixer to expose verified live controls and feedback.</p></div><Link to="/$slug/dashboard/devices" params={{ slug }} className="shrink-0 rounded-lg border border-fire-500/30 px-3 py-2 text-xs font-semibold text-fire-400 hover:bg-fire-500/10">Configure mixer</Link></div>}
+        {!enabledMixer && (
+          <div className="flex flex-col gap-3 rounded-xl border border-fire-500/20 bg-fire-500/[0.04] p-4 sm:flex-row sm:items-center">
+            <PlugZap className="h-5 w-5 shrink-0 text-fire-500" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-board-text">Connect a mixer for live control</p>
+              <p className="mt-1 text-[11px] leading-5 text-board-muted">
+                {workspaceCopy(
+                  "This page currently stores the service patch, gain notes, phantom and mute state. Add an OSC-compatible mixer to expose verified live controls and feedback.",
+                  workspaceTerms,
+                )}
+              </p>
+            </div>
+            <Link to="/$slug/dashboard/devices" params={{ slug }} className="shrink-0 rounded-lg border border-fire-500/30 px-3 py-2 text-xs font-semibold text-fire-400 hover:bg-fire-500/10">Configure mixer</Link>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-12 text-board-muted text-sm">
             Loading channels...
@@ -200,7 +232,10 @@ function AudioPage() {
           <EmptyState
             icon={Mic}
             title="No channels assigned"
-            description="Map mics, instruments and playback inputs to mixer channels for this service."
+            description={workspaceCopy(
+              "Map mics, instruments and playback inputs to mixer channels for this service.",
+              workspaceTerms,
+            )}
             action={showId ? (
               <EmptyStateButton
                 onClick={() => {
@@ -214,8 +249,54 @@ function AudioPage() {
           />
         ) : (
           <div className="grid overflow-hidden rounded-xl border border-board-border bg-board-card xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="min-w-0 xl:border-r xl:border-board-border"><div className="border-b border-board-border p-3"><label className="relative block max-w-sm"><Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-board-muted" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search channels" className="w-full rounded-lg border border-board-border bg-board-bg py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50" /></label></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] border-collapse text-left"><thead><tr className="border-b border-board-border text-[9px] uppercase tracking-wider text-board-muted"><th className="px-3 py-2.5">Ch</th><th className="px-3 py-2.5">Source</th><th className="px-3 py-2.5">Mic / model</th><th className="px-3 py-2.5">Gain</th><th className="px-3 py-2.5 text-center">48V</th><th className="px-3 py-2.5 text-center">Mute</th><th className="px-3 py-2.5">Notes</th></tr></thead><tbody>{(Object.keys(GROUP_CONFIG) as ChannelGroup[]).flatMap((group) => { const channels = groupedAssignments[group]; if (!channels.length) return []; return [<tr key={`${group}-header`} className="border-b border-board-border bg-board-bg/65"><td colSpan={7} className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-board-muted">{GROUP_CONFIG[group].label} · {channels.length}</td></tr>, ...channels.map((ch) => <tr key={ch.id} onClick={() => setSelectedId(ch.id)} className={`cursor-pointer border-b border-board-border/60 text-xs transition-colors last:border-0 ${selectedAssignment?.id === ch.id ? "bg-fire-500/[0.06]" : "hover:bg-board-bg/45"} ${ch.muted ? "text-board-muted" : "text-board-text"}`}><td className="px-3 py-3 font-mono text-fire-400">{ch.channel}</td><td className="max-w-[180px] truncate px-3 py-3 font-medium">{ch.label}</td><td className="max-w-[170px] truncate px-3 py-3 text-board-muted">{ch.micModel || MIC_TYPE_LABELS[ch.micType as MicType]?.label || "—"}</td><td className="px-3 py-3 font-mono tabular-nums text-board-muted">{ch.gainDb == null ? "—" : `${ch.gainDb > 0 ? "+" : ""}${ch.gainDb} dB`}</td><td className={`px-3 py-3 text-center ${ch.phantom ? "text-yellow-400" : "text-board-muted/30"}`}>{ch.phantom ? "48V" : "—"}</td><td className="px-3 py-2 text-center"><button type="button" onClick={(event) => { event.stopPropagation(); void handleToggleMute(ch.id, ch.muted); }} className={`rounded-lg p-2 ${ch.muted ? "bg-red-500/15 text-red-400" : "text-board-muted hover:bg-board-bg"}`} aria-label={ch.muted ? `Unmute ${ch.label}` : `Mute ${ch.label}`}>{ch.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button></td><td className="max-w-[190px] truncate px-3 py-3 text-board-muted">{ch.notes || "—"}</td></tr>)]})}</tbody></table></div></div>
-            {selectedAssignment ? <aside className="p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] text-board-muted">Channel {selectedAssignment.channel}</p><h2 className="mt-1 text-base font-semibold text-board-text">{selectedAssignment.label}</h2><p className="mt-1 text-xs capitalize text-board-muted">{selectedAssignment.group}</p></div><button type="button" onClick={() => { setEditAssignment(selectedAssignment); setShowForm(true); }} className="rounded-lg border border-board-border p-2 text-board-muted hover:text-board-text" aria-label="Edit channel"><Pencil className="h-3.5 w-3.5" /></button></div><div className="mt-5 space-y-4"><ChannelDetail label="Microphone" value={selectedAssignment.micModel || MIC_TYPE_LABELS[selectedAssignment.micType as MicType]?.label || "Not specified"} /><ChannelDetail label="Stored gain" value={selectedAssignment.gainDb == null ? "Not set" : `${selectedAssignment.gainDb > 0 ? "+" : ""}${selectedAssignment.gainDb} dB`} /><ChannelDetail label="Phantom power" value={selectedAssignment.phantom ? "48V enabled" : "Off"} /><ChannelDetail label="Assignment mute" value={selectedAssignment.muted ? "Muted" : "Open"} /><ChannelDetail label="Notes" value={selectedAssignment.notes || "No notes"} /></div><div className="mt-6 grid gap-2"><button type="button" onClick={() => void handleToggleMute(selectedAssignment.id, selectedAssignment.muted)} className={`rounded-lg px-3 py-2.5 text-xs font-semibold ${selectedAssignment.muted ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>{selectedAssignment.muted ? "Mark unmuted" : "Mark muted"}</button><button type="button" onClick={() => { setEditAssignment(selectedAssignment); setShowForm(true); }} className="rounded-lg border border-board-border px-3 py-2.5 text-xs font-medium text-board-text">Edit assignment</button><button type="button" onClick={() => void handleDelete(selectedAssignment.id)} className="rounded-lg px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10">Delete channel</button></div>{enabledMixer ? <Link to="/$slug/dashboard/devices/$deviceId" params={{ slug, deviceId: enabledMixer.id }} className="mt-6 flex items-center justify-between rounded-xl border border-green-500/20 bg-green-500/[0.04] p-3 text-xs text-green-400"><span>Open {enabledMixer.name} controls</span><ChevronRight className="h-3.5 w-3.5" /></Link> : null}</aside> : null}
+            <div className="min-w-0 xl:border-r xl:border-board-border">
+              <div className="border-b border-board-border p-3"><label className="relative block max-w-sm"><Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-board-muted" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search channels" className="w-full rounded-lg border border-board-border bg-board-bg py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50" /></label></div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse text-left">
+                  <thead><tr className="border-b border-board-border text-[9px] uppercase tracking-wider text-board-muted"><th className="px-3 py-2.5">Ch</th><th className="px-3 py-2.5">Source</th><th className="px-3 py-2.5">Mic / model</th><th className="px-3 py-2.5">Gain</th><th className="px-3 py-2.5 text-center">48V</th><th className="px-3 py-2.5 text-center">Mute</th><th className="px-3 py-2.5">Notes</th></tr></thead>
+                  <tbody>
+                    {(Object.keys(GROUP_CONFIG) as ChannelGroup[]).flatMap(
+                      (group) => {
+                        const channels = groupedAssignments[group];
+                        if (!channels.length) return [];
+                        return [
+                          <tr key={`${group}-header`} className="border-b border-board-border bg-board-bg/65"><td colSpan={7} className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-board-muted">{GROUP_CONFIG[group].label} · {channels.length}</td></tr>,
+                          ...channels.map((ch) => (
+                            <tr key={ch.id} onClick={() => setSelectedId(ch.id)} className={`cursor-pointer border-b border-board-border/60 text-xs transition-colors last:border-0 ${selectedAssignment?.id === ch.id ? "bg-fire-500/[0.06]" : "hover:bg-board-bg/45"} ${ch.muted ? "text-board-muted" : "text-board-text"}`}>
+                              <td className="px-3 py-3 font-mono text-fire-400">{ch.channel}</td>
+                              <td className="max-w-[180px] truncate px-3 py-3 font-medium">{ch.label}</td>
+                              <td className="max-w-[170px] truncate px-3 py-3 text-board-muted">{ch.micModel || MIC_TYPE_LABELS[ch.micType as MicType]?.label || "—"}</td>
+                              <td className="px-3 py-3 font-mono tabular-nums text-board-muted">{ch.gainDb == null ? "—" : `${ch.gainDb > 0 ? "+" : ""}${ch.gainDb} dB`}</td>
+                              <td className={`px-3 py-3 text-center ${ch.phantom ? "text-yellow-400" : "text-board-muted/30"}`}>{ch.phantom ? "48V" : "—"}</td>
+                              <td className="px-3 py-2 text-center">
+                                <button type="button" onClick={(event) => { event.stopPropagation(); void handleToggleMute(ch.id, ch.muted); }} className={`rounded-lg p-2 ${ch.muted ? "bg-red-500/15 text-red-400" : "text-board-muted hover:bg-board-bg"}`} aria-label={ch.muted ? `Unmute ${ch.label}` : `Mute ${ch.label}`}>
+                                  {ch.muted ? (
+                                    <VolumeX className="h-4 w-4" />
+                                  ) : (
+                                    <Volume2 className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </td>
+                              <td className="max-w-[190px] truncate px-3 py-3 text-board-muted">{ch.notes || "—"}</td>
+                            </tr>
+                          )),
+                        ];
+                      },
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {selectedAssignment ? (
+              <aside className="p-5">
+                <div className="flex items-start justify-between gap-3"><div><p className="text-[10px] text-board-muted">Channel {selectedAssignment.channel}</p><h2 className="mt-1 text-base font-semibold text-board-text">{selectedAssignment.label}</h2><p className="mt-1 text-xs capitalize text-board-muted">{selectedAssignment.group}</p></div><button type="button" onClick={() => { setEditAssignment(selectedAssignment); setShowForm(true); }} className="rounded-lg border border-board-border p-2 text-board-muted hover:text-board-text" aria-label="Edit channel"><Pencil className="h-3.5 w-3.5" /></button></div>
+                <div className="mt-5 space-y-4"><ChannelDetail label="Microphone" value={selectedAssignment.micModel || MIC_TYPE_LABELS[selectedAssignment.micType as MicType]?.label || "Not specified"} /><ChannelDetail label="Stored gain" value={selectedAssignment.gainDb == null ? "Not set" : `${selectedAssignment.gainDb > 0 ? "+" : ""}${selectedAssignment.gainDb} dB`} /><ChannelDetail label="Phantom power" value={selectedAssignment.phantom ? "48V enabled" : "Off"} /><ChannelDetail label="Assignment mute" value={selectedAssignment.muted ? "Muted" : "Open"} /><ChannelDetail label="Notes" value={selectedAssignment.notes || "No notes"} /></div>
+                <div className="mt-6 grid gap-2"><button type="button" onClick={() => void handleToggleMute(selectedAssignment.id, selectedAssignment.muted)} className={`rounded-lg px-3 py-2.5 text-xs font-semibold ${selectedAssignment.muted ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>{selectedAssignment.muted ? "Mark unmuted" : "Mark muted"}</button><button type="button" onClick={() => { setEditAssignment(selectedAssignment); setShowForm(true); }} className="rounded-lg border border-board-border px-3 py-2.5 text-xs font-medium text-board-text">Edit assignment</button><button type="button" onClick={() => void handleDelete(selectedAssignment.id)} className="rounded-lg px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10">Delete channel</button></div>
+                {enabledMixer ? (
+                  <Link to="/$slug/dashboard/devices/$deviceId" params={{ slug, deviceId: enabledMixer.id }} className="mt-6 flex items-center justify-between rounded-xl border border-green-500/20 bg-green-500/[0.04] p-3 text-xs text-green-400"><span>Open {enabledMixer.name} controls</span><ChevronRight className="h-3.5 w-3.5" /></Link>
+                ) : null}
+              </aside>
+            ) : null}
           </div>
         )}
 
@@ -242,12 +323,21 @@ function AudioPage() {
   );
 }
 
-function AudioStat({ label, value, icon: Icon, tone = "text-board-text" }: { label: string; value: string | number; icon: React.ElementType; tone?: string }) {
-  return <div className="flex min-h-[76px] items-center gap-3 px-4 py-3"><Icon className="h-4 w-4 text-board-muted" /><div><p className={`text-base font-semibold tabular-nums ${tone}`}>{value}</p><p className="mt-0.5 text-[10px] text-board-muted">{label}</p></div></div>;
+function AudioStat({ label, value, icon: Icon, tone = "text-board-text" }: {
+  label: string;
+  value: string | number;
+  icon: React.ElementType;
+  tone?: string;
+}) {
+  return (
+    <div className="flex min-h-[76px] items-center gap-3 px-4 py-3"><Icon className="h-4 w-4 text-board-muted" /><div><p className={`text-base font-semibold tabular-nums ${tone}`}>{value}</p><p className="mt-0.5 text-[10px] text-board-muted">{label}</p></div></div>
+  );
 }
 
 function ChannelDetail({ label, value }: { label: string; value: string }) {
-  return <div className="border-b border-board-border/60 pb-3 last:border-0"><p className="text-[10px] text-board-muted">{label}</p><p className="mt-1 break-words text-xs text-board-text">{value}</p></div>;
+  return (
+    <div className="border-b border-board-border/60 pb-3 last:border-0"><p className="text-[10px] text-board-muted">{label}</p><p className="mt-1 break-words text-xs text-board-text">{value}</p></div>
+  );
 }
 
 function MicAssignmentForm({
@@ -267,6 +357,7 @@ function MicAssignmentForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [channel, setChannel] = useState(existing?.channel ?? nextChannel);
   const [label, setLabel] = useState(existing?.label ?? "");
   const [micType, setMicType] = useState<MicType>(
@@ -376,7 +467,10 @@ function MicAssignmentForm({
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Pastor James, Kick Drum, Keys L"
+              placeholder={workspaceCopy(
+                "e.g. Pastor James, Kick Drum, Keys L",
+                workspaceTerms,
+              )}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors"
             />
           </div>

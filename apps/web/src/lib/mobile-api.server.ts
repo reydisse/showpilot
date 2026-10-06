@@ -1,4 +1,14 @@
 import {
+  resolveWorkspaceProfile,
+  legacyTerminologyProfile,
+} from "@showpilot/shared";
+import {
+  workspaceD1Store,
+  readWorkspaceProfile,
+  writeWorkspaceProfile,
+  workspaceCommandSchema,
+} from "./workspace/profile.server";
+import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   EQUIPMENT_CATEGORIES,
   EQUIPMENT_STATUSES,
@@ -682,6 +692,7 @@ async function bootstrap(
   const notifications = rawNotifications.slice(0, 50);
   const lastNotification = notifications.at(-1);
   return json({
+    workspace: await readWorkspaceProfile(workspaceD1Store(db, orgId)),
     organization,
     timeZone: timezone?.value || "Africa/Accra",
     identity: {
@@ -1592,7 +1603,7 @@ async function createRundown(
     !validDate(body.serviceDate) ||
     (body.requestId !== undefined && !validId(body.requestId))
   ) {
-    return json({ error: "Choose a valid workspace and service date." }, 400);
+    return json({ error: "Choose a valid workspace and date." }, 400);
   }
 
   const name =
@@ -2318,12 +2329,12 @@ async function schedule(
     (requestedDate !== null && !validDate(requestedDate)) ||
     (requestedAssignmentId !== null && !validId(requestedAssignmentId))
   ) {
-    return json({ error: "Choose a valid service date and assignment." }, 400);
+    return json({ error: "Choose a valid date and assignment." }, 400);
   }
   const [settingsResult, selectedAssignment] = await Promise.all([
     db
       .prepare(
-        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile')",
+        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile', 'workspace-type', 'workspace-modules', 'workspace-custom')",
       )
       .bind(access.orgId)
       .all<{ key: string; value: string }>(),
@@ -2475,7 +2486,11 @@ async function schedule(
       url: settingMap["schedule-provider-url"] ?? "",
       label: settingMap["schedule-provider-label"] ?? "",
     },
-    terminologyProfile: settingMap["terminology-profile"] || "general",
+    terminologyProfile: legacyTerminologyProfile(
+      resolveWorkspaceProfile(settingMap).type,
+    ),
+    workspaceType: resolveWorkspaceProfile(settingMap).type,
+    workspace: resolveWorkspaceProfile(settingMap),
     ...inventoryData,
     services,
     assignments: assignments.map((assignment) => {
@@ -3151,10 +3166,7 @@ async function updateMobileScheduleService(
     !expectedUpdatedAt ||
     expectedUpdatedAt.length > 64
   ) {
-    return json(
-      { error: "Check the service title, start time, and location." },
-      400,
-    );
+    return json({ error: "Check the title, start time, and location." }, 400);
   }
   const [show, timezone] = await Promise.all([
     getMobileScheduleShow(db, access.orgId, showId),
@@ -3221,6 +3233,61 @@ async function deleteMobileScheduleService(
   }
 }
 
+async function saveMobileWorkspace(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const initial = url.pathname.endsWith("/initial");
+  const access = await authorize(
+    request,
+    url,
+    db,
+    initial ? undefined : ["settings:organization"],
+  );
+  if (access instanceof Response) return access;
+  if (initial && access.identity.role !== "owner")
+    return json({ error: "Forbidden" }, 403);
+  if (!initial && access.identity.role !== "owner" && access.identity.role !== "admin") return json({ error: "Forbidden" }, 403);
+  const body = await readJson(request);
+  const kind = initial
+    ? "initial"
+    : url.pathname.endsWith("/modules")
+      ? "modules"
+      : "type";
+  const command = workspaceCommandSchema.safeParse({
+    ...body,
+    kind,
+    ...(initial
+      ? {
+          onlyIfUnconfigured: true,
+          modules: undefined,
+          custom: { label: body?.label ?? "", terms: {} },
+        }
+      : {}),
+  });
+  if (!command.success)
+    return json({ error: "Choose a valid workspace type and features." }, 400);
+  try {
+    return json({
+      workspace: await writeWorkspaceProfile(
+        workspaceD1Store(db, access.orgId),
+        command.data,
+      ),
+    });
+  } catch (error) {
+    return json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Workspace could not be saved",
+      },
+      409,
+    );
+  }
+}
+
 async function saveMobileScheduleProvider(
   request: Request,
   url: URL,
@@ -3232,12 +3299,13 @@ async function saveMobileScheduleProvider(
   const provider = typeof body?.provider === "string" ? body.provider : "";
   const workspaceUrl = typeof body?.url === "string" ? body.url.trim() : "";
   const label = typeof body?.label === "string" ? body.label.trim() : "";
-  const terminologyProfile =
-    typeof body?.terminologyProfile === "string" ? body.terminologyProfile : "";
+  const terminologyProfile = body?.terminologyProfile;
   if (
     !["native", "planning-center", "faithteams", "other"].includes(provider) ||
     label.length > 80 ||
-    !["general", "church"].includes(terminologyProfile)
+    (terminologyProfile !== undefined &&
+      terminologyProfile !== "general" &&
+      terminologyProfile !== "church")
   ) {
     return json(
       { error: "Check the scheduling source and organization language." },
@@ -3257,19 +3325,23 @@ async function saveMobileScheduleProvider(
     ["schedule-provider", provider],
     ["schedule-provider-url", workspaceUrl],
     ["schedule-provider-label", label],
-    ["terminology-profile", terminologyProfile],
   ];
   await db.batch(
     values.map(([key, value]) =>
       db
         .prepare(
-          `INSERT INTO app_setting (id, orgId, key, value, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
+          `INSERT INTO app_setting (id, orgId, key, value)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
         )
         .bind(crypto.randomUUID(), access.orgId, key, value),
     ),
   );
+  if (terminologyProfile !== undefined)
+    await writeWorkspaceProfile(workspaceD1Store(db, access.orgId), {
+      kind: "legacy",
+      terminologyProfile,
+    });
   return json({ ok: true });
 }
 
@@ -3380,7 +3452,10 @@ async function respondToAssignment(
   }
   if (responseWindow.status === "closed") {
     return json(
-      { error: "This assignment is closed because the service has ended." },
+      {
+        error:
+          "This assignment is closed because its scheduled event has ended.",
+      },
       409,
     );
   }
@@ -4293,7 +4368,7 @@ async function createIncident(
     (showId !== null && !validId(showId))
   ) {
     return json(
-      { error: "Choose a category, severity, service date, and description." },
+      { error: "Choose a category, severity, date, and description." },
       400,
     );
   }
@@ -7571,6 +7646,15 @@ export async function handleMobileApi(
   if (contentLengthExceeds(request, 3_250_000)) {
     return json({ error: "Request payload is too large." }, 413);
   }
+  if (
+    [
+      "/api/mobile/v1/workspace/type",
+      "/api/mobile/v1/workspace/modules",
+      "/api/mobile/v1/workspace/initial",
+    ].includes(url.pathname) &&
+    request.method === "POST"
+  )
+    return saveMobileWorkspace(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET")
     return bootstrap(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST")

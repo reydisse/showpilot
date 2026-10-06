@@ -159,7 +159,7 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
       throw new Error("A live show team cannot be replaced");
     }
     if (source.length === 0)
-      throw new Error("That service has no crew to copy");
+      throw new Error("There is no crew to copy from that date");
     const requestId = `copy-${data.copyFromShowId.slice(0, 36)}-${data.showId.slice(0, 36)}`;
     const rows = source.map((row, index) => ({
       id: `${requestId}-${index}`,
@@ -178,7 +178,8 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
     }));
     const expectedIds = new Set(rows.map((row) => row.id));
     const retry = existing.length === rows.length && existing.every((row) => expectedIds.has(row.id));
-    if (existing.length > 0 && !retry) throw new Error("This service already has a crew assigned");
+    if (existing.length > 0 && !retry)
+      throw new Error("Crew members are already assigned to this date");
     if (!retry) {
       try {
         await prisma.serviceAssignment.createMany({ data: rows });

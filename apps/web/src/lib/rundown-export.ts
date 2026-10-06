@@ -27,9 +27,20 @@ export interface ExportReport {
     reportedBy: string;
     timestamp: string;
   }>;
-  checklist?: Array<{ label: string; category: string; checked: boolean; checkedBy: string | null; checkedAt?: string | null }>;
+  checklist?: Array<{
+    label: string;
+    category: string;
+    checked: boolean;
+    checkedBy: string | null;
+    checkedAt?: string | null;
+  }>;
   crew?: Array<{ role: string; name: string; status: string; notes: string }>;
-  cueSheets?: Array<{ cueNumber: number; rundownItem: string; cameraAssignments: string; notes: string }>;
+  cueSheets?: Array<{
+    cueNumber: number;
+    rundownItem: string;
+    cameraAssignments: string;
+    notes: string;
+  }>;
   managerNotes?: ShowReportNote[];
 }
 
@@ -61,7 +72,7 @@ export function exportRundownCsv(report: ExportReport) {
 export function buildRundownCsv(report: ExportReport): string {
   const headers = [
     "Record Type",
-    "Service Date",
+    "Date",
     "Show",
     "Generated At",
     "Item #",
@@ -289,7 +300,7 @@ export async function exportRundownPdf(report: ExportReport) {
         ],
       },
       { text: "Post-Show Report", style: "reportTitle" },
-      { text: report.rundown.name || "Service rundown", style: "serviceName" },
+      { text: report.rundown.name || "Rundown", style: "serviceName" },
       {
         columns: [
           { text: `Generated: ${new Date(report.generatedAt).toLocaleString()}`, style: "meta" },

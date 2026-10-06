@@ -19,21 +19,22 @@ export interface ArchetypeDef {
   landing: string;
 }
 
-export const ONBOARDING_ARCHETYPES: readonly ArchetypeDef[] = [
-  { id: "td", label: "Technical Director", desc: "Runs the booth", landing: "/show" },
-  { id: "pm", label: "Production Manager", desc: "Plans & coordinates", landing: "/dashboard/prod-manager" },
-  { id: "sm", label: "Stage Manager", desc: "Calls the show", landing: "/rundown" },
-  { id: "cd", label: "Creative / Worship Dir.", desc: "Owns the content", landing: "/streaming/graphics" },
-  { id: "pastor", label: "Pastor / Staff", desc: "Oversees everything", landing: "/dashboard/prod-manager" },
-  { id: "op", label: "Operator / Volunteer", desc: "Runs a position", landing: "/show" },
-];
+export { ONBOARDING_ARCHETYPES } from "./workspace/archetypes";
+import {
+  ONBOARDING_ARCHETYPES,
+  workspaceArchetypeLanding,
+} from "./workspace/archetypes";
+import type { ModuleId } from "@showpilot/shared";
 
 export function isOnboardingArchetype(value: string): value is OnboardingArchetype {
   return ONBOARDING_ARCHETYPES.some((archetype) => archetype.id === value);
 }
 
-export function archetypeLanding(id: string | null | undefined): string {
-  return ONBOARDING_ARCHETYPES.find((archetype) => archetype.id === id)?.landing ?? "/show";
+export function archetypeLanding(
+  id: string | null | undefined,
+  modules?: readonly ModuleId[],
+): string {
+  return workspaceArchetypeLanding(id, modules);
 }
 
 /**
@@ -41,8 +42,14 @@ export function archetypeLanding(id: string | null | undefined): string {
  * Carries the archetype + landing route and nothing else — by design
  * there is no RBAC role in here.
  */
-export function buildOnboardingRoleValue(archetype: OnboardingArchetype): string {
-  return JSON.stringify({ archetype, landing: archetypeLanding(archetype) });
+export function buildOnboardingRoleValue(
+  archetype: OnboardingArchetype,
+  modules?: readonly ModuleId[],
+): string {
+  return JSON.stringify({
+    archetype,
+    landing: archetypeLanding(archetype, modules),
+  });
 }
 
 // ─── Resume derivation ───────────────────────────────────────
@@ -55,6 +62,7 @@ export interface OnboardingResumeInput {
   started: boolean;
   /** Scene 2 archetype persisted (checkpoint #2). */
   hasRole: boolean;
+  hasWorkspaceType?: boolean;
   /** Template seed marker exists (Scene 3 done, blank included). */
   hasSeed: boolean;
   /** GO LIVE pressed. */
@@ -62,7 +70,7 @@ export interface OnboardingResumeInput {
 }
 
 export type OnboardingResumeDecision =
-  | { kind: "scene"; scene: 1 | 2 | 3 | 5 }
+  | { kind: "scene"; scene: 1 | "1b" | 2 | 3 | 5 }
   | { kind: "redirect" };
 
 /**
@@ -72,9 +80,12 @@ export type OnboardingResumeDecision =
  * Scene 4 is a transient build animation, so a seed without completion
  * resumes at Scene 5.
  */
-export function deriveResumeScene(input: OnboardingResumeInput): OnboardingResumeDecision {
+export function deriveResumeScene(
+  input: OnboardingResumeInput,
+): OnboardingResumeDecision {
   if (!input.hasOrg) return { kind: "scene", scene: 1 };
   if (!input.isOwner || !input.started || input.completed) return { kind: "redirect" };
+  if (input.hasWorkspaceType === false) return { kind: "scene", scene: "1b" };
   if (!input.hasRole) return { kind: "scene", scene: 2 };
   if (!input.hasSeed) return { kind: "scene", scene: 3 };
   return { kind: "scene", scene: 5 };

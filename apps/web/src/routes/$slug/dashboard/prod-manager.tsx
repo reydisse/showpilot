@@ -1,3 +1,4 @@
+import { useTerms } from "@/components/workspace/WorkspaceProvider";
 import {
   createFileRoute,
   Link,
@@ -93,7 +94,14 @@ function ProdManagerPage() {
     return () => clearInterval(id);
   }, [model.phase, router]);
 
-  const widgetModel: PmWidgetModel = { model, rundownState, slug, orgId, showId };
+  const widgetModel: PmWidgetModel = {
+    terms: useTerms(),
+    model,
+    rundownState,
+    slug,
+    orgId,
+    showId,
+  };
   const widgets = selectWidgets(PM_WIDGETS, model.phase, widgetModel);
   const banners = widgetsInRegion(widgets, "banner");
   const main = widgetsInRegion(widgets, "main");
@@ -215,7 +223,11 @@ function ProdManagerPage() {
   );
 }
 
-function LiveCountdown({ countdown }: { countdown: PmWidgetModel["model"]["countdown"] }) {
+function LiveCountdown({
+  countdown,
+}: {
+  countdown: PmWidgetModel["model"]["countdown"];
+}) {
   const now = useNow(1000);
   const displayMs = countdown.targetMs === null
     ? countdown.remainingMs

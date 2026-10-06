@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Check from "lucide-react-native/icons/check";
@@ -70,6 +72,7 @@ function grantEndLabel(endExclusive: string) {
 }
 
 export default function TeamScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
@@ -172,16 +175,22 @@ export default function TeamScreen() {
         data={query.data?.grants ?? []}
         initialNumToRender={10}
         keyExtractor={(grant) => grant.id}
-        ListHeaderComponent={(
+        ListHeaderComponent={
           <View style={styles.headerContent}>
-            {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.isPending ? (
+              <ActivityIndicator color={colors.amberText} size="large" />
+            ) : null}
+            {query.error ? (
+              <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+            ) : null}
             {authority ? (
               <View style={[styles.authorityCard, canManage ? styles.authorityCardActive : null]}>
                 <View style={styles.authorityIcon}>
-                  {authority.kind === "permanent"
-                    ? <ShieldCheck color={colors.blue} size={20} />
-                    : <Clock3 color={canManage ? colors.amberText : colors.textFaint} size={20} />}
+                  {authority.kind === "permanent" ? (
+                    <ShieldCheck color={colors.blue} size={20} />
+                  ) : (
+                    <Clock3 color={canManage ? colors.amberText : colors.textFaint} size={20} />
+                  )}
                 </View>
                 <View style={styles.authorityCopy}>
                   <Text style={styles.authorityTitle}>
@@ -204,7 +213,7 @@ export default function TeamScreen() {
               <Text style={styles.sectionCount}>{query.data?.grants.length ?? 0}</Text>
             </View>
           </View>
-        )}
+        }
         ListEmptyComponent={query.data && !query.isPending ? (
           <View style={styles.emptyCard}>
             <KeyRound color={colors.textFaint} size={25} />
@@ -222,7 +231,9 @@ export default function TeamScreen() {
           return (
             <View style={styles.grantCard}>
               <View style={styles.memberRow}>
-                {avatar ? <Image source={{ uri: avatar }} style={styles.avatar} /> : (
+                {avatar ? (
+                  <Image source={{ uri: avatar }} style={styles.avatar} />
+                ) : (
                   <View style={styles.avatarFallback}><UserRound color={colors.amberText} size={18} /></View>
                 )}
                 <View style={styles.memberCopy}>
@@ -237,7 +248,9 @@ export default function TeamScreen() {
               <Text style={styles.grantMeta}>
                 {grant.expiresOn ? `Active through ${grantEndLabel(grant.expiresOn)}` : "Active until revoked"} · Granted by {grant.grantedBy.name}
               </Text>
-              {grant.reason ? <Text style={styles.reason}>{grant.reason}</Text> : null}
+              {grant.reason ? (
+                <Text style={styles.reason}>{grant.reason}</Text>
+              ) : null}
               {grant.canRevoke ? (
                 <Pressable
                   accessibilityRole="button"
@@ -280,7 +293,9 @@ export default function TeamScreen() {
                   </Pressable>
                 ))}
               </View>
-              {selectedCapability ? <Text style={styles.description}>{selectedCapability.description}</Text> : null}
+              {selectedCapability ? (
+                <Text style={styles.description}>{selectedCapability.description}</Text>
+              ) : null}
 
               {authority?.kind === "permanent" ? (
                 <>
@@ -293,7 +308,18 @@ export default function TeamScreen() {
               ) : null}
 
               <Text style={styles.label}>REASON · OPTIONAL</Text>
-              <TextInput accessibilityLabel="Reason for access grant" maxLength={240} onChangeText={setReason} placeholder="Covering rundown for Sunday service" placeholderTextColor={colors.textFaint} style={styles.reasonInput} value={reason} />
+              <TextInput
+                accessibilityLabel="Reason for access grant"
+                maxLength={240}
+                onChangeText={setReason}
+                placeholder={workspaceCopy(
+                  "Covering rundown for Sunday service",
+                  workspaceTerms,
+                )}
+                placeholderTextColor={colors.textFaint}
+                style={styles.reasonInput}
+                value={reason}
+              />
               <AppButton label={grantMutation.isPending ? "Granting…" : "Grant access"} disabled={grantMutation.isPending || !targetUserId || !capabilityId} onPress={() => grantMutation.mutate()} />
             </ScrollView>
           </View>

@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -53,7 +55,12 @@ const departmentLabels: Record<ChecklistDepartment, string> = {
 };
 
 type ChecklistRow =
-  | { kind: "heading"; department: ChecklistDepartment; complete: number; total: number }
+  | {
+      kind: "heading";
+      department: ChecklistDepartment;
+      complete: number;
+      total: number;
+    }
   | { kind: "entry"; entry: MobileChecklistEntry };
 
 function formatShowDate(serviceDate: string) {
@@ -80,6 +87,7 @@ function completedAtLabel(value: string | null) {
 }
 
 export default function ChecklistScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const params = useLocalSearchParams<{ showId?: string | string[] }>();
@@ -146,23 +154,38 @@ export default function ChecklistScreen() {
     onError: (error) => Alert.alert("Item not added", error.message),
   });
   const toggleMutation = useMutation({
-    mutationFn: (input: { entryId: string; checked: boolean; expectedRevision: number }) => toggleMobileChecklistEntry({
+    mutationFn: (input: {
+      entryId: string;
+      checked: boolean;
+      expectedRevision: number;
+    }) =>
+      toggleMobileChecklistEntry({
       orgId: organization!.id,
       ...input,
     }),
     onMutate: async ({ entryId, checked }) => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<MobileChecklist>(queryKey);
-      queryClient.setQueryData<MobileChecklist>(queryKey, (current) => current ? {
-        ...current,
-        entries: current.entries.map((entry) => entry.id === entryId ? {
-          ...entry,
-          checked,
-          checkedBy: checked ? bootstrap?.identity.name ?? null : null,
-          checkedAt: checked ? new Date().toISOString() : null,
-          revision: entry.revision + (entry.checked === checked ? 0 : 1),
-        } : entry),
-      } : current);
+      queryClient.setQueryData<MobileChecklist>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              entries: current.entries.map((entry) =>
+                entry.id === entryId
+                  ? {
+                      ...entry,
+                      checked,
+                      checkedBy: checked
+                        ? (bootstrap?.identity.name ?? null)
+                        : null,
+                      checkedAt: checked ? new Date().toISOString() : null,
+                      revision: entry.revision + (entry.checked === checked ? 0 : 1),
+                    }
+                  : entry,
+              ),
+            }
+          : current,
+      );
       return { previous };
     },
     onError: (error, _input, context) => {
@@ -248,7 +271,10 @@ export default function ChecklistScreen() {
   function confirmRemove(entry: MobileChecklistEntry) {
     Alert.alert(
       "Remove checklist item?",
-      "This removes it only from the selected service. The reusable template remains available to other services.",
+      workspaceCopy(
+        "This removes it only from the selected service. The reusable template remains available to other services.",
+        workspaceTerms,
+      ),
       [
         { text: "Cancel", style: "cancel" },
         { text: "Remove", style: "destructive", onPress: () => removeMutation.mutate(entry.id) },
@@ -278,7 +304,7 @@ export default function ChecklistScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         keyExtractor={(row) => row.kind === "heading" ? `heading-${row.department}` : row.entry.id}
-        ListHeaderComponent={(
+        ListHeaderComponent={
           <View style={styles.headerContent}>
             <View style={styles.showNavigation}>
               <Pressable
@@ -305,8 +331,12 @@ export default function ChecklistScreen() {
               </Pressable>
             </View>
 
-            {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-            {query.error ? <Text accessibilityRole="button" onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.isPending ? (
+              <ActivityIndicator color={colors.amber} size="large" />
+            ) : null}
+            {query.error ? (
+              <Text accessibilityRole="button" onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+            ) : null}
 
             {entries.length > 0 ? (
               <View style={styles.progressCard}>
@@ -350,9 +380,11 @@ export default function ChecklistScreen() {
                 </View>
                 <AppButton label={addMutation.isPending ? "Adding…" : "Add checklist item"} disabled={addMutation.isPending || !newLabel.trim()} onPress={() => addMutation.mutate()} />
               </View>
-            ) : query.data ? <Text style={styles.viewOnly}>View only · A producer can manage this checklist.</Text> : null}
+            ) : query.data ? (
+              <Text style={styles.viewOnly}>View only · A producer can manage this checklist.</Text>
+            ) : null}
           </View>
-        )}
+        }
         ListEmptyComponent={query.data && !query.isPending ? (
           <View style={styles.emptyPanel}>
             <ListChecks color={colors.textFaint} size={30} />
@@ -383,11 +415,17 @@ export default function ChecklistScreen() {
                 onPress={() => toggleMutation.mutate({ entryId: entry.id, checked: !entry.checked, expectedRevision: entry.revision })}
                 style={({ pressed }) => [styles.checkButton, pressed && styles.pressed]}
               >
-                {entry.checked ? <CheckCircle2 color={colors.green} size={23} /> : <Circle color={colors.textFaint} size={23} />}
+                {entry.checked ? (
+                  <CheckCircle2 color={colors.green} size={23} />
+                ) : (
+                  <Circle color={colors.textFaint} size={23} />
+                )}
               </Pressable>
               <View style={styles.entryCopy}>
                 <Text style={[styles.entryLabel, entry.checked && styles.entryLabelChecked]}>{entry.label}</Text>
-                {entry.checked && entry.checkedBy ? <Text numberOfLines={1} style={styles.entryMeta}>Completed by {entry.checkedBy}{actorTime ? ` · ${actorTime}` : ""}</Text> : null}
+                {entry.checked && entry.checkedBy ? (
+                  <Text numberOfLines={1} style={styles.entryMeta}>Completed by {entry.checkedBy}{actorTime ? ` · ${actorTime}` : ""}</Text>
+                ) : null}
               </View>
               {canManage ? (
                 <View style={styles.entryActions}>
@@ -398,7 +436,9 @@ export default function ChecklistScreen() {
                     <Trash2 color={colors.textFaint} size={17} />
                   </Pressable>
                 </View>
-              ) : <Text style={styles.departmentReadOnly}>{departmentLabels[entry.category]}</Text>}
+              ) : (
+                <Text style={styles.departmentReadOnly}>{departmentLabels[entry.category]}</Text>
+              )}
             </View>
           );
         }}
@@ -408,7 +448,12 @@ export default function ChecklistScreen() {
       <Modal animationType="slide" onRequestClose={() => setPickerOpen(false)} presentationStyle="pageSheet" visible={pickerOpen}>
         <View style={styles.modalPage}>
           <View style={styles.modalHeader}>
-            <View><Text style={styles.modalEyebrow}>SERVICE PICKER</Text><Text style={styles.modalTitle}>Choose a show</Text></View>
+            <View>
+              <Text style={styles.modalEyebrow}>
+                {workspaceCopy("SERVICE PICKER", workspaceTerms)}
+              </Text>
+              <Text style={styles.modalTitle}>Choose a show</Text>
+            </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close show picker" onPress={() => setPickerOpen(false)} style={styles.closeButton}><X color={colors.text} size={22} /></Pressable>
           </View>
           <FlatList
@@ -443,7 +488,9 @@ export default function ChecklistScreen() {
                   style={[styles.departmentOption, categoryEntry?.category === department && styles.departmentOptionActive]}
                 >
                   <Text style={styles.departmentOptionText}>{departmentLabels[department]}</Text>
-                  {categoryEntry?.category === department ? <CheckCircle2 color={colors.amberText} size={19} /> : null}
+                  {categoryEntry?.category === department ? (
+                    <CheckCircle2 color={colors.amberText} size={19} />
+                  ) : null}
                 </Pressable>
               ))}
             </View>
@@ -457,8 +504,12 @@ export default function ChecklistScreen() {
             <View style={styles.modalHeadingCopy}><Text style={styles.modalEyebrow}>RUNDOWN ANALYSIS</Text><Text style={styles.modalTitle}>Smart checklist draft</Text><Text style={styles.modalSubtitle}>Review every suggestion before adding it.</Text></View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close smart checklist" onPress={() => setDraftOpen(false)} style={styles.closeButton}><X color={colors.text} size={22} /></Pressable>
           </View>
-          {draftQuery.isPending ? <View style={styles.modalLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.emptyText}>Analyzing rundown cues…</Text></View> : null}
-          {draftQuery.error ? <Text accessibilityRole="button" onPress={() => draftQuery.refetch()} style={[styles.error, styles.modalError]}>{draftQuery.error.message} · Tap to retry</Text> : null}
+          {draftQuery.isPending ? (
+            <View style={styles.modalLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.emptyText}>Analyzing rundown cues…</Text></View>
+          ) : null}
+          {draftQuery.error ? (
+            <Text accessibilityRole="button" onPress={() => draftQuery.refetch()} style={[styles.error, styles.modalError]}>{draftQuery.error.message} · Tap to retry</Text>
+          ) : null}
           {draftQuery.data ? (
             <FlatList
               contentContainerStyle={styles.draftList}
@@ -473,26 +524,40 @@ export default function ChecklistScreen() {
                 </View>
               ) : null}
               ListEmptyComponent={<View style={styles.emptyPanel}><ListChecks color={colors.textFaint} size={30} /><Text style={styles.emptyTitle}>No new checks found</Text><Text style={styles.emptyText}>The matching checks may already be on this show.</Text></View>}
-              renderItem={({ item }) => <SuggestionCard suggestion={item} selected={selectedSuggestionIds.has(item.id)} onToggle={() => setSelectedSuggestionIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />}
+              renderItem={({ item }) => (
+                <SuggestionCard suggestion={item} selected={selectedSuggestionIds.has(item.id)} onToggle={() => setSelectedSuggestionIds((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next; })} />
+              )}
             />
           ) : null}
-          {draftQuery.data?.suggestions.length ? <View style={styles.modalFooter}><AppButton label={applyMutation.isPending ? "Adding checks…" : `Add ${selectedSuggestionIds.size} checks`} disabled={applyMutation.isPending || selectedSuggestionIds.size === 0} onPress={() => applyMutation.mutate()} /></View> : null}
+          {draftQuery.data?.suggestions.length ? (
+            <View style={styles.modalFooter}><AppButton label={applyMutation.isPending ? "Adding checks…" : `Add ${selectedSuggestionIds.size} checks`} disabled={applyMutation.isPending || selectedSuggestionIds.size === 0} onPress={() => applyMutation.mutate()} /></View>
+          ) : null}
         </View>
       </Modal>
     </Page>
   );
 }
 
-function SuggestionCard({ suggestion, selected, onToggle }: { suggestion: MobileChecklistSuggestion; selected: boolean; onToggle: () => void }) {
+function SuggestionCard({ suggestion, selected, onToggle }: {
+  suggestion: MobileChecklistSuggestion;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   return (
     <Pressable accessibilityRole="checkbox" accessibilityLabel={`${selected ? "Remove" : "Add"} suggestion: ${suggestion.label}`} accessibilityState={{ checked: selected }} onPress={onToggle} style={[styles.suggestion, selected && styles.suggestionSelected]}>
-      {selected ? <CheckCircle2 color={colors.amberText} size={21} /> : <Circle color={colors.textFaint} size={21} />}
+      {selected ? (
+        <CheckCircle2 color={colors.amberText} size={21} />
+      ) : (
+        <Circle color={colors.textFaint} size={21} />
+      )}
       <View style={styles.suggestionCopy}>
         <View style={styles.suggestionTitleRow}><Text style={styles.suggestionTitle}>{suggestion.label}</Text><Text style={styles.suggestionDepartment}>{departmentLabels[suggestion.category]}</Text></View>
         <Text style={styles.suggestionReason}>{suggestion.reason}{suggestion.sourceItemIds.length ? ` Matched ${suggestion.sourceItemIds.length} rundown ${suggestion.sourceItemIds.length === 1 ? "item" : "items"}.` : ""}</Text>
-        {suggestion.existingTemplateId ? <Text style={styles.existingTemplate}>EXISTING TEMPLATE</Text> : null}
+        {suggestion.existingTemplateId ? (
+          <Text style={styles.existingTemplate}>EXISTING TEMPLATE</Text>
+        ) : null}
       </View>
     </Pressable>
   );

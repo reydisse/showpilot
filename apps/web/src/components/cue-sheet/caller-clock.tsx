@@ -42,7 +42,10 @@ function offsetLabel(ms: number | null): { text: string; tone: string } {
   return { text: `${minutes}m`, tone: "text-green-400" };
 }
 
-export function CallerClockBar({ clockState, nowMs }: { clockState: CallerClock; nowMs: number }) {
+export function CallerClockBar({ clockState, nowMs }: {
+  clockState: CallerClock;
+  nowMs: number;
+}) {
   const offset = offsetLabel(clockState.offsetMs);
   const overrunning = clockState.itemRemainingMs !== null && clockState.itemRemainingMs < 0;
   const onAir = clockState.liveTitle !== null;
@@ -72,7 +75,11 @@ export function CallerClockBar({ clockState, nowMs }: { clockState: CallerClock;
         big
       />
 
-      <Stat label="Next" value={clockState.nextTitle ?? "End of service"} truncate />
+      <Stat
+        label="Next"
+        value={clockState.nextTitle ?? "End of rundown"}
+        truncate
+      />
 
       <div className="ml-auto flex items-center gap-5">
         <Stat label="Now" value={clock(nowMs)} />

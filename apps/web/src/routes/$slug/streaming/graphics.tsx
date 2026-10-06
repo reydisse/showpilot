@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useEffect, useState } from "react";
@@ -124,7 +126,9 @@ function GraphicsPage() {
   const [graphicsError, setGraphicsError] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<GraphicType | "all">("all");
   const [showForm, setShowForm] = useState(false);
-  const [editTemplate, setEditTemplate] = useState<typeof templates[0] | null>(null);
+  const [editTemplate, setEditTemplate] = useState<
+    (typeof templates)[0] | null
+  >(null);
   const [copiedOverlay, setCopiedOverlay] = useState(false);
   const [proPresenterEnabled, setProPresenterEnabled] = useState(false);
   const [proPresenterMessage, setProPresenterMessage] = useState<string | null>(null);
@@ -393,11 +397,13 @@ function GraphicsPage() {
                 </div>
               </div>
             )}
-            {proPresenterMessage && <p className="mt-2 text-xs font-medium text-green-400">{proPresenterMessage}</p>}
+            {proPresenterMessage && (
+              <p className="mt-2 text-xs font-medium text-green-400">{proPresenterMessage}</p>
+            )}
           </section>
         )}
 
-        {/* Active indicator */}
+        {/* ProPresenter slide import */}
         {activeIds.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
               <div className="flex items-center gap-2">
@@ -437,7 +443,7 @@ function GraphicsPage() {
           ))}
         </div>
 
-        {/* Graphics list */}
+        {/* ProPresenter slide import */}
         <div className="space-y-2">
           {filtered.length === 0 ? (
             filterType !== "all" ? (
@@ -563,7 +569,7 @@ function GraphicsPage() {
           )}
         </div>
 
-        {/* OBS Overlay URL */}
+        {/* ProPresenter slide import */}
         <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             OBS Browser Source
@@ -594,7 +600,7 @@ function GraphicsPage() {
           </p>
         </div>
 
-        {/* Add/Edit Form Modal */}
+        {/* ProPresenter slide import */}
         {canConfigureGraphics && showForm && (
           <GraphicFormModal
             existing={editTemplate}
@@ -621,11 +627,18 @@ function GraphicFormModal({
   onClose,
   onSaved,
 }: {
-  existing: { id: string; name: string; title: string; subtitle: string; style: string } | null;
+  existing: {
+    id: string;
+    name: string;
+    title: string;
+    subtitle: string;
+    style: string;
+  } | null;
   orgId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const existingStyle = existing ? parseStyle(existing.style) : {};
   // Read the full raw style so we keep any designer-authored template + controls.
   const existingRaw = (() => {
@@ -731,7 +744,7 @@ function GraphicFormModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Type selector */}
+          {/* ProPresenter slide import */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
               Type
@@ -771,7 +784,7 @@ function GraphicFormModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Pastor Name"
+              placeholder={workspaceCopy("e.g. Pastor Name", workspaceTerms)}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
@@ -816,7 +829,7 @@ function GraphicFormModal({
             />
           </div>
 
-          {/* Template picker — the same studio library is available for quick graphics. */}
+          {/* ProPresenter slide import */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm text-board-muted">Template</label>
@@ -837,7 +850,7 @@ function GraphicFormModal({
             </div>
           </div>
 
-          {/* Position — keeps two graphics from overlapping on screen */}
+          {/* ProPresenter slide import */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
               Screen Position

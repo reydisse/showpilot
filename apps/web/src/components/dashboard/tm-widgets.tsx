@@ -1,3 +1,4 @@
+import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
 /**
  * Tech manager widgets.
  *
@@ -20,6 +21,7 @@ import {
 import type { Fault, TmDashboardModel } from "@/lib/tm-dashboard-derive";
 
 export interface TmWidgetModel {
+  terms: WorkspaceTerms;
   model: TmDashboardModel;
   slug: string;
   orgId: string;
@@ -65,16 +67,27 @@ const signalPathWidget: TmWidget = {
           <HealthChip className="ml-auto" status={path.status ?? "ok"} label={path.status === "ok" ? "healthy" : path.status === "warn" ? "degraded" : "attention"} />
         </div>
         <div className="flex items-stretch gap-2 p-3 overflow-x-auto">
-          {path.inputs.map((input, index) => <SignalNode key={input.id} ok={input.ok} eyebrow={index === 0 ? "Input" : "Source"} label={input.name} detail={input.label} />)}
-          {path.inputs.length > 0 && path.destinations.length > 0 ? <ArrowRight className="w-4 h-4 text-board-muted self-center shrink-0" /> : null}
-          {path.destinations.map((destination) => <SignalNode key={destination.id} ok={destination.ok} eyebrow="Destination" label={destination.name} detail={destination.label} />)}
+          {path.inputs.map((input, index) => (
+            <SignalNode key={input.id} ok={input.ok} eyebrow={index === 0 ? "Input" : "Source"} label={input.name} detail={input.label} />
+          ))}
+          {path.inputs.length > 0 && path.destinations.length > 0 ? (
+            <ArrowRight className="w-4 h-4 text-board-muted self-center shrink-0" />
+          ) : null}
+          {path.destinations.map((destination) => (
+            <SignalNode key={destination.id} ok={destination.ok} eyebrow="Destination" label={destination.name} detail={destination.label} />
+          ))}
         </div>
       </section>
     );
   },
 };
 
-function SignalNode({ ok, eyebrow, label, detail }: { ok: boolean; eyebrow: string; label: string; detail: string }) {
+function SignalNode({ ok, eyebrow, label, detail }: {
+  ok: boolean;
+  eyebrow: string;
+  label: string;
+  detail: string;
+}) {
   return (
     <div className={`min-w-40 flex-1 rounded-lg border px-3 py-2.5 ${ok ? "border-board-border bg-board-bg/50" : "border-red-500/35 bg-red-500/5"}`}>
       <div className="flex items-center gap-2"><CircleDot className={`w-3.5 h-3.5 ${ok ? "text-green-400" : "text-red-400"}`} /><span className="text-[9px] uppercase tracking-[0.12em] text-board-muted">{eyebrow}</span></div>
@@ -95,7 +108,12 @@ const faultQueueWidget: TmWidget = {
     if (model.faults.length === 0) {
       return (
         <WidgetCard title="Faults">
-          <WidgetEmpty>Nothing open. Anything logged during the service lands here.</WidgetEmpty>
+          <WidgetEmpty>
+            {workspaceCopy(
+              "Nothing open. Anything logged during the service lands here.",
+              widget.terms,
+            )}
+          </WidgetEmpty>
         </WidgetCard>
       );
     }
@@ -190,7 +208,9 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
               className="text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
             >
               <option value="">{widget.members.length ? "Assign person…" : "No eligible people"}</option>
-              {widget.members.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.roleLabel}</option>)}
+              {widget.members.map((member) => (
+                <option key={member.id} value={member.id}>{member.name} · {member.roleLabel}</option>
+              ))}
             </select>
           </>
         ) : null}
@@ -215,8 +235,8 @@ const prepWidget: TmWidget = {
   phases: ["planning", "prep"],
   region: "main",
   isRelevant: ({ model }) => model.prep.length > 0,
-  render: ({ model, slug }) => (
-    <WidgetCard title="Before the service">
+  render: ({ terms: workspaceTerms, model, slug }) => (
+    <WidgetCard title={workspaceCopy("Before the service", workspaceTerms)}>
       <ul className="divide-y divide-board-border/60 -my-1">
         {model.prep.map((item) => (
           <li key={item.id} className="flex items-start gap-3 py-2.5">
@@ -298,7 +318,11 @@ const equipmentWidget: TmWidget = {
 const EQUIPMENT_PAGE_SIZE = 3;
 const EQUIPMENT_ROTATION_MS = 5_000;
 
-function EquipmentRotator({ items }: { items: TmDashboardModel["equipmentFaults"] }) {
+function EquipmentRotator({
+  items,
+}: {
+  items: TmDashboardModel["equipmentFaults"];
+}) {
   const pageCount = Math.ceil(items.length / EQUIPMENT_PAGE_SIZE);
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -319,7 +343,9 @@ function EquipmentRotator({ items }: { items: TmDashboardModel["equipmentFaults"
           <li key={item.id} className="text-xs">
             <p className="text-board-text flex items-center gap-1.5"><Wrench className="w-3 h-3 text-board-muted shrink-0" aria-hidden="true" />{item.name}</p>
             <p className={item.status === "out-of-service" ? "text-red-400 mt-0.5" : "text-yellow-400 mt-0.5"}>
-              {item.status === "out-of-service" ? "Out of service" : item.status === "in-repair" ? "In repair" : "Needs repair"}
+              {item.status === "out-of-service"
+                ? "Out of service"
+                : item.status === "in-repair" ? "In repair" : "Needs repair"}
             </p>
           </li>
         ))}
@@ -394,7 +420,11 @@ const dutyWidget: TmWidget = {
                   : "bg-yellow-400/10 text-yellow-400 border border-dashed border-yellow-400/40"
               }`}
             >
-              {officer.name ? initials(officer.name) : <UserMinus className="w-3 h-3" />}
+              {officer.name ? (
+                initials(officer.name)
+              ) : (
+                <UserMinus className="w-3 h-3" />
+              )}
             </span>
             <span className="min-w-0">
               <span
@@ -456,11 +486,14 @@ const allClearWidget: TmWidget = {
     model.faults.length === 0 &&
     model.equipmentFaults.length === 0 &&
     model.prep.length === 0,
-  render: () => (
+  render: ({ terms: workspaceTerms }) => (
     <WidgetCard title="All clear">
       <p className="text-xs text-board-muted flex items-center gap-2">
         <AlertTriangle className="w-3.5 h-3.5 text-green-400" aria-hidden="true" />
-        No open faults. Anything logged during the service appears here.
+        {workspaceCopy(
+          "\n        No open faults. Anything logged during the service appears here.\n      ",
+          workspaceTerms,
+        )}
       </p>
     </WidgetCard>
   ),

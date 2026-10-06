@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -64,6 +66,7 @@ export const Route = createFileRoute("/$slug/production/checklist")({
 });
 
 function ChecklistPage() {
+  const workspaceTerms = useWorkspaceTerms();
   const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, grantedPermissions, orgTimezone } = Route.useLoaderData();
   const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [showId, setShowId] = useState<string | undefined>(initialShowId);
@@ -184,8 +187,10 @@ function ChecklistPage() {
     if (!canManageChecklist) return;
     const ok = await confirm({
       title: "Remove checklist item",
-      description:
+      description: workspaceCopy(
         "Remove this item from the selected service? Other services and the reusable checklist template will not be changed.",
+        workspaceTerms,
+      ),
       confirmLabel: "Remove",
     });
     if (!ok) return;
@@ -273,10 +278,7 @@ function ChecklistPage() {
           </div>
         )}
 
-        {/* Entries, grouped by department. Under pressure an operator
-            works one department at a time — the audio tech does not care
-            what lighting still has open. Groups with nothing in them are
-            not rendered. */}
+        {/* Progress */}
         <div className="space-y-5 mb-6">
           {grouped.map(({ key, items }) => (
             <div key={key}>
@@ -350,16 +352,21 @@ function ChecklistPage() {
 
           {loadingEntries ? (
             <p className="text-center text-sm text-board-muted py-8">Loading checklist...</p>
-          ) : totalCount === 0 && (
-            <EmptyState
-              icon={ListChecks}
-              title="No checklist items for this date"
-              description={
-                canManageChecklist
-                  ? "Build your pre-show checklist — camera checks, audio line check, stream key verified. Add the first item below."
-                  : "Nothing to check off yet. A producer can add checklist items for this service."
-              }
-            />
+          ) : (
+            totalCount === 0 && (
+              <EmptyState
+                icon={ListChecks}
+                title="No checklist items for this date"
+                description={
+                  canManageChecklist
+                    ? "Build your pre-show checklist — camera checks, audio line check, stream key verified. Add the first item below."
+                    : workspaceCopy(
+                        "Nothing to check off yet. A producer can add checklist items for this service.",
+                        workspaceTerms,
+                      )
+                }
+              />
+            )
           )}
         </div>
 

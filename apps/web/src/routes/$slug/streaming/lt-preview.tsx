@@ -1,3 +1,5 @@
+import { previewSamples } from "@/lib/workspace/preview-samples";
+import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState } from "react";
@@ -62,21 +64,6 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
 });
 
 // ─── Sample Data ─────────────────────────────────────────────
-
-const SAMPLES = {
-  person: { primary: "Pastor James Mensah", secondary: "Lead Pastor" },
-  person2: { primary: "Akua Boateng", secondary: "Worship Leader" },
-  scripture: {
-    primary:
-      "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.",
-    secondary: "Jeremiah 29:11 — NIV",
-  },
-  announcement: {
-    primary: "Youth Conference 2026",
-    secondary: "Register at the Welcome Desk",
-  },
-  song: { primary: "Way Maker", secondary: "Sinach" },
-};
 
 // ─── Scene composition ───────────────────────────────────────
 // A "scene" is a set of lower thirds composed together and pushed at once,
@@ -299,6 +286,7 @@ function ControlPanel({
 // ─── Preview Page ────────────────────────────────────────────
 
 function TemplatePreviewPage() {
+  const SAMPLES = previewSamples(useWorkspace().type);
   const { orgId, activeIds: initialActiveIds, scenes: initialScenes, role, grantedPermissions, slug } = Route.useLoaderData();
   const router = useRouter();
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
@@ -447,7 +435,10 @@ function TemplatePreviewPage() {
   const loadScene = (savedScene: SavedGraphicScene) => {
     const restored = savedScene.items.flatMap((item) => {
       try {
-        const style = JSON.parse(item.style) as { templateId?: unknown; controls?: unknown };
+        const style = JSON.parse(item.style) as {
+          templateId?: unknown;
+          controls?: unknown;
+        };
         if (typeof style.templateId !== "string" || !style.controls || typeof style.controls !== "object") return [];
         return [{ key: item.key, templateId: style.templateId, primary: item.title, secondary: item.subtitle, controls: style.controls as Controls }];
       } catch {
@@ -585,10 +576,14 @@ function TemplatePreviewPage() {
               <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
                 <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                  {savedScenes.map((savedScene) => <div key={savedScene.id} className="flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
-                    <button type="button" onClick={() => loadScene(savedScene)} className="px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
-                    {canConfigureGraphics && <button type="button" aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="p-2 text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>}
-                  </div>)}
+                  {savedScenes.map((savedScene) => (
+                    <div key={savedScene.id} className="flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
+                      <button type="button" onClick={() => loadScene(savedScene)} className="px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
+                      {canConfigureGraphics && (
+                        <button type="button" aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="p-2 text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </section>
             )}
@@ -655,7 +650,7 @@ function TemplatePreviewPage() {
               </div>
             </div>
 
-            {/* Custom text inputs */}
+            {/* Accent Color */}
             {sampleKey === "custom" && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
@@ -677,7 +672,7 @@ function TemplatePreviewPage() {
               </div>
             )}
 
-            {/* Action buttons */}
+            {/* Accent Color */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-board-border bg-board-card/55 p-2.5">
               <button
                 onClick={addToScene}
@@ -739,9 +734,11 @@ function TemplatePreviewPage() {
                 </div>
               )}
             </div>
-            {operationError && <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{operationError}</div>}
+            {operationError && (
+              <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{operationError}</div>
+            )}
 
-            {/* Scene tray — LTs composed alongside the one being edited */}
+            {/* Accent Color */}
             {scene.length > 0 && (
               <div className="rounded-lg border border-board-border bg-board-card/50 p-2.5">
                 <div className="flex items-center gap-1.5 mb-2 px-0.5">
@@ -794,7 +791,7 @@ function TemplatePreviewPage() {
               </div>
             )}
 
-            {/* Preview viewport — 16:9 OBS canvas, scaled 1:1 with the stream */}
+            {/* Accent Color */}
             <section className="overflow-hidden rounded-xl border border-board-border bg-board-card/60 shadow-2xl shadow-black/40">
               <div className="flex items-center justify-between border-b border-board-border px-3 py-2"><div className="flex items-center gap-2"><MonitorPlay className="size-4 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-board-muted">Preview · 16:9</span></div><span className="text-[10px] text-board-muted">Title-safe guides enabled</span></div>
             <div
@@ -864,7 +861,7 @@ function TemplatePreviewPage() {
             </div>
             </section>
 
-            {/* Template info */}
+            {/* Accent Color */}
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-semibold text-board-text">{template.name}</h2>
@@ -880,7 +877,7 @@ function TemplatePreviewPage() {
               )}
             </div>
 
-            {/* Dot navigation */}
+            {/* Accent Color */}
             <div className="flex justify-center gap-2 flex-wrap">
               {TEMPLATES.map((t, i) => (
                 <button
@@ -940,7 +937,7 @@ function TemplatePreviewPage() {
             </div>
           </div>
 
-          {/* Controls sidebar */}
+          {/* Accent Color */}
           {showControls && (
             <div className="hidden w-72 shrink-0 lg:block">
               <div className="sticky top-[76px] max-h-[calc(100vh-92px)] overflow-y-auto rounded-xl border border-board-border bg-board-card/90 p-4 modern-scrollbar">

@@ -1,3 +1,17 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
+import { WorkspacePicker } from "@/components/workspace/WorkspacePicker";
+import { WorkspaceProvider } from "@/components/workspace/WorkspaceProvider";
+import {
+  resolveWorkspaceProfile,
+  type WorkspaceProfile,
+} from "@showpilot/shared";
+import {
+  saveWorkspaceType,
+  getWorkspaceProfile,
+} from "@/lib/workspace/profile";
+import { archetypesForWorkspace } from "@/lib/workspace/archetypes";
+import { templatesForWorkspace } from "@/lib/workspace/templates";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -26,7 +40,6 @@ import {
   seedOrgTemplate,
 } from "@/lib/onboarding";
 import {
-  ONBOARDING_ARCHETYPES,
   archetypeLanding,
   deriveResumeScene,
   type OnboardingArchetype,
@@ -37,7 +50,6 @@ import { generateMemberId } from "@/lib/import-members-csv";
 import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
 import { DEPARTMENTS, getDepartment } from "@/types/index";
 import {
-  ONBOARDING_TEMPLATES,
   templateBadge,
   type OnboardingTemplate,
   type OnboardingTemplateId,
@@ -63,6 +75,7 @@ export const Route = createFileRoute("/_auth/setup")({
       isOwner: progress.isOwner,
       started: progress.started,
       hasRole: Boolean(progress.archetype),
+      hasWorkspaceType: Boolean(progress.workspaceType),
       hasSeed: Boolean(progress.seededTemplate),
       completed: progress.completed,
     });
@@ -71,6 +84,9 @@ export const Route = createFileRoute("/_auth/setup")({
     }
     return {
       progress,
+      initialWorkspace: progress.org
+        ? await getWorkspaceProfile({ data: { orgId: progress.org.id } })
+        : resolveWorkspaceProfile({}),
       initialScene: decision.kind === "scene" ? decision.scene : 1,
     };
   },
@@ -151,20 +167,21 @@ function Timecode() {
   );
 }
 
-function Slate({ scene }: { scene: number }) {
+function Slate({ scene }: { scene: SceneNumber }) {
   return (
     <div
       className="font-mono text-[11px] uppercase tracking-[0.22em]"
       style={{ color: T.faint }}
     >
-      Setup · Scene {scene}/5 — {SCENE_TITLES[scene - 1]}
+      Setup · Scene {scene}/5 —{" "}
+      {scene === "1b" ? "Workspace" : SCENE_TITLES[scene - 1]}
     </div>
   );
 }
 
 // ─── Wizard shell ────────────────────────────────────────────
 
-type SceneNumber = 1 | 2 | 3 | 4 | 5;
+type SceneNumber = 1 | "1b" | 2 | 3 | 4 | 5;
 
 interface WizardOrg {
   id: string;
@@ -187,11 +204,15 @@ const fmtLong = (sec: number) => {
 };
 
 function SetupWizard() {
-  const { progress, initialScene } = Route.useLoaderData();
+  const { progress, initialScene, initialWorkspace } = Route.useLoaderData();
   const { user } = Route.useRouteContext() as {
     user: { id?: string; email: string; emailVerified?: boolean } | null;
   };
 
+  const [workspace, setWorkspace] =
+    useState<WorkspaceProfile>(initialWorkspace);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState("");
   const [scene, setScene] = useState<SceneNumber>(initialScene);
   const [cut, setCut] = useState(false);
   const [skip, setSkip] = useState(false);
@@ -240,37 +261,85 @@ function SetupWizard() {
   };
 
   return (
-    <div
+    <WorkspaceProvider profile={workspace}>
+      <div
       className="spob fixed inset-0 z-10 overflow-y-auto"
       data-skip={skip}
       style={{ background: T.stage, color: T.text }}
       onClickCapture={() => setSkip(true)}
       onKeyDownCapture={() => setSkip(true)}
     >
-      <style>{WIZARD_CSS}</style>
+        <style>{WIZARD_CSS}</style>
 
-      {/* Persistent header */}
-      <div className="absolute inset-x-0 top-0 z-[5] flex items-center justify-between px-6 py-[18px]">
+        {/* Persistent header */}
+        <div className="absolute inset-x-0 top-0 z-[5] flex items-center justify-between px-6 py-[18px]">
         <Timecode />
         <Slate scene={scene} />
       </div>
 
-      {/* Switcher cut + ON AIR take (brief dip to black) */}
-      {(cut || flash) && <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />}
-
-      <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]">
-        {scene === 1 && (
-          <SceneOrgCreate
-            user={user}
-            onCreated={(created) => {
-              setOrg(created);
-              go(2);
-            }}
-          />
+        {/* Persistent header */}
+        {(cut || flash) && (
+          <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />
         )}
-        {scene === 2 && org && (
-          <SceneRole
-            onSelect={(selected) => {
+
+        <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]">
+          {scene === 1 && (
+            <SceneOrgCreate
+              user={user}
+              onCreated={(created) => {
+                setOrg(created);
+                go("1b");
+              }}
+            />
+          )}
+          {scene === "1b" && org && (
+            <div className="pt-10">
+              {workspaceError && (
+                <p role="alert" className="mb-4 text-red-400">
+                  {workspaceError}
+                </p>
+              )}
+              <WorkspacePicker
+                busy={workspaceBusy}
+                onSelect={async (type, custom, modules) => {
+                  setWorkspace(
+                    resolveWorkspaceProfile({
+                      "workspace-type": type,
+                      "workspace-custom": JSON.stringify(custom),
+                      "workspace-modules": modules
+                        ? JSON.stringify(modules)
+                        : undefined,
+                    }),
+                  );
+                  setWorkspaceBusy(true);
+                  setWorkspaceError("");
+                  try {
+                    const next = await saveWorkspaceType({
+                      data: { orgId: org.id, type, custom, modules },
+                    });
+                    setWorkspace(next);
+                    track("workspace_type_selected", {
+                      type,
+                      moduleCount: next.modules.length,
+                    });
+                    go(2);
+                  } catch (e) {
+                    setWorkspaceError(
+                      e instanceof Error
+                        ? e.message
+                        : "Could not save workspace. Try again.",
+                    );
+                  } finally {
+                    setWorkspaceBusy(false);
+                  }
+                }}
+              />
+            </div>
+          )}
+          {scene === 2 && org && (
+            <SceneRole
+              workspace={workspace}
+              onSelect={(selected) => {
               setArchetype(selected);
               track("role_selected", { role: selected });
               // Optimistic: advance on tap, persist in the background.
@@ -280,30 +349,31 @@ function SetupWizard() {
               );
               go(3);
             }}
-          />
-        )}
-        {scene === 3 && org && (
-          <SceneTemplates
-            onSelect={(template) => {
+            />
+          )}
+          {scene === 3 && org && (
+            <SceneTemplates
+              workspace={workspace}
+              onSelect={(template) => {
               track("template_selected", { template: template.id });
               startSeed(org.id, template.id);
               go(4);
             }}
-          />
-        )}
-        {scene === 4 && org && (
+            />
+          )}
+          {scene === 4 && org && (
           <SceneBuild
             seed={seed}
             onRetry={() => seed.template && startSeed(org.id, seed.template)}
             onDone={() => go(5)}
           />
         )}
-        {scene === 5 && org && (
-          <SceneTeam
-            onGoLive={async ({ crew, invites }) => {
-              const used = new Set<string>();
-              const work: Promise<unknown>[] = [];
-              for (const row of crew) {
+          {scene === 5 && org && (
+            <SceneTeam
+              onGoLive={async ({ crew, invites }) => {
+                const used = new Set<string>();
+                const work: Promise<unknown>[] = [];
+                for (const row of crew) {
                 work.push(
                   addCrewMember({
                     data: {
@@ -315,31 +385,32 @@ function SetupWizard() {
                   }),
                 );
               }
-              for (const row of invites) {
+                for (const row of invites) {
                 work.push(
                   inviteMember({
                     data: { orgId: org.id, email: row.email, role: row.role },
                   }),
                 );
               }
-              if (crew.length > 0) track("crew_added", { count: crew.length });
-              if (invites.length > 0) track("invite_sent", { count: invites.length });
-              track("went_live", { archetype });
+                if (crew.length > 0) track("crew_added", { count: crew.length });
+                if (invites.length > 0) track("invite_sent", { count: invites.length });
+                track("went_live", { archetype });
 
-              setFlash(true); // the "take" — brief dip to black
-              const landing = `/${org.slug}${archetypeLanding(archetype)}`;
-              await Promise.allSettled(work);
-              await completeOnboarding({ data: { orgId: org.id } }).catch(() => {});
-              // ON AIR flash ≤ 400ms, then land on the role-based route.
-              // Full reload picks up the new org session context.
-              setTimeout(() => {
+                setFlash(true); // the "take" — brief dip to black
+                const landing = `/${org.slug}${archetypeLanding(archetype, workspace.modules)}`;
+                await Promise.allSettled(work);
+                await completeOnboarding({ data: { orgId: org.id } }).catch(() => {});
+                // ON AIR flash ≤ 400ms, then land on the role-based route.
+                // Full reload picks up the new org session context.
+                setTimeout(() => {
                 window.location.href = landing;
               }, 260);
-            }}
-          />
-        )}
+              }}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </WorkspaceProvider>
   );
 }
 
@@ -356,7 +427,13 @@ const ARCHETYPE_ICONS: Record<OnboardingArchetype, LucideIcon> = {
   op: SlidersHorizontal,
 };
 
-function SceneRole({ onSelect }: { onSelect: (archetype: OnboardingArchetype) => void }) {
+function SceneRole({
+  onSelect,
+  workspace,
+}: {
+  workspace: WorkspaceProfile;
+  onSelect: (archetype: OnboardingArchetype) => void;
+}) {
   return (
     <div className="rise">
       <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">What's your role on the team?</h1>
@@ -364,7 +441,7 @@ function SceneRole({ onSelect }: { onSelect: (archetype: OnboardingArchetype) =>
         This just sets up your view — you're the owner either way.
       </p>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
-        {ONBOARDING_ARCHETYPES.map((archetype, i) => {
+        {archetypesForWorkspace(workspace.type).map((archetype, i) => {
           const Icon = ARCHETYPE_ICONS[archetype.id];
           return (
             <button
@@ -420,6 +497,7 @@ function SceneTeam({
 }: {
   onGoLive: (team: { crew: CrewRow[]; invites: InviteRow[] }) => Promise<void>;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [crew, setCrew] = useState<CrewRow[]>([{ name: "", pos: "" }]);
   const [invites, setInvites] = useState<InviteRow[]>([{ email: "", role: "member" }]);
   const [taking, setTaking] = useState(false);
@@ -440,7 +518,7 @@ function SceneTeam({
         Two kinds of people run a show — both optional for now.
       </p>
       <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
-        {/* Panel A — Crew: show board only, no accounts */}
+        {/* Persistent header */}
         <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
           <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.amber }}>
             SHOW BOARD
@@ -458,7 +536,11 @@ function SceneTeam({
                   <input
                     value={row.name}
                     onChange={(e) =>
-                      setCrew(crew.map((v, j) => (j === i ? { ...v, name: e.target.value } : v)))
+                      setCrew(
+                        crew.map((v, j) =>
+                          j === i ? { ...v, name: e.target.value } : v,
+                        ),
+                      )
                     }
                     placeholder="Name"
                     className="min-w-0 flex-[1.2] rounded-lg border px-3 py-2.5 text-sm outline-none"
@@ -467,16 +549,18 @@ function SceneTeam({
                   <input
                     value={row.pos}
                     onChange={(e) =>
-                      setCrew(crew.map((v, j) => (j === i ? { ...v, pos: e.target.value } : v)))
+                      setCrew(
+                        crew.map((v, j) =>
+                          j === i ? { ...v, pos: e.target.value } : v,
+                        ),
+                      )
                     }
                     placeholder="Position (e.g. Camera 2, A1)"
                     className="min-w-0 flex-[1.4] rounded-lg border px-3 py-2.5 text-sm outline-none"
                     style={inputStyle}
                   />
                 </div>
-                {/* Department chip — inferred via the existing taxonomy,
-                    sliding in like a lower third. Grouping stays inferred;
-                    there is intentionally no department field. */}
+                {/* Persistent header */}
                 {deptConfig && (
                   <div
                     key={dept}
@@ -504,11 +588,14 @@ function SceneTeam({
             style={{ borderColor: T.border, color: T.faint }}
           >
             <QrCode size={14} className="shrink-0" style={{ color: T.amber }} />
-            On show day, your board shows a "Scan to Serve" code — crew check in from their phones.
+            {workspaceCopy(
+              '\n            On show day, your board shows a "Scan to Serve" code — crew check in from their phones.\n          ',
+              workspaceTerms,
+            )}
           </div>
         </div>
 
-        {/* Panel B — App members: accounts with real RBAC roles */}
+        {/* Persistent header */}
         <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
           <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.green }}>
             APP ACCESS
@@ -523,19 +610,26 @@ function SceneTeam({
                 <input
                   value={row.email}
                   onChange={(e) =>
-                    setInvites(invites.map((v, j) => (j === i ? { ...v, email: e.target.value } : v)))
+                    setInvites(
+                      invites.map((v, j) =>
+                        j === i ? { ...v, email: e.target.value } : v,
+                      ),
+                    )
                   }
-                  placeholder="name@church.org"
+                  placeholder="name@example.com"
                   type="email"
                   className="min-w-0 flex-1 rounded-lg border px-3 py-2.5 text-sm outline-none"
                   style={inputStyle}
                 />
-                {/* Role options derive from ASSIGNABLE_ROLES + ROLE_META —
-                    never hardcoded, so future roles appear automatically. */}
+                {/* Persistent header */}
                 <select
                   value={row.role}
                   onChange={(e) =>
-                    setInvites(invites.map((v, j) => (j === i ? { ...v, role: e.target.value } : v)))
+                    setInvites(
+                      invites.map((v, j) =>
+                        j === i ? { ...v, role: e.target.value } : v,
+                      ),
+                    )
                   }
                   className="rounded-lg border px-2 text-[13px] outline-none"
                   style={{ background: T.stage, borderColor: T.border, color: T.muted }}
@@ -593,17 +687,25 @@ function SceneTeam({
 // Previews render client-side from the same template definitions the
 // server seeds from — single source of truth.
 
-function SceneTemplates({ onSelect }: { onSelect: (template: OnboardingTemplate) => void }) {
+function SceneTemplates({
+  onSelect,
+  workspace,
+}: {
+  workspace: WorkspaceProfile;
+  onSelect: (template: OnboardingTemplate) => void;
+}) {
   const [hoverTpl, setHoverTpl] = useState<string | null>(null);
 
   return (
     <div className="rise">
-      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">Pick your first show.</h1>
+      <h1 className="mb-1.5 mt-10 text-[32px] font-extrabold">
+        Pick your first {workspace.terms.event}.
+      </h1>
       <p className="mb-7" style={{ color: T.muted }}>
         Hover a card to preview its rundown. You can change everything later.
       </p>
       <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))" }}>
-        {ONBOARDING_TEMPLATES.map((template, i) => {
+        {templatesForWorkspace(workspace.type).map((template, i) => {
           const open = hoverTpl === template.id && template.items.length > 0;
           return (
             <button
@@ -970,12 +1072,12 @@ function SceneOrgCreate({
           setOrgName(e.target.value);
           setSlugOverride(null);
         }}
-        placeholder="e.g. Faithfire Church"
+        placeholder="e.g. Northside Productions"
         className="w-full rounded-xl border px-5 py-[18px] text-[22px] font-medium outline-none"
         style={{ background: T.panel, borderColor: T.border, color: T.text }}
       />
 
-      {/* Slug lower third — slides in, updates live as they type */}
+      {/* Persistent header */}
       {slug.length >= 3 && (
         <div key={slug} className="lt mt-3.5 flex flex-wrap items-center gap-2.5 font-mono text-[13px]">
           <span
@@ -989,7 +1091,9 @@ function SceneOrgCreate({
           >
             showpilot.tech/<span style={{ color: T.text }}>{slug}</span>
           </span>
-          {slugState === "checking" && <span style={{ color: T.faint }}>checking…</span>}
+          {slugState === "checking" && (
+            <span style={{ color: T.faint }}>checking…</span>
+          )}
           {slugState === "ok" && (
             <span className="flex items-center gap-1" style={{ color: T.green }}>
               <Check size={13} /> available

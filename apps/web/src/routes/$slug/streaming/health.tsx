@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect } from "react";
@@ -52,6 +54,7 @@ export const Route = createFileRoute("/$slug/streaming/health")({
 });
 
 function StreamHealthPage() {
+  const workspaceTerms = useWorkspaceTerms();
   const { inputs, orgId, role, grantedPermissions } = Route.useLoaderData();
   const canManageStreamHealth = hasEffectivePermission(
     role,
@@ -64,7 +67,17 @@ function StreamHealthPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, { status: string; providerStatus: string; checkedAt: string; error?: string }>>({});
+  const [statuses, setStatuses] = useState<
+    Record<
+      string,
+      {
+        status: string;
+        providerStatus: string;
+        checkedAt: string;
+        error?: string;
+      }
+    >
+  >({});
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
   const [polling, setPolling] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
@@ -91,7 +104,7 @@ function StreamHealthPage() {
           }
         }));
         if (!active) return;
-        setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])))
+        setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])));
         setLastCheckedAt(new Date().toISOString());
       } finally {
         polling = false;
@@ -215,7 +228,9 @@ function StreamHealthPage() {
             <p className="text-lg font-semibold text-board-text tabular-nums">
               {connectedCount}<span className="ml-1 text-xs font-normal text-board-muted">/ {inputs.length}</span>
             </p>
-            {lastCheckedAt && <p className="mt-1 text-[9px] text-board-muted">Checked {new Date(lastCheckedAt).toLocaleTimeString()}</p>}
+            {lastCheckedAt && (
+              <p className="mt-1 text-[9px] text-board-muted">Checked {new Date(lastCheckedAt).toLocaleTimeString()}</p>
+            )}
           </div>
         </div>
 
@@ -227,7 +242,7 @@ function StreamHealthPage() {
           </div>
         )}
 
-        {/* Live inputs list */}
+        {/* Stats row */}
         {inputs.length === 0 ? (
           <EmptyState
             icon={Activity}
@@ -286,8 +301,12 @@ function StreamHealthPage() {
                         >
                           {isLive ? "Streaming" : isConnected ? "Reconnecting" : status === "error" ? "Fault" : status === "unknown" ? "Unknown" : status === "disabled" ? "Disabled" : "Idle"}
                         </span>
-                        {health && <p className="mt-1 text-[9px] text-board-muted">Cloudflare: {health.providerStatus.replaceAll("_", " ")}</p>}
-                        {health?.error && <p className="mt-1 text-[10px] text-red-400">{health.error}</p>}
+                        {health && (
+                          <p className="mt-1 text-[9px] text-board-muted">Cloudflare: {health.providerStatus.replaceAll("_", " ")}</p>
+                        )}
+                        {health?.error && (
+                          <p className="mt-1 text-[10px] text-red-400">{health.error}</p>
+                        )}
                       </div>
                     </div>
                     {canManageStreamHealth && (
@@ -303,7 +322,7 @@ function StreamHealthPage() {
                     )}
                   </div>
 
-                  {/* Connection details */}
+                  {/* Stats row */}
                   <div className="space-y-2">
                     {input.rtmpUrl && (
                       <CopyField
@@ -340,13 +359,13 @@ function StreamHealthPage() {
           </div>
         )}
 
-        {/* Encoder Setup Guides */}
+        {/* Stats row */}
         <div className="space-y-2">
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 px-1">
             Encoder Setup Guides
           </p>
 
-          {/* ATEM Mini Pro / ISO */}
+          {/* Stats row */}
           <SetupGuide
             id="atem"
             icon={<Tv className="w-4 h-4" />}
@@ -375,7 +394,13 @@ function StreamHealthPage() {
                     Go to the <span className="text-board-text font-medium">Output</span> tab at the top of the window
                   </li>
                   <li>
-                    In the <span className="text-board-text font-medium">Live Stream</span> section, select <span className="text-board-text font-medium">Service: Custom</span> from the dropdown
+                    In the{" "}
+                    <span className="text-board-text font-medium">Live Stream</span>{" "}
+                    section, select{" "}
+                    <span className="text-board-text font-medium">
+                      {"Service: Custom"}
+                    </span>{" "}
+                    from the dropdown
                   </li>
                   <li>
                     <span className="text-board-text font-medium">Server:</span> Copy the <span className="text-amber-400">RTMPS URL</span> from above and paste it here
@@ -436,7 +461,12 @@ function StreamHealthPage() {
                     Open OBS and go to <span className="text-board-text font-medium">Settings → Stream</span>
                   </li>
                   <li>
-                    Set <span className="text-board-text font-medium">Service</span> to <span className="text-board-text font-medium">Custom...</span>
+                    Set{" "}
+                    <span className="text-board-text font-medium">
+                      {"Service"}
+                    </span>{" "}
+                    to{" "}
+                    <span className="text-board-text font-medium">Custom...</span>
                   </li>
                   <li>
                     <span className="text-board-text font-medium">Server:</span> Paste the <span className="text-amber-400">RTMPS URL</span> from above
@@ -474,7 +504,7 @@ function StreamHealthPage() {
             </div>
           </SetupGuide>
 
-          {/* Hardware Encoder */}
+          {/* Stats row */}
           <SetupGuide
             id="hardware"
             icon={<Cable className="w-4 h-4" />}
@@ -508,8 +538,10 @@ function StreamHealthPage() {
               <div className="px-3 py-2.5 rounded-lg bg-green-500/5 border border-green-500/10">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-green-400 mb-1">Best For</p>
                 <p className="text-xs text-board-muted">
-                  Permanent installations where reliability matters. Hardware encoders are always-on,
-                  don't need a computer, and handle encoding without any lag. Ideal for churches with a fixed production setup.
+                  {workspaceCopy(
+                    "\n                  Permanent installations where reliability matters. Hardware encoders are always-on,\n                  don't need a computer, and handle encoding without any lag. Ideal for churches with a fixed production setup.\n                ",
+                    workspaceTerms,
+                  )}
                 </p>
               </div>
             </div>
@@ -537,7 +569,7 @@ function StreamHealthPage() {
           </div>
         </div>
 
-        {/* Add form modal */}
+        {/* Stats row */}
         {showAddForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
