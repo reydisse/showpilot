@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
-import { useLocation, useRouter } from "@tanstack/react-router";
+import { Link, useLocation, useRouter } from "@tanstack/react-router";
 import {
   resolveWorkspaceProfile,
   moduleForSurface,
@@ -55,6 +55,13 @@ export function WorkspaceRouteGate({
           ? "Your content is still here. Enable this feature to open it."
           : "Ask an admin to turn it on."}
       </p>
+      <Link
+        to="/$slug/show"
+        params={{ slug }}
+        className="mt-5 inline-flex rounded-lg border border-board-border px-5 py-3"
+      >
+        Back to {profile.terms.event}
+      </Link>
       {error && (
         <p role="alert" className="mt-3 text-red-400">
           {error}
