@@ -1,5 +1,4 @@
 import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 /**
  * Tech manager widgets.
  *
