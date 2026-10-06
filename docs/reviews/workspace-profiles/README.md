@@ -26,7 +26,7 @@ Implemented from `SPEC-workspace-profiles.md` on `feature/workspace-profiles`.
 
 ## Merge sign-off and release
 
-Section 2 of the supplied spec says **“confirm before merge”** for the fallback: an organization with neither an explicit workspace type nor a legacy terminology setting will now resolve to Church, so Schedule calls its events “services” instead of “shows.” This is implemented and covered by tests; approval remains outstanding.
+Section 2 of the supplied spec says **“confirm before merge”** for the fallback: an organization with neither an explicit workspace type nor a legacy terminology setting will now resolve to Church, so Schedule calls its events “services” instead of “shows.” This is implemented and covered by tests; the owner approved this fallback on 2026-10-06: "yes existing should default to service".
 
 After sign-off: merge, wait for CI and the server deployment, smoke-test login and existing organizations first, then the five new types, feature toggles, token-based displays/overlays, the installed mobile binary, and realtime propagation. Then merge [landing copy PR #49](https://github.com/reydisse/showpilot/pull/49) for its separate release. The current main pipeline deploys both Workers; keeping the copy in a second PR means the first release retains the existing landing text. Only then bump the mobile version/build, run the store build, perform the native checks from §11, and submit to TestFlight. OTA remains disabled; older binaries continue to work and show all features.
 

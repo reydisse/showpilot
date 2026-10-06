@@ -1,7 +1,7 @@
 {
   "name": "@showpilot/mobile",
   "main": "expo-router/entry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "dependencies": {
     "@better-auth/expo": "1.7.2",
     "@expo/metro-runtime": "~6.1.2",
