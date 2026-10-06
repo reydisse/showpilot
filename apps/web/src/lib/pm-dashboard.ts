@@ -1,3 +1,4 @@
+import { getWorkspaceProfileForOrg } from "@/lib/workspace/profile.server";
 /**
  * Production manager dashboard — data layer.
  *
@@ -675,7 +676,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     };
 
     return {
-      model: derivePmDashboard(snapshot),
+      model: derivePmDashboard(
+        snapshot,
+        (await getWorkspaceProfileForOrg(data.orgId)).terms,
+      ),
       rundownState,
       orgId,
       showId: showId ?? null,

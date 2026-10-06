@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import Check from "lucide-react-native/icons/check";
 import X from "lucide-react-native/icons/x";
@@ -44,6 +46,7 @@ export function RundownNewShowSheet({
   onClose: () => void;
   onCreate: (draft: RundownNewShowDraft) => Promise<void>;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [requestId] = useState(() => createLocalRequestId("show"));
@@ -71,7 +74,14 @@ export function RundownNewShowSheet({
         </View>
         <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.intro}>Create another show without leaving the rundown. Same-day shows stay separate across mobile, web, and desktop.</Text>
-          <AppField autoCapitalize="sentences" label="Show name" maxLength={120} onChangeText={setName} placeholder="Evening service" value={name} />
+          <AppField
+            autoCapitalize="sentences"
+            label="Show name"
+            maxLength={120}
+            onChangeText={setName}
+            placeholder={workspaceCopy("Evening service", workspaceTerms)}
+            value={name}
+          />
           <AppField autoCapitalize="none" error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined} keyboardType="numbers-and-punctuation" label="Date" maxLength={10} onChangeText={setServiceDate} placeholder="2026-09-07" value={serviceDate} />
           <AppField autoCapitalize="none" error={startTime && !validTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time" maxLength={5} onChangeText={setStartTime} placeholder="20:00" value={startTime} />
           <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="18:30" value={callTime} />
@@ -84,7 +94,9 @@ export function RundownNewShowSheet({
             style={[styles.copyChoice, copyCurrent && styles.copyChoiceActive, !canCopyCurrent && styles.disabled]}
           >
             <View style={[styles.checkbox, copyCurrent && styles.checkboxActive]}>
-              {copyCurrent ? <Check color={colors.black} size={14} strokeWidth={3} /> : null}
+              {copyCurrent ? (
+                <Check color={colors.black} size={14} strokeWidth={3} />
+              ) : null}
             </View>
             <View style={styles.copyText}>
               <Text style={styles.copyTitle}>Copy the current rundown</Text>

@@ -1,3 +1,11 @@
+import {
+  resolveWorkspaceProfile,
+  legacyTerminologyProfile,
+} from "@showpilot/shared";
+import {
+  workspacePrismaStore,
+  writeWorkspaceProfile,
+} from "./workspace/profile.server";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
@@ -37,7 +45,7 @@ const providerConfigInput = z.object({
   provider: scheduleProviderSchema,
   url: z.union([z.literal(""), z.string().url().max(500)]),
   label: z.string().trim().max(80).default(""),
-  terminologyProfile: orgTerminologyProfileSchema.default("general"),
+  terminologyProfile: orgTerminologyProfileSchema.optional(),
 });
 
 export const saveScheduleProvider = createServerFn({ method: "POST" })
@@ -84,16 +92,12 @@ export const saveScheduleProvider = createServerFn({ method: "POST" })
           value: data.label,
         },
       }),
-      prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key: "terminology-profile" } },
-        update: { value: data.terminologyProfile },
-        create: {
-          orgId: data.orgId,
-          key: "terminology-profile",
-          value: data.terminologyProfile,
-        },
-      }),
     ]);
+    if (data.terminologyProfile)
+      await writeWorkspaceProfile(await workspacePrismaStore(data.orgId), {
+        kind: "legacy",
+        terminologyProfile: data.terminologyProfile,
+      });
     return { ok: true };
   });
 
@@ -244,6 +248,9 @@ export const getSchedule = createServerFn({ method: "GET" })
               "schedule-provider-url",
               "schedule-provider-label",
               "terminology-profile",
+              "workspace-type",
+              "workspace-modules",
+              "workspace-custom",
               "org-timezone",
               "default-service-window-minutes",
               "default-call-lead-minutes",
@@ -260,12 +267,8 @@ export const getSchedule = createServerFn({ method: "GET" })
       providerMap["schedule-provider"],
     );
     const provider = parsedProvider.success ? parsedProvider.data : "native";
-    const parsedTerminology = orgTerminologyProfileSchema.safeParse(
-      providerMap["terminology-profile"],
-    );
-    const terminologyProfile = parsedTerminology.success
-      ? parsedTerminology.data
-      : "general";
+    const workspace = resolveWorkspaceProfile(providerMap);
+    const terminologyProfile = legacyTerminologyProfile(workspace.type);
     const { serviceWindowMinutes, callLeadMinutes } = readPhaseSettings(providerMap);
     const selectedShow = data.selectedShowId
       ? rundowns.find((rundown) => rundown.id === data.selectedShowId)
@@ -383,6 +386,7 @@ export const getSchedule = createServerFn({ method: "GET" })
         label: providerMap["schedule-provider-label"] ?? "",
       },
       terminologyProfile,
+      workspace,
     };
   });
 
@@ -718,7 +722,11 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const actor = await assertAccess(data.orgId, true);
     const show = await getPrisma().rundown.findFirst({
-      where: { id: data.showId, orgId: data.orgId, serviceDate: data.serviceDate },
+      where: {
+        id: data.showId,
+        orgId: data.orgId,
+        serviceDate: data.serviceDate,
+      },
       select: { id: true, scheduledStartTime: true, scheduledCallTime: true },
     });
     if (!show) throw new Error("Show not found");
@@ -735,15 +743,19 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
     const venueTimezone = data.timeZone ? await getPrisma().appSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } }, select: { value: true },
     }) : null;
-    const callTime = data.timeZone ? assignmentCallTimeForStorage({
-      serviceDate: data.serviceDate,
-      callTime: data.callTime,
-      deviceTimeZone: data.timeZone,
-      venueTimeZone: venueTimezone?.value || "UTC",
-      referenceTime: existing?.callTime ? getAssignmentCallTime({
+    const callTime = data.timeZone
+      ? assignmentCallTimeForStorage({
+          serviceDate: data.serviceDate,
+          callTime: data.callTime,
+          deviceTimeZone: data.timeZone,
+          venueTimeZone: venueTimezone?.value || "UTC",
+          referenceTime: existing?.callTime
+            ? getAssignmentCallTime({
         serviceDate: existing.serviceDate, callTime: existing.callTime, timeZone: venueTimezone?.value,
-      }) : show.scheduledCallTime?.toISOString() ?? show.scheduledStartTime?.toISOString(),
-    }) : data.callTime;
+      })
+            : (show.scheduledCallTime?.toISOString() ?? show.scheduledStartTime?.toISOString()),
+        })
+      : data.callTime;
     if (existing) {
       const personChanged = existing.crewMemberId !== data.crewMemberId;
       // A decline is part of the service record. Reassigning that position
@@ -880,7 +892,9 @@ export const remindServiceAssignment = createServerFn({ method: "POST" })
       true,
     );
     if (!delivered.delivered && delivered.reason === "assignment-expired") {
-      throw new Error("This assignment is closed because the service has ended");
+      throw new Error(
+        "This assignment is closed because its scheduled event has ended",
+      );
     }
     if (delivered.delivered)
       await getPrisma().serviceAssignment.update({

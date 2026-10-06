@@ -199,7 +199,7 @@ describe("mobile assignment responses", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      error: "This assignment is closed because the service has ended.",
+      error: "This assignment is closed because its scheduled event has ended.",
     });
     expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
     expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();

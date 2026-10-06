@@ -1,3 +1,4 @@
+import { WorkspaceProvider } from "@/providers/workspace-provider";
 import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -8,7 +9,13 @@ import { AppProviders } from "@/providers/app-providers";
 import { useAppTheme } from "@/theme/tokens";
 
 export default function RootLayout() {
-  return <AppProviders><RootNavigator /></AppProviders>;
+  return (
+    <AppProviders>
+      <WorkspaceProvider>
+        <RootNavigator />
+      </WorkspaceProvider>
+    </AppProviders>
+  );
 }
 
 function RootNavigator() {
@@ -40,10 +47,14 @@ function RootNavigator() {
     return <LoadingView label="Restoring your session…" />;
   }
   if (!session && restoreTimedOut) {
-    return <SessionRecoveryView error="Session restore took too long. Check your connection and try again." retrying={retrying} onRetry={() => void retrySession()} />;
+    return (
+      <SessionRecoveryView error="Session restore took too long. Check your connection and try again." retrying={retrying} onRetry={() => void retrySession()} />
+    );
   }
   if (!session && error) {
-    return <SessionRecoveryView error={error.message} retrying={retrying} onRetry={() => void retrySession()} />;
+    return (
+      <SessionRecoveryView error={error.message} retrying={retrying} onRetry={() => void retrySession()} />
+    );
   }
 
   return (

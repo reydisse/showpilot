@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -310,6 +312,7 @@ export const Route = createFileRoute("/$slug/rundown")({
 });
 
 function RundownPage() {
+  const workspaceTerms = useWorkspaceTerms();
   const {
     orgId,
     slug,
@@ -606,7 +609,7 @@ function RundownPage() {
             setSaveError(
               error instanceof Error
                 ? error.message
-                : "Service title did not save",
+                : workspaceCopy("Service title did not save", workspaceTerms),
             ),
           )
           .finally(() => setMetaFieldPending("name", false));
@@ -630,7 +633,11 @@ function RundownPage() {
       try {
         isoTime = editServiceTimeToIso({ serviceDate, time: timeStr, timeZone: deviceTimeZone, referenceTime: scheduledStartIso });
       } catch (error) {
-        setSaveError(error instanceof Error ? error.message : "Service time is invalid");
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : workspaceCopy("Service time is invalid", workspaceTerms),
+        );
         return;
       }
       setScheduledStartIso(isoTime);
@@ -656,7 +663,7 @@ function RundownPage() {
           setSaveError(
             error instanceof Error
               ? error.message
-              : "Service time did not save",
+              : workspaceCopy("Service time did not save", workspaceTerms),
           ),
         )
         .finally(() => setMetaFieldPending("time", false));
@@ -3039,6 +3046,7 @@ function AddItemModal({
   ) => void;
   onClose: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<ItemType>("segment");
   const [duration, setDuration] = useState(defaultDuration);
@@ -3096,7 +3104,9 @@ function AddItemModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
-                type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"
+                type === "header"
+                  ? workspaceCopy("e.g. Pre-service", workspaceTerms)
+                  : workspaceCopy("e.g. Worship Set", workspaceTerms)
               }
               autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
@@ -3124,7 +3134,10 @@ function AddItemModal({
                   type="text"
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
-                  placeholder="e.g. Pastor James"
+                  placeholder={workspaceCopy(
+                    "e.g. Pastor James",
+                    workspaceTerms,
+                  )}
                   className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
@@ -3188,6 +3201,7 @@ function EditItemModal({
   ) => void;
   onClose: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [title, setTitle] = useState(item.title);
   const [type, setType] = useState<ItemType>(item.type);
   const [duration, setDuration] = useState(
@@ -3247,7 +3261,9 @@ function EditItemModal({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
-                type === "header" ? "e.g. Pre-service" : "e.g. Worship Set"
+                type === "header"
+                  ? workspaceCopy("e.g. Pre-service", workspaceTerms)
+                  : workspaceCopy("e.g. Worship Set", workspaceTerms)
               }
               autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
@@ -3275,7 +3291,10 @@ function EditItemModal({
                   type="text"
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
-                  placeholder="e.g. Pastor James"
+                  placeholder={workspaceCopy(
+                    "e.g. Pastor James",
+                    workspaceTerms,
+                  )}
                   className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
@@ -3551,6 +3570,7 @@ function SaveRundownModal({
   initialServiceName: string;
   initialStartTime: string;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [name, setName] = useState("");
   const [serviceName, setServiceName] = useState(initialServiceName);
   const [scheduledStartTime, setScheduledStartTime] =
@@ -3580,26 +3600,38 @@ function SaveRundownModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Sunday Morning Service"
+              placeholder={workspaceCopy(
+                "e.g. Sunday Morning Service",
+                workspaceTerms,
+              )}
               autoFocus
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
           <div>
             <label className="mb-1.5 block text-sm text-board-muted">
-              Service title
+              {workspaceCopy(
+                "\n              Service title\n            ",
+                workspaceTerms,
+              )}
             </label>
             <input
               type="text"
               value={serviceName}
               onChange={(e) => setServiceName(e.target.value)}
-              placeholder="Sunday Morning Service"
+              placeholder={workspaceCopy(
+                "Sunday Morning Service",
+                workspaceTerms,
+              )}
               className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text placeholder:text-board-muted/50 focus:border-fire-500 focus:outline-none"
             />
           </div>
           <div>
             <label className="mb-1.5 block text-sm text-board-muted">
-              Service start time
+              {workspaceCopy(
+                "\n              Service start time\n            ",
+                workspaceTerms,
+              )}
             </label>
             <input
               type="time"

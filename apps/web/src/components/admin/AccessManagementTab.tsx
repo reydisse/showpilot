@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { Check, ChevronDown, Clock3, KeyRound, ShieldCheck, X } from "lucide-react";
@@ -68,6 +70,7 @@ export function AccessManagementTab({
   members: AccessMember[];
   grants: ActiveGrant[];
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const router = useRouter();
   const eligibleMembers = useMemo(
     () => members.filter((member) => member.userId !== currentUserId),
@@ -109,7 +112,16 @@ export function AccessManagementTab({
     setError("");
     try {
       await grantMemberAccess({
-        data: { orgId, userId, capability: capability as typeof ACCESS_CAPABILITIES[number]["id"] | "custom", permissions: capability === "custom" ? customPermissions : undefined, duration, reason },
+        data: {
+          orgId,
+          userId,
+          capability: capability as
+            | (typeof ACCESS_CAPABILITIES)[number]["id"]
+            | "custom",
+          permissions: capability === "custom" ? customPermissions : undefined,
+          duration,
+          reason,
+        },
       });
       resetForm();
       await router.invalidate();
@@ -246,8 +258,18 @@ export function AccessManagementTab({
           ) : null}
 
           <label className="block space-y-1.5 text-xs font-medium text-board-muted">
-            Reason <span className="font-normal text-board-muted/60">(optional)</span>
-            <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={240} placeholder="e.g. Covering rundown for Sunday service" className="w-full rounded-lg border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50" />
+            Reason{" "}
+            <span className="font-normal text-board-muted/60">(optional)</span>
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={240}
+              placeholder={workspaceCopy(
+                "e.g. Covering rundown for Sunday service",
+                workspaceTerms,
+              )}
+              className="w-full rounded-lg border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+            />
           </label>
 
           <div className="flex justify-end gap-2">
@@ -279,7 +301,11 @@ export function AccessManagementTab({
               <div key={member.userId} className="rounded-xl border border-board-border bg-board-card p-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-board-border text-sm font-semibold text-fire-400">
-                    {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : member.user.name.charAt(0)}
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      member.user.name.charAt(0)
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-board-text">{member.user.name}</p>
@@ -300,7 +326,9 @@ export function AccessManagementTab({
                           <p className="mt-1 text-[11px] text-board-muted">
                             {grant.expiresOn ? `Active through ${grantEndLabel(grant.expiresOn)}` : "Active until revoked"} · granted by {grant.grantedBy.name}
                           </p>
-                          {grant.reason ? <p className="mt-1 break-words text-[11px] text-board-muted/80">{grant.reason}</p> : null}
+                          {grant.reason ? (
+                            <p className="mt-1 break-words text-[11px] text-board-muted/80">{grant.reason}</p>
+                          ) : null}
                         </div>
                         {grant.canRevoke ? (
                           <button onClick={() => void revoke(grant)} disabled={revokingId === grant.id} className="min-h-[40px] shrink-0 rounded-lg border border-red-500/20 px-3 text-xs font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50">

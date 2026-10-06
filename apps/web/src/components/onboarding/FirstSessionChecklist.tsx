@@ -1,3 +1,5 @@
+import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
+import { moduleForSurface } from "@showpilot/shared";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, ChevronRight, ListChecks, X } from "lucide-react";
@@ -18,7 +20,24 @@ const ITEMS = [
   { id: "open-board", label: "Open the kiosk / board view", to: "/$slug/board" },
 ] as const;
 
-export function FirstSessionChecklist({ orgId, slug }: { orgId: string; slug: string }) {
+export function FirstSessionChecklist({
+  orgId,
+  slug,
+}: {
+  orgId: string;
+  slug: string;
+}) {
+  const workspace = useWorkspace();
+  const items = ITEMS.filter((item) => {
+    const module = moduleForSurface("web", item.to.replace("/$slug/", ""));
+    return !module || workspace.modules.includes(module);
+  }).map((item) => ({
+    ...item,
+    label:
+      item.id === "rename-item"
+        ? `Rename a rundown ${workspace.terms.item.toLowerCase()}`
+        : item.label,
+  }));
   const [visible, setVisible] = useState(false);
   const [completed, setCompleted] = useState<string[]>([]);
 
@@ -44,7 +63,7 @@ export function FirstSessionChecklist({ orgId, slug }: { orgId: string; slug: st
       : [...completed, id];
     setCompleted(next);
     void updateFirstSessionChecklist({ data: { orgId, completed: next } }).catch(() => {});
-    if (next.length === ITEMS.length) {
+    if (items.every((item) => next.includes(item.id))) {
       track("first_session_checklist_completed", {});
     }
   };
@@ -71,7 +90,7 @@ export function FirstSessionChecklist({ orgId, slug }: { orgId: string; slug: st
         </button>
       </div>
       <ul className="space-y-1">
-        {ITEMS.map((item) => {
+        {items.map((item) => {
           const done = completed.includes(item.id);
           return (
             <li key={item.id} className="flex items-center gap-2">

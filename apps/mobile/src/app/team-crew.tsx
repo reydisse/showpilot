@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Camera from "lucide-react-native/icons/camera";
@@ -66,6 +68,7 @@ function crewPhotoUri(value: string): string | null {
 }
 
 export default function TeamCrewScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const queryClient = useQueryClient();
@@ -190,22 +193,26 @@ export default function TeamCrewScreen() {
       eyebrow="TEAM CONTROL"
       title="Crew roster"
       scroll={false}
-      action={(
+      action={
         <Pressable accessibilityRole="button" onPress={() => openEditor()} style={styles.addButton}>
           <UserPlus color={colors.black} size={17} />
           <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
-      )}
+      }
     >
       <FlatList
         contentContainerStyle={styles.list}
         data={filteredMembers}
         initialNumToRender={12}
         keyExtractor={(member) => member.id}
-        ListHeaderComponent={(
+        ListHeaderComponent={
           <View style={styles.headerContent}>
-            {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.isPending ? (
+              <ActivityIndicator color={colors.amberText} size="large" />
+            ) : null}
+            {query.error ? (
+              <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+            ) : null}
             <View style={styles.summaryCard}>
               <UsersRound color={colors.blue} size={22} />
               <View style={styles.summaryCopy}>
@@ -224,18 +231,29 @@ export default function TeamCrewScreen() {
                 style={styles.searchInput}
                 value={search}
               />
-              {search ? <Pressable accessibilityLabel="Clear crew search" hitSlop={8} onPress={() => setSearch("")}><X color={colors.textFaint} size={17} /></Pressable> : null}
+              {search ? (
+                <Pressable accessibilityLabel="Clear crew search" hitSlop={8} onPress={() => setSearch("")}><X color={colors.textFaint} size={17} /></Pressable>
+              ) : null}
             </View>
             <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>PRODUCTION CREW</Text><Text style={styles.sectionCount}>{filteredMembers.length}</Text></View>
           </View>
-        )}
-        ListEmptyComponent={query.data && !query.isPending ? (
-          <View style={styles.emptyCard}>
-            <UserRound color={colors.textFaint} size={25} />
-            <Text style={styles.emptyTitle}>{search ? "No matching crew" : "No crew members yet"}</Text>
-            <Text style={styles.emptyText}>{search ? "Try another name, role, email, or ID." : "Add the people who serve on your production team."}</Text>
-          </View>
-        ) : null}
+        }
+        ListEmptyComponent={
+          query.data && !query.isPending ? (
+            <View style={styles.emptyCard}>
+              <UserRound color={colors.textFaint} size={25} />
+              <Text style={styles.emptyTitle}>{search ? "No matching crew" : "No crew members yet"}</Text>
+              <Text style={styles.emptyText}>
+                {search
+                  ? "Try another name, role, email, or ID."
+                  : workspaceCopy(
+                      "Add the people who serve on your production team.",
+                      workspaceTerms,
+                    )}
+              </Text>
+            </View>
+          ) : null
+        }
         maxToRenderPerBatch={12}
         onRefresh={() => void query.refetch()}
         refreshing={query.isRefetching}
@@ -244,7 +262,9 @@ export default function TeamCrewScreen() {
           return (
             <View style={styles.memberCard}>
               <View>
-                {photo ? <Image source={{ uri: photo }} style={styles.avatar} /> : (
+                {photo ? (
+                  <Image source={{ uri: photo }} style={styles.avatar} />
+                ) : (
                   <View style={styles.avatarFallback}><Text style={styles.avatarText}>{member.name.charAt(0).toUpperCase()}</Text></View>
                 )}
                 <View style={[styles.statusDot, member.isOnline ? styles.statusOnline : styles.statusOffline]} />
@@ -252,7 +272,9 @@ export default function TeamCrewScreen() {
               <View style={styles.memberCopy}>
                 <View style={styles.nameRow}><Text numberOfLines={1} style={styles.memberName}>{member.name}</Text><Text style={styles.memberId}>{member.memberId}</Text></View>
                 <Text numberOfLines={1} style={styles.memberRole}>{member.role}</Text>
-                {member.email ? <Text numberOfLines={1} style={styles.memberEmail}>{member.email}</Text> : null}
+                {member.email ? (
+                  <Text numberOfLines={1} style={styles.memberEmail}>{member.email}</Text>
+                ) : null}
               </View>
               <View style={styles.actions}>
                 <Pressable accessibilityLabel={`Edit ${member.name}`} onPress={() => openEditor(member)} style={styles.iconButton}><Pencil color={colors.textMuted} size={17} /></Pressable>
@@ -273,7 +295,11 @@ export default function TeamCrewScreen() {
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
               <Pressable accessibilityRole="button" accessibilityLabel="Choose crew photo" disabled={preparingPhoto} onPress={choosePhoto} style={styles.photoPicker}>
-                {crewPhotoUri(photoUrl) ? <Image source={{ uri: crewPhotoUri(photoUrl)! }} style={styles.photoPreview} /> : <UserRound color={colors.amberText} size={31} />}
+                {crewPhotoUri(photoUrl) ? (
+                  <Image source={{ uri: crewPhotoUri(photoUrl)! }} style={styles.photoPreview} />
+                ) : (
+                  <UserRound color={colors.amberText} size={31} />
+                )}
                 <View style={styles.cameraBadge}><Camera color={colors.black} size={13} /></View>
               </Pressable>
               <Text style={styles.photoHint}>{preparingPhoto ? "Preparing photo…" : "Tap to choose a square photo"}</Text>
@@ -294,7 +320,9 @@ export default function TeamCrewScreen() {
                 ))}
                 <Pressable onPress={() => { setCustomRoleOpen(true); if (builtInRoles.includes(role)) setRole(""); }} style={[styles.roleChoice, customRoleOpen && styles.roleChoiceActive]}><Text style={[styles.roleChoiceText, customRoleOpen && styles.roleChoiceTextActive]}>Custom role</Text></Pressable>
               </View>
-              {customRoleOpen ? <TextInput accessibilityLabel="Custom crew role" maxLength={100} onChangeText={setRole} placeholder="Set Builder" placeholderTextColor={colors.textFaint} style={styles.input} value={role} /> : null}
+              {customRoleOpen ? (
+                <TextInput accessibilityLabel="Custom crew role" maxLength={100} onChangeText={setRole} placeholder="Set Builder" placeholderTextColor={colors.textFaint} style={styles.input} value={role} />
+              ) : null}
               <AppButton label={editing ? "Update crew member" : "Add crew member"} loading={saveMutation.isPending} disabled={!formReady} onPress={() => saveMutation.mutate()} />
             </ScrollView>
           </View>

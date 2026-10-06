@@ -1,6 +1,9 @@
+import { moduleForSurface } from "@showpilot/shared";
+import { useWorkspace } from "@/providers/workspace-provider";
+import { ModuleOffView } from "./module-off-view";
 import { useState, type PropsWithChildren, type ReactNode } from "react";
 import ChevronLeft from "lucide-react-native/icons/chevron-left";
-import { router, type Href } from "expo-router";
+import { router, usePathname, type Href } from "expo-router";
 import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createThemedStyles, fontFamily, spacing, useAppTheme } from "@/theme/tokens";
@@ -19,6 +22,9 @@ type PageProps = PropsWithChildren<{
 }>;
 
 export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefresh, maxWidth = 1040, backTo, backLabel = "Back", children }: PageProps) {
+  const workspace = useWorkspace();
+  const module = moduleForSurface("mobile", usePathname());
+  const blocked = module && !workspace.modules.includes(module) ? module : null;
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [manualRefresh, setManualRefresh] = useState(false);
@@ -32,7 +38,9 @@ export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefres
         }
       }
     : undefined;
-  const content = (
+  const content = blocked ? (
+    <ModuleOffView module={blocked} />
+  ) : (
     <View style={[styles.content, { maxWidth }]}>
       {title || eyebrow || subtitle || action || backTo ? (
         <View style={styles.header}>
@@ -49,9 +57,15 @@ export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefres
           ) : null}
           <View style={styles.headerBody}>
             <View style={styles.heading}>
-              {eyebrow ? <Text style={styles.eyebrow} maxFontSizeMultiplier={1.5}>{eyebrow}</Text> : null}
-              {title ? <Text style={styles.title} maxFontSizeMultiplier={1.7}>{title}</Text> : null}
-              {subtitle ? <Text style={styles.subtitle} maxFontSizeMultiplier={1.7}>{subtitle}</Text> : null}
+              {eyebrow ? (
+                <Text style={styles.eyebrow} maxFontSizeMultiplier={1.5}>{eyebrow}</Text>
+              ) : null}
+              {title ? (
+                <Text style={styles.title} maxFontSizeMultiplier={1.7}>{title}</Text>
+              ) : null}
+              {subtitle ? (
+                <Text style={styles.subtitle} maxFontSizeMultiplier={1.7}>{subtitle}</Text>
+              ) : null}
             </View>
             {action}
           </View>
@@ -69,11 +83,17 @@ export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefres
           contentContainerStyle={styles.scroll}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
-          refreshControl={refresh ? <RefreshControl refreshing={manualRefresh} onRefresh={refresh} tintColor={colors.amberText} colors={[colors.amberText]} /> : undefined}
+          refreshControl={
+            refresh ? (
+              <RefreshControl refreshing={manualRefresh} onRefresh={refresh} tintColor={colors.amberText} colors={[colors.amberText]} />
+            ) : undefined
+          }
         >
           {content}
         </ScrollView>
-      ) : content}
+      ) : (
+        content
+      )}
     </SafeAreaView>
   );
 }

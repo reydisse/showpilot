@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Plus from "lucide-react-native/icons/plus";
@@ -99,13 +101,19 @@ export default function ShowsScreen() {
         data={data?.shows ?? []}
         initialNumToRender={10}
         keyExtractor={(show) => show.id}
-        ListHeaderComponent={(
+        ListHeaderComponent={
           <View style={styles.listHeader}>
-            {canViewLiveShow ? <FeatureLink icon={RadioTower} title="Open Live Show" description="One synchronized workspace for the live timer, cues, crew, chat, and full rundown." badge="LIVE" onPress={() => router.push("/live-show")} /> : null}
-            {isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-            {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text> : null}
+            {canViewLiveShow ? (
+              <FeatureLink icon={RadioTower} title="Open Live Show" description="One synchronized workspace for the live timer, cues, crew, chat, and full rundown." badge="LIVE" onPress={() => router.push("/live-show")} />
+            ) : null}
+            {isPending ? (
+              <ActivityIndicator color={colors.amberText} size="large" />
+            ) : null}
+            {error ? (
+              <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text>
+            ) : null}
           </View>
-        )}
+        }
         ListEmptyComponent={data && !isPending ? (
           <Text style={styles.empty}>
             {canCreate ? "No upcoming shows. Tap + to schedule the first one." : "There are no upcoming shows in this workspace."}
@@ -142,6 +150,7 @@ function CreateShowModal({
   onClose: () => void;
   onCreate: (draft: CreateShowDraft) => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [serviceDate, setServiceDate] = useState(() => getServiceDateForTimeZone(timeZone));
@@ -198,17 +207,24 @@ function CreateShowModal({
               Create it here and every web, desktop, and mobile operator will see the same show.
             </Text>
             <AppField
-              label="Service title"
+              label={workspaceCopy("Service title", workspaceTerms)}
               autoCapitalize="words"
               maxLength={120}
               onChangeText={setName}
-              placeholder="Sunday Morning Service"
+              placeholder={workspaceCopy(
+                "Sunday Morning Service",
+                workspaceTerms,
+              )}
               returnKeyType="next"
               value={name}
-              error={submitted && !nameValid ? "Enter a service title." : undefined}
+              error={
+                submitted && !nameValid
+                  ? workspaceCopy("Enter a service title.", workspaceTerms)
+                  : undefined
+              }
             />
             <AppField
-              label="Service date"
+              label={workspaceCopy("Service date", workspaceTerms)}
               autoCorrect={false}
               inputMode="numeric"
               maxLength={10}

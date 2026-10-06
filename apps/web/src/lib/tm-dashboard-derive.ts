@@ -1,3 +1,4 @@
+import { resolveTerms, type WorkspaceTerms } from "@showpilot/shared";
 /**
  * Tech manager dashboard derivation.
  *
@@ -366,7 +367,10 @@ const STALE_FAULT_DAYS = 7;
  * never a nudge to configure something the org has chosen not to use.
  * The rule that kept the PM dashboard honest applies here too.
  */
-export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
+export function derivePrep(
+  snapshot: TmSnapshot,
+  terms: WorkspaceTerms = resolveTerms("church"),
+): PrepItem[] {
   if (snapshot.phase !== "planning" && snapshot.phase !== "prep") return [];
 
   const out: PrepItem[] = [];
@@ -375,7 +379,7 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
     out.push({
       id: "prep:no-rundown",
       severity: "critical",
-      title: "No running order for this service",
+      title: `No running order for this ${terms.event}`,
       detail: "Nothing to check against, and no cue sheet until it exists",
       actionLabel: "Build it",
       actionPath: "rundown",
@@ -388,8 +392,8 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
     out.push({
       id: "prep:no-checklist",
       severity: "critical",
-      title: "No pre-service checks exist",
-      detail: "Nothing will be verified before the service starts",
+      title: `No pre-${terms.event} checks exist`,
+      detail: `Nothing will be verified before the ${terms.event} starts`,
       actionLabel: "Add checks",
       actionPath: "production/checklist",
     });
@@ -397,7 +401,7 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
     out.push({
       id: "prep:checklist-not-started",
       severity: "warning",
-      title: "Checks not started for this service",
+      title: `Checks not started for this ${terms.event}`,
       detail: `${snapshot.checklistTemplateCount} checks defined, none carried onto this date`,
       actionLabel: "Open",
       actionPath: "production/checklist",
@@ -413,7 +417,7 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
         id: "prep:duty-unstaffed",
         severity: "warning",
         title: `No ${unstaffed.map((officer) => officer.label.toLowerCase()).join(" or ")} on duty`,
-        detail: "Nobody is named for this service on the weekly rota",
+        detail: `Nobody is named for this ${terms.event} on the weekly rota`,
         actionLabel: "Set the rota",
         actionPath: "dashboard/prod-manager",
       });
@@ -439,13 +443,15 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
     (incident) => incident.status !== "resolved" && snapshot.now - incident.reportedAt > staleMs,
   );
   if (lingering.length > 0) {
-    const oldest = lingering.reduce((a, b) => (a.reportedAt < b.reportedAt ? a : b));
+    const oldest = lingering.reduce((a, b) =>
+      a.reportedAt < b.reportedAt ? a : b,
+    );
     const days = Math.round((snapshot.now - oldest.reportedAt) / (24 * 60 * MINUTE_MS));
     out.push({
       id: "prep:lingering-faults",
       severity: "warning",
       title: `${lingering.length === 1 ? "1 fault" : `${lingering.length} faults`} open more than a week`,
-      detail: `Oldest is ${days} days old — fix before the service, not during it`,
+      detail: `Oldest is ${days} days old — fix before the ${terms.event}, not during it`,
       actionLabel: "Review",
       actionPath: "production/incidents",
     });
@@ -456,7 +462,10 @@ export function derivePrep(snapshot: TmSnapshot): PrepItem[] {
 
 // ─── Model ───────────────────────────────────────────────────
 
-export function deriveTmDashboard(snapshot: TmSnapshot): TmDashboardModel {
+export function deriveTmDashboard(
+  snapshot: TmSnapshot,
+  terms: WorkspaceTerms = resolveTerms("church"),
+): TmDashboardModel {
   const faults = deriveFaults(snapshot);
   return {
     phase: snapshot.phase,
@@ -469,6 +478,6 @@ export function deriveTmDashboard(snapshot: TmSnapshot): TmDashboardModel {
     equipmentFaults: deriveEquipmentFaults(snapshot),
     devices: deriveDevices(snapshot),
     duty: snapshot.duty,
-    prep: derivePrep(snapshot),
+    prep: derivePrep(snapshot, terms),
   };
 }

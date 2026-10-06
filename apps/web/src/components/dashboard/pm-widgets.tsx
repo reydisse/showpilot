@@ -1,3 +1,5 @@
+import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 /**
  * Production manager widgets.
  *
@@ -48,6 +50,7 @@ import type { RundownState } from "@/types/rundown";
 import { isHeaderItem } from "@/types/rundown";
 
 export interface PmWidgetModel {
+  terms: WorkspaceTerms;
   model: PmDashboardModel;
   rundownState: RundownState;
   slug: string;
@@ -68,7 +71,12 @@ const controlPadWidget: PmWidget = {
   ),
 };
 
-function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: string; serviceDate: string; showId: string | null; initialState: RundownState }) {
+function PmControlPad({ orgId, serviceDate, showId, initialState }: {
+  orgId: string;
+  serviceDate: string;
+  showId: string | null;
+  initialState: RundownState;
+}) {
   const { items, timer, hydrated, stateServiceDate, stateShowId, stateInitialized, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
   const seededRef = useRef(false);
 
@@ -144,8 +152,26 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: { orgId: str
   );
 }
 
-function ControlButton({ icon: Icon, label, detail, onClick, disabled = false, active = false }: { icon: typeof Play; label: string; detail: string; onClick: () => void; disabled?: boolean; active?: boolean }) {
-  return <button type="button" disabled={disabled} onClick={onClick} className={`min-h-[72px] rounded-lg border p-3 text-left transition-colors disabled:opacity-40 ${active ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}><span className="flex items-center justify-between"><Icon className="h-4 w-4" />{active ? <span className="h-1.5 w-1.5 rounded-full bg-green-400" /> : null}</span><span className="mt-2 block text-[11px] font-medium">{label}</span><span className="mt-0.5 block text-[9px] text-board-muted">{detail}</span></button>;
+function ControlButton({ icon: Icon, label, detail, onClick, disabled = false, active = false }: {
+  icon: typeof Play;
+  label: string;
+  detail: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className={`min-h-[72px] rounded-lg border p-3 text-left transition-colors disabled:opacity-40 ${active ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}>
+      <span className="flex items-center justify-between">
+        <Icon className="h-4 w-4" />
+        {active ? (
+          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+        ) : null}
+      </span>
+      <span className="mt-2 block text-[11px] font-medium">{label}</span>
+      <span className="mt-0.5 block text-[9px] text-board-muted">{detail}</span>
+    </button>
+  );
 }
 
 /** Sidebar's pattern for building an org-relative typed link target. */
@@ -203,7 +229,7 @@ const attentionWidget: PmWidget = {
   title: "Needs attention",
   phases: "all",
   region: "main",
-  render: ({ model, slug }) => (
+  render: ({ terms: workspaceTerms, model, slug }) => (
     <WidgetCard
       title="Needs attention"
       action={
@@ -213,7 +239,12 @@ const attentionWidget: PmWidget = {
       }
     >
       {model.attention.length === 0 ? (
-        <WidgetEmpty>Nothing outstanding. This service is clear.</WidgetEmpty>
+        <WidgetEmpty>
+          {workspaceCopy(
+            "Nothing outstanding. This service is clear.",
+            workspaceTerms,
+          )}
+        </WidgetEmpty>
       ) : (
         <ul>
           {model.attention.slice(0, 8).map((item) => (
@@ -398,7 +429,7 @@ const arrivalsWidget: PmWidget = {
   phases: ["call", "live"],
   region: "main",
   isRelevant: ({ model }) => model.arrivals.total > 0,
-  render: ({ model, slug }) => (
+  render: ({ terms: workspaceTerms, model, slug }) => (
     <WidgetCard
       title="Arrivals"
       action={
@@ -417,8 +448,10 @@ const arrivalsWidget: PmWidget = {
       />
       {!model.arrivals.expectedKnown && (
         <p className="text-[11px] text-board-muted mt-1.5">
-          Nobody is scheduled for this service, so there is no expected list to
-          compare against — this is just who has checked in.
+          {workspaceCopy(
+            "\n          Nobody is scheduled for this service, so there is no expected list to\n          compare against — this is just who has checked in.\n        ",
+            workspaceTerms,
+          )}
         </p>
       )}
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 mt-3">
@@ -645,6 +678,7 @@ const planNextWidget: PmWidget = {
  * rotas repeat and nobody wants to retype the same nine items weekly.
  */
 function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
+  const workspaceTerms = useWorkspaceTerms();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -669,14 +703,16 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
       await router.invalidate();
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "Could not create the service",
+        cause instanceof Error
+          ? cause.message
+          : workspaceCopy("Could not create the service", workspaceTerms),
       );
       setBusy(false);
     }
   }
 
   return (
-    <WidgetCard title="Plan the next service">
+    <WidgetCard title={workspaceCopy("Plan the next service", workspaceTerms)}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[15px] text-board-text">
@@ -684,7 +720,7 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
           </p>
           <p className="text-xs text-board-muted mt-1">
             {canClone
-              ? `Last service was ${longDate(model.lastServiceDate as string)}. Copy its rundown to start from where you left off.`
+              ? `Last ${workspaceTerms.event} was ${longDate(model.lastServiceDate as string)}. Copy its rundown to start from where you left off.`
               : "Build a rundown to get the dashboard working for you."}
           </p>
           {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
@@ -699,7 +735,9 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
               className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
-              {busy ? "Copying…" : "Copy last service"}
+              {busy
+                ? "Copying…"
+                : workspaceCopy("Copy last service", workspaceTerms)}
             </button>
           )}
           <Link
@@ -804,7 +842,14 @@ const crewWidget: PmWidget = {
   render: ({ model, slug }) => <CrewAssignments model={model} slug={slug} />,
 };
 
-function CrewAssignments({ model, slug }: { model: PmDashboardModel; slug: string }) {
+function CrewAssignments({
+  model,
+  slug,
+}: {
+  model: PmDashboardModel;
+  slug: string;
+}) {
+  const workspaceTerms = useWorkspaceTerms();
   const [expanded, setExpanded] = useState(model.crew.positions.length <= 6);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const crew = model.crew;
@@ -812,7 +857,7 @@ function CrewAssignments({ model, slug }: { model: PmDashboardModel; slug: strin
   return (
     <>
       <WidgetCard
-        title="Service assignments"
+        title={workspaceCopy("Service assignments", workspaceTerms)}
         action={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <button type="button" onClick={() => setDetailsOpen(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-board-border/80 px-2.5 py-1.5 text-[11px] font-medium text-board-muted transition hover:border-board-border hover:text-board-text">
@@ -866,7 +911,11 @@ function CrewAssignments({ model, slug }: { model: PmDashboardModel; slug: strin
         )}
         {crew.positions.length > 4 ? (
           <button type="button" onClick={() => setExpanded((value) => !value)} className="mt-3 flex w-full items-center justify-center gap-1.5 border-t border-board-border/60 pt-3 text-[11px] font-medium text-board-muted hover:text-board-text">
-            {expanded ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+            {expanded ? (
+              <ChevronUp data-icon="inline-start" />
+            ) : (
+              <ChevronDown data-icon="inline-start" />
+            )}
             {expanded ? "Collapse assignments" : `Show all ${crew.positions.length} assignments`}
           </button>
         ) : null}
@@ -874,27 +923,37 @@ function CrewAssignments({ model, slug }: { model: PmDashboardModel; slug: strin
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="text-board-text">Service assignments</DialogTitle>
+            <DialogTitle className="text-board-text">
+              {workspaceCopy("Service assignments", workspaceTerms)}
+            </DialogTitle>
             <DialogDescription>{longDate(model.serviceDate)} · response details and notes</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2">
             {crew.positions.map((position) => {
               const config = CREW_STATUS[position.status];
-              return <div key={position.id} className="rounded-lg border border-board-border bg-board-bg p-3">
-                <div className="flex items-start gap-3">
-                  <StatusDot status={config.dot} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+              return (
+                <div key={position.id} className="rounded-lg border border-board-border bg-board-bg p-3">
+                  <div className="flex items-start gap-3">
+                    <StatusDot status={config.dot} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <p className="text-sm font-medium text-board-text">{position.name ?? "Open position"}</p>
                       <span className={`text-[10px] font-medium uppercase tracking-[0.12em] ${config.className}`}>{config.label}</span>
                     </div>
-                    <p className="mt-1 text-xs text-board-muted">{position.department} · {position.role}</p>
-                    {position.notes ? <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Instructions:</span> {position.notes}</p> : null}
-                    {position.responseNote ? <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Crew note:</span> {position.responseNote}</p> : null}
-                    {position.respondedAt ? <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(position.respondedAt).toLocaleString()}</p> : null}
+                      <p className="mt-1 text-xs text-board-muted">{position.department} · {position.role}</p>
+                      {position.notes ? (
+                        <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Instructions:</span> {position.notes}</p>
+                      ) : null}
+                      {position.responseNote ? (
+                        <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Crew note:</span> {position.responseNote}</p>
+                      ) : null}
+                      {position.respondedAt ? (
+                        <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(position.respondedAt).toLocaleString()}</p>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>;
+              );
             })}
           </div>
           <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="text-xs font-medium text-fire-400">Open full scheduling system</Link>
@@ -912,9 +971,9 @@ const openItemsWidget: PmWidget = {
   phases: ["planning", "prep", "debrief"],
   region: "main",
   isRelevant: ({ model }) => model.openItems.length > 0,
-  render: ({ model, slug }) => (
+  render: ({ terms: workspaceTerms, model, slug }) => (
     <WidgetCard
-      title="Still open from earlier services"
+      title={workspaceCopy("Still open from earlier services", workspaceTerms)}
       action={
         <Link to={orgLink(slug, "production/incidents")}>
           <WidgetAction>All incidents</WidgetAction>
@@ -1035,13 +1094,13 @@ const recentWidget: PmWidget = {
   phases: ["planning", "prep", "debrief"],
   region: "rail",
   isRelevant: ({ model }) => model.recent.length > 0,
-  render: ({ model }) => {
+  render: ({ terms: workspaceTerms, model }) => {
     // Actuals only exist once a service has been run with the timer.
     // Printing "not timed" against every row is four repetitions of the
     // same fact; say it once, at the bottom.
     const anyTimed = model.recent.some((s) => s.deltaMs !== null);
     return (
-      <WidgetCard title="Recent services">
+      <WidgetCard title={workspaceCopy("Recent services", workspaceTerms)}>
         <ul className="space-y-2">
           {model.recent.map((service) => {
             const over = (service.deltaMs ?? 0) > 0;
@@ -1097,7 +1156,10 @@ const recentWidget: PmWidget = {
         </ul>
         {!anyTimed && (
           <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
-            Actual runtimes appear once you run a service with the timer.
+            {workspaceCopy(
+              "\n            Actual runtimes appear once you run a service with the timer.\n          ",
+              workspaceTerms,
+            )}
           </p>
         )}
       </WidgetCard>

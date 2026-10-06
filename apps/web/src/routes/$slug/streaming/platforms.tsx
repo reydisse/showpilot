@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useEffect, useRef } from "react";
@@ -75,7 +77,9 @@ function PlatformsPage() {
   const { destinations, inputs, orgId } = Route.useLoaderData();
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
-  const [editDest, setEditDest] = useState<typeof destinations[0] | null>(null);
+  const [editDest, setEditDest] = useState<(typeof destinations)[0] | null>(
+    null,
+  );
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -517,6 +521,7 @@ function DestinationFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [name, setName] = useState(existing?.name ?? "");
   const [platform, setPlatform] = useState<Platform>(
     (existing?.platform as Platform) ?? "youtube"
@@ -591,7 +596,7 @@ function DestinationFormModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Platform selector */}
+          {/* Status banner */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
               Platform
@@ -626,7 +631,7 @@ function DestinationFormModal({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Church YouTube"
+              placeholder={workspaceCopy("e.g. Church YouTube", workspaceTerms)}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
@@ -659,7 +664,9 @@ function DestinationFormModal({
             />
           </div>
 
-          {error ? <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>
+          ) : null}
 
           <div className="flex gap-3 pt-2">
             <button

@@ -1,3 +1,4 @@
+import { WORKSPACE_TYPES, WORKSPACE_DEFINITIONS } from "@showpilot/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import {
@@ -139,6 +140,11 @@ function SuperAdminDashboard() {
   const router = useRouter();
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
+  const [typeFilter, setTypeFilter] = useState("all");
+  const visibleOrgs = orgs.filter(
+    (org) => typeFilter === "all" || org.workspaceType === typeFilter,
+  );
+
   // Build user → orgs map
   const userOrgs = new Map<string, { orgName: string; role: string }[]>();
   for (const m of members) {
@@ -147,7 +153,12 @@ function SuperAdminDashboard() {
     userOrgs.set(m.userId, list);
   }
 
-  const tabs: { id: Tab; label: string; icon: React.ElementType; count?: number }[] = [
+  const tabs: {
+    id: Tab;
+    label: string;
+    icon: React.ElementType;
+    count?: number;
+  }[] = [
     { id: "waitlist", label: "Waitlist", icon: ListChecks, count: waitlist.length },
     { id: "users", label: "Users", icon: Users },
     { id: "orgs", label: "Organizations", icon: Building2 },
@@ -155,7 +166,11 @@ function SuperAdminDashboard() {
     { id: "invitations", label: "Invitations", icon: Mail },
   ];
 
-  async function handleSendInvite(signup: { id: string; email: string; name: string }) {
+  async function handleSendInvite(signup: {
+    id: string;
+    email: string;
+    name: string;
+  }) {
     setSendingInvite(signup.id);
     try {
       await sendWaitlistInvite({ data: signup });
@@ -285,7 +300,9 @@ function SuperAdminDashboard() {
                       {waitlist.map((signup) => (
                         <tr key={signup.id} className="hover:bg-board-card/50">
                           <td className="px-4 py-3 font-medium text-board-text">
-                            {signup.name || <span className="text-board-muted">—</span>}
+                            {signup.name || (
+                              <span className="text-board-muted">—</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-board-muted">{signup.email}</td>
                           <td className="px-4 py-3 text-board-muted text-xs">{signup.role || "—"}</td>
@@ -399,7 +416,7 @@ function SuperAdminDashboard() {
 
         {tab === "orgs" && (
           <div className="space-y-4">
-            {/* Public launch date — beta orgs evaluate as pro until this date */}
+            {/* Header */}
             <div className="rounded-xl border border-board-border bg-board-card p-4">
               <div className="flex items-center gap-2 mb-2">
                 <Rocket className="w-4 h-4 text-fire-500" />
@@ -445,10 +462,25 @@ function SuperAdminDashboard() {
             </div>
 
             <p className="text-xs text-board-muted">
-              {orgs.length} organization{orgs.length !== 1 ? "s" : ""}
+              {visibleOrgs.length} organization{visibleOrgs.length !== 1 ? "s" : ""}
+              <label className="ml-4">
+                Type{" "}
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="rounded border border-board-border bg-board-card p-2"
+                >
+                  <option value="all">All types</option>
+                  {WORKSPACE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {WORKSPACE_DEFINITIONS[type].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </p>
             <div className="grid gap-3">
-              {orgs.map((org) => (
+              {visibleOrgs.map((org) => (
                 <div
                   key={org.id}
                   className="rounded-xl border border-board-border bg-board-card p-4 flex items-center gap-4"
@@ -469,6 +501,9 @@ function SuperAdminDashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-board-text">{org.name}</p>
                     <p className="text-xs text-board-muted">/{org.slug}</p>
+                    <p className="mt-1 text-xs text-board-muted">
+                      Type: {WORKSPACE_DEFINITIONS[org.workspaceType].label}
+                    </p>
                     <div className="flex items-center gap-1.5 mt-1.5">
                       <span
                         className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded border ${PLAN_BADGE_STYLES[org.effectivePlan] ?? PLAN_BADGE_STYLES.free}`}

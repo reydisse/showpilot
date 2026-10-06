@@ -1,3 +1,4 @@
+import { WorkspaceSettings } from "@/components/workspace-settings";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NotificationCategory, NotificationPreference } from "@showpilot/shared";
@@ -199,15 +200,19 @@ export default function SettingsScreen() {
 
   return (
     <Page backTo="/(app)/profile" backLabel="Back to profile" eyebrow="YOUR APP" title="Settings" maxWidth={720}>
+      <WorkspaceSettings />
       <SettingsSection title="Appearance" description="Choose the canvas that feels best in daylight, backstage, or the control room.">
         <View accessibilityRole="radiogroup" style={styles.appearanceGrid}>
           {appearanceOptions.map((option) => {
             const selected = preference === option.value;
-            const icon = option.icon === "light"
-              ? <Sun size={20} color={selected ? colors.black : colors.textMuted} />
-              : option.icon === "dark"
-                ? <Moon size={20} color={selected ? colors.black : colors.textMuted} />
-                : <Smartphone size={20} color={selected ? colors.black : colors.textMuted} />;
+            const icon =
+              option.icon === "light" ? (
+                <Sun size={20} color={selected ? colors.black : colors.textMuted} />
+              ) : option.icon === "dark" ? (
+                <Moon size={20} color={selected ? colors.black : colors.textMuted} />
+              ) : (
+                <Smartphone size={20} color={selected ? colors.black : colors.textMuted} />
+              );
             return (
               <Pressable
                 accessibilityRole="radio"
@@ -229,7 +234,8 @@ export default function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection title="Notifications" description="Everything stays in your inbox. These alert choices apply across your connected devices.">
-        {notificationCopy ? <View style={styles.notificationCard}>
+        {notificationCopy ? (
+          <View style={styles.notificationCard}>
           <View style={styles.notificationTop}>
             <View style={styles.sectionIcon}><BellRing size={21} color={colors.amberText} /></View>
             <View style={styles.notificationCopy}>
@@ -250,7 +256,8 @@ export default function SettingsScreen() {
               onPress={configureNotifications}
             />
           ) : null}
-        </View> : null}
+        </View>
+        ) : null}
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceHeaderSpacer} />
@@ -265,7 +272,8 @@ export default function SettingsScreen() {
             <Pressable accessibilityRole="button" onPress={() => void notificationPreferences.refetch()} style={styles.preferenceLoading}>
               <Text style={styles.preferenceError}>Could not load notification choices. Tap to retry.</Text>
             </Pressable>
-          ) : notificationPreferences.data?.map((item) => {
+          ) : (
+            notificationPreferences.data?.map((item) => {
             const copy = notificationCategoryCopy[item.category];
             return (
               <View key={item.category} style={styles.preferenceRow}>
@@ -285,7 +293,8 @@ export default function SettingsScreen() {
                 </View>
               </View>
             );
-          })}
+          })
+          )}
         </View>
       </SettingsSection>
 
@@ -303,7 +312,9 @@ export default function SettingsScreen() {
             <Text style={styles.linkDescription}>{session.user.emailVerified ? "Verified" : "Verification still required"}</Text>
           </View>
         </View>
-        {!session.user.emailVerified ? <AppButton label="Send verification email" loading={sendingVerification} onPress={sendVerificationEmail} variant="secondary" /> : null}
+        {!session.user.emailVerified ? (
+          <AppButton label="Send verification email" loading={sendingVerification} onPress={sendVerificationEmail} variant="secondary" />
+        ) : null}
         <SettingsLink
           icon={<Trash2 size={20} color={colors.red} />}
           title="Delete account"
@@ -328,20 +339,31 @@ export default function SettingsScreen() {
   );
 }
 
-function SettingsSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function SettingsSection({ title, description, children }: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   const styles = useStyles();
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>{title}</Text>
-        {description ? <Text style={styles.sectionDescription}>{description}</Text> : null}
+        {description ? (
+          <Text style={styles.sectionDescription}>{description}</Text>
+        ) : null}
       </View>
       <View style={styles.sectionBody}>{children}</View>
     </View>
   );
 }
 
-function SettingsLink({ icon, title, description, onPress }: { icon: ReactNode; title: string; description?: string; onPress: () => void }) {
+function SettingsLink({ icon, title, description, onPress }: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  onPress: () => void;
+}) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   return (
@@ -349,14 +371,20 @@ function SettingsLink({ icon, title, description, onPress }: { icon: ReactNode; 
       {icon}
       <View style={styles.linkCopy}>
         <Text style={styles.linkTitle}>{title}</Text>
-        {description ? <Text style={styles.linkDescription}>{description}</Text> : null}
+        {description ? (
+          <Text style={styles.linkDescription}>{description}</Text>
+        ) : null}
       </View>
       <ExternalLink size={16} color={colors.textFaint} />
     </Pressable>
   );
 }
 
-function AboutRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function AboutRow({ icon, label, value }: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
   const styles = useStyles();
   return (
     <View style={styles.aboutRow}>

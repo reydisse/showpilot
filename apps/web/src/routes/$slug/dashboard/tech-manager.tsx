@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms } from "@/components/workspace/WorkspaceProvider";
 /**
  * Tech manager dashboard.
  *
@@ -195,6 +197,7 @@ function TechManagerPage() {
   );
 
   const widgetModel: TmWidgetModel = {
+    terms: useTerms(),
     model: filteredModel,
     slug,
     orgId,
@@ -695,11 +698,11 @@ function ReorderableMainWidgets({
           {editing ? (
             <div className="absolute z-[2] right-2 top-2 flex items-center rounded-lg border border-board-border bg-board-bg/95 shadow-lg">
               <span className="px-2 text-[10px] text-board-muted max-w-28 truncate">
-                {widget.title}
+                {workspaceCopy(widget.title, widgetModel.terms)}
               </span>
               <button
                 type="button"
-                aria-label={`Move ${widget.title} up`}
+                aria-label={`Move ${workspaceCopy(widget.title, widgetModel.terms)} up`}
                 disabled={index === 0 || saving}
                 onClick={() => move(widget.id, -1)}
                 className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
@@ -708,7 +711,7 @@ function ReorderableMainWidgets({
               </button>
               <button
                 type="button"
-                aria-label={`Move ${widget.title} down`}
+                aria-label={`Move ${workspaceCopy(widget.title, widgetModel.terms)} down`}
                 disabled={index === widgets.length - 1 || saving}
                 onClick={() => move(widget.id, 1)}
                 className="w-7 h-7 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"

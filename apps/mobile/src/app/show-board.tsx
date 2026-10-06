@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
@@ -30,7 +32,9 @@ import { getMobileShowBoard, type MobileCheckInMember } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 function initials(name: string) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
+  return (
+    name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?"
+  );
 }
 
 function crewPhotoUrl(value: string) {
@@ -74,7 +78,11 @@ function CrewCard({ member }: { member: MobileCheckInMember }) {
   return (
     <View accessibilityLabel={`${member.name}, ${member.role || "Crew"}, ${member.isOnline ? "checked in" : "offline"}`} style={[styles.crewCard, member.isOnline ? styles.crewCardOnline : styles.crewCardOffline]}>
       <View style={styles.avatarWrap}>
-        {photoUrl ? <Image accessibilityIgnoresInvertColors accessibilityLabel={`${member.name} profile photo`} source={{ uri: photoUrl }} style={styles.avatar} /> : <View style={styles.avatarFallback}><Text style={styles.avatarInitials}>{initials(member.name)}</Text></View>}
+        {photoUrl ? (
+          <Image accessibilityIgnoresInvertColors accessibilityLabel={`${member.name} profile photo`} source={{ uri: photoUrl }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarFallback}><Text style={styles.avatarInitials}>{initials(member.name)}</Text></View>
+        )}
         <View style={[styles.avatarStatus, member.isOnline ? styles.avatarStatusOnline : styles.avatarStatusOffline]} />
       </View>
       <Text numberOfLines={2} style={styles.crewName}>{member.name}</Text>
@@ -85,6 +93,7 @@ function CrewCard({ member }: { member: MobileCheckInMember }) {
 }
 
 export default function ShowBoardScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const { width } = useWindowDimensions();
@@ -149,11 +158,31 @@ export default function ShowBoardScreen() {
 
       <View style={[styles.checkInCard, width < 390 && styles.checkInCardNarrow]}>
         <View accessibilityLabel="Crew check-in QR code" style={styles.qrWrap}><SvgUri height={116} uri={checkInQrUrl} width={116} /></View>
-        <View style={styles.checkInCopy}><View style={styles.checkInHeading}><ScanLine color={colors.amberText} size={18} /><Text style={styles.checkInTitle}>Scan to serve</Text></View><Text style={styles.checkInHint}>Crew can scan this code with their camera and check in from any phone.</Text><View style={styles.checkInActions}><AppButton label="Open" onPress={() => void Linking.openURL(checkInUrl)} style={styles.checkInAction} variant="secondary" /><AppButton label="Share" onPress={shareCheckIn} style={styles.checkInAction} /></View></View>
+        <View style={styles.checkInCopy}>
+          <View style={styles.checkInHeading}>
+            <ScanLine color={colors.amberText} size={18} />
+            <Text style={styles.checkInTitle}>
+              {workspaceCopy("Scan to serve", workspaceTerms)}
+            </Text>
+          </View>
+          <Text style={styles.checkInHint}>Crew can scan this code with their camera and check in from any phone.</Text>
+          <View style={styles.checkInActions}><AppButton label="Open" onPress={() => void Linking.openURL(checkInUrl)} style={styles.checkInAction} variant="secondary" /><AppButton label="Share" onPress={shareCheckIn} style={styles.checkInAction} /></View>
+        </View>
       </View>
 
-      <View style={styles.sectionRow}><View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Your board is ready"}</Text></View><Pressable accessibilityLabel="Refresh Show Board" accessibilityRole="button" disabled={manualRefreshing} onPress={() => void refreshBoard()} style={[styles.refreshButton, manualRefreshing && styles.disabled]}>{manualRefreshing ? <ActivityIndicator color={colors.amberText} /> : <RefreshCw color={colors.textMuted} size={18} />}</Pressable></View>
-      {query.error ? <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text style={styles.errorText}>{query.error.message}</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable> : null}
+      <View style={styles.sectionRow}>
+        <View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Your board is ready"}</Text></View>
+        <Pressable accessibilityLabel="Refresh Show Board" accessibilityRole="button" disabled={manualRefreshing} onPress={() => void refreshBoard()} style={[styles.refreshButton, manualRefreshing && styles.disabled]}>
+          {manualRefreshing ? (
+            <ActivityIndicator color={colors.amberText} />
+          ) : (
+            <RefreshCw color={colors.textMuted} size={18} />
+          )}
+        </Pressable>
+      </View>
+      {query.error ? (
+        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text style={styles.errorText}>{query.error.message}</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable>
+      ) : null}
     </View>
   );
 
@@ -166,13 +195,19 @@ export default function ShowBoardScreen() {
         initialNumToRender={12}
         key={`show-board-${columns}`}
         keyExtractor={(member) => member.id}
-        ListEmptyComponent={!query.isPending && !query.error ? <View style={styles.emptyCard}><UsersRound color={colors.textFaint} size={34} /><Text style={styles.emptyTitle}>No crew members yet</Text><Text style={styles.emptyCopy}>Add your crew and they will appear here automatically as they check in.</Text><AppButton label="Open crew roster" onPress={() => router.push("/team-crew")} /><View style={styles.emptySpacer}><UserPlus color={colors.amberText} size={16} /><Text style={styles.emptyHint}>Names, roles, photos, and live status stay synchronized.</Text></View></View> : null}
+        ListEmptyComponent={
+          !query.isPending && !query.error ? (
+            <View style={styles.emptyCard}><UsersRound color={colors.textFaint} size={34} /><Text style={styles.emptyTitle}>No crew members yet</Text><Text style={styles.emptyCopy}>Add your crew and they will appear here automatically as they check in.</Text><AppButton label="Open crew roster" onPress={() => router.push("/team-crew")} /><View style={styles.emptySpacer}><UserPlus color={colors.amberText} size={16} /><Text style={styles.emptyHint}>Names, roles, photos, and live status stay synchronized.</Text></View></View>
+          ) : null
+        }
         ListHeaderComponent={header}
         maxToRenderPerBatch={12}
         numColumns={columns}
         onRefresh={() => void refreshBoard()}
         refreshing={manualRefreshing}
-        renderItem={({ item }) => <View style={styles.cardColumn}><CrewCard member={item} /></View>}
+        renderItem={({ item }) => (
+          <View style={styles.cardColumn}><CrewCard member={item} /></View>
+        )}
         showsVerticalScrollIndicator={false}
         windowSize={7}
       />

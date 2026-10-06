@@ -1,3 +1,8 @@
+import { getWorkspaceProfileForOrg } from "./workspace/profile.server";
+import {
+  templatesForWorkspace,
+  ALL_ONBOARDING_TEMPLATES,
+} from "./workspace/templates";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
@@ -6,11 +11,7 @@ import {
   persistRundownItemsForOrg,
   getRundownStateForOrg,
 } from "@/lib/rundown";
-import {
-  getOnboardingTemplate,
-  runTemplateSeed,
-  type TemplateSeedStore,
-} from "@/lib/templates";
+import { runTemplateSeed, type TemplateSeedStore } from "@/lib/templates";
 import {
   buildOnboardingRoleValue,
   isOnboardingArchetype,
@@ -94,6 +95,7 @@ export async function getSeedMarkerForOrg(
 // ─── Wizard progress (resume derivation source) ──────────────
 
 export interface OnboardingProgressPayload {
+  workspaceType: string | null;
   authenticated: boolean;
   hasOrg: boolean;
   isOwner: boolean;
@@ -107,6 +109,7 @@ export interface OnboardingProgressPayload {
 }
 
 const EMPTY_PROGRESS: OnboardingProgressPayload = {
+  workspaceType: null,
   authenticated: false,
   hasOrg: false,
   isOwner: false,
@@ -149,6 +152,7 @@ export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
             ONBOARDING_COMPLETED_KEY,
             ONBOARDING_SEED_KEY,
             roleKey,
+            "workspace-type",
           ],
         },
       },
@@ -177,6 +181,7 @@ export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
     const seedMarker = parseSeedMarker(byKey.get(ONBOARDING_SEED_KEY));
 
     return {
+      workspaceType: byKey.get("workspace-type") ?? null,
       authenticated: true,
       hasOrg: true,
       isOwner: membership.role === "owner",
@@ -243,7 +248,10 @@ export const saveOnboardingRole = createServerFn({ method: "POST" })
     await upsertOrgSetting(
       data.orgId,
       onboardingRoleKey(user.id),
-      buildOnboardingRoleValue(data.archetype as OnboardingArchetype),
+      buildOnboardingRoleValue(
+        data.archetype as OnboardingArchetype,
+        (await getWorkspaceProfileForOrg(data.orgId)).modules,
+      ),
     );
     return { ok: true };
   });
@@ -409,7 +417,15 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
-        template: z.enum(["sunday", "youth", "special", "blank"]),
+        template: z
+          .string()
+          .refine(
+            (value) =>
+              ALL_ONBOARDING_TEMPLATES.some(
+                (template) => template.id === value,
+              ),
+            "Unknown template",
+          ),
         serviceDate: serviceDateSchema,
       }),
       data,
@@ -418,7 +434,10 @@ export const seedOrgTemplate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertEffectiveOrgPermission(data.orgId, "rundown:edit");
 
-    const template = getOnboardingTemplate(data.template);
+    const workspace = await getWorkspaceProfileForOrg(data.orgId);
+    const template = templatesForWorkspace(workspace.type).find(
+      (template) => template.id === data.template,
+    );
     if (!template) throw new Error("Unknown template");
 
     const prisma = getPrisma();

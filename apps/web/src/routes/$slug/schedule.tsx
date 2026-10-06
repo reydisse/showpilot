@@ -1,3 +1,6 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
+import { useTerms } from "@/components/workspace/WorkspaceProvider";
 import { getDeviceTimeZone, useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import {
@@ -48,7 +51,7 @@ import {
 } from "@/lib/show-inventory";
 import { getOrgSettings } from "@/lib/settings";
 import { formatTimeInput, getTodayDateString } from "@/lib/utils";
-import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
+import { type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
 import {
@@ -180,6 +183,7 @@ type ResponseFilter =
   | "open";
 
 function SchedulePage() {
+  const workspaceTerms = useWorkspaceTerms();
   const data = Route.useLoaderData();
   const deviceTimeZone = useDeviceTimeZone();
   const { show: requestedShowId, date: requestedDate } = Route.useSearch();
@@ -199,7 +203,7 @@ function SchedulePage() {
   const [filter, setFilter] = useState<ResponseFilter>("all");
   const [busy, setBusy] = useState(false);
   const [liveAssignments, setLiveAssignments] = useState(data.assignments);
-  const terms = orgTerms(data.terminologyProfile);
+  const terms = useTerms();
   const departments = Array.from(
     new Set(
       liveAssignments
@@ -312,7 +316,9 @@ function SchedulePage() {
 
   return (
     <div className="h-full overflow-auto bg-board-bg">
-      {selected ? <ScheduleLiveDetails key={selected.id} orgId={data.orgId} service={selected} /> : null}
+      {selected ? (
+        <ScheduleLiveDetails key={selected.id} orgId={data.orgId} service={selected} />
+      ) : null}
       <header className="sticky top-0 z-20 border-b border-board-border bg-board-bg/95 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="mx-auto flex max-w-[1700px] flex-wrap items-center gap-3">
           <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-tight text-board-text">
@@ -360,7 +366,10 @@ function SchedulePage() {
           <div className="border-y border-board-border px-4 py-3">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
-                Services
+                {workspaceCopy(
+                  "\n                Services\n              ",
+                  workspaceTerms,
+                )}
               </p>
               <button
                 onClick={() => chooseDate(data.today)}
@@ -583,7 +592,10 @@ function SchedulePage() {
             <div className="py-24 text-center">
               <CalendarDays className="mx-auto h-9 w-9 text-board-muted/40" />
               <p className="mt-4 text-sm text-board-muted">
-                Create your first service.
+                {workspaceCopy(
+                  "\n                Create your first service.\n              ",
+                  workspaceTerms,
+                )}
               </p>
             </div>
           )}
@@ -729,6 +741,7 @@ function MonthCalendar({
   serviceDates: string[];
   onSelect: (date: string) => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const initial = new Date(`${selectedDate}T12:00:00`);
   const [month, setMonth] = useState(
     () => new Date(initial.getFullYear(), initial.getMonth(), 1),
@@ -808,7 +821,10 @@ function MonthCalendar({
       <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-[9px] text-board-muted">
         <span>
           <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-fire-400" />
-          Service scheduled
+          {workspaceCopy(
+            "\n          Service scheduled\n        ",
+            workspaceTerms,
+          )}
         </span>
         <button
           onClick={() => {
@@ -865,7 +881,9 @@ function RosterTable({
           <section key={`mobile-${group.name}`}>
             <div className="flex items-center justify-between bg-board-card/70 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
               <span>{group.name} <span className="ml-1 text-board-muted/50">{group.rows.length}</span></span>
-              {canManage ? <button onClick={() => onAdd(group.name)} className="text-fire-400">Add position</button> : null}
+              {canManage ? (
+                <button onClick={() => onAdd(group.name)} className="text-fire-400">Add position</button>
+              ) : null}
             </div>
             <div className="divide-y divide-board-border">
               {group.rows.map((assignment) => (
@@ -1007,7 +1025,9 @@ function RosterMobileCard({
       {canManage ? (
         <div className="flex flex-wrap gap-2">
           <button onClick={onEdit} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
-          {pending ? <button disabled={busy} onClick={async () => { setBusy(true); try { await remindServiceAssignment({ data: { orgId, id: assignment.id } }); } finally { setBusy(false); } }} className="rounded-lg border border-fire-500/25 px-3 py-2 text-[11px] text-fire-400 disabled:opacity-50">Resend invite</button> : null}
+          {pending ? (
+            <button disabled={busy} onClick={async () => { setBusy(true); try { await remindServiceAssignment({ data: { orgId, id: assignment.id } }); } finally { setBusy(false); } }} className="rounded-lg border border-fire-500/25 px-3 py-2 text-[11px] text-fire-400 disabled:opacity-50">Resend invite</button>
+          ) : null}
           <button disabled={busy} onClick={() => void remove()} className="ml-auto rounded-lg px-3 py-2 text-[11px] text-red-300 disabled:opacity-50">Remove</button>
         </div>
       ) : null}
@@ -1163,7 +1183,6 @@ function CreateServiceModal({
   previousShowId,
   inventory,
   initialInventoryId,
-  terminologyProfile,
   onClose,
   onCreated,
 }: {
@@ -1178,6 +1197,7 @@ function CreateServiceModal({
   onClose: () => void;
   onCreated: (showId: string, date: string) => void | Promise<void>;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [date, setDate] = useState(() =>
     nextAvailableServiceDate(today, serviceDates),
   );
@@ -1189,7 +1209,7 @@ function CreateServiceModal({
   const [copy, setCopy] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const terms = orgTerms(terminologyProfile);
+  const terms = useTerms();
   const selectedInventory = inventory.find((item) => item.id === inventoryId);
   const applyInventory = (id: string) => {
     setInventoryId(id);
@@ -1244,7 +1264,10 @@ function CreateServiceModal({
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Sunday Morning, Conference Day 1…"
+            placeholder={workspaceCopy(
+              "Sunday Morning, Conference Day 1…",
+              workspaceTerms,
+            )}
             className={FORM_CONTROL}
           />
         </Field>
@@ -1254,7 +1277,12 @@ function CreateServiceModal({
             onChange={(event) => applyInventory(event.target.value)}
             className={FORM_CONTROL}
           >
-            <option value="">Start blank or copy a previous service</option>
+            <option value="">
+              {workspaceCopy(
+                "Start blank or copy a previous service",
+                workspaceTerms,
+              )}
+            </option>
             {inventory.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} · {item.itemCount} rundown items
@@ -1324,7 +1352,7 @@ function CreateServiceModal({
           disabled={busy || !date}
           className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
         >
-          {busy ? "Creating…" : "Create service"}
+          {busy ? "Creating…" : workspaceCopy("Create service", workspaceTerms)}
         </button>
       </form>
     </Modal>
@@ -1350,6 +1378,7 @@ function ShowInventoryModal({
   onUse: (item: ShowInventorySummary) => void;
   onChanged: () => void | Promise<void>;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -1362,10 +1391,14 @@ function ShowInventoryModal({
       <div className="space-y-5">
         <div>
           <p className="text-xs text-board-muted">
-            Reusable show definitions you can load into a future scheduled service. Each item is a snapshot, so changing a schedule never changes the inventory.
+            {workspaceCopy(
+              "\n            Reusable show definitions you can load into a future scheduled service. Each item is a snapshot, so changing a schedule never changes the inventory.\n          ",
+              workspaceTerms,
+            )}
           </p>
           <div className="mt-3 max-h-44 space-y-2 overflow-auto">
-            {inventory.length ? inventory.map((item) => (
+            {inventory.length ? (
+              inventory.map((item) => (
               <div key={item.id} className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-board-text">{item.name}</p>
@@ -1399,7 +1432,10 @@ function ShowInventoryModal({
                   </button>
                 ) : null}
               </div>
-            )) : <p className="rounded-xl border border-dashed border-board-border px-3 py-4 text-center text-xs text-board-muted">No reusable shows yet.</p>}
+            ))
+            ) : (
+              <p className="rounded-xl border border-dashed border-board-border px-3 py-4 text-center text-xs text-board-muted">No reusable shows yet.</p>
+            )}
           </div>
           {archivedInventory.length ? (
             <details className="mt-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
@@ -1464,7 +1500,14 @@ function ShowInventoryModal({
           >
             <p className="text-xs font-semibold text-board-text">Add reusable show</p>
             <Field label="Show name">
-              <input value={name} onChange={(event) => setName(event.target.value)} className={FORM_CONTROL} placeholder="Sunday Morning" maxLength={120} required />
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className={FORM_CONTROL}
+                placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
+                maxLength={120}
+                required
+              />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Default start">
@@ -1477,13 +1520,17 @@ function ShowInventoryModal({
             <Field label="Rundown source (optional)">
               <select value={sourceTemplateId} onChange={(event) => setSourceTemplateId(event.target.value)} className={FORM_CONTROL}>
                 <option value="">Start with an empty rundown</option>
-                {savedTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} · {template.itemCount} items</option>)}
+                {savedTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name} · {template.itemCount} items</option>
+                ))}
               </select>
             </Field>
             <Field label="Description">
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} className={`${FORM_CONTROL} min-h-16 resize-y`} placeholder="What this show is used for" maxLength={500} />
             </Field>
-            {error ? <p role="alert" className="text-xs text-red-300">{error}</p> : null}
+            {error ? (
+              <p role="alert" className="text-xs text-red-300">{error}</p>
+            ) : null}
             <button disabled={busy || !name.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50">{busy ? "Saving…" : "Add to inventory"}</button>
           </form>
         ) : null}
@@ -1535,6 +1582,7 @@ function ServiceDetailsModal({
   onSaved: () => void;
   onDeleted: () => void | Promise<void>;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   // Background live updates must not let an older open form overwrite newer edits.
   const [expectedUpdatedAt] = useState(() => new Date(service.updatedAt).toISOString());
   const [name, setName] = useState(service.name);
@@ -1573,7 +1621,7 @@ function ServiceDetailsModal({
           }
         }}
       >
-        <Field label="Show or service name">
+        <Field label={workspaceCopy("Show or service name", workspaceTerms)}>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -1582,13 +1630,13 @@ function ServiceDetailsModal({
           />
         </Field>
         <Field label="Start time">
-          <input
-            type="time"
-            value={time}
-            onChange={(event) => setTime(event.target.value)}
-            className={FORM_CONTROL}
-          />
-        </Field>
+            <input
+              type="time"
+              value={time}
+              onChange={(event) => setTime(event.target.value)}
+              className={FORM_CONTROL}
+            />
+          </Field>
         <Field label={`Crew call time (${getDeviceTimeZone()})`}>
           <input
             type="time"
@@ -1613,7 +1661,11 @@ function ServiceDetailsModal({
             className={FORM_CONTROL}
           />
         </Field>
-        {error ? <p role="alert" className="text-xs leading-relaxed text-red-300">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-xs leading-relaxed text-red-300">
+            {error}
+          </p>
+        ) : null}
         <button
           disabled={busy || !name.trim()}
           className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
@@ -1942,7 +1994,9 @@ function AssignmentModal({
           <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
           <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
         </Field>
-        {saveError ? <p role="alert" className="text-sm text-red-300">{saveError}</p> : null}
+        {saveError ? (
+          <p role="alert" className="text-sm text-red-300">{saveError}</p>
+        ) : null}
         <Field label="Manager note (optional)">
           <textarea
             value={notes}
@@ -2073,7 +2127,9 @@ function EditAssignmentModal({
             <div className="mt-2 border-t border-board-border pt-2">
               <p className="text-[10px] uppercase tracking-wider text-board-muted">Crew response note</p>
               <p className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
-              {assignment.respondedAt ? <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(assignment.respondedAt).toLocaleString()}</p> : null}
+              {assignment.respondedAt ? (
+                <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(assignment.respondedAt).toLocaleString()}</p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -2115,7 +2171,9 @@ function EditAssignmentModal({
           <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
           <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
         </Field>
-        {saveError ? <p role="alert" className="text-sm text-red-300">{saveError}</p> : null}
+        {saveError ? (
+          <p role="alert" className="text-sm text-red-300">{saveError}</p>
+        ) : null}
         <Field label="Manager note">
           <textarea
             value={notes}
@@ -2184,9 +2242,6 @@ function ProviderModal({
   const [provider, setProvider] = useState<ScheduleProvider>(current.type);
   const [url, setUrl] = useState(current.url);
   const [label, setLabel] = useState(current.label);
-  const [terminologyProfile, setTerminologyProfile] = useState(
-    current.terminologyProfile,
-  );
   const [busy, setBusy] = useState(false);
   const external = provider !== "native";
   return (
@@ -2202,13 +2257,12 @@ function ProviderModal({
                 provider,
                 url: external ? url : "",
                 label: provider === "other" ? label : "",
-                terminologyProfile,
               },
             });
             onSaved();
           } finally {
-            setBusy(false);
-          }
+                            setBusy(false);
+                          }
         }}
         className="space-y-4"
       >
@@ -2226,22 +2280,15 @@ function ProviderModal({
             <option value="other">Another platform</option>
           </select>
         </Field>
-        <Field label="Organization language">
-          <select
-            value={terminologyProfile}
-            onChange={(event) =>
-              setTerminologyProfile(event.target.value as OrgTerminologyProfile)
-            }
-            className={FORM_CONTROL}
+        <p className="text-sm text-board-muted">
+          Wording follows your workspace type.{" "}
+          <a
+            href="settings?section=workspace"
+            className="text-fire-500 underline"
           >
-            <option value="general">
-              General production — shows and assignments
-            </option>
-            <option value="church">
-              Church production — services and serving
-            </option>
-          </select>
-        </Field>
+            Change in Settings → Workspace
+          </a>
+        </p>
         {provider === "other" ? (
           <Field label="Platform name">
             <input

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { orgTerms, type OrgTerminologyProfile } from "@/lib/org-terminology";
+import { type WorkspaceTerms } from "@showpilot/shared";
 
 interface SendEmailOptions {
   to: string;
@@ -99,7 +99,7 @@ export function crewScheduleEmail(input: {
   location?: string;
   link: string;
   reminder?: boolean;
-  terminologyProfile?: OrgTerminologyProfile;
+  terms: WorkspaceTerms;
 }) {
   const escape = (value: string) =>
     value.replace(
@@ -113,7 +113,7 @@ export function crewScheduleEmail(input: {
           "'": "&#039;",
         })[character]!,
     );
-  const terms = orgTerms(input.terminologyProfile ?? "general");
+  const terms = input.terms;
   return {
     subject: `${input.reminder ? "Response needed" : "You're scheduled"}: ${input.serviceName}`,
     html: emailWrapper(`

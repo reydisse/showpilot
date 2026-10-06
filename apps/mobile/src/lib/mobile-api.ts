@@ -1,13 +1,17 @@
-import { z } from "zod";
-import { rundownSchema, rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
+import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
+export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 import {
+  type ModuleId,
+  type WorkspaceType,
+
   isEmojiReaction,
   NOTIFICATION_CATEGORIES,
   type EquipmentCategory,
   type EquipmentStatus,
   type NotificationCategory,
-  type NotificationPreference,
-} from "@showpilot/shared";
+  type NotificationPreference} from "@showpilot/shared";
+import { z } from "zod";
+import { rundownSchema, rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
 import { fetch as expoFetch, type FetchRequestInit } from "expo/fetch";
 import { File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
@@ -58,8 +62,6 @@ const avatarUploadSchema = z.object({
       "Invalid avatar URL",
     ),
 });
-
-
 
 const notificationSchema = z.object({
   id: z.string(),
@@ -122,6 +124,7 @@ const accessAuthoritySchema = z.object({
 });
 
 export const bootstrapSchema = z.object({
+  workspace: workspaceSchema.optional(),
   organization: z.object({
     id: z.string(),
     name: z.string(),
@@ -146,7 +149,6 @@ export const bootstrapSchema = z.object({
 
 export type MobileBootstrap = z.infer<typeof bootstrapSchema>;
 export type MobileNotification = z.infer<typeof notificationSchema>;
-
 
 export type MobileRundown = z.infer<typeof mobileRundownSchema>;
 export type RundownItem = z.infer<typeof rundownItemSchema>;
@@ -268,7 +270,7 @@ const scheduleSchema = z.object({
     url: z.string(),
     label: z.string(),
   }),
-  terminologyProfile: z.enum(["general", "church"]),
+  terminologyProfile: z.string().catch("general"),
   inventory: z.array(showInventoryItemSchema).default([]),
   archivedInventory: z.array(showInventoryItemSchema).default([]),
   savedTemplates: z.array(savedRundownSourceSchema).default([]),
@@ -1628,11 +1630,18 @@ export async function saveMobileScheduleProvider(input: {
   provider: "native" | "planning-center" | "faithteams" | "other";
   url: string;
   label: string;
-  terminologyProfile: "general" | "church";
+  terminologyProfile?: string;
 }) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/schedule/provider?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        provider: input.provider,
+        url: input.url,
+        label: input.label,
+      }),
+    },
   );
   return okSchema.parse(await response.json());
 }
@@ -2595,4 +2604,40 @@ export async function saveMobilePushToken(
     method: "POST",
     body: JSON.stringify({ orgId, token, platform, enabled }),
   });
+}
+
+export async function saveMobileWorkspaceType(input: {
+  orgId: string;
+  type: WorkspaceType;
+  resetModules: boolean;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/workspace/type?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return z.object({ workspace: workspaceSchema }).parse(await response.json())
+    .workspace;
+}
+export async function saveMobileWorkspaceModules(input: {
+  orgId: string;
+  modules: ModuleId[];
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/workspace/modules?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return z.object({ workspace: workspaceSchema }).parse(await response.json())
+    .workspace;
+}
+export async function saveMobileInitialWorkspace(input: {
+  orgId: string;
+  type: WorkspaceType;
+  label?: string;
+}) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/workspace/initial?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+  return z.object({ workspace: workspaceSchema }).parse(await response.json())
+    .workspace;
 }

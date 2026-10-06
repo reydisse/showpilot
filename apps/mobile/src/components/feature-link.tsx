@@ -1,15 +1,19 @@
+import type { ModuleId } from "@showpilot/shared";
+import { useWorkspace } from "@/providers/workspace-provider";
 import type { ComponentProps, ComponentType } from "react";
 import ChevronRight from "lucide-react-native/icons/chevron-right";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 export function FeatureLink({
+  module,
   icon: Icon,
   title,
   description,
   badge,
   onPress,
 }: {
+  module?: ModuleId;
   icon: ComponentType<ComponentProps<typeof ChevronRight>>;
   title: string;
   description: string;
@@ -18,6 +22,8 @@ export function FeatureLink({
 }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
+  const workspace = useWorkspace();
+  if (module && !workspace.modules.includes(module)) return null;
   return (
     <Pressable
       accessibilityRole="button"

@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import X from "lucide-react-native/icons/x";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -20,11 +22,18 @@ export function RundownShowSheet({
   location: string;
   name: string;
   onClose: () => void;
-  onSave: (draft: { requestId: string; name: string; startTime: string; callTime: string; location: string }) => Promise<void>;
+  onSave: (draft: {
+    requestId: string;
+    name: string;
+    startTime: string;
+    callTime: string;
+    location: string;
+  }) => Promise<void>;
   scheduledCallTime: string | null;
   scheduledStartTime: string | null;
   timeZone: string;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [requestId] = useState(() => createLocalRequestId("show-meta"));
@@ -36,28 +45,37 @@ export function RundownShowSheet({
   const validTime = /^$|^([01]\d|2[0-3]):[0-5]\d$/.test(startTime);
   const validCallTime = /^$|^([01]\d|2[0-3]):[0-5]\d$/.test(callTime);
 
-  return <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible>
-    <Page scroll={false}>
-      <View style={styles.header}>
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible>
+      <Page scroll={false}>
+        <View style={styles.header}>
         <View style={styles.headerCopy}><Text style={styles.eyebrow}>SHOW DETAILS</Text><Text style={styles.heading}>Title, time, and venue</Text></View>
         <Pressable accessibilityLabel="Close show details" accessibilityRole="button" onPress={onClose} style={styles.close}><X color={colors.textMuted} size={21} /></Pressable>
       </View>
-      <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.intro}>These details synchronize with web, desktop, and every connected operator.</Text>
-        <AppField autoCapitalize="sentences" label="Show or service title" maxLength={120} onChangeText={setName} placeholder="Sunday Morning" value={name} />
-        <AppField autoCapitalize="none" error={!validTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time" maxLength={5} onChangeText={setStartTime} placeholder="09:30" value={startTime} />
-        <AppField autoCapitalize="none" error={!validCallTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:00" value={callTime} />
-        <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
-        <AppButton disabled={!validTime || !validCallTime || busy} label={busy ? "Saving details…" : "Save details"} loading={busy} onPress={() => {
+        <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.intro}>These details synchronize with web, desktop, and every connected operator.</Text>
+          <AppField
+            autoCapitalize="sentences"
+            label={workspaceCopy("Show or service title", workspaceTerms)}
+            maxLength={120}
+            onChangeText={setName}
+            placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
+            value={name}
+          />
+          <AppField autoCapitalize="none" error={!validTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time" maxLength={5} onChangeText={setStartTime} placeholder="09:30" value={startTime} />
+          <AppField autoCapitalize="none" error={!validCallTime ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:00" value={callTime} />
+          <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
+          <AppButton disabled={!validTime || !validCallTime || busy} label={busy ? "Saving details…" : "Save details"} loading={busy} onPress={() => {
           setBusy(true);
           void onSave({ requestId, name: name.trim(), startTime, callTime, location: location.trim() })
             .then(onClose)
             .catch((error: unknown) => Alert.alert("Show details not saved", error instanceof Error ? error.message : "Try again."))
             .finally(() => setBusy(false));
         }} />
-      </ScrollView>
-    </Page>
-  </Modal>;
+        </ScrollView>
+      </Page>
+    </Modal>
+  );
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({

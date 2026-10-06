@@ -1,5 +1,6 @@
+import { workspaceCopy , isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
-import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -58,6 +59,7 @@ function isIncidentSeverity(value: string): value is (typeof severities)[number]
 }
 
 export default function IncidentsScreen() {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const router = useRouter();
@@ -109,8 +111,11 @@ export default function IncidentsScreen() {
     onError: (error) => Alert.alert(editingId ? "Incident not saved" : "Incident not reported", error.message),
   });
   const commandMutation = useMutation({
-    mutationFn: (input: { incidentId: string; action: "claim" | "assign" | "unassign" | "acknowledge" | "resolve"; targetUserId?: string }) =>
-      commandMobileIncident({ orgId: organization!.id, ...input }),
+    mutationFn: (input: {
+      incidentId: string;
+      action: "claim" | "assign" | "unassign" | "acknowledge" | "resolve";
+      targetUserId?: string;
+    }) => commandMobileIncident({ orgId: organization!.id, ...input }),
     onSuccess: async () => {
       setAssigningIncident(null);
       await queryClient.invalidateQueries({ queryKey: ["mobile-incidents", organization?.id] });
@@ -127,8 +132,12 @@ export default function IncidentsScreen() {
     onError: (error) => Alert.alert("Incident not removed", error.message),
   });
   const commentMutation = useMutation({
-    mutationFn: (input: { incidentId: string; requestId: string; body: string; parentId?: string | null }) =>
-      addMobileIncidentComment({ orgId: organization!.id, ...input }),
+    mutationFn: (input: {
+      incidentId: string;
+      requestId: string;
+      body: string;
+      parentId?: string | null;
+    }) => addMobileIncidentComment({ orgId: organization!.id, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["mobile-incidents", organization?.id] });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -136,7 +145,11 @@ export default function IncidentsScreen() {
     onError: (error) => Alert.alert("Comment not posted", error.message),
   });
   const reactionMutation = useMutation({
-    mutationFn: (input: { commentId: string; emoji: MobileIncidentReactionEmoji; active: boolean }) =>
+    mutationFn: (input: {
+      commentId: string;
+      emoji: MobileIncidentReactionEmoji;
+      active: boolean;
+    }) =>
       setMobileIncidentCommentReaction({ orgId: organization!.id, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["mobile-incidents", organization?.id] });
@@ -149,13 +162,17 @@ export default function IncidentsScreen() {
   const visibleIncidents = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (query.data?.incidents ?? []).filter((incident) => {
-      if (incident.id !== focusedIncidentId && filter !== "all" && incident.status !== filter) return false;
-      return !needle
+        if (incident.id !== focusedIncidentId && filter !== "all" && incident.status !== filter) return false;
+        return (
+          !needle
         || incident.description.toLowerCase().includes(needle)
         || incident.category.toLowerCase().includes(needle)
         || incident.reportedBy.toLowerCase().includes(needle)
-        || incident.assignedName.toLowerCase().includes(needle);
-    }).sort((left, right) => left.id === focusedIncidentId ? -1 : right.id === focusedIncidentId ? 1 : 0);
+        || incident.assignedName.toLowerCase().includes(needle)
+        );
+      })
+      .sort((left, right) => left.id === focusedIncidentId ? -1 : right.id === focusedIncidentId ? 1 : 0,
+      );
   }, [filter, focusedIncidentId, query.data?.incidents, search]);
 
   if (organizationPending) return <LoadingView label="Opening incidents…" />;
@@ -194,7 +211,18 @@ export default function IncidentsScreen() {
   }
 
   return (
-    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="OPERATIONS LOG" title="Incidents" scroll={false} action={query.data?.canReport ? <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={startReport} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}>
+    <Page
+      backTo="/(app)/operations"
+      backLabel="Back to operations"
+      eyebrow="OPERATIONS LOG"
+      title="Incidents"
+      scroll={false}
+      action={
+        query.data?.canReport ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Report incident" onPress={startReport} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
+        ) : null
+      }
+    >
       <FlatList
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={styles.list}
@@ -203,35 +231,65 @@ export default function IncidentsScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         keyExtractor={(incident) => incident.id}
-        ListHeaderComponent={(
+        ListHeaderComponent={
           <View style={styles.listHeader}>
             <View style={styles.summaryRow}>
               <View style={styles.summary}><AlertTriangle color={openCount ? colors.red : colors.green} size={20} /><Text style={styles.summaryValue}>{openCount}</Text><Text style={styles.summaryText}>open {openCount === 1 ? "incident" : "incidents"}</Text></View>
-              {query.data?.historyEnabled ? <Pressable accessibilityRole="button" onPress={() => router.push("/incidents-history")} style={styles.historyButton}><Archive color={colors.textMuted} size={15} /><Text style={styles.historyButtonText}>Full history</Text></Pressable> : null}
+              {query.data?.historyEnabled ? (
+                <Pressable accessibilityRole="button" onPress={() => router.push("/incidents-history")} style={styles.historyButton}><Archive color={colors.textMuted} size={15} /><Text style={styles.historyButtonText}>Full history</Text></Pressable>
+              ) : null}
             </View>
             {reporting ? (
               <View style={styles.form}>
                 <View style={styles.formHeader}><Text style={styles.formTitle}>{editingId ? "Edit incident" : "Report what happened"}</Text><Pressable accessibilityLabel="Close incident form" hitSlop={8} onPress={() => { setReporting(false); setEditingId(null); }}><Text style={styles.cancelText}>Cancel</Text></Pressable></View>
                 <Text style={styles.label}>CATEGORY</Text>
-                <View accessibilityRole="radiogroup" style={styles.choices}>{categories.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: category === value }} key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+                <View accessibilityRole="radiogroup" style={styles.choices}>
+                  {categories.map((value) => (
+                    <Pressable accessibilityRole="radio" accessibilityState={{ checked: category === value }} key={value} onPress={() => setCategory(value)} style={[styles.choice, category === value && styles.choiceActive]}><Text style={[styles.choiceText, category === value && styles.choiceTextActive]}>{value}</Text></Pressable>
+                  ))}
+                </View>
                 <Text style={styles.label}>SEVERITY</Text>
-                <View accessibilityRole="radiogroup" style={styles.choices}>{severities.map((value) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: severity === value }} key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>)}</View>
+                <View accessibilityRole="radiogroup" style={styles.choices}>
+                  {severities.map((value) => (
+                    <Pressable accessibilityRole="radio" accessibilityState={{ checked: severity === value }} key={value} onPress={() => setSeverity(value)} style={[styles.choice, severity === value && styles.choiceActive]}><Text style={[styles.choiceText, severity === value && styles.choiceTextActive]}>{value}</Text></Pressable>
+                  ))}
+                </View>
                 <Text style={styles.label}>DESCRIPTION</Text>
                 <TextInput accessibilityLabel="Incident description" multiline maxLength={2000} value={description} onChangeText={setDescription} placeholder="What failed, what is affected, and what has already been tried?" placeholderTextColor={colors.textFaint} style={styles.input} />
                 <View style={styles.serviceDateRow}>
-                  <Text style={styles.serviceDateLabel}>SERVICE DATE</Text>
+                  <Text style={styles.serviceDateLabel}>
+                    {workspaceCopy("SERVICE DATE", workspaceTerms)}
+                  </Text>
                   <Text style={styles.serviceDateValue}>{reportServiceDate ?? "Loading venue date…"}</Text>
                 </View>
                 <AppButton label={editingId ? "Save changes" : "Report incident"} loading={mutation.isPending} disabled={mutation.isPending || (!editingId && !reportServiceDate) || description.trim().length < 2} onPress={() => mutation.mutate()} />
               </View>
             ) : null}
-            <View accessibilityRole="tablist" style={styles.filters}>{(["open", "resolved", "all"] as const).map((value) => <Pressable accessibilityRole="tab" accessibilityState={{ selected: filter === value }} key={value} onPress={() => setFilter(value)} style={[styles.filter, filter === value && styles.filterActive]}><Text style={[styles.filterText, filter === value && styles.filterTextActive]}>{value}</Text></Pressable>)}</View>
-            <View style={styles.searchBox}><Search color={colors.textFaint} size={17} /><TextInput accessibilityLabel="Search incident history" onChangeText={setSearch} placeholder="Search incidents, reporters, or owners" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} />{search ? <Pressable accessibilityLabel="Clear incident search" onPress={() => setSearch("")}><Text style={styles.cancelText}>Clear</Text></Pressable> : null}</View>
-            {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            <View accessibilityRole="tablist" style={styles.filters}>
+              {(["open", "resolved", "all"] as const).map((value) => (
+                <Pressable accessibilityRole="tab" accessibilityState={{ selected: filter === value }} key={value} onPress={() => setFilter(value)} style={[styles.filter, filter === value && styles.filterActive]}><Text style={[styles.filterText, filter === value && styles.filterTextActive]}>{value}</Text></Pressable>
+              ))}
+            </View>
+            <View style={styles.searchBox}>
+              <Search color={colors.textFaint} size={17} />
+              <TextInput accessibilityLabel="Search incident history" onChangeText={setSearch} placeholder="Search incidents, reporters, or owners" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} />
+              {search ? (
+                <Pressable accessibilityLabel="Clear incident search" onPress={() => setSearch("")}><Text style={styles.cancelText}>Clear</Text></Pressable>
+              ) : null}
+            </View>
+            {query.isPending ? (
+              <ActivityIndicator color={colors.amber} size="large" />
+            ) : null}
+            {query.error ? (
+              <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+            ) : null}
           </View>
-        )}
-        ListEmptyComponent={query.data && !query.isPending ? <Text style={styles.empty}>{search ? "No incidents match this search." : `No ${filter === "all" ? "" : `${filter} `}incidents.`}</Text> : null}
+        }
+        ListEmptyComponent={
+          query.data && !query.isPending ? (
+            <Text style={styles.empty}>{search ? "No incidents match this search." : `No ${filter === "all" ? "" : `${filter} `}incidents.`}</Text>
+          ) : null
+        }
         maxToRenderPerBatch={10}
         onRefresh={() => void query.refetch()}
         refreshing={query.isRefetching}
@@ -242,7 +300,11 @@ export default function IncidentsScreen() {
           return (
             <View style={[styles.card, open && (incident.severity === "high" || incident.severity === "critical") && styles.cardHigh]}>
               <View style={styles.cardHeader}>
-                {open ? <CircleDot color={incident.severity === "high" || incident.severity === "critical" ? colors.red : colors.amber} size={16} /> : <CheckCircle2 color={colors.green} size={16} />}
+                {open ? (
+                  <CircleDot color={incident.severity === "high" || incident.severity === "critical" ? colors.red : colors.amber} size={16} />
+                ) : (
+                  <CheckCircle2 color={colors.green} size={16} />
+                )}
                 <Text style={styles.category}>{incident.category}</Text>
                 <Text style={[styles.severity, (incident.severity === "high" || incident.severity === "critical") && styles.severityHigh]}>{incident.severity}</Text>
                 <Text style={styles.date}>{incident.serviceDate}</Text>
@@ -257,7 +319,9 @@ export default function IncidentsScreen() {
                 <Text style={styles.timeline}>Resolved by {incident.resolvedBy}{incident.resolvedAt ? ` · ${new Date(incident.resolvedAt).toLocaleString()}` : ""}</Text>
               ) : incident.acknowledgedAt ? (
                 <Text style={styles.timeline}>Acknowledged · {new Date(incident.acknowledgedAt).toLocaleString()}</Text>
-              ) : incident.assignedName ? <Text style={styles.timeline}>Awaiting acknowledgement</Text> : null}
+              ) : incident.assignedName ? (
+                <Text style={styles.timeline}>Awaiting acknowledgement</Text>
+              ) : null}
               <IncidentDiscussion
                 comments={incidentComments}
                 currentUserId={currentUserId}
@@ -269,12 +333,24 @@ export default function IncidentsScreen() {
                 onReaction={async (input) => { await reactionMutation.mutateAsync(input); }}
               />
               <View style={styles.cardActions}>
-                {query.data?.canManage && open && !incident.assignedTo ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "claim" })} style={styles.actionButton}><Hand color={colors.amberText} size={14} /><Text style={styles.actionText}>Claim</Text></Pressable> : null}
-                {canAssignOthers && open ? <Pressable accessibilityRole="button" onPress={() => setAssigningIncident(incident)} style={styles.actionButton}><UsersRound color={colors.amberText} size={14} /><Text style={styles.actionText}>{incident.assignedTo ? "Reassign" : "Assign"}</Text></Pressable> : null}
-                {query.data?.canManage && open && assignedToMe && !incident.acknowledgedAt ? <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "acknowledge" })} style={styles.actionButton}><Eye color={colors.amberText} size={14} /><Text style={styles.actionText}>Acknowledge</Text></Pressable> : null}
-                {query.data?.canManage && open ? <Pressable accessibilityRole="button" onPress={() => confirmResolve(incident)} style={styles.actionButton}><CheckCircle2 color={colors.green} size={14} /><Text style={styles.actionText}>Resolve</Text></Pressable> : null}
-                {query.data?.canManage ? <Pressable accessibilityLabel={`Edit ${incident.category} incident`} onPress={() => startEdit(incident)} style={styles.iconButton}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
-                {query.data?.canManage ? <Pressable accessibilityLabel={`Delete ${incident.category} incident`} onPress={() => confirmRemove(incident)} style={styles.iconButton}><Trash2 color={colors.red} size={15} /></Pressable> : null}
+                {query.data?.canManage && open && !incident.assignedTo ? (
+                  <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "claim" })} style={styles.actionButton}><Hand color={colors.amberText} size={14} /><Text style={styles.actionText}>Claim</Text></Pressable>
+                ) : null}
+                {canAssignOthers && open ? (
+                  <Pressable accessibilityRole="button" onPress={() => setAssigningIncident(incident)} style={styles.actionButton}><UsersRound color={colors.amberText} size={14} /><Text style={styles.actionText}>{incident.assignedTo ? "Reassign" : "Assign"}</Text></Pressable>
+                ) : null}
+                {query.data?.canManage && open && assignedToMe && !incident.acknowledgedAt ? (
+                  <Pressable accessibilityRole="button" onPress={() => commandMutation.mutate({ incidentId: incident.id, action: "acknowledge" })} style={styles.actionButton}><Eye color={colors.amberText} size={14} /><Text style={styles.actionText}>Acknowledge</Text></Pressable>
+                ) : null}
+                {query.data?.canManage && open ? (
+                  <Pressable accessibilityRole="button" onPress={() => confirmResolve(incident)} style={styles.actionButton}><CheckCircle2 color={colors.green} size={14} /><Text style={styles.actionText}>Resolve</Text></Pressable>
+                ) : null}
+                {query.data?.canManage ? (
+                  <Pressable accessibilityLabel={`Edit ${incident.category} incident`} onPress={() => startEdit(incident)} style={styles.iconButton}><Pencil color={colors.textMuted} size={15} /></Pressable>
+                ) : null}
+                {query.data?.canManage ? (
+                  <Pressable accessibilityLabel={`Delete ${incident.category} incident`} onPress={() => confirmRemove(incident)} style={styles.iconButton}><Trash2 color={colors.red} size={15} /></Pressable>
+                ) : null}
               </View>
             </View>
           );
@@ -345,8 +421,17 @@ function IncidentDiscussion({
   incident: MobileIncident;
   pending: boolean;
   reactions: MobileIncidentReaction[];
-  onComment: (input: { incidentId: string; requestId: string; body: string; parentId?: string | null }) => Promise<void>;
-  onReaction: (input: { commentId: string; emoji: MobileIncidentReactionEmoji; active: boolean }) => Promise<void>;
+  onComment: (input: {
+    incidentId: string;
+    requestId: string;
+    body: string;
+    parentId?: string | null;
+  }) => Promise<void>;
+  onReaction: (input: {
+    commentId: string;
+    emoji: MobileIncidentReactionEmoji;
+    active: boolean;
+  }) => Promise<void>;
 }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
@@ -381,14 +466,16 @@ function IncidentDiscussion({
     const parent = comment.parentId ? comments.find((candidate) => candidate.id === comment.parentId) : null;
     return (
       <Fragment key={comment.id}>
-      <View style={[styles.comment, depth > 0 && styles.commentReply]}>
-        {parent ? <View style={styles.replyQuote}><Text numberOfLines={1} style={styles.replyQuoteAuthor}>Replying to {parent.authorName}</Text><Text numberOfLines={1} style={styles.replyQuoteBody}>{parent.body}</Text></View> : null}
-        <View style={styles.commentHeader}>
+        <View style={[styles.comment, depth > 0 && styles.commentReply]}>
+          {parent ? (
+            <View style={styles.replyQuote}><Text numberOfLines={1} style={styles.replyQuoteAuthor}>Replying to {parent.authorName}</Text><Text numberOfLines={1} style={styles.replyQuoteBody}>{parent.body}</Text></View>
+          ) : null}
+          <View style={styles.commentHeader}>
           <Text style={styles.commentAuthor}>{comment.authorName}</Text>
           <Text style={styles.commentTime}>{new Date(comment.createdAt).toLocaleString()}</Text>
         </View>
-        <Text style={styles.commentBody}>{comment.body}</Text>
-        <View style={styles.reactionRow}>
+          <Text style={styles.commentBody}>{comment.body}</Text>
+          <View style={styles.reactionRow}>
           {[...new Set(commentReactions.map((reaction) => reaction.emoji))].map((emoji) => {
             const emojiReactions = commentReactions.filter((reaction) => reaction.emoji === emoji);
             if (emojiReactions.length === 0) return null;
@@ -419,7 +506,7 @@ function IncidentDiscussion({
             <Text style={styles.replyText}>Reply</Text>
           </Pressable>
         </View>
-        {reactionPickerFor === comment.id ? (
+          {reactionPickerFor === comment.id ? (
           <View style={styles.reactionPicker}>
             <View style={styles.reactionPickerChoices}>{reactionEmojis.map((emoji) => {
               const active = commentReactions.some((reaction) => reaction.emoji === emoji && reaction.userId === currentUserId);
@@ -445,8 +532,8 @@ function IncidentDiscussion({
             </View>
           </View>
         ) : null}
-      </View>
-      {children.map((child) => renderComment(child, depth + 1))}
+        </View>
+        {children.map((child) => renderComment(child, depth + 1))}
       </Fragment>
     );
   }
@@ -489,7 +576,11 @@ function IncidentDiscussion({
               onPress={() => void submitComment()}
               style={styles.sendButton}
             >
-              {pending ? <ActivityIndicator color={colors.black} size="small" /> : <Send color={colors.black} size={17} />}
+              {pending ? (
+                <ActivityIndicator color={colors.black} size="small" />
+              ) : (
+                <Send color={colors.black} size={17} />
+              )}
             </Pressable>
           </View>
         </View>

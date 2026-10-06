@@ -10,3 +10,4 @@ export * from "./rundown";
 export * from "./auth";
 export * from "./equipment";
 export * from "./emoji";
+export * from "./workspace";

@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Bell from "lucide-react-native/icons/bell";
@@ -268,7 +270,19 @@ export default function ScheduleScreen() {
     setDateInput(date ?? "");
     router.replace(date ? { pathname: "/schedule", params: { date } } : "/schedule");
   }
-  const pageAction = <View style={styles.pageActions}>{schedule?.canViewFull ? <Pressable accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable> : null}{canManage ? <Pressable accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable> : null}{canManage ? <Pressable accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable> : null}</View>;
+  const pageAction = (
+    <View style={styles.pageActions}>
+      {schedule?.canViewFull ? (
+        <Pressable accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable>
+      ) : null}
+      {canManage ? (
+        <Pressable accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable>
+      ) : null}
+      {canManage ? (
+        <Pressable accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
+      ) : null}
+    </View>
+  );
 
   return (
     <Page backTo="/(app)/operations" backLabel="Back to operations" action={pageAction} eyebrow="CREW PLAN" title="Schedule" scroll={false}>
@@ -279,49 +293,149 @@ export default function ScheduleScreen() {
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         keyExtractor={(service) => service.id}
-        ListHeaderComponent={<View style={styles.listHeader}>
-          {schedule?.canViewFull ? <View style={styles.dateBrowser}><Pressable accessibilityLabel="Previous day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, -1))} style={styles.dateArrow}><ChevronLeft color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><TextInput accessibilityLabel="Schedule date" autoCapitalize="none" keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={setDateInput} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.dateInput} value={dateInput} /><Pressable accessibilityRole="button" onPress={() => isServiceDate(dateInput) ? browse(dateInput) : Alert.alert("Invalid date", "Enter the date as YYYY-MM-DD.")} style={styles.dateGo}><Text style={styles.dateGoText}>Go</Text></Pressable><Pressable accessibilityLabel="Next day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, 1))} style={styles.dateArrow}><ChevronRight color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><Pressable accessibilityRole="button" onPress={() => browse(undefined)} style={styles.rangeButton}><Text style={styles.rangeButtonText}>Range</Text></Pressable></View> : null}
-          {schedule && schedule.provider.type !== "native" ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(schedule.provider.url).catch(() => Alert.alert("Could not open scheduling platform"))} style={styles.provider}><ExternalLink color={colors.amberText} size={17} /><View style={styles.providerCopy}><Text style={styles.providerTitle}>{schedule.provider.label || schedule.provider.type}</Text><Text numberOfLines={1} style={styles.providerUrl}>{schedule.provider.url}</Text></View><ChevronRight color={colors.textFaint} size={17} /></Pressable> : null}
-          {schedule ? <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View> : null}
-          {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-          {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
-        </View>}
-        ListEmptyComponent={schedule && !query.isPending ? <View style={styles.emptyState}><CalendarPlus color={colors.textFaint} size={30} /><Text style={styles.empty}>No shows are scheduled in this range.</Text>{canManage ? <Pressable onPress={() => setEditor({ kind: "service", service: null })} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Schedule the first show</Text></Pressable> : null}</View> : null}
+        ListHeaderComponent={
+          <View style={styles.listHeader}>
+            {schedule?.canViewFull ? (
+              <View style={styles.dateBrowser}><Pressable accessibilityLabel="Previous day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, -1))} style={styles.dateArrow}><ChevronLeft color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><TextInput accessibilityLabel="Schedule date" autoCapitalize="none" keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={setDateInput} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.dateInput} value={dateInput} /><Pressable accessibilityRole="button" onPress={() => isServiceDate(dateInput) ? browse(dateInput) : Alert.alert("Invalid date", "Enter the date as YYYY-MM-DD.")} style={styles.dateGo}><Text style={styles.dateGoText}>Go</Text></Pressable><Pressable accessibilityLabel="Next day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, 1))} style={styles.dateArrow}><ChevronRight color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><Pressable accessibilityRole="button" onPress={() => browse(undefined)} style={styles.rangeButton}><Text style={styles.rangeButtonText}>Range</Text></Pressable></View>
+            ) : null}
+            {schedule && schedule.provider.type !== "native" ? (
+              <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(schedule.provider.url).catch(() => Alert.alert("Could not open scheduling platform"))} style={styles.provider}><ExternalLink color={colors.amberText} size={17} /><View style={styles.providerCopy}><Text style={styles.providerTitle}>{schedule.provider.label || schedule.provider.type}</Text><Text numberOfLines={1} style={styles.providerUrl}>{schedule.provider.url}</Text></View><ChevronRight color={colors.textFaint} size={17} /></Pressable>
+            ) : null}
+            {schedule ? (
+              <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View>
+            ) : null}
+            {query.isPending ? (
+              <ActivityIndicator color={colors.amber} size="large" />
+            ) : null}
+            {query.error ? (
+              <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+            ) : null}
+          </View>
+        }
+        ListEmptyComponent={
+          schedule && !query.isPending ? (
+            <View style={styles.emptyState}>
+              <CalendarPlus color={colors.textFaint} size={30} />
+              <Text style={styles.empty}>No shows are scheduled in this range.</Text>
+              {canManage ? (
+                <Pressable onPress={() => setEditor({ kind: "service", service: null })} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Schedule the first show</Text></Pressable>
+              ) : null}
+            </View>
+          ) : null
+        }
         maxToRenderPerBatch={6}
         onRefresh={() => void query.refetch()}
         refreshing={query.isRefetching}
         renderItem={({ item: service, index }) => {
           const assignments = (schedule?.assignments ?? []).filter((assignment) => assignment.showId === service.id);
           const previousWithTeam = [...services.slice(0, index)].reverse().find((candidate) => candidate.crewTotal > 0);
-          return <View style={[styles.card, focusedShowId === service.id && styles.cardFocused]}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Open ${service.name}`} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: service.id } })} style={styles.serviceHeader}>
-              <View style={styles.dateBlock}><Text style={styles.dateDay}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { day: "2-digit" })}</Text><Text style={styles.dateMonth}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { month: "short" }).toUpperCase()}</Text></View>
-              <View style={styles.cardCopy}><Text style={styles.title}>{service.name || "Untitled show"}</Text><Text style={styles.fullDate}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</Text><View style={styles.meta}><Clock3 size={12} color={colors.textFaint} /><Text style={styles.metaText}>{formatServiceTime(service.scheduledStartTime, schedule?.timeZone ?? "UTC")}</Text>{service.location ? <><MapPin size={12} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></> : null}</View></View><ChevronRight color={colors.textFaint} size={18} />
-            </Pressable>
-            <View style={styles.metrics}><Text style={styles.metric}>{service.completedItems}/{service.itemCount} rundown</Text><Text style={styles.metric}>{service.crewConfirmed}/{service.crewTotal} confirmed</Text>{service.crewOpen ? <Text style={styles.warning}>{service.crewOpen} open</Text> : null}{service.incidentCount ? <Text style={styles.danger}>{service.incidentCount} incidents</Text> : null}</View>
-            {canManage ? <View style={styles.manageActions}><SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => setEditor({ kind: "service", service })} />{canManageAssignments ? <><SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => setEditor({ kind: "assignment", service, assignment: null })} /><SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />{assignments.length === 0 && previousWithTeam ? <SmallAction icon={<Copy color={colors.textMuted} size={14} />} label="Copy team" onPress={() => copyTeam(service, previousWithTeam)} /> : null}{assignments.some((assignment) => assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open") ? <SmallAction icon={<Bell color={colors.textMuted} size={14} />} label="Remind" onPress={() => void remindAll(service)} /> : null}</> : null}<SmallAction danger icon={<Trash2 color={colors.red} size={14} />} label="Delete" onPress={() => removeService(service)} /></View> : null}
-            {assignments.length ? <View style={styles.assignments}>{assignments.map((assignment) => <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} onRemind={() => void remindOne(assignment)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />)}</View> : <Text style={styles.noAssignments}>{canManageAssignments ? "No positions yet. Add an open position or build a team." : "No crew assignments published."}</Text>}
-          </View>;
+          return (
+            <View style={[styles.card, focusedShowId === service.id && styles.cardFocused]}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Open ${service.name}`} onPress={() => router.push({ pathname: "/show/[showId]", params: { showId: service.id } })} style={styles.serviceHeader}>
+                <View style={styles.dateBlock}><Text style={styles.dateDay}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { day: "2-digit" })}</Text><Text style={styles.dateMonth}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { month: "short" }).toUpperCase()}</Text></View>
+                <View style={styles.cardCopy}>
+                  <Text style={styles.title}>{service.name || "Untitled show"}</Text>
+                  <Text style={styles.fullDate}>{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</Text>
+                  <View style={styles.meta}>
+                    <Clock3 size={12} color={colors.textFaint} />
+                    <Text style={styles.metaText}>{formatServiceTime(service.scheduledStartTime, schedule?.timeZone ?? "UTC")}</Text>
+                    {service.location ? (
+                      <><MapPin size={12} color={colors.textFaint} /><Text style={styles.metaText}>{service.location}</Text></>
+                    ) : null}
+                  </View>
+                </View>
+                <ChevronRight color={colors.textFaint} size={18} />
+              </Pressable>
+              <View style={styles.metrics}>
+                <Text style={styles.metric}>{service.completedItems}/{service.itemCount} rundown</Text>
+                <Text style={styles.metric}>{service.crewConfirmed}/{service.crewTotal} confirmed</Text>
+                {service.crewOpen ? (
+                  <Text style={styles.warning}>{service.crewOpen} open</Text>
+                ) : null}
+                {service.incidentCount ? (
+                  <Text style={styles.danger}>{service.incidentCount} incidents</Text>
+                ) : null}
+              </View>
+              {canManage ? (
+                <View style={styles.manageActions}>
+                  <SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => setEditor({ kind: "service", service })} />
+                  {canManageAssignments ? (
+                    <>
+                      <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => setEditor({ kind: "assignment", service, assignment: null })} />
+                      <SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />
+                      {assignments.length === 0 && previousWithTeam ? (
+                        <SmallAction icon={<Copy color={colors.textMuted} size={14} />} label="Copy team" onPress={() => copyTeam(service, previousWithTeam)} />
+                      ) : null}
+                      {assignments.some((assignment) => assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open") ? (
+                        <SmallAction icon={<Bell color={colors.textMuted} size={14} />} label="Remind" onPress={() => void remindAll(service)} />
+                      ) : null}
+                    </>
+                  ) : null}
+                  <SmallAction danger icon={<Trash2 color={colors.red} size={14} />} label="Delete" onPress={() => removeService(service)} />
+                </View>
+              ) : null}
+              {assignments.length ? (
+                <View style={styles.assignments}>
+                  {assignments.map((assignment) => (
+                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} onRemind={() => void remindOne(assignment)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.noAssignments}>{canManageAssignments ? "No positions yet. Add an open position or build a team." : "No crew assignments published."}</Text>
+              )}
+            </View>
+          );
         }}
         windowSize={7}
       />
-      {editor?.kind === "service" && schedule ? <ScheduleServiceSheet initialInventoryId={editor.initialInventoryId} inventory={schedule.inventory} onClose={() => setEditor(null)} onSave={saveService} previousServices={[...schedule.services].filter((candidate) => candidate.serviceDate <= (editor.service?.serviceDate ?? schedule.to)).reverse()} service={editor.service} timeZone={schedule.timeZone} /> : null}
-      {editor?.kind === "assignment" && schedule ? <ScheduleAssignmentSheet assignment={editor.assignment} crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveAssignment} showId={editor.service.id} /> : null}
-      {editor?.kind === "team" && schedule ? <ScheduleTeamSheet crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveTeam} showId={editor.service.id} /> : null}
-      {editor?.kind === "provider" && schedule ? <ScheduleProviderSheet current={schedule.provider} onClose={() => setEditor(null)} onSave={async (input) => { await saveMobileScheduleProvider({ orgId, provider: input.type, url: input.url, label: input.label, terminologyProfile: input.terminologyProfile }); await saved(); }} terminologyProfile={schedule.terminologyProfile} /> : null}
-      {editor?.kind === "inventory" && schedule ? <ScheduleInventorySheet archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onArchive={archiveInventoryItem} onClose={() => setEditor(null)} onCreate={createInventoryItem} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} /> : null}
+      {editor?.kind === "service" && schedule ? (
+        <ScheduleServiceSheet initialInventoryId={editor.initialInventoryId} inventory={schedule.inventory} onClose={() => setEditor(null)} onSave={saveService} previousServices={[...schedule.services].filter((candidate) => candidate.serviceDate <= (editor.service?.serviceDate ?? schedule.to)).reverse()} service={editor.service} timeZone={schedule.timeZone} />
+      ) : null}
+      {editor?.kind === "assignment" && schedule ? (
+        <ScheduleAssignmentSheet assignment={editor.assignment} crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveAssignment} showId={editor.service.id} />
+      ) : null}
+      {editor?.kind === "team" && schedule ? (
+        <ScheduleTeamSheet crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveTeam} showId={editor.service.id} />
+      ) : null}
+      {editor?.kind === "provider" && schedule ? (
+        <ScheduleProviderSheet
+          current={schedule.provider}
+          onClose={() => setEditor(null)}
+          onSave={async (input) => {
+            await saveMobileScheduleProvider({
+              orgId,
+              provider: input.type,
+              url: input.url,
+              label: input.label,
+            });
+            await saved();
+          }}
+        />
+      ) : null}
+      {editor?.kind === "inventory" && schedule ? (
+        <ScheduleInventorySheet archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onArchive={archiveInventoryItem} onClose={() => setEditor(null)} onCreate={createInventoryItem} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} />
+      ) : null}
     </Page>
   );
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   const styles = useStyles();
-  return <View style={styles.stat}><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>;
+  return (
+    <View style={styles.stat}><Text style={styles.statValue}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>
+  );
 }
 
-function SmallAction({ danger = false, icon, label, onPress }: { danger?: boolean; icon: ReactNode; label: string; onPress: () => void }) {
+function SmallAction({ danger = false, icon, label, onPress }: {
+  danger?: boolean;
+  icon: ReactNode;
+  label: string;
+  onPress: () => void;
+}) {
   const styles = useStyles();
-  return <Pressable accessibilityRole="button" onPress={onPress} style={styles.smallAction}>{icon}<Text style={[styles.smallActionText, danger && styles.smallActionDanger]}>{label}</Text></Pressable>;
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.smallAction}>{icon}<Text style={[styles.smallActionText, danger && styles.smallActionDanger]}>{label}</Text></Pressable>
+  );
 }
 
 function AssignmentRow({ assignment, canManage, focused, declining, reason, pending, onReason, onDecline, onCancel, onRespond, onEdit, onRemove, onRemind }: {
@@ -339,25 +453,74 @@ function AssignmentRow({ assignment, canManage, focused, declining, reason, pend
   onRemove: () => void;
   onRemind: () => void;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const responseClosed = assignment.status === "assigned" && assignment.responseWindow.status === "closed";
   const displayStatus = !assignment.crewMemberId ? "open" : responseClosed ? "closed" : assignment.status;
   const remindable = canManage && assignment.status === "assigned" && Boolean(assignment.crewMemberId) && assignment.responseWindow.status === "open";
-  return <View accessibilityLabel={focused ? `Selected assignment: ${assignment.role}` : undefined} style={[styles.assignmentBlock, focused && styles.assignmentFocused]}>
-    <View style={styles.assignment}><Users size={12} color={colors.textFaint} /><View style={styles.assignmentCopy}><Text style={styles.assignmentRole}>{assignment.role}</Text><Text style={styles.assignmentText}>{assignment.crewName || "Open position"}{assignment.callTime ? ` · Call ${assignment.callTime}` : ""}</Text></View><Text style={[styles.status, assignment.status === "confirmed" && styles.confirmed, (assignment.status === "declined" || responseClosed) && styles.declined]}>{displayStatus}</Text></View>
-    {assignment.notes ? <Text style={styles.managerNote}>{assignment.notes}</Text> : null}
-    {assignment.responseNote ? <View style={styles.responseNoteBox}><Text style={styles.responseNoteLabel}>CREW RESPONSE</Text><Text style={styles.responseNote}>{assignment.responseNote}</Text>{assignment.respondedAt ? <Text style={styles.responseDate}>{new Date(assignment.respondedAt).toLocaleString()}</Text> : null}</View> : null}
-    {responseClosed ? <Text style={styles.closedNote}>The response window closed when this show ended.</Text> : null}
-    {assignment.canRespond && assignment.status === "assigned" && !declining ? <View style={styles.responseActions}><ActionText disabled={pending} label="Accept" onPress={() => onRespond("confirmed")} tone="confirm" /><ActionText disabled={pending} label="Decline" onPress={onDecline} tone="decline" /></View> : null}
-    {declining ? <View style={styles.declineForm}><TextInput accessibilityLabel={`Reason for declining ${assignment.role}`} maxLength={500} multiline onChangeText={onReason} placeholder="Tell the team why you cannot serve (optional)" placeholderTextColor={colors.textFaint} style={styles.reasonInput} value={reason} /><View style={styles.responseActions}><ActionText disabled={pending} label="Cancel" onPress={onCancel} tone="neutral" /><ActionText disabled={pending} label={pending ? "Saving…" : "Confirm decline"} onPress={() => onRespond("declined")} tone="decline" /></View></View> : null}
-    {canManage ? <View style={styles.assignmentActions}><SmallAction icon={<Pencil color={colors.textMuted} size={13} />} label="Edit" onPress={onEdit} />{remindable ? <SmallAction icon={<Bell color={colors.textMuted} size={13} />} label="Resend" onPress={onRemind} /> : null}<SmallAction danger icon={<Trash2 color={colors.red} size={13} />} label="Remove" onPress={onRemove} /></View> : null}
-  </View>;
+  return (
+    <View accessibilityLabel={focused ? `Selected assignment: ${assignment.role}` : undefined} style={[styles.assignmentBlock, focused && styles.assignmentFocused]}>
+      <View style={styles.assignment}><Users size={12} color={colors.textFaint} /><View style={styles.assignmentCopy}><Text style={styles.assignmentRole}>{assignment.role}</Text><Text style={styles.assignmentText}>{assignment.crewName || "Open position"}{assignment.callTime ? ` · Call ${assignment.callTime}` : ""}</Text></View><Text style={[styles.status, assignment.status === "confirmed" && styles.confirmed, (assignment.status === "declined" || responseClosed) && styles.declined]}>{displayStatus}</Text></View>
+      {assignment.notes ? (
+        <Text style={styles.managerNote}>{assignment.notes}</Text>
+      ) : null}
+      {assignment.responseNote ? (
+        <View style={styles.responseNoteBox}>
+          <Text style={styles.responseNoteLabel}>CREW RESPONSE</Text>
+          <Text style={styles.responseNote}>{assignment.responseNote}</Text>
+          {assignment.respondedAt ? (
+            <Text style={styles.responseDate}>{new Date(assignment.respondedAt).toLocaleString()}</Text>
+          ) : null}
+        </View>
+      ) : null}
+      {responseClosed ? (
+        <Text style={styles.closedNote}>The response window closed when this show ended.</Text>
+      ) : null}
+      {assignment.canRespond && assignment.status === "assigned" && !declining ? (
+        <View style={styles.responseActions}><ActionText disabled={pending} label="Accept" onPress={() => onRespond("confirmed")} tone="confirm" /><ActionText disabled={pending} label="Decline" onPress={onDecline} tone="decline" /></View>
+      ) : null}
+      {declining ? (
+        <View style={styles.declineForm}>
+          <TextInput
+            accessibilityLabel={`Reason for declining ${assignment.role}`}
+            maxLength={500}
+            multiline
+            onChangeText={onReason}
+            placeholder={workspaceCopy(
+              "Tell the team why you cannot serve (optional)",
+              workspaceTerms,
+            )}
+            placeholderTextColor={colors.textFaint}
+            style={styles.reasonInput}
+            value={reason}
+          />
+          <View style={styles.responseActions}><ActionText disabled={pending} label="Cancel" onPress={onCancel} tone="neutral" /><ActionText disabled={pending} label={pending ? "Saving…" : "Confirm decline"} onPress={() => onRespond("declined")} tone="decline" /></View>
+        </View>
+      ) : null}
+      {canManage ? (
+        <View style={styles.assignmentActions}>
+          <SmallAction icon={<Pencil color={colors.textMuted} size={13} />} label="Edit" onPress={onEdit} />
+          {remindable ? (
+            <SmallAction icon={<Bell color={colors.textMuted} size={13} />} label="Resend" onPress={onRemind} />
+          ) : null}
+          <SmallAction danger icon={<Trash2 color={colors.red} size={13} />} label="Remove" onPress={onRemove} />
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
-function ActionText({ disabled, label, onPress, tone }: { disabled: boolean; label: string; onPress: () => void; tone: "confirm" | "decline" | "neutral" }) {
+function ActionText({ disabled, label, onPress, tone }: {
+  disabled: boolean;
+  label: string;
+  onPress: () => void;
+  tone: "confirm" | "decline" | "neutral";
+}) {
   const styles = useStyles();
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.responseButton, tone === "confirm" ? styles.confirmButton : tone === "decline" ? styles.declineButton : styles.neutralButton]}><Text style={tone === "confirm" ? styles.confirmText : tone === "decline" ? styles.declineText : styles.neutralText}>{label}</Text></Pressable>;
+  return (
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.responseButton, tone === "confirm" ? styles.confirmButton : tone === "decline" ? styles.declineButton : styles.neutralButton]}><Text style={tone === "confirm" ? styles.confirmText : tone === "decline" ? styles.declineText : styles.neutralText}>{label}</Text></Pressable>
+  );
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({

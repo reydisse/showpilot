@@ -1,3 +1,6 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
+import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
@@ -99,20 +102,7 @@ export const Route = createFileRoute("/$slug/settings")({
     section: parseSectionId(search.section),
   }),
   loader: async ({ context }) => {
-    const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, [
-      "settings:organization",
-      "settings:members",
-      "settings:billing",
-      "settings:integrations",
-      "settings:production_defaults",
-      "settings:lowerthird_config",
-      "settings:notifications",
-      "settings:api_keys",
-      "settings:webhooks",
-      "settings:danger_zone",
-      "org:delete",
-    ], context.slug, context.orgId);
+    // The organization layout verifies membership; feature settings keep their own permissions.
     const canReadMembers = hasPermission(context.role, "settings:members");
     const canReadBilling = hasPermission(context.role, "settings:billing");
     const [settings, members, billing, rundownPin] = await Promise.all([
@@ -142,6 +132,7 @@ export const Route = createFileRoute("/$slug/settings")({
 // ─── Types ──────────────────────────────────────────────────
 
 type SectionId =
+  | "workspace"
   | "organization"
   | "team"
   | "people"
@@ -157,6 +148,7 @@ type SectionId =
 
 function parseSectionId(value: unknown): SectionId | undefined {
   switch (value) {
+    case "workspace":
     case "organization":
     case "team":
     case "people":
@@ -182,6 +174,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { id: "workspace", label: "Workspace", icon: Building2 },
   { id: "organization", label: "Organization", icon: Building2 },
   { id: "team", label: "Team & Roles", icon: Users },
   { id: "people", label: "Import People", icon: UserPlus },
@@ -200,7 +193,9 @@ const NAV_ITEMS: NavItem[] = [
 
 function SettingsPage() {
   const loaderData = Route.useLoaderData();
-  return <OrganizationSettingsPage key={loaderData.orgId} loaderData={loaderData} />;
+  return (
+    <OrganizationSettingsPage key={loaderData.orgId} loaderData={loaderData} />
+  );
 }
 
 function OrganizationSettingsPage({
@@ -234,6 +229,7 @@ function OrganizationSettingsPage({
 
   // Filter nav items based on permissions
   const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.id === "workspace") return true;
     if (item.id === "organization") return canViewOrganization;
     if (item.id === "team") return canManageMembers;
     if (item.id === "people") return canManageMembers;
@@ -334,7 +330,9 @@ function OrganizationSettingsPage({
             <SelectGroup>
               {visibleNavItems.map((item) => {
                 const Icon = item.icon;
-                return <SelectItem key={item.id} value={item.id}><Icon />{item.label}</SelectItem>;
+                return (
+                  <SelectItem key={item.id} value={item.id}><Icon />{item.label}</SelectItem>
+                );
               })}
             </SelectGroup>
           </SelectContent>
@@ -344,41 +342,53 @@ function OrganizationSettingsPage({
       <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="safe-area-bottom mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-9">
           <div className="mb-4 flex min-h-6 items-center justify-end">
-            {saveState.kind === "saving" ? <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span> : null}
-            {saveState.kind === "saved" ? <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />Changes save automatically</span> : null}
-            {saveState.kind === "error" ? <span role="alert" title={saveState.message} className="inline-flex items-center gap-2 text-xs text-red-400"><CircleAlert className="size-4" />Save failed. Try again.</span> : null}
+            {saveState.kind === "saving" ? (
+              <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span>
+            ) : null}
+            {saveState.kind === "saved" ? (
+              <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />Changes save automatically</span>
+            ) : null}
+            {saveState.kind === "error" ? (
+              <span role="alert" title={saveState.message} className="inline-flex items-center gap-2 text-xs text-red-400"><CircleAlert className="size-4" />Save failed. Try again.</span>
+            ) : null}
           </div>
           <div className="max-w-4xl">
-          {resolvedSection === "organization" && (
+            {resolvedSection === "workspace" && (
+              <WorkspaceSettings
+                orgId={orgId}
+                canManage={canViewOrganization && (role === "owner" || role === "admin")}
+              />
+            )}
+            {resolvedSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}
-          {resolvedSection === "team" && <TeamSection {...sectionProps} />}
-          {resolvedSection === "people" && (
+            {resolvedSection === "team" && <TeamSection {...sectionProps} />}
+            {resolvedSection === "people" && (
             <CsvImportSection orgId={orgId} openBilling={openBilling} />
           )}
-          {resolvedSection === "billing" && (
+            {resolvedSection === "billing" && (
             <BillingSection {...sectionProps} billing={billing} />
           )}
-          {resolvedSection === "integrations" && (
+            {resolvedSection === "integrations" && (
             <IntegrationsSection {...sectionProps} />
           )}
-          {resolvedSection === "production" && (
+            {resolvedSection === "production" && (
             <ProductionSection {...sectionProps} />
           )}
-          {resolvedSection === "lowerthirds" && (
+            {resolvedSection === "lowerthirds" && (
             <LowerThirdsSection {...sectionProps} />
           )}
-          {resolvedSection === "kiosk" && (
+            {resolvedSection === "kiosk" && (
             <KioskSection orgId={orgId} slug={slug} members={members} />
           )}
-          {resolvedSection === "companion" && (
+            {resolvedSection === "companion" && (
             <CompanionSection orgId={orgId} slug={slug} />
           )}
-          {resolvedSection === "notifications" && (
+            {resolvedSection === "notifications" && (
             <NotificationsSection {...sectionProps} />
           )}
-          {resolvedSection === "api" && <ApiSection {...sectionProps} />}
-          {resolvedSection === "danger" && (
+            {resolvedSection === "api" && <ApiSection {...sectionProps} />}
+            {resolvedSection === "danger" && (
             <DangerSection {...sectionProps} router={router} />
           )}
           </div>
@@ -394,7 +404,15 @@ interface SectionProps {
   orgId: string;
   slug: string;
   role: string;
-  org: { id: string; name: string; slug: string; logo: string | null; createdAt: Date; metadata: string | null; cloud_enabled: boolean };
+  org: {
+    id: string;
+    name: string;
+    slug: string;
+    logo: string | null;
+    createdAt: Date;
+    metadata: string | null;
+    cloud_enabled: boolean;
+  };
   getSetting: (key: string, fallback?: string) => string;
   saveSetting: (key: string, value: string) => Promise<void>;
   members: Array<{
@@ -523,7 +541,9 @@ function SettingToggle({
       <div className="flex min-h-8 items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-board-text">{label}</p>
-          {description ? <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p> : null}
+          {description ? (
+            <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -665,7 +685,10 @@ function RundownPinSettings({
   const [confirmation, setConfirmation] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmingDisable, setConfirmingDisable] = useState(false);
-  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const savePin = async () => {
     setMessage(null);
@@ -1251,14 +1274,14 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
 
       {embeddedCheckout && (
         <Suspense
-          fallback={(
+          fallback={
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
               <div role="status" className="flex items-center gap-3 rounded-xl border border-board-border bg-board-card px-5 py-4 text-sm text-board-text shadow-2xl">
                 <LoaderCircle className="size-4 animate-spin text-fire-500" />
                 Preparing secure checkout...
               </div>
             </div>
-          )}
+          }
         >
           <EmbeddedCheckoutModal
             clientSecret={embeddedCheckout.clientSecret}
@@ -1274,6 +1297,7 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
 function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
+  const workspaceTerms = useWorkspaceTerms();
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -1281,10 +1305,13 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
     <div>
       <SectionHeader
         title="Integrations"
-        description="Connect external tools to ShowPilot's shared services"
+        description={workspaceCopy(
+          "Connect external tools to ShowPilot's shared services",
+          workspaceTerms,
+        )}
       />
 
-      {/* Chat Integrations */}
+      {/* Invite form */}
       <div className="mb-8">
         <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
           Chat gateway
@@ -1467,7 +1494,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
         </div>
       </div>
 
-      {/* Rundown & Timer Integrations */}
+      {/* Invite form */}
       <div className="mb-8">
         <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
           Rundown & Timer Integration
@@ -1664,8 +1691,6 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           ) : null}
         </div>
       </div>
-
-
     </div>
   );
 }
@@ -2002,7 +2027,9 @@ function NotificationPolicyRow({
 }) {
   return (
     <div className="flex min-h-16 items-start gap-3 px-4 py-3.5 sm:px-5">
-      {Icon ? <Icon className="mt-0.5 size-4 shrink-0 text-board-muted" /> : null}
+      {Icon ? (
+        <Icon className="mt-0.5 size-4 shrink-0 text-board-muted" />
+      ) : null}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-board-text">{label}</p>
         <p className="mt-0.5 text-xs leading-5 text-board-muted">{description}</p>
@@ -2208,7 +2235,15 @@ function DangerSection({
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [availableDates, setAvailableDates] = useState<Array<{ showId: string; date: string; name: string; scheduledStartTime: string | null; itemCount: number }>>([]);
+  const [availableDates, setAvailableDates] = useState<
+    Array<{
+      showId: string;
+      date: string;
+      name: string;
+      scheduledStartTime: string | null;
+      itemCount: number;
+    }>
+  >([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
   const [selectedSections, setSelectedSections] = useState<ReportExportSection[]>(REPORT_EXPORT_SECTIONS.map(([value]) => value));
@@ -2403,7 +2438,7 @@ function DangerSection({
         description="Irreversible and destructive actions"
       />
       <div className="space-y-4">
-        {/* Reset lower thirds */}
+        {/* Invite form */}
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -2432,7 +2467,9 @@ function DangerSection({
               <p id="confirm-reset-lower-thirds" className="text-xs leading-5 text-board-muted">
                 This removes every saved lower-third template. Continue?
               </p>
-              {dangerActionError ? <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p> : null}
+              {dangerActionError ? (
+                <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p>
+              ) : null}
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
                 <button type="button" disabled={busy !== null} onClick={() => void handleResetLowerThirds()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
@@ -2444,7 +2481,7 @@ function DangerSection({
           ) : null}
         </div>
 
-        {/* Clear chat history */}
+        {/* Invite form */}
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -2473,7 +2510,9 @@ function DangerSection({
               <p id="confirm-clear-chat" className="text-xs leading-5 text-board-muted">
                 This permanently removes the organization’s native chat history. Continue?
               </p>
-              {dangerActionError ? <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p> : null}
+              {dangerActionError ? (
+                <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p>
+              ) : null}
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
                 <button type="button" disabled={busy !== null} onClick={() => void handleClearChat()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
@@ -2521,7 +2560,9 @@ function DangerSection({
               </div>
 
               <div className="space-y-5">
-                {exportError && <p className="text-xs text-red-400">{exportError}</p>}
+                {exportError && (
+                  <p className="text-xs text-red-400">{exportError}</p>
+                )}
 
                 {isLoadingExportDates ? (
                   <p className="text-xs text-board-muted">Loading available show dates...</p>
@@ -2628,7 +2669,7 @@ function DangerSection({
           </div>
         )}
 
-        {/* Delete organization */}
+        {/* Invite form */}
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
           <div className="flex items-center justify-between mb-3">
             <div>

@@ -1,3 +1,4 @@
+import { getWorkspaceProfileForOrg } from "@/lib/workspace/profile.server";
 /**
  * Tech manager dashboard: reads and fault actions.
  *
@@ -54,12 +55,23 @@ export interface TmDashboardResult {
   showId: string | null;
   serviceDate: string;
   orgTimezone: string;
-  shows: Array<{ id: string; serviceDate: string; name: string; scheduledStartTime: string | null }>;
+  shows: Array<{
+    id: string;
+    serviceDate: string;
+    name: string;
+    scheduledStartTime: string | null;
+  }>;
   viewerId: string;
   viewerRole: string;
   canAssignPeople: boolean;
   liveInputs: { id: string; name: string; status: string }[];
-  streamDestinations: { id: string; name: string; platform: string; enabled: boolean; connected: boolean }[];
+  streamDestinations: {
+    id: string;
+    name: string;
+    platform: string;
+    enabled: boolean;
+    connected: boolean;
+  }[];
   /** Everyone a fault can be handed to. */
   members: { id: string; name: string; role: string; roleLabel: string }[];
 }
@@ -236,7 +248,10 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     ).filter(({ access }) => access?.permissions.includes("incidents:access"));
 
     return {
-      model: deriveTmDashboard(snapshot),
+      model: deriveTmDashboard(
+        snapshot,
+        (await getWorkspaceProfileForOrg(data.orgId)).terms,
+      ),
       orgId,
       showId: showId ?? null,
       serviceDate,
@@ -250,12 +265,18 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       viewerId: viewer.userId,
       viewerRole: viewer.role,
       canAssignPeople: isAdminTier(viewer.role),
-      liveInputs: liveInputs.map((row) => ({ id: row.id, name: row.name, status: row.status })),
+      liveInputs: liveInputs.map((row) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+      })),
       streamDestinations: destinations.map((row) => ({
         id: row.id,
         name: row.name,
         platform: row.platform,
         enabled: row.enabled,
+        // Stream Connect gives an output id once the destination is
+        // actually wired up. No id means configured but not connected.
         connected: Boolean(row.cfOutputId),
       })),
       members: assignableMembers
@@ -353,14 +374,22 @@ async function loadRundownMeta(
   orgId: string,
   serviceDate: string,
   showId?: string,
-): Promise<{ scheduledStartTime: string | null; scheduledCallTime: string | null; status: string } | null> {
+): Promise<{
+  scheduledStartTime: string | null;
+  scheduledCallTime: string | null;
+  status: string;
+} | null> {
   try {
     const row = await getD1()
       .prepare(
         `SELECT scheduledStartTime, scheduledCallTime, status FROM rundown WHERE orgId = ? AND ${showId ? "id = ?" : "serviceDate = ?"}`,
       )
       .bind(orgId, showId ?? serviceDate)
-      .first<{ scheduledStartTime: string | null; scheduledCallTime: string | null; status: string }>();
+      .first<{
+        scheduledStartTime: string | null;
+        scheduledCallTime: string | null;
+        status: string;
+      }>();
     if (!row) return null;
     return {
       scheduledStartTime: row.scheduledStartTime

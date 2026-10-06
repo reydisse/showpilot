@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import FilePlus from "lucide-react-native/icons/file-plus";
 import Trash2 from "lucide-react-native/icons/trash-2";
@@ -29,6 +31,7 @@ export function RundownTemplateSheet({
   templates: MobileRundownTemplate[];
   previousShows: MobilePreviousRundown[];
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [name, setName] = useState("");
@@ -46,42 +49,77 @@ export function RundownTemplateSheet({
     }
   }
 
-  return <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible>
-    <Page scroll={false}>
-      <View style={styles.header}>
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible>
+      <Page scroll={false}>
+        <View style={styles.header}>
         <View style={styles.headerCopy}><Text style={styles.eyebrow}>RUNDOWN TEMPLATES</Text><Text style={styles.heading}>Reuse a complete show</Text></View>
         <Pressable accessibilityLabel="Close rundown templates" accessibilityRole="button" onPress={onClose} style={styles.close}><X color={colors.textMuted} size={21} /></Pressable>
       </View>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={styles.saveCard}>
-          <View style={styles.saveHeading}><FilePlus color={colors.amberText} size={19} /><View style={styles.saveCopy}><Text style={styles.saveTitle}>Save current rundown</Text><Text style={styles.saveHint}>Includes the service title, start time, and every item.</Text></View></View>
-          <AppField autoCapitalize="sentences" label="Template name" maxLength={200} onChangeText={setName} placeholder="Sunday morning standard" value={name} />
-          <AppButton disabled={!name.trim() || busyId !== null} label={busyId === "save" ? "Saving template…" : "Save template"} loading={busyId === "save"} onPress={() => run("save", async () => {
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <View style={styles.saveCard}>
+            <View style={styles.saveHeading}>
+              <FilePlus color={colors.amberText} size={19} />
+              <View style={styles.saveCopy}>
+                <Text style={styles.saveTitle}>Save current rundown</Text>
+                <Text style={styles.saveHint}>
+                  {workspaceCopy(
+                    "Includes the service title, start time, and every item.",
+                    workspaceTerms,
+                  )}
+                </Text>
+              </View>
+            </View>
+            <AppField
+              autoCapitalize="sentences"
+              label="Template name"
+              maxLength={200}
+              onChangeText={setName}
+              placeholder={workspaceCopy(
+                "Sunday morning standard",
+                workspaceTerms,
+              )}
+              value={name}
+            />
+            <AppButton disabled={!name.trim() || busyId !== null} label={busyId === "save" ? "Saving template…" : "Save template"} loading={busyId === "save"} onPress={() => run("save", async () => {
             await onSave(name.trim(), saveRequestId);
             setName("");
             setSaveRequestId(createLocalRequestId("rundown-template"));
           })} />
-        </View>
+          </View>
 
-        {previousShows.length > 0 ? <>
-          <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>PREVIOUS SHOWS</Text><Text style={styles.sectionCount}>{previousShows.length}</Text></View>
-          {previousShows.slice(0, 20).map((show) => <View key={show.id} style={styles.templateCard}>
+          {previousShows.length > 0 ? (
+            <>
+              <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>PREVIOUS SHOWS</Text><Text style={styles.sectionCount}>{previousShows.length}</Text></View>
+              {previousShows.slice(0, 20).map((show) => (
+                <View key={show.id} style={styles.templateCard}>
             <View style={styles.templateCopy}><Text style={styles.templateName}>{show.name || "Untitled show"}</Text><Text style={styles.templateMeta}>{show.serviceDate} · {show.itemCount} item{show.itemCount === 1 ? "" : "s"}{show.location ? ` · ${show.location}` : ""}</Text></View>
             <Pressable accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Replace current rundown?", `Copy the rundown and show details from ${show.serviceDate}?`, [{ text: "Cancel", style: "cancel" }, { text: "Load previous", onPress: () => void run(show.id, async () => onLoadPrevious(show, createLocalRequestId("previous-load"))) }])} style={[styles.loadButton, busyId !== null && styles.disabled]}><Text style={styles.loadText}>{busyId === show.id ? "Loading…" : "Load previous"}</Text></Pressable>
-          </View>)}
-        </> : null}
+          </View>
+              ))}
+            </>
+          ) : null}
 
-        <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>SAVED TEMPLATES</Text><Text style={styles.sectionCount}>{templates.length}</Text></View>
-        {loading ? <ActivityIndicator color={colors.amber} size="large" /> : templates.length === 0 ? <Text style={styles.empty}>No saved templates yet. Save the current rundown to create one.</Text> : templates.map((template) => <View key={template.id} style={styles.templateCard}>
+          <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>SAVED TEMPLATES</Text><Text style={styles.sectionCount}>{templates.length}</Text></View>
+          {loading ? (
+            <ActivityIndicator color={colors.amber} size="large" />
+          ) : templates.length === 0 ? (
+            <Text style={styles.empty}>No saved templates yet. Save the current rundown to create one.</Text>
+          ) : (
+            templates.map((template) => (
+              <View key={template.id} style={styles.templateCard}>
           <View style={styles.templateCopy}><Text style={styles.templateName}>{template.name}</Text><Text style={styles.templateMeta}>{template.itemCount} item{template.itemCount === 1 ? "" : "s"}{template.serviceName ? ` · ${template.serviceName}` : ""}{template.scheduledStartTime ? ` · ${template.scheduledStartTime}` : ""}</Text><Text style={styles.templateDate}>Saved {new Date(template.updatedAt).toLocaleDateString()}</Text></View>
           <View style={styles.templateActions}>
             <Pressable accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Replace current rundown?", `Load “${template.name}” into this show? This replaces every current item.`, [{ text: "Cancel", style: "cancel" }, { text: "Load template", onPress: () => void run(template.id, async () => onLoad(template, createLocalRequestId("template-load"))) }])} style={[styles.loadButton, busyId !== null && styles.disabled]}><Text style={styles.loadText}>{busyId === template.id ? "Loading…" : "Load"}</Text></Pressable>
             <Pressable accessibilityLabel={`Delete ${template.name}`} accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Delete template?", `Delete “${template.name}”? Existing shows are not affected.`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void run(`delete-${template.id}`, async () => onDelete(template)) }])} style={[styles.deleteButton, busyId !== null && styles.disabled]}><Trash2 color={colors.red} size={17} /></Pressable>
           </View>
-        </View>)}
-      </ScrollView>
-    </Page>
-  </Modal>;
+        </View>
+            ))
+          )}
+        </ScrollView>
+      </Page>
+    </Modal>
+  );
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({

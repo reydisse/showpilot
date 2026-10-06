@@ -1,3 +1,5 @@
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
@@ -57,7 +59,9 @@ interface LivePanelState {
 }
 
 function initials(name: string) {
-  return name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "SP";
+  return (
+    name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "SP"
+  );
 }
 
 function formatOntimeClock(value: number, clockFormat: MobileShowWorkspace["clockFormat"]) {
@@ -98,9 +102,10 @@ function NativeLivePanel({ items, timer }: {
         currentMeta: current ? `${formatTimer(current.duration)}${current.assignee ? ` · ${current.assignee}` : ""}` : "The live state is ready",
         nextTitle: next?.title ?? null,
         overtime: Boolean(current && timer.mode === "count-down" && remaining < 0),
-        progress: current && timer.mode !== "clock" && current.duration > 0
-          ? Math.min(100, Math.max(0, elapsed / current.duration * 100))
-          : 0,
+        progress:
+          current && timer.mode !== "clock" && current.duration > 0
+            ? Math.min(100, Math.max(0, (elapsed / current.duration) * 100))
+            : 0,
       });
     };
     update();
@@ -128,14 +133,19 @@ function LivePanel({ state }: { state: LivePanelState }) {
       <View style={styles.currentCopy}>
         <Text numberOfLines={2} style={styles.currentTitle}>{state.currentTitle}</Text>
         <Text numberOfLines={1} style={styles.currentMeta}>{state.currentMeta}</Text>
-        {state.nextTitle ? <Text numberOfLines={1} style={styles.nextTitle}>Next  ·  <Text style={styles.nextName}>{state.nextTitle}</Text></Text> : null}
+        {state.nextTitle ? (
+          <Text numberOfLines={1} style={styles.nextTitle}>Next  ·  <Text style={styles.nextName}>{state.nextTitle}</Text></Text>
+        ) : null}
       </View>
       <View style={styles.liveSource}><RadioTower color={playing ? colors.green : colors.textFaint} size={14} /><Text style={styles.liveSourceText}>{playing ? "Synchronized across operators" : "Following authoritative live state"}</Text></View>
     </View>
   );
 }
 
-function QuickActions({ workspace, showId }: { workspace: MobileShowWorkspace; showId: string | null }) {
+function QuickActions({ workspace, showId }: {
+  workspace: MobileShowWorkspace;
+  showId: string | null;
+}) {
   const actions = [
     workspace.chatAvailable ? { id: "chat", label: "Chat", icon: MessageSquareText, onPress: () => router.push("/chat") } : null,
     workspace.canOpenRundown && showId ? { id: "rundown", label: "Full rundown", icon: ListVideo, onPress: () => router.push({ pathname: "/show/[showId]", params: { showId } }) } : null,
@@ -148,7 +158,9 @@ function QuickActions({ workspace, showId }: { workspace: MobileShowWorkspace; s
     <View style={styles.actionRow}>
       {actions.map((action) => {
         const Icon = action.icon;
-        return <Pressable accessibilityRole="button" key={action.id} onPress={action.onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}><Icon color={colors.amberText} size={18} /><Text style={styles.actionLabel}>{action.label}</Text><ChevronRight color={colors.textFaint} size={15} /></Pressable>;
+        return (
+          <Pressable accessibilityRole="button" key={action.id} onPress={action.onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}><Icon color={colors.amberText} size={18} /><Text style={styles.actionLabel}>{action.label}</Text><ChevronRight color={colors.textFaint} size={15} /></Pressable>
+        );
       })}
     </View>
   );
@@ -161,18 +173,47 @@ function CrewStrip({ crew }: { crew: MobileShowWorkspace["crew"] }) {
   return (
     <View style={styles.crewSection}>
       <View style={styles.sectionRow}><View style={styles.sectionTitleRow}><UsersRound size={16} color={colors.textMuted} /><Text style={styles.sectionTitle}>ACTIVE CREW</Text></View><Text style={styles.sectionCount}>{activeCrew.length} OF {crew.length}</Text></View>
-      {activeCrew.length ? <FlatList contentContainerStyle={styles.crewList} data={activeCrew} horizontal keyExtractor={(member) => member.id} renderItem={({ item }) => <View style={styles.crewCard}>{item.photoUrl ? <Image accessibilityLabel={item.name} source={{ uri: item.photoUrl }} style={styles.avatar} /> : <View style={styles.avatarFallback}><Text style={styles.avatarText}>{initials(item.name)}</Text></View>}<View style={styles.crewCopy}><Text numberOfLines={1} style={styles.crewName}>{item.name}</Text><Text numberOfLines={1} style={styles.crewRole}>{item.role}</Text></View><View style={styles.onlineDot} /></View>} showsHorizontalScrollIndicator={false} /> : <Text style={styles.emptyInline}>No crew members are checked in yet.</Text>}
+      {activeCrew.length ? (
+        <FlatList
+          contentContainerStyle={styles.crewList}
+          data={activeCrew}
+          horizontal
+          keyExtractor={(member) => member.id}
+          renderItem={({ item }) => (
+            <View style={styles.crewCard}>
+              {item.photoUrl ? (
+                <Image accessibilityLabel={item.name} source={{ uri: item.photoUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarFallback}><Text style={styles.avatarText}>{initials(item.name)}</Text></View>
+              )}
+              <View style={styles.crewCopy}><Text numberOfLines={1} style={styles.crewName}>{item.name}</Text><Text numberOfLines={1} style={styles.crewRole}>{item.role}</Text></View>
+              <View style={styles.onlineDot} />
+            </View>
+          )}
+          showsHorizontalScrollIndicator={false}
+        />
+      ) : (
+        <Text style={styles.emptyInline}>No crew members are checked in yet.</Text>
+      )}
     </View>
   );
 }
 
 function SequenceRow({ item }: { item: SequenceItem }) {
   const styles = useStyles();
-  if (item.header) return <View style={styles.sequenceHeader}><Text style={styles.sequenceHeaderText}>{item.title}</Text></View>;
+  if (item.header)
+    return (
+      <View style={styles.sequenceHeader}><Text style={styles.sequenceHeaderText}>{item.title}</Text></View>
+    );
   return (
     <View style={[styles.sequenceItem, item.active && styles.sequenceItemActive, item.complete && styles.sequenceItemComplete]}>
       <View style={[styles.sequenceDot, item.active && styles.sequenceDotActive, item.complete && styles.sequenceDotComplete]} />
-      <View style={styles.sequenceCopy}><Text numberOfLines={2} style={[styles.sequenceTitle, item.active && styles.sequenceTitleActive, item.complete && styles.sequenceTitleComplete]}>{item.title}</Text>{item.meta ? <Text numberOfLines={1} style={styles.sequenceMeta}>{item.meta}</Text> : null}</View>
+      <View style={styles.sequenceCopy}>
+        <Text numberOfLines={2} style={[styles.sequenceTitle, item.active && styles.sequenceTitleActive, item.complete && styles.sequenceTitleComplete]}>{item.title}</Text>
+        {item.meta ? (
+          <Text numberOfLines={1} style={styles.sequenceMeta}>{item.meta}</Text>
+        ) : null}
+      </View>
       <Text style={styles.sequenceDuration}>{formatTimer(item.duration)}</Text>
     </View>
   );
@@ -188,6 +229,7 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   return (
@@ -196,8 +238,31 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
         contentContainerStyle={styles.list}
         data={items}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={<View style={styles.headerContent}><View style={styles.workspaceStatus}>{workspace.adapterStatus === "fallback" ? <WifiOff color={colors.red} size={15} /> : <Wifi color={colors.green} size={15} />}<Text style={[styles.workspaceStatusText, workspace.adapterStatus === "fallback" && styles.workspaceStatusFallback]}>{workspace.adapterStatus === "fallback" ? "OnTime unavailable · Native fallback" : `${workspace.runtime.kind === "ontime" ? "OnTime" : "Native"} live source`}</Text><Text style={styles.workspaceClock}>{subtitle}</Text></View>{livePanel}<QuickActions workspace={workspace} showId={showId} /><CrewStrip crew={workspace.crew} /><View style={styles.sectionRow}><View style={styles.sectionTitleRow}><ListVideo color={colors.textMuted} size={16} /><Text style={styles.sectionTitle}>RUNDOWN</Text></View><Text style={styles.sectionCount}>{items.length} ITEMS</Text></View></View>}
-        ListEmptyComponent={<Text style={styles.empty}>No current or upcoming rundown is available. Create a show from the Shows tab when the next service is ready.</Text>}
+        ListHeaderComponent={
+          <View style={styles.headerContent}>
+            <View style={styles.workspaceStatus}>
+              {workspace.adapterStatus === "fallback" ? (
+                <WifiOff color={colors.red} size={15} />
+              ) : (
+                <Wifi color={colors.green} size={15} />
+              )}
+              <Text style={[styles.workspaceStatusText, workspace.adapterStatus === "fallback" && styles.workspaceStatusFallback]}>{workspace.adapterStatus === "fallback" ? "OnTime unavailable · Native fallback" : `${workspace.runtime.kind === "ontime" ? "OnTime" : "Native"} live source`}</Text>
+              <Text style={styles.workspaceClock}>{subtitle}</Text>
+            </View>
+            {livePanel}
+            <QuickActions workspace={workspace} showId={showId} />
+            <CrewStrip crew={workspace.crew} />
+            <View style={styles.sectionRow}><View style={styles.sectionTitleRow}><ListVideo color={colors.textMuted} size={16} /><Text style={styles.sectionTitle}>RUNDOWN</Text></View><Text style={styles.sectionCount}>{items.length} ITEMS</Text></View>
+          </View>
+        }
+        ListEmptyComponent={
+          <Text style={styles.empty}>
+            {workspaceCopy(
+              "No current or upcoming rundown is available. Create a show from the Shows tab when the next service is ready.",
+              workspaceTerms,
+            )}
+          </Text>
+        }
         onRefresh={onRefresh}
         refreshing={refreshing}
         renderItem={({ item }) => <SequenceRow item={item} />}
@@ -207,18 +272,34 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
   );
 }
 
-function NativeWorkspace({ workspace, runtime, orgId, onRefresh, refreshing }: { workspace: MobileShowWorkspace; runtime: NativeRuntime; orgId: string; onRefresh: () => void; refreshing: boolean }) {
+function NativeWorkspace({ workspace, runtime, orgId, onRefresh, refreshing }: {
+  workspace: MobileShowWorkspace;
+  runtime: NativeRuntime;
+  orgId: string;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  const workspaceTerms = useWorkspaceTerms();
   const relay = useRundownRelay(orgId, runtime.show?.serviceDate ?? "", runtime.show?.id ?? "");
   const sameRoom = Boolean(runtime.show && relay.showId === runtime.show.id && relay.serviceDate === runtime.show.serviceDate);
   const authoritative = relay.hydrated && relay.initialized && sameRoom;
   const items = authoritative ? relay.items : runtime.items;
   const timer = authoritative ? relay.timer : runtime.timer;
   const sequence = items.map((item) => ({ id: item.id, title: item.title || "Untitled", duration: item.duration, meta: item.assignee || item.notes, active: item.id === timer.currentItemId, complete: item.status === "complete", header: item.type === "header" }));
-  const subtitle = runtime.show ? `${runtime.show.serviceDate} · ${formatServiceTime(runtime.show.scheduledStartTime, workspace.timeZone)}` : "No upcoming service";
-  return <WorkspaceList workspace={workspace} livePanel={<NativeLivePanel items={items} timer={timer} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />;
+  const subtitle = runtime.show
+    ? `${runtime.show.serviceDate} · ${formatServiceTime(runtime.show.scheduledStartTime, workspace.timeZone)}`
+    : workspaceCopy("No upcoming service", workspaceTerms);
+  return (
+    <WorkspaceList workspace={workspace} livePanel={<NativeLivePanel items={items} timer={timer} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
+  );
 }
 
-function OntimeWorkspace({ workspace, runtime, onRefresh, refreshing }: { workspace: MobileShowWorkspace; runtime: OntimeRuntime; onRefresh: () => void; refreshing: boolean }) {
+function OntimeWorkspace({ workspace, runtime, onRefresh, refreshing }: {
+  workspace: MobileShowWorkspace;
+  runtime: OntimeRuntime;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
   const current = runtime.eventNow;
   const sequence = runtime.events.map((event) => ({ id: event.id, title: event.title || "Untitled", duration: event.duration, meta: event.note || formatOntimeClock(event.timeStart, workspace.clockFormat), active: event.id === current?.id, complete: false, header: false }));
   const duration = runtime.timer.duration ?? 0;
@@ -230,10 +311,13 @@ function OntimeWorkspace({ workspace, runtime, onRefresh, refreshing }: { worksp
     currentMeta: current ? `${formatOntimeClock(current.timeStart, workspace.clockFormat)} – ${formatOntimeClock(current.timeEnd, workspace.clockFormat)}` : "OnTime is connected",
     nextTitle: runtime.eventNext?.title ?? null,
     overtime: (runtime.timer.current ?? 0) < 0,
-    progress: duration > 0 ? Math.min(100, Math.max(0, elapsed / duration * 100)) : 0,
+    progress:
+      duration > 0 ? Math.min(100, Math.max(0, (elapsed / duration) * 100)) : 0,
   };
   const subtitle = runtime.clock ? new Date(runtime.clock).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "OnTime";
-  return <WorkspaceList workspace={workspace} livePanel={<LivePanel state={liveState} />} items={sequence} showId={null} title="Live Show" subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />;
+  return (
+    <WorkspaceList workspace={workspace} livePanel={<LivePanel state={liveState} />} items={sequence} showId={null} title="Live Show" subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
+  );
 }
 
 export default function LiveShowScreen() {
@@ -252,9 +336,15 @@ export default function LiveShowScreen() {
       : false,
   });
   if (!organization) return <Redirect href="/organizations" />;
-  if (bootstrapPending || (canView && query.isPending)) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>;
+  if (bootstrapPending || (canView && query.isPending))
+    return (
+      <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>
+    );
   if (!canView) return <Redirect href="/(app)/shows" />;
-  if (query.error || !query.data) return <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text style={styles.error}>{query.error?.message ?? "The live workspace is unavailable."}</Text><AppButton label="Try again" onPress={() => void query.refetch()} /></Page>;
+  if (query.error || !query.data)
+    return (
+      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text style={styles.error}>{query.error?.message ?? "The live workspace is unavailable."}</Text><AppButton label="Try again" onPress={() => void query.refetch()} /></Page>
+    );
   const refresh = async () => {
     setManualRefreshing(true);
     try {
@@ -263,9 +353,11 @@ export default function LiveShowScreen() {
       setManualRefreshing(false);
     }
   };
-  return query.data.runtime.kind === "native"
-    ? <NativeWorkspace workspace={query.data} runtime={query.data.runtime} orgId={organization.id} onRefresh={() => void refresh()} refreshing={manualRefreshing} />
-    : <OntimeWorkspace workspace={query.data} runtime={query.data.runtime} onRefresh={() => void refresh()} refreshing={manualRefreshing} />;
+  return query.data.runtime.kind === "native" ? (
+    <NativeWorkspace workspace={query.data} runtime={query.data.runtime} orgId={organization.id} onRefresh={() => void refresh()} refreshing={manualRefreshing} />
+  ) : (
+    <OntimeWorkspace workspace={query.data} runtime={query.data.runtime} onRefresh={() => void refresh()} refreshing={manualRefreshing} />
+  );
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({

@@ -1,3 +1,5 @@
+import { workspaceCopy , WORKSPACE_DEFINITIONS } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms , useWorkspace } from "@/providers/workspace-provider";
 import { useMemo, useState, type ReactNode } from "react";
 import Check from "lucide-react-native/icons/check";
 import Search from "lucide-react-native/icons/search";
@@ -93,15 +95,18 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   service: Service | null;
   timeZone: string;
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const initialInventory = inventory.find((item) => item.id === initialInventoryId);
   const [requestId] = useState(() => createLocalRequestId("show"));
   const [serviceDate, setServiceDate] = useState(service?.serviceDate ?? getServiceDateForTimeZone(timeZone));
   const [name, setName] = useState(service?.name ?? initialInventory?.name ?? "");
-  const [startTime, setStartTime] = useState(service
-    ? serviceWallTimeInput(service.scheduledStartTime, timeZone)
-    : initialInventory?.defaultStartTime ?? "");
+  const [startTime, setStartTime] = useState(
+    service
+      ? serviceWallTimeInput(service.scheduledStartTime, timeZone)
+      : (initialInventory?.defaultStartTime ?? ""),
+  );
   const [callTime, setCallTime] = useState(service
     ? serviceWallTimeInput(service.scheduledCallTime, timeZone)
     : "");
@@ -139,14 +144,52 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   return (
     <ScheduleSheet eyebrow={service ? "EDIT SHOW" : "NEW SHOW"} onClose={onClose} title={service?.name || "Schedule a show"}>
       <Text style={styles.intro}>{service ? "Changes synchronize to every operator. A newer edit on another device will be protected." : "Create one shared show for web, desktop, and mobile operators."}</Text>
-      {!service && (inventory.length > 0 || availablePrevious.length > 0) ? <View style={styles.picker}>
-        <Text style={styles.fieldLabel}>STARTING RUNDOWN</Text>
-        <Pressable accessibilityRole="radio" accessibilityState={{ checked: !inventoryId && !copyFromShowId }} onPress={() => { setInventoryId(""); setCopyFromShowId(""); }} style={[styles.choice, !inventoryId && !copyFromShowId && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>Start blank</Text><Text style={styles.choiceMeta}>Build a new rundown from scratch</Text></View>{!inventoryId && !copyFromShowId ? <Check color={colors.amberText} size={17} /> : null}</Pressable>
-        {inventory.slice(0, 12).map((item) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: inventoryId === item.id }} key={item.id} onPress={() => applyInventory(item.id)} style={[styles.choice, inventoryId === item.id && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>Inventory · {item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}</Text></View>{inventoryId === item.id ? <Check color={colors.amberText} size={17} /> : null}</Pressable>)}
-        {availablePrevious.slice(0, 8).map((previous) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: copyFromShowId === previous.id }} key={previous.id} onPress={() => applyPrevious(previous.id)} style={[styles.choice, copyFromShowId === previous.id && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{previous.name || "Untitled show"}</Text><Text style={styles.choiceMeta}>Previous show · {previous.serviceDate} · {previous.itemCount} items</Text></View>{copyFromShowId === previous.id ? <Check color={colors.amberText} size={17} /> : null}</Pressable>)}
-      </View> : null}
-      {!service ? <AppField autoCapitalize="none" error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined} label="Service date" maxLength={10} onChangeText={setServiceDate} placeholder="2026-09-06" value={serviceDate} /> : null}
-      <AppField autoCapitalize="sentences" label="Show or service name" maxLength={120} onChangeText={setName} placeholder="Sunday Morning" value={name} />
+      {!service && (inventory.length > 0 || availablePrevious.length > 0) ? (
+        <View style={styles.picker}>
+          <Text style={styles.fieldLabel}>STARTING RUNDOWN</Text>
+          <Pressable accessibilityRole="radio" accessibilityState={{ checked: !inventoryId && !copyFromShowId }} onPress={() => { setInventoryId(""); setCopyFromShowId(""); }} style={[styles.choice, !inventoryId && !copyFromShowId && styles.choiceActive]}>
+            <View style={styles.choiceCopy}><Text style={styles.choiceName}>Start blank</Text><Text style={styles.choiceMeta}>Build a new rundown from scratch</Text></View>
+            {!inventoryId && !copyFromShowId ? (
+              <Check color={colors.amberText} size={17} />
+            ) : null}
+          </Pressable>
+          {inventory.slice(0, 12).map((item) => (
+            <Pressable accessibilityRole="radio" accessibilityState={{ checked: inventoryId === item.id }} key={item.id} onPress={() => applyInventory(item.id)} style={[styles.choice, inventoryId === item.id && styles.choiceActive]}>
+              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>Inventory · {item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}</Text></View>
+              {inventoryId === item.id ? (
+                <Check color={colors.amberText} size={17} />
+              ) : null}
+            </Pressable>
+          ))}
+          {availablePrevious.slice(0, 8).map((previous) => (
+            <Pressable accessibilityRole="radio" accessibilityState={{ checked: copyFromShowId === previous.id }} key={previous.id} onPress={() => applyPrevious(previous.id)} style={[styles.choice, copyFromShowId === previous.id && styles.choiceActive]}>
+              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{previous.name || "Untitled show"}</Text><Text style={styles.choiceMeta}>Previous show · {previous.serviceDate} · {previous.itemCount} items</Text></View>
+              {copyFromShowId === previous.id ? (
+                <Check color={colors.amberText} size={17} />
+              ) : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {!service ? (
+        <AppField
+          autoCapitalize="none"
+          error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined}
+          label={workspaceCopy("Service date", workspaceTerms)}
+          maxLength={10}
+          onChangeText={setServiceDate}
+          placeholder="2026-09-06"
+          value={serviceDate}
+        />
+      ) : null}
+      <AppField
+        autoCapitalize="sentences"
+        label={workspaceCopy("Show or service name", workspaceTerms)}
+        maxLength={120}
+        onChangeText={setName}
+        placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
+        value={name}
+      />
       <AppField autoCapitalize="none" error={startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time (optional)" maxLength={5} onChangeText={setStartTime} placeholder="09:30" value={startTime} />
       <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:00 · blank uses workspace default" value={callTime} />
       <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
@@ -169,7 +212,11 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   );
 }
 
-function CrewPicker({ crew, selectedId, onSelect }: { crew: Crew[]; selectedId: string | null; onSelect: (id: string | null) => void }) {
+function CrewPicker({ crew, selectedId, onSelect }: {
+  crew: Crew[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [search, setSearch] = useState("");
@@ -177,13 +224,29 @@ function CrewPicker({ crew, selectedId, onSelect }: { crew: Crew[]; selectedId: 
     const needle = search.trim().toLowerCase();
     return crew.filter((person) => !needle || `${person.name} ${person.role} ${person.email}`.toLowerCase().includes(needle)).slice(0, 50);
   }, [crew, search]);
-  return <View style={styles.picker}>
-    <Text style={styles.fieldLabel}>ROSTER CONTACT</Text>
-    <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster" onChangeText={setSearch} placeholder="Search name or role" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
-    <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === null }} onPress={() => onSelect(null)} style={[styles.choice, selectedId === null && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>Open position</Text><Text style={styles.choiceMeta}>Nobody assigned yet</Text></View>{selectedId === null ? <Check color={colors.amberText} size={17} /> : null}</Pressable>
-    {filtered.map((person) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === person.id, disabled: !person.email }} disabled={!person.email} key={person.id} onPress={() => onSelect(person.id)} style={[styles.choice, selectedId === person.id && styles.choiceActive, !person.email && styles.choiceDisabled]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.role || "Crew"}{person.email ? ` · ${person.email}` : " · Email required"}</Text></View>{selectedId === person.id ? <Check color={colors.amberText} size={17} /> : null}</Pressable>)}
-    {crew.length > 50 && !search ? <Text style={styles.hint}>Search to find more roster contacts.</Text> : null}
-  </View>;
+  return (
+    <View style={styles.picker}>
+      <Text style={styles.fieldLabel}>ROSTER CONTACT</Text>
+      <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster" onChangeText={setSearch} placeholder="Search name or role" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
+      <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === null }} onPress={() => onSelect(null)} style={[styles.choice, selectedId === null && styles.choiceActive]}>
+        <View style={styles.choiceCopy}><Text style={styles.choiceName}>Open position</Text><Text style={styles.choiceMeta}>Nobody assigned yet</Text></View>
+        {selectedId === null ? (
+          <Check color={colors.amberText} size={17} />
+        ) : null}
+      </Pressable>
+      {filtered.map((person) => (
+        <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === person.id, disabled: !person.email }} disabled={!person.email} key={person.id} onPress={() => onSelect(person.id)} style={[styles.choice, selectedId === person.id && styles.choiceActive, !person.email && styles.choiceDisabled]}>
+          <View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.role || "Crew"}{person.email ? ` · ${person.email}` : " · Email required"}</Text></View>
+          {selectedId === person.id ? (
+            <Check color={colors.amberText} size={17} />
+          ) : null}
+        </Pressable>
+      ))}
+      {crew.length > 50 && !search ? (
+        <Text style={styles.hint}>Search to find more roster contacts.</Text>
+      ) : null}
+    </View>
+  );
 }
 
 export function ScheduleAssignmentSheet({ assignment, crew, onClose, onSave, showId }: {
@@ -218,16 +281,26 @@ export function ScheduleAssignmentSheet({ assignment, crew, onClose, onSave, sho
     }
     runSave(save, setBusy);
   };
-  return <ScheduleSheet eyebrow={assignment ? "EDIT ASSIGNMENT" : "NEW POSITION"} onClose={onClose} title={assignment?.role || "Add a position"}>
-    {assignment ? <View style={styles.responseBox}><Text style={styles.responseLabel}>CURRENT RESPONSE</Text><Text style={styles.responseValue}>{assignment.crewMemberId ? assignment.status : "Open position"}</Text>{assignment.responseNote ? <Text style={styles.responseNote}>{assignment.responseNote}</Text> : null}</View> : null}
-    <AppField autoCapitalize="words" label="Position" maxLength={120} onChangeText={setRole} placeholder="Camera Operator" value={role} />
-    <AppField autoCapitalize="words" label="Department" maxLength={80} onChangeText={setDepartment} placeholder="Video" value={department} />
-    <CrewPicker crew={crew} onSelect={setCrewMemberId} selectedId={crewMemberId} />
-    <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Custom call time (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:15" value={callTime} />
-    <AppField autoCapitalize="sentences" label="Manager note (optional)" maxLength={500} multiline onChangeText={setNotes} placeholder="Arrival instructions or preparation notes" style={styles.notes} textAlignVertical="top" value={notes} />
-    <Text style={styles.hint}>{crewMemberId ? personChanged ? "Saving sends a new secure invitation and resets any earlier response." : "Role and note edits preserve the existing response." : "This remains visible as an open position."}</Text>
-    <AppButton disabled={!valid || busy} label={busy ? "Saving assignment…" : assignment ? "Save assignment" : crewMemberId ? "Add and send invitation" : "Add open position"} loading={busy} onPress={submit} />
-  </ScheduleSheet>;
+  return (
+    <ScheduleSheet eyebrow={assignment ? "EDIT ASSIGNMENT" : "NEW POSITION"} onClose={onClose} title={assignment?.role || "Add a position"}>
+      {assignment ? (
+        <View style={styles.responseBox}>
+          <Text style={styles.responseLabel}>CURRENT RESPONSE</Text>
+          <Text style={styles.responseValue}>{assignment.crewMemberId ? assignment.status : "Open position"}</Text>
+          {assignment.responseNote ? (
+            <Text style={styles.responseNote}>{assignment.responseNote}</Text>
+          ) : null}
+        </View>
+      ) : null}
+      <AppField autoCapitalize="words" label="Position" maxLength={120} onChangeText={setRole} placeholder="Camera Operator" value={role} />
+      <AppField autoCapitalize="words" label="Department" maxLength={80} onChangeText={setDepartment} placeholder="Video" value={department} />
+      <CrewPicker crew={crew} onSelect={setCrewMemberId} selectedId={crewMemberId} />
+      <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Custom call time (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:15" value={callTime} />
+      <AppField autoCapitalize="sentences" label="Manager note (optional)" maxLength={500} multiline onChangeText={setNotes} placeholder="Arrival instructions or preparation notes" style={styles.notes} textAlignVertical="top" value={notes} />
+      <Text style={styles.hint}>{crewMemberId ? personChanged ? "Saving sends a new secure invitation and resets any earlier response." : "Role and note edits preserve the existing response." : "This remains visible as an open position."}</Text>
+      <AppButton disabled={!valid || busy} label={busy ? "Saving assignment…" : assignment ? "Save assignment" : crewMemberId ? "Add and send invitation" : "Add open position"} loading={busy} onPress={submit} />
+    </ScheduleSheet>
+  );
 }
 
 export function ScheduleTeamSheet({ crew, onClose, onSave, showId }: {
@@ -244,22 +317,31 @@ export function ScheduleTeamSheet({ crew, onClose, onSave, showId }: {
   const [busy, setBusy] = useState(false);
   const visible = crew.filter((person) => person.email && (!search.trim() || `${person.name} ${person.role}`.toLowerCase().includes(search.trim().toLowerCase()))).slice(0, 50);
   const rows = Object.entries(selected).map(([crewMemberId, value]) => ({ crewMemberId, ...value }));
-  return <ScheduleSheet eyebrow="TEAM BUILDER" onClose={onClose} title="Build a team">
-    <Text style={styles.intro}>Choose several people, confirm each role, then send all invitations together. Safe retries will not duplicate positions.</Text>
-    <AppField autoCapitalize="words" label="Team or department" maxLength={80} onChangeText={setDepartment} placeholder="Broadcast" value={department} />
-    <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster for team" onChangeText={setSearch} placeholder="Search available roster" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
-    {visible.map((person) => {
-      const current = selected[person.id];
-      return <View key={person.id} style={[styles.teamPerson, current && styles.choiceActive]}><Pressable accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(current) }} onPress={() => setSelected((values) => {
+  return (
+    <ScheduleSheet eyebrow="TEAM BUILDER" onClose={onClose} title="Build a team">
+      <Text style={styles.intro}>Choose several people, confirm each role, then send all invitations together. Safe retries will not duplicate positions.</Text>
+      <AppField autoCapitalize="words" label="Team or department" maxLength={80} onChangeText={setDepartment} placeholder="Broadcast" value={department} />
+      <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster for team" onChangeText={setSearch} placeholder="Search available roster" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
+      {visible.map((person) => {
+        const current = selected[person.id];
+        return (
+          <View key={person.id} style={[styles.teamPerson, current && styles.choiceActive]}>
+            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(current) }} onPress={() => setSelected((values) => {
         if (values[person.id]) { const next = { ...values }; delete next[person.id]; return next; }
         return { ...values, [person.id]: { requestId: createLocalRequestId("assignment"), role: person.role || "Crew" } };
-      })} style={styles.teamToggle}><View style={[styles.checkbox, current && styles.checkboxActive]}>{current ? <Check color={colors.black} size={14} /> : null}</View><View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.email}</Text></View></Pressable>{current ? <AppField autoCapitalize="words" label={`Role for ${person.name}`} maxLength={120} onChangeText={(role) => setSelected((values) => ({ ...values, [person.id]: { ...values[person.id]!, role } }))} value={current.role} /> : null}</View>;
-    })}
-    <AppButton disabled={busy || !department.trim() || rows.length === 0 || rows.some((row) => !row.role.trim())} label={busy ? "Creating team…" : `Create team and send ${rows.length} invitation${rows.length === 1 ? "" : "s"}`} loading={busy} onPress={() => runSave(async () => {
+      })} style={styles.teamToggle}><View style={[styles.checkbox, current && styles.checkboxActive]}>{current ? <Check color={colors.black} size={14} /> : null}</View><View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.email}</Text></View></Pressable>
+            {current ? (
+              <AppField autoCapitalize="words" label={`Role for ${person.name}`} maxLength={120} onChangeText={(role) => setSelected((values) => ({ ...values, [person.id]: { ...values[person.id]!, role } }))} value={current.role} />
+            ) : null}
+          </View>
+        );
+      })}
+      <AppButton disabled={busy || !department.trim() || rows.length === 0 || rows.some((row) => !row.role.trim())} label={busy ? "Creating team…" : `Create team and send ${rows.length} invitation${rows.length === 1 ? "" : "s"}`} loading={busy} onPress={() => runSave(async () => {
       await onSave({ showId, department: department.trim(), rows: rows.map((row) => ({ ...row, role: row.role.trim() })) });
       onClose();
     }, setBusy)} />
-  </ScheduleSheet>;
+    </ScheduleSheet>
+  );
 }
 
 export function ScheduleInventorySheet({ archivedInventory, canManage, inventory, onArchive, onClose, onCreate, onUse, savedTemplates }: {
@@ -272,6 +354,7 @@ export function ScheduleInventorySheet({ archivedInventory, canManage, inventory
   onUse: (inventoryId: string) => void;
   savedTemplates: MobileSchedule["savedTemplates"];
 }) {
+  const workspaceTerms = useWorkspaceTerms();
   const styles = useStyles();
   const [requestId, setRequestId] = useState(() => createLocalRequestId("inventory"));
   const [name, setName] = useState("");
@@ -297,51 +380,125 @@ export function ScheduleInventorySheet({ archivedInventory, canManage, inventory
     setDefaultStartTime("");
     setSourceTemplateId(null);
   };
-  return <ScheduleSheet eyebrow="REUSABLE SHOWS" onClose={onClose} title="Show inventory">
-    <Text style={styles.intro}>Save a clean show structure once, then load that snapshot into any future date. Scheduled changes never rewrite the inventory.</Text>
-    <View style={styles.inventorySection}>
-      <Text style={styles.fieldLabel}>AVAILABLE</Text>
-      {inventory.length ? inventory.map((item) => <View key={item.id} style={styles.inventoryRow}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>{item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}{item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}{item.location ? ` · ${item.location}` : ""}</Text>{item.description ? <Text numberOfLines={2} style={styles.hint}>{item.description}</Text> : null}</View>{canManage ? <View style={styles.inventoryActions}><Pressable accessibilityRole="button" onPress={() => onUse(item.id)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Use</Text></Pressable><Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, true), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonDanger}>Archive</Text></Pressable></View> : null}</View>) : <Text style={styles.emptyInventory}>No reusable shows yet.</Text>}
-    </View>
-    {archivedInventory.length ? <View style={styles.inventorySection}><Text style={styles.fieldLabel}>ARCHIVED</Text>{archivedInventory.map((item) => <View key={item.id} style={styles.inventoryRow}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>{item.itemCount} rundown items</Text></View>{canManage ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, false), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Restore</Text></Pressable> : null}</View>)}</View> : null}
-    {canManage ? <View style={styles.inventoryForm}>
-      <Text style={styles.fieldLabel}>ADD REUSABLE SHOW</Text>
-      <AppField autoCapitalize="words" label="Show name" maxLength={120} onChangeText={setName} placeholder="Sunday Morning" value={name} />
-      <AppField autoCapitalize="none" error={defaultStartTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Default start (optional)" maxLength={5} onChangeText={setDefaultStartTime} placeholder="10:00" value={defaultStartTime} />
-      <AppField autoCapitalize="words" label="Location (optional)" maxLength={240} onChangeText={setLocation} placeholder="Main room" value={location} />
-      {savedTemplates.length ? <View style={styles.picker}><Text style={styles.fieldLabel}>RUNDOWN SOURCE</Text><Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === null }} onPress={() => setSourceTemplateId(null)} style={[styles.choice, sourceTemplateId === null && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>Empty rundown</Text><Text style={styles.choiceMeta}>Add items after scheduling</Text></View></Pressable>{savedTemplates.map((template) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === template.id }} key={template.id} onPress={() => setSourceTemplateId(template.id)} style={[styles.choice, sourceTemplateId === template.id && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{template.name}</Text><Text style={styles.choiceMeta}>{template.itemCount} saved item{template.itemCount === 1 ? "" : "s"}</Text></View></Pressable>)}</View> : null}
-      <AppField autoCapitalize="sentences" label="Description (optional)" maxLength={500} multiline onChangeText={setDescription} placeholder="When this reusable show should be used" style={styles.notes} textAlignVertical="top" value={description} />
-      <AppButton disabled={!valid || busy} label={busy ? "Saving reusable show…" : "Add to inventory"} loading={busy} onPress={() => runSave(create, setBusy)} />
-    </View> : null}
-  </ScheduleSheet>;
+  return (
+    <ScheduleSheet eyebrow="REUSABLE SHOWS" onClose={onClose} title="Show inventory">
+      <Text style={styles.intro}>Save a clean show structure once, then load that snapshot into any future date. Scheduled changes never rewrite the inventory.</Text>
+      <View style={styles.inventorySection}>
+        <Text style={styles.fieldLabel}>AVAILABLE</Text>
+        {inventory.length ? (
+          inventory.map((item) => (
+            <View key={item.id} style={styles.inventoryRow}>
+              <View style={styles.choiceCopy}>
+                <Text style={styles.choiceName}>{item.name}</Text>
+                <Text style={styles.choiceMeta}>{item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}{item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}{item.location ? ` · ${item.location}` : ""}</Text>
+                {item.description ? (
+                  <Text numberOfLines={2} style={styles.hint}>{item.description}</Text>
+                ) : null}
+              </View>
+              {canManage ? (
+                <View style={styles.inventoryActions}><Pressable accessibilityRole="button" onPress={() => onUse(item.id)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Use</Text></Pressable><Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, true), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonDanger}>Archive</Text></Pressable></View>
+              ) : null}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyInventory}>No reusable shows yet.</Text>
+        )}
+      </View>
+      {archivedInventory.length ? (
+        <View style={styles.inventorySection}>
+          <Text style={styles.fieldLabel}>ARCHIVED</Text>
+          {archivedInventory.map((item) => (
+            <View key={item.id} style={styles.inventoryRow}>
+              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>{item.itemCount} rundown items</Text></View>
+              {canManage ? (
+                <Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, false), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Restore</Text></Pressable>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {canManage ? (
+        <View style={styles.inventoryForm}>
+          <Text style={styles.fieldLabel}>ADD REUSABLE SHOW</Text>
+          <AppField
+            autoCapitalize="words"
+            label="Show name"
+            maxLength={120}
+            onChangeText={setName}
+            placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
+            value={name}
+          />
+          <AppField autoCapitalize="none" error={defaultStartTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Default start (optional)" maxLength={5} onChangeText={setDefaultStartTime} placeholder="10:00" value={defaultStartTime} />
+          <AppField autoCapitalize="words" label="Location (optional)" maxLength={240} onChangeText={setLocation} placeholder="Main room" value={location} />
+          {savedTemplates.length ? (
+            <View style={styles.picker}>
+              <Text style={styles.fieldLabel}>RUNDOWN SOURCE</Text>
+              <Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === null }} onPress={() => setSourceTemplateId(null)} style={[styles.choice, sourceTemplateId === null && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>Empty rundown</Text><Text style={styles.choiceMeta}>Add items after scheduling</Text></View></Pressable>
+              {savedTemplates.map((template) => (
+                <Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === template.id }} key={template.id} onPress={() => setSourceTemplateId(template.id)} style={[styles.choice, sourceTemplateId === template.id && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{template.name}</Text><Text style={styles.choiceMeta}>{template.itemCount} saved item{template.itemCount === 1 ? "" : "s"}</Text></View></Pressable>
+              ))}
+            </View>
+          ) : null}
+          <AppField autoCapitalize="sentences" label="Description (optional)" maxLength={500} multiline onChangeText={setDescription} placeholder="When this reusable show should be used" style={styles.notes} textAlignVertical="top" value={description} />
+          <AppButton disabled={!valid || busy} label={busy ? "Saving reusable show…" : "Add to inventory"} loading={busy} onPress={() => runSave(create, setBusy)} />
+        </View>
+      ) : null}
+    </ScheduleSheet>
+  );
 }
 
-export function ScheduleProviderSheet({ current, onClose, onSave, terminologyProfile }: {
+export function ScheduleProviderSheet({
+  current,
+  onClose,
+  onSave,
+}: {
   current: MobileSchedule["provider"];
   onClose: () => void;
-  onSave: (input: MobileSchedule["provider"] & { terminologyProfile: MobileSchedule["terminologyProfile"] }) => Promise<void>;
-  terminologyProfile: MobileSchedule["terminologyProfile"];
+  onSave: (input: MobileSchedule["provider"]) => Promise<void>;
 }) {
   const styles = useStyles();
   const [provider, setProvider] = useState(current.type);
   const [url, setUrl] = useState(current.url);
   const [label, setLabel] = useState(current.label);
-  const [terms, setTerms] = useState(terminologyProfile);
+  const workspace = useWorkspace();
   const [busy, setBusy] = useState(false);
   const providers = [
     ["native", "ShowPilot native"], ["planning-center", "Planning Center"], ["faithteams", "Faith Teams"], ["other", "Other platform"],
   ] as const;
-  return <ScheduleSheet eyebrow="SCHEDULING SOURCE" onClose={onClose} title="Schedule settings">
-    <Text style={styles.fieldLabel}>SOURCE</Text>
-    <View style={styles.options}>{providers.map(([value, title]) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: provider === value }} key={value} onPress={() => setProvider(value)} style={[styles.option, provider === value && styles.optionActive]}><Text style={[styles.optionText, provider === value && styles.optionTextActive]}>{title}</Text></Pressable>)}</View>
-    <Text style={styles.fieldLabel}>ORGANIZATION LANGUAGE</Text>
-    <View style={styles.options}><Pressable accessibilityRole="radio" accessibilityState={{ checked: terms === "general" }} onPress={() => setTerms("general")} style={[styles.option, terms === "general" && styles.optionActive]}><Text style={[styles.optionText, terms === "general" && styles.optionTextActive]}>Shows and assignments</Text></Pressable><Pressable accessibilityRole="radio" accessibilityState={{ checked: terms === "church" }} onPress={() => setTerms("church")} style={[styles.option, terms === "church" && styles.optionActive]}><Text style={[styles.optionText, terms === "church" && styles.optionTextActive]}>Services and serving</Text></Pressable></View>
-    {provider !== "native" ? <><AppField autoCapitalize="words" label="Platform name" maxLength={80} onChangeText={setLabel} placeholder="My scheduling platform" value={label} /><AppField autoCapitalize="none" autoCorrect={false} keyboardType="url" label="Scheduling workspace URL" maxLength={500} onChangeText={setUrl} placeholder="https://…" value={url} /></> : null}
-    <AppButton disabled={busy || (provider !== "native" && !url.trim())} label={busy ? "Saving settings…" : "Save schedule settings"} loading={busy} onPress={() => runSave(async () => {
-      await onSave({ type: provider, url: provider === "native" ? "" : url.trim(), label: provider === "native" ? "" : label.trim(), terminologyProfile: terms });
-      onClose();
-    }, setBusy)} />
-  </ScheduleSheet>;
+  return (
+    <ScheduleSheet eyebrow="SCHEDULING SOURCE" onClose={onClose} title="Schedule settings">
+      <Text style={styles.fieldLabel}>SOURCE</Text>
+      <View style={styles.options}>
+        {providers.map(([value, title]) => (
+          <Pressable accessibilityRole="radio" accessibilityState={{ checked: provider === value }} key={value} onPress={() => setProvider(value)} style={[styles.option, provider === value && styles.optionActive]}><Text style={[styles.optionText, provider === value && styles.optionTextActive]}>{title}</Text></Pressable>
+        ))}
+      </View>
+      <Text style={styles.fieldLabel}>ORGANIZATION LANGUAGE</Text>
+      <Text style={styles.hint}>
+        Wording follows your workspace type (
+        {WORKSPACE_DEFINITIONS[workspace.type].label}). Change it in Settings →
+        Workspace.
+      </Text>
+      {provider !== "native" ? (
+        <><AppField autoCapitalize="words" label="Platform name" maxLength={80} onChangeText={setLabel} placeholder="My scheduling platform" value={label} /><AppField autoCapitalize="none" autoCorrect={false} keyboardType="url" label="Scheduling workspace URL" maxLength={500} onChangeText={setUrl} placeholder="https://…" value={url} /></>
+      ) : null}
+      <AppButton
+        disabled={busy || (provider !== "native" && !url.trim())}
+        label={busy ? "Saving settings…" : "Save schedule settings"}
+        loading={busy}
+        onPress={() =>
+          runSave(async () => {
+            await onSave({
+              type: provider,
+              url: provider === "native" ? "" : url.trim(),
+              label: provider === "native" ? "" : label.trim(),
+            });
+            onClose();
+          }, setBusy)
+        }
+      />
+    </ScheduleSheet>
+  );
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
