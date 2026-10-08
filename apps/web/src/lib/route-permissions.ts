@@ -13,6 +13,7 @@ export async function withPermission(
   permission: Permission | Permission[],
   slug: string,
   orgId: string,
+  rundownReturnTo: "rundown" | "show" = "rundown",
 ): Promise<void> {
   const allowedByRole = Array.isArray(permission)
     ? hasAnyPermission(role, permission)
@@ -23,7 +24,7 @@ export async function withPermission(
     !allowedByRole ||
     permissions.some(isLowerThirdPermission) ||
     (roleRequiresRundownPin(role) &&
-      permissions.some((entry) => entry === "rundown:view" || entry === "rundown:edit"));
+      permissions.some((entry) => entry === "rundown:view" || entry === "rundown:edit" || entry === "rundown:control"));
 
   // Membership and role were already resolved by the parent organization
   // route. Most pages have no additional server-side policy, so another
@@ -49,6 +50,7 @@ export async function withPermission(
     throw redirect({
       to: "/$slug/rundown-pin",
       params: { slug },
+      search: { returnTo: rundownReturnTo },
     });
   }
 

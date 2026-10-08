@@ -27,7 +27,7 @@ import { getTodayDateString } from "@/lib/utils";
 import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
-import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
+import { getRundownOpeningDate } from "@/lib/rundown";
 import {
   Dialog,
   DialogContent,
@@ -96,8 +96,8 @@ function ChecklistPage() {
     const requestId = ++checklistRequestRef.current;
     setLoadingEntries(true);
     try {
-      const rundown = await getRundownState({ data: { orgId, serviceDate: date, showId: requestedShowId } });
-      const resolvedShowId = rundown.meta?.showId;
+      const opening = await getRundownOpeningDate({ data: { orgId, today: date, serviceDate: date, showId: requestedShowId } });
+      const resolvedShowId = opening.showId;
       const latest = await getChecklistEntries({ data: { orgId, serviceDate: date, showId: resolvedShowId } });
       if (checklistRequestRef.current !== requestId) return;
       setShowId(resolvedShowId);
