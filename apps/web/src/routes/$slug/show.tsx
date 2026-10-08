@@ -132,6 +132,7 @@ export const Route = createFileRoute("/$slug/show")({
       context.slug,
       context.orgId,
     );
+    await withPermission(context.role, "rundown:view", context.slug, context.orgId, "show");
     const [members, chatMembers, adapters, clockFormat, settings] =
       await Promise.all([
         getCrewMembers({ data: { orgId: context.orgId } }),

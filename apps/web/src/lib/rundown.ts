@@ -928,7 +928,9 @@ export const getRundownOpeningDate = createServerFn({ method: "GET" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertRundownPermission(data.orgId, "rundown:view");
+    // Show selection contains schedule metadata, not protected cues or controls.
+    // Chat, incidents, audio and checklists also need it before a TM unlocks.
+    await assertEffectiveOrgPermission(data.orgId, "show:view");
     const prisma = getPrisma();
     const [shows, activeDate, activeShow] = await Promise.all([
       prisma.rundown.findMany({

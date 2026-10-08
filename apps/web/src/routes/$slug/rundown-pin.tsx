@@ -7,8 +7,12 @@ import { getRundownPinRequirement, validateRundownPin } from "@/lib/rbac";
 import { hasEffectivePermission, roleRequiresRundownPin } from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug/rundown-pin")({
+  validateSearch: (search: Record<string, unknown>): { returnTo: "show" | "rundown" } => ({
+    returnTo: search.returnTo === "show" ? "show" : "rundown",
+  }),
   pendingComponent: () => <BoardSkeleton />,
-  beforeLoad: async ({ context, params }) => {
+  beforeLoad: async ({ context, params, search }) => {
+    const destination = search.returnTo === "show" ? "/$slug/show" : "/$slug/rundown";
     if (
       !hasEffectivePermission(
         context.role,
@@ -20,21 +24,21 @@ export const Route = createFileRoute("/$slug/rundown-pin")({
     }
 
     if (!roleRequiresRundownPin(context.role)) {
-      throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
+      throw redirect({ to: destination, params: { slug: params.slug } });
     }
 
     const requirement = await getRundownPinRequirement({ data: { orgId: context.orgId } });
     if (!requirement.enabled) {
-      throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
+      throw redirect({ to: destination, params: { slug: params.slug } });
     }
 
-    return { orgId: context.orgId, slug: params.slug };
+    return { orgId: context.orgId, slug: params.slug, returnTo: search.returnTo };
   },
   component: RundownPinPage,
 });
 
 function RundownPinPage() {
-  const { orgId, slug } = Route.useRouteContext();
+  const { orgId, slug, returnTo } = Route.useRouteContext();
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -54,7 +58,7 @@ function RundownPinPage() {
 
       const secure = window.location.protocol === "https:" ? "; Secure" : "";
       document.cookie = `${getRundownPinCookieName(orgId)}=${encodeURIComponent(pin.trim())}; Path=/; Max-Age=14400; SameSite=Lax${secure}`;
-      window.location.href = `/${slug}/rundown`;
+      window.location.href = `/${slug}/${returnTo}`;
     } catch {
       setError("Could not verify the PIN right now.");
     } finally {
