@@ -17,9 +17,9 @@ import {
 } from "./lib/request-body.server";
 import { withSecurityHeaders } from "./lib/http-security-headers";
 import {
-  permissionsRequireRundownPin,
+  getPresentedRundownPin,
+  resolveRundownAccess,
   rundownPinChallenge,
-  verifyRundownPin,
 } from "./lib/rundown-pin.server";
 
 // Durable Objects
@@ -392,6 +392,10 @@ const appServer = {
         return new Response("Show not found", { status: 404 });
       }
       const access = await getRelayAccess(request, orgId, e.DB);
+      const rundownAccess = access.identity && !access.hasBridgeKey
+        ? await resolveRundownAccess(e.DB, orgId, access.identity, getPresentedRundownPin(request, orgId))
+        : null;
+      if (access.identity && rundownAccess) access.identity.permissions = rundownAccess.permissions;
       const canControl = canUse(access, "rundown:control");
       const canEdit = canUse(access, "rundown:edit");
       const canObserveRundown = canUse(access, [
@@ -413,23 +417,10 @@ const appServer = {
       if (showViewRead && !canUse(access, "show:view")) {
         return new Response("Forbidden", { status: 403 });
       }
-      if (
-        !publicDisplayRead
-        && !showViewRead
-        && !access.hasBridgeKey
-        && access.identity
-        && permissionsRequireRundownPin(access.identity.role, [
-          "rundown:view",
-          "rundown:edit",
-          "rundown:control",
-        ])
-        && !(await verifyRundownPin(request, e.DB, orgId))
-      ) {
-        return rundownPinChallenge();
-      }
       const writeAccess = canControl ? "control" : canEdit ? "edit" : null;
-      const isMutation = !showViewRead && (subpath === "command" || (subpath === "ws" && writeAccess !== null));
+      const isMutation = !publicDisplayRead && !showViewRead && (subpath === "command" || (subpath === "ws" && writeAccess !== null));
       if (subpath === "command" && !writeAccess) {
+        if (rundownAccess?.pin === "locked") return rundownPinChallenge();
         return new Response("Unauthorized", { status: 401 });
       }
       if (!publicDisplayRead && !canObserveRundown && !writeAccess) {
@@ -447,7 +438,7 @@ const appServer = {
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set(
         "access",
-        showViewRead ? "observe" : isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
+        (publicDisplayRead || showViewRead) ? "observe" : isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
       );
       if (access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);

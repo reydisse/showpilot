@@ -1,5 +1,4 @@
 import {
-  hasPermission,
   isLowerThirdPermission,
   type Permission,
   type Role,
@@ -9,9 +8,10 @@ import {
   resolveEffectiveAccess,
 } from "@/lib/effective-access";
 import {
-  permissionsRequireRundownPin,
+  getPresentedRundownPin,
+  resolveRundownAccess,
+  rundownPermissionError,
   rundownPinChallenge,
-  verifyRundownPin,
 } from "@/lib/rundown-pin.server";
 
 interface D1Statement {
@@ -107,9 +107,12 @@ async function assertPermission(
   const role = access.role;
 
   const permissions = Array.isArray(required) ? required : [required];
-  if (!accessHasAnyPermission(access, permissions)) {
-    return forbidden(required);
-  }
+  const resolved = permissions.some((permission) => permission === "rundown:edit" || permission === "rundown:control")
+    ? await resolveRundownAccess(context.env.DB, context.session.orgId, access,
+      getPresentedRundownPin(context.request, context.session.orgId))
+    : { permissions: access.permissions, pin: "unprotected" as const };
+  const error = rundownPermissionError(resolved, required);
+  if (error) return error === "pin_required" ? rundownPinChallenge() : forbidden(required);
 
   const lowerThirdPerms = permissions.filter(isLowerThirdPermission);
   if (lowerThirdPerms.length > 0) {
@@ -122,14 +125,6 @@ async function assertPermission(
       }
       return forbidden(required);
     }
-  }
-
-  if (
-    permissionsRequireRundownPin(role, permissions) &&
-    hasPermission(role, "rundown:view") &&
-    !(await verifyRundownPin(context.request, context.env.DB, context.session.orgId))
-  ) {
-    return rundownPinChallenge();
   }
 
   return role;

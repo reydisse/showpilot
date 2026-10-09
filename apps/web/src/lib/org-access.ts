@@ -6,7 +6,7 @@ import {
   type EffectiveAccess,
 } from "@/lib/effective-access";
 import type { Permission } from "@/lib/permissions";
-import { permissionsRequireRundownPin, verifyRundownPin } from "@/lib/rundown-pin.server";
+import { getPresentedRundownPin, resolveRundownAccess, rundownPermissionError } from "@/lib/rundown-pin.server";
 
 export interface RequestOrgAccess {
   user: { id: string; name: string; email: string };
@@ -47,15 +47,21 @@ export async function assertRundownPermission(
   orgId: string,
   required: Permission | readonly Permission[],
 ): Promise<RequestOrgAccess> {
-  const requestAccess = await assertOrgPermission(orgId, required);
-  if (!permissionsRequireRundownPin(requestAccess.access.role, required)) {
+  const requestAccess = await getRequestOrgAccess(orgId);
+  const permissions = typeof required === "string" ? [required] : required;
+  if (!permissions.some((permission) => permission === "rundown:edit" || permission === "rundown:control")) {
+    if (!accessHasAnyPermission(requestAccess.access, permissions)) throw new Error("Forbidden");
     return requestAccess;
   }
+  const request = new Request("https://showpilot.local/rundown-authorization", { headers: getRequestHeaders() });
+  const access = await resolveRundownAccess(getD1(), orgId, requestAccess.access, getPresentedRundownPin(request, orgId));
+  const error = rundownPermissionError(access, required);
+  if (error) throw new Error(error === "pin_required" ? "Rundown PIN required to make changes" : "Forbidden");
+  return { ...requestAccess, access: { ...requestAccess.access, permissions: access.permissions } };
+}
 
-  const headers = getRequestHeaders();
-  const request = new Request("https://showpilot.local/rundown-authorization", { headers });
-  if (!(await verifyRundownPin(request, getD1(), orgId))) {
-    throw new Error("Rundown PIN required");
-  }
-  return requestAccess;
+export async function getRequestRundownAccess(orgId: string) {
+  const { access } = await getRequestOrgAccess(orgId);
+  const request = new Request("https://showpilot.local/rundown-authorization", { headers: getRequestHeaders() });
+  return resolveRundownAccess(getD1(), orgId, access, getPresentedRundownPin(request, orgId));
 }

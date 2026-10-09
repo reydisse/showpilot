@@ -23,7 +23,7 @@ export async function withPermission(
     !allowedByRole ||
     permissions.some(isLowerThirdPermission) ||
     (roleRequiresRundownPin(role) &&
-      permissions.some((entry) => entry === "rundown:view" || entry === "rundown:edit" || entry === "rundown:control"));
+      permissions.some((entry) => entry === "rundown:edit" || entry === "rundown:control"));
 
   // Membership and role were already resolved by the parent organization
   // route. Most pages have no additional server-side policy, so another

@@ -1,6 +1,5 @@
 import { accessHasAnyPermission, resolveEffectiveAccess } from "./effective-access";
-import { permissionsRequireRundownPin, RUNDOWN_PIN_SETTING_KEY } from "./rundown-pin.server";
-import { verifyStoredRundownPin } from "./rundown-pin-crypto";
+import { resolveRundownAccess, rundownPermissionError } from "./rundown-pin.server";
 import type { Permission } from "./permissions";
 
 interface AuthorityDatabase {
@@ -42,14 +41,9 @@ export async function hasLiveRundownAuthority(
   now = Date.now(),
 ): Promise<boolean> {
   const access = await getLiveSessionAccess(db, claim, now);
-  const permissions = Array.isArray(required) ? required : [required];
-  if (!access || !accessHasAnyPermission(access, permissions)) return false;
-  if (!permissionsRequireRundownPin(access.role, permissions)) return true;
-
-  const setting = await db.prepare(
-    "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
-  ).bind(claim.orgId, RUNDOWN_PIN_SETTING_KEY).first<{ value: string | null }>();
-  return verifyStoredRundownPin(claim.rundownPin, setting?.value);
+  if (!access) return false;
+  const resolved = await resolveRundownAccess(db, claim.orgId, access, claim.rundownPin);
+  return rundownPermissionError(resolved, required) === null;
 }
 
 async function getLiveSessionAccess(

@@ -46,6 +46,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import {
+  getRundownEditAccess,
   getRundownState,
   saveRundownItems,
   saveRundownMeta,
@@ -80,6 +81,7 @@ import {
   serviceTimeToIso,
   editServiceTimeToIso,
 } from "@/lib/utils";
+import { RundownUnlock } from "@/components/rundown/RundownUnlock";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
@@ -284,6 +286,7 @@ export const Route = createFileRoute("/$slug/rundown")({
     });
     const openOn = opening.serviceDate;
     const openShowId = opening.showId;
+    const rundownAccess = await getRundownEditAccess({ data: { orgId: context.orgId } });
     const state = await getRundownState({
       data: {
         orgId: context.orgId,
@@ -297,6 +300,7 @@ export const Route = createFileRoute("/$slug/rundown")({
       today,
       openOn,
       initialState: state,
+      rundownAccess,
       activeTarget: {
         serviceDate: opening.activeServiceDate,
         showId: opening.activeShowId,
@@ -318,7 +322,7 @@ function RundownPage() {
     slug,
     openOn,
     initialState,
-    activeTarget,
+    rundownAccess,    activeTarget,
     settings,
     role,
     grantedPermissions,
@@ -327,16 +331,8 @@ function RundownPage() {
   } = Route.useLoaderData();
   const deviceTimeZone = useDeviceTimeZone();
   const navigate = useNavigate({ from: Route.fullPath });
-  const canEditRundown = hasEffectivePermission(
-    role,
-    grantedPermissions,
-    "rundown:edit",
-  );
-  const canControlRundown = hasEffectivePermission(
-    role,
-    grantedPermissions,
-    "rundown:control",
-  );
+  const canEditRundown = rundownAccess.canEdit;
+  const canControlRundown = rundownAccess.canControl;
   const canCreateShow = hasEffectivePermission(
     role,
     grantedPermissions,
@@ -1787,6 +1783,7 @@ function RundownPage() {
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
+            <RundownUnlock orgId={orgId} pinAccess={rundownAccess.pin} />
             {selectedShowIsLive ? (
               <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-green-500/25 bg-green-500/10 px-3 text-xs font-semibold text-green-300">
                 <span className="h-2 w-2 rounded-full bg-green-400" />

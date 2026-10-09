@@ -4,6 +4,7 @@ import { getPrisma } from "@/lib/db";
 import {
   assertOrgPermission as assertEffectiveOrgPermission,
   assertRundownPermission,
+  getRequestRundownAccess,
 } from "@/lib/org-access";
 import type {
   RundownItem,
@@ -23,6 +24,17 @@ import {
 } from "@/lib/validation";
 import { rundownPhaseStatus } from "@/lib/rundown-status";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+
+export const getRundownEditAccess = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }) => {
+    const access = await getRequestRundownAccess(data.orgId);
+    return {
+      canEdit: access.permissions.includes("rundown:edit"),
+      canControl: access.permissions.includes("rundown:control"),
+      pin: access.pin,
+    };
+  });
 
 // ─── Input schemas ───────────────────────────────────────────
 // Item arrays are validated as bounded unknowns here; per-item shape is

@@ -42,30 +42,50 @@ export function getPresentedRundownPin(request: Request, orgId: string): string 
     ?? null;
 }
 
-export function permissionsRequireRundownPin(
-  role: string | null | undefined,
-  permissions: Permission | readonly Permission[],
-): boolean {
-  const required = Array.isArray(permissions) ? permissions : [permissions];
-  return roleRequiresRundownPin(role)
-    && required.some((permission) =>
-      permission === "rundown:view"
-      || permission === "rundown:edit"
-      || permission === "rundown:control");
+const WRITE_PERMISSIONS: readonly Permission[] = ["rundown:edit", "rundown:control"];
+
+export interface RundownAccess {
+  permissions: Permission[];
+  pin: "unprotected" | "locked" | "unlocked";
 }
 
-export async function verifyRundownPin(
-  request: Request,
+// A configured PIN grants TMs editing and transport access for this request.
+// Viewing never needs the PIN, and knowing it does not elevate other roles.
+export async function resolveRundownAccess(
   db: RundownPinDatabase,
   orgId: string,
-): Promise<boolean> {
-  const configuredPin = await db
+  access: { role: string; permissions: readonly Permission[] },
+  presentedPin: string | null,
+): Promise<RundownAccess> {
+  if (!roleRequiresRundownPin(access.role)) {
+    return { permissions: [...access.permissions], pin: "unprotected" };
+  }
+  const setting = await db
     .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1")
     .bind(orgId, RUNDOWN_PIN_SETTING_KEY)
     .first<SettingRow>();
+  if (!setting?.value?.trim()) {
+    return { permissions: [...access.permissions], pin: "unprotected" };
+  }
+  const unlocked = await verifyStoredRundownPin(presentedPin, setting.value);
+  return {
+    permissions: unlocked
+      ? [...new Set([...access.permissions, ...WRITE_PERMISSIONS])]
+      : access.permissions.filter((permission) => !WRITE_PERMISSIONS.includes(permission)),
+    pin: unlocked ? "unlocked" : "locked",
+  };
+}
 
-  const presentedPin = getPresentedRundownPin(request, orgId);
-  return verifyStoredRundownPin(presentedPin, configuredPin?.value);
+export function rundownPermissionError(
+  access: RundownAccess,
+  required: Permission | readonly Permission[],
+): "pin_required" | "forbidden" | null {
+  const permissions = typeof required === "string" ? [required] : required;
+  // Permission arrays are alternatives: a permitted read must stay readable.
+  if (permissions.some((permission) => access.permissions.includes(permission))) return null;
+  return access.pin === "locked" && permissions.some((permission) => WRITE_PERMISSIONS.includes(permission))
+    ? "pin_required"
+    : "forbidden";
 }
 
 export function rundownPinChallenge(): Response {

@@ -70,8 +70,8 @@ function RundownPinPage() {
             <Lock className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-board-text">Rundown PIN Required</h1>
-            <p className="text-xs text-board-muted">Technical Managers use the organization PIN to open the rundown and live controls.</p>
+            <h1 className="text-lg font-semibold text-board-text">Unlock changes</h1>
+            <p className="text-xs text-board-muted">Enter the organization PIN to edit the rundown and use live controls. You can view the rundown without it.</p>
           </div>
         </div>
 
@@ -102,9 +102,10 @@ function RundownPinPage() {
             disabled={submitting || !pin.trim()}
             className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-fire-600 disabled:opacity-50"
           >
-            {submitting ? "Verifying..." : "Unlock Rundown"}
+            {submitting ? "Verifying..." : "Unlock changes"}
           </button>
         </form>
+        <a className="mt-4 block text-center text-sm text-board-muted hover:text-board-text" href={`/${slug}/rundown`}>Continue viewing</a>
       </div>
     </div>
   );

@@ -46,6 +46,7 @@ export const mobileRundownSchema = z.object({
     .extend({ updatedAt: z.string() }),
   timeZone: z.string().min(1),
   canCreateShows: z.boolean(),
+  pinAccess: z.enum(["unprotected", "locked", "unlocked"]).default("unprotected"),
   canEdit: z.boolean(),
   canControl: z.boolean(),
   proPresenter: z.object({
