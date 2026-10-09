@@ -135,6 +135,51 @@ describe("rundown PIN boundaries", () => {
     expect(mocks.relay).toHaveBeenCalledOnce();
   });
 
+  it.each(["state", "ws"])("lets a locked TM observe Show through %s without editor access", async (subpath) => {
+    const response = await server.fetch(new Request(
+      `https://showpilot.test/api/rundown/org-1/${subpath}?showId=show-1&view=show`,
+    ), {
+      DB: database(),
+      RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) },
+    }, {});
+    expect(response.status).toBe(200);
+    expect(mocks.relay).toHaveBeenCalledOnce();
+    const forwarded = mocks.relay.mock.calls[0][0];
+    expect(forwarded).toBeInstanceOf(Request);
+    if (forwarded instanceof Request) expect(new URL(forwarded.url).searchParams.get("access")).toBe("observe");
+  });
+
+  it("never upgrades a Show observer socket to controls, even for an administrator", async () => {
+    mocks.access.mockResolvedValue({ role: "admin", permissions: ["show:view", "rundown:control", "rundown:edit"], grantedPermissions: [] });
+    const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/ws?view=show"), {
+      DB: database(),
+      RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) },
+    }, {});
+    expect(response.status).toBe(200);
+    const forwarded = mocks.relay.mock.calls[0][0];
+    expect(forwarded).toBeInstanceOf(Request);
+    if (forwarded instanceof Request) expect(new URL(forwarded.url).searchParams.get("access")).toBe("observe");
+  });
+
+  it("does not use Show observation to bypass the command PIN", async () => {
+    const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/command?view=show", { method: "POST" }), {
+      DB: database(),
+      RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) },
+    }, {});
+    expect(response.status).toBe(401);
+    expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
+  it("requires Show permission for observation", async () => {
+    mocks.access.mockResolvedValue({ role: "tm", permissions: ["rundown:view"], grantedPermissions: [] });
+    const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/state?view=show"), {
+      DB: database(),
+      RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) },
+    }, {});
+    expect(response.status).toBe(403);
+    expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
   it("does not forward a deleted or tombstoned show's old relay URL", async () => {
     mocks.showDeleting = true;
     const db = database();

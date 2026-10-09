@@ -13,7 +13,6 @@ export async function withPermission(
   permission: Permission | Permission[],
   slug: string,
   orgId: string,
-  rundownReturnTo: "rundown" | "show" = "rundown",
 ): Promise<void> {
   const allowedByRole = Array.isArray(permission)
     ? hasAnyPermission(role, permission)
@@ -50,7 +49,6 @@ export async function withPermission(
     throw redirect({
       to: "/$slug/rundown-pin",
       params: { slug },
-      search: { returnTo: rundownReturnTo },
     });
   }
 

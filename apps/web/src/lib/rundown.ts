@@ -644,6 +644,14 @@ export const getRundownState = createServerFn({ method: "GET" })
     );
   });
 
+/** Read-only show workspace data; editing and live controls still require rundown access. */
+export const getShowRundownState = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
+  .handler(async ({ data }): Promise<RundownState> => {
+    await assertEffectiveOrgPermission(data.orgId, "show:view");
+    return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
+  });
+
 export async function getRundownStateForOrg(data: {
   orgId: string;
   serviceDate: string;

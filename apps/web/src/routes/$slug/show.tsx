@@ -25,7 +25,7 @@ import {
   formatOntimeTime,
   formatDuration as formatOntimeDuration,
 } from "@/lib/ontime";
-import { getRundownOpeningDate, getRundownState } from "@/lib/rundown";
+import { getRundownOpeningDate, getShowRundownState } from "@/lib/rundown";
 import {
   getActiveAdapters,
   getClockFormat,
@@ -132,7 +132,6 @@ export const Route = createFileRoute("/$slug/show")({
       context.slug,
       context.orgId,
     );
-    await withPermission(context.role, "rundown:view", context.slug, context.orgId, "show");
     const [members, chatMembers, adapters, clockFormat, settings] =
       await Promise.all([
         getCrewMembers({ data: { orgId: context.orgId } }),
@@ -159,13 +158,13 @@ export const Route = createFileRoute("/$slug/show")({
       } else {
         // OnTime not reachable — silent fallback to native
         effectiveRundownAdapter = "native";
-        nativeRundown = await getRundownState({
+        nativeRundown = await getShowRundownState({
           data: { orgId: context.orgId, serviceDate, showId },
         });
       }
     } else {
       // Native (or any other not-yet-implemented adapter)
-      nativeRundown = await getRundownState({
+      nativeRundown = await getShowRundownState({
         data: { orgId: context.orgId, serviceDate, showId },
       });
     }
@@ -858,7 +857,7 @@ function ShowPageWithNative({
         )
           return;
 
-        const rundown = await getRundownState({
+        const rundown = await getShowRundownState({
           data: {
             orgId,
             serviceDate: opening.serviceDate,
@@ -900,7 +899,7 @@ function ShowPageWithNative({
     stateInitialized: syncedInitialized,
     stateServiceDate: syncedServiceDate,
     stateShowId: syncedShowId,
-  } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId);
+  } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId, "show");
 
   const relayMatchesTarget =
     syncHydrated &&
