@@ -89,14 +89,14 @@ describe("rundown PIN boundaries", () => {
     mocks.showDeleting = false;
   });
 
-  it("challenges mobile rundown reads until the correct PIN is supplied", async () => {
+  it("keeps mobile reads available and grants changes only with the correct PIN", async () => {
     const db = database();
     const missing = await handleMobileApi(
       new Request("https://showpilot.test/api/mobile/v1/rundowns/show-1?orgId=org-1"),
       { DB: db },
     );
-    expect(missing?.status).toBe(401);
-    await expect(missing?.json()).resolves.toMatchObject({ error: "pin_required" });
+    expect(missing?.status).toBe(200);
+    await expect(missing?.json()).resolves.toMatchObject({ canEdit: false, canControl: false, pinAccess: "locked" });
 
     const wrong = await handleMobileApi(
       new Request("https://showpilot.test/api/mobile/v1/rundowns/show-1?orgId=org-1", {
@@ -104,7 +104,8 @@ describe("rundown PIN boundaries", () => {
       }),
       { DB: db },
     );
-    expect(wrong?.status).toBe(401);
+    expect(wrong?.status).toBe(200);
+    await expect(wrong?.json()).resolves.toMatchObject({ canEdit: false, canControl: false, pinAccess: "locked" });
 
     const valid = await handleMobileApi(
       new Request("https://showpilot.test/api/mobile/v1/rundowns/show-1?orgId=org-1", {
@@ -113,10 +114,10 @@ describe("rundown PIN boundaries", () => {
       { DB: db },
     );
     expect(valid?.status).toBe(200);
-    await expect(valid?.json()).resolves.toMatchObject({ show: { id: "show-1" } });
+    await expect(valid?.json()).resolves.toMatchObject({ show: { id: "show-1" }, canEdit: true, canControl: true, pinAccess: "unlocked" });
   });
 
-  it("does not forward a protected live relay connection without the PIN", async () => {
+  it("opens an observer socket without the PIN and a control socket with it", async () => {
     const db = database();
     const env = {
       DB: db,
@@ -125,14 +126,43 @@ describe("rundown PIN boundaries", () => {
     const path = "https://showpilot.test/api/rundown/org-1/ws?serviceDate=2026-09-21&showId=show-1";
 
     const missing = await server.fetch(new Request(path), env, {});
-    expect(missing.status).toBe(401);
-    expect(mocks.relay).not.toHaveBeenCalled();
+    expect(missing.status).toBe(200);
+    expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("observe");
 
     const valid = await server.fetch(new Request(path, {
       headers: { "x-showpilot-rundown-pin": "2468" },
     }), env, {});
     expect(valid.status).toBe(200);
+    expect(mocks.relay).toHaveBeenCalledTimes(2);
+    expect(new URL(mocks.relay.mock.calls[1][0].url).searchParams.get("access")).toBe("control");
+  });
+
+  it.each(["meta", "propresenter", "propresenter/stage-display"])("requires the PIN for mobile %s changes", async (action) => {
+    const response = await handleMobileApi(new Request(
+      `https://showpilot.test/api/mobile/v1/rundowns/show-1/${action}?orgId=org-1`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: "pin-test", expectedRevision: 0, name: "Test", location: "", startTime: "" }) },
+    ), { DB: database() });
+    expect(response?.status).toBe(401);
+    await expect(response?.json()).resolves.toMatchObject({ error: "pin_required" });
+  });
+
+  it("only forwards commands after the TM supplies the PIN", async () => {
+    const env = { DB: database(), RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) } };
+    for (const pin of [null, "0000", "2468"]) {
+      const headers = pin ? { "x-showpilot-rundown-pin": pin } : undefined;
+      const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/command", { method: "POST", headers }), env, {});
+      expect(response.status).toBe(pin === "2468" ? 200 : 401);
+    }
     expect(mocks.relay).toHaveBeenCalledOnce();
+    expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("control");
+  });
+
+  it("keeps public displays read-only even with an unlocked TM", async () => {
+    const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/ws?display=1", {
+      headers: { "x-showpilot-rundown-pin": "2468" },
+    }), { DB: database(), RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) } }, {});
+    expect(response.status).toBe(200);
+    expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("observe");
   });
 
   it.each(["state", "ws"])("lets a locked TM observe Show through %s without editor access", async (subpath) => {

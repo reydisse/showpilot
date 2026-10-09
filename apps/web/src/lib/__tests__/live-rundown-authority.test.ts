@@ -70,11 +70,17 @@ describe("live rundown command authority", () => {
     )).resolves.toBe(false);
   });
 
-  it("rechecks the current PIN for roles that require it", async () => {
-    const db = database({ sessionActive: true, role: "tm", grants: [], configuredPin: "2468" });
-    await expect(hasLiveRundownAuthority(db, { ...claim, rundownPin: "2468" }, "rundown:view"))
-      .resolves.toBe(true);
-    await expect(hasLiveRundownAuthority(db, { ...claim, rundownPin: "1357" }, "rundown:view"))
-      .resolves.toBe(false);
+  it("keeps viewing available but revokes both writes when the PIN changes", async () => {
+    const fixture: Fixture = { sessionActive: true, role: "tm", grants: [], configuredPin: "2468" };
+    const db = database(fixture);
+    await expect(hasLiveRundownAuthority(db, claim, "rundown:view")).resolves.toBe(true);
+    for (const permission of ["rundown:edit", "rundown:control"] as const) {
+      await expect(hasLiveRundownAuthority(db, claim, permission)).resolves.toBe(false);
+      await expect(hasLiveRundownAuthority(db, { ...claim, rundownPin: "2468" }, permission)).resolves.toBe(true);
+    }
+    fixture.configuredPin = "1357";
+    await expect(hasLiveRundownAuthority(db, { ...claim, rundownPin: "2468" }, "rundown:control")).resolves.toBe(false);
+    fixture.sessionActive = false;
+    await expect(hasLiveRundownAuthority(db, { ...claim, rundownPin: "1357" }, "rundown:edit")).resolves.toBe(false);
   });
 });

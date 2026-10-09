@@ -38,7 +38,6 @@ import {
   createMobileRundown,
   getMobileRundown,
   getMobileRundownTemplates,
-  isRundownPinRequired,
   loadMobilePreviousRundown,
   loadMobileRundownTemplate,
   saveMobileRundownTemplate,
@@ -47,7 +46,7 @@ import {
   type MobileRundown,
   type RundownItem,
 } from "@/lib/mobile-api";
-import { setStoredRundownPin } from "@/lib/rundown-pin";
+import { RundownUnlock } from "@/components/rundown-unlock";
 import { formatTimer, timerElapsed } from "@/lib/rundown-state";
 import { shareRundownCsv, shareRundownPdf } from "@/lib/rundown-export";
 import { formatServiceTime, serviceWallTimeInput } from "@/lib/service-time";
@@ -371,6 +370,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
               <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
               {canAuthor ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
+            <RundownUnlock orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />
             <TimerPanel
               canEdit={canAuthor}
               canControl={detail.canControl}
@@ -540,8 +540,6 @@ export default function ShowDetailScreen() {
   const { showId } = useLocalSearchParams<{ showId: string }>();
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
-  const [pin, setPin] = useState("");
-  const [unlocking, setUnlocking] = useState(false);
   const query = useQuery({
     queryKey: ["mobile-rundown", organization?.id, showId],
     queryFn: () => getMobileRundown(organization!.id, showId),
@@ -553,39 +551,6 @@ export default function ShowDetailScreen() {
   }
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization) return <Redirect href="/organizations" />;
-  if (isRundownPinRequired(query.error)) {
-    const unlock = async () => {
-      if (!pin.trim() || unlocking) return;
-      setUnlocking(true);
-      try {
-        await setStoredRundownPin(organization.id, pin);
-        await query.refetch();
-      } finally {
-        setUnlocking(false);
-      }
-    };
-    return (
-      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Rundown PIN required">
-        <View style={styles.pinCard}>
-          <Text style={styles.pinCopy}>Enter your organization’s rundown PIN to open show details and live controls.</Text>
-          <TextInput
-            accessibilityLabel="Rundown PIN"
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="number-pad"
-            onChangeText={setPin}
-            onSubmitEditing={() => void unlock()}
-            placeholder="PIN"
-            placeholderTextColor={colors.textFaint}
-            secureTextEntry
-            style={styles.pinInput}
-            value={pin}
-          />
-          <AppButton disabled={!pin.trim() || unlocking} label={unlocking ? "Checking…" : "Unlock rundown"} onPress={() => void unlock()} />
-        </View>
-      </Page>
-    );
-  }
   if (query.error || !query.data) {
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Could not open show">
@@ -594,14 +559,11 @@ export default function ShowDetailScreen() {
       </Page>
     );
   }
-  return <RundownContent key={query.data.show.id} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
+  return <RundownContent key={`${query.data.show.id}:${query.data.pinAccess}`} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   loading: { flex: 1 },
-  pinCard: { gap: 14, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.large },
-  pinCopy: { color: colors.textMuted, fontFamily, fontSize: 14, lineHeight: 21 },
-  pinInput: { minHeight: 50, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily: "monospace", fontSize: 20, letterSpacing: 4, paddingHorizontal: 16, textAlign: "center" },
   connectionRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8 },
   connectionText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "700" },
   connected: { color: colors.green },

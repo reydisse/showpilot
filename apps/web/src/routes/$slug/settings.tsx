@@ -744,7 +744,7 @@ function RundownPinSettings({
   return (
     <SettingsGroup
       title="Rundown protection"
-      description="Require Technical Managers to enter an organization PIN before opening the rundown or live controls. Owners, administrators, and directors are not prompted."
+      description="Technical Managers can view shows and rundowns freely. The organization PIN unlocks rundown editing and live controls. Owners, administrators, and directors are not prompted."
       icon={Shield}
     >
       <div className="space-y-4 px-4 py-4 sm:px-5">
@@ -825,7 +825,7 @@ function RundownPinSettings({
 
         {enabled && confirmingDisable ? (
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
-            <p className="text-sm text-red-300">Technical Managers will be able to open the rundown without a PIN.</p>
+            <p className="text-sm text-red-300">Technical Managers will return to their assigned permissions. The PIN will no longer grant editing or live controls.</p>
             <div className="mt-3 flex gap-2">
               <button
                 type="button"

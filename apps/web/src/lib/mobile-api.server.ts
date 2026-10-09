@@ -106,9 +106,11 @@ import {
   readRequestJsonWithinLimit,
 } from "./request-body.server";
 import {
-  permissionsRequireRundownPin,
+  getPresentedRundownPin,
+  resolveRundownAccess,
+  rundownPermissionError,
+  type RundownAccess,
   rundownPinChallenge,
-  verifyRundownPin,
 } from "./rundown-pin.server";
 import {
   RundownMetadataConflictError,
@@ -541,24 +543,21 @@ async function authorize(
   url: URL,
   db: MobileApiDatabase,
   permissions?: Permission[],
-): Promise<{ orgId: string; identity: MobileIdentity } | Response> {
+): Promise<{ orgId: string; identity: MobileIdentity; pinAccess: RundownAccess["pin"] } | Response> {
   const suppliedOrgId = url.searchParams.get("orgId")?.trim();
   if (!validId(suppliedOrgId))
     return json({ error: "A valid orgId is required." }, 400);
   const orgId = await resolveOrgId(suppliedOrgId, db);
   const identity = await getIdentity(request, orgId, db);
   if (!identity) return json({ error: "Unauthorized" }, 401);
-  if (permissions?.length && !hasAny(identity, permissions)) {
-    return json({ error: "Forbidden" }, 403);
+  const resolved: RundownAccess = permissions?.some((permission) => permission.startsWith("rundown:"))
+    ? await resolveRundownAccess(db, orgId, identity, getPresentedRundownPin(request, orgId))
+    : { permissions: identity.permissions, pin: "unprotected" };
+  if (permissions?.length) {
+    const error = rundownPermissionError(resolved, permissions);
+    if (error) return error === "pin_required" ? rundownPinChallenge() : json({ error: "Forbidden" }, 403);
   }
-  if (
-    permissions?.length &&
-    permissionsRequireRundownPin(identity.role, permissions) &&
-    !(await verifyRundownPin(request, db, orgId))
-  ) {
-    return rundownPinChallenge();
-  }
-  return { orgId, identity };
+  return { orgId, identity: { ...identity, permissions: resolved.permissions }, pinAccess: resolved.pin };
 }
 
 function parseTimer(value: string | null | undefined): MobileTimerState {
@@ -832,6 +831,7 @@ async function rundown(
     show,
     timeZone: timezone?.value || "Africa/Accra",
     canCreateShows: identity.permissions.includes("schedule:manage"),
+    pinAccess: access.pinAccess,
     canEdit: identity.permissions.includes("rundown:edit"),
     canControl: identity.permissions.includes("rundown:control"),
     proPresenter: {
@@ -4507,12 +4507,6 @@ async function showWorkspace(
   const access = await authorize(request, url, db, ["show:view"]);
   if (access instanceof Response) return access;
   const { orgId, identity } = access;
-  if (
-    permissionsRequireRundownPin(identity.role, "rundown:view") &&
-    !(await verifyRundownPin(request, db, orgId))
-  ) {
-    return rundownPinChallenge();
-  }
   const [settingsResult, crewResult] = await Promise.all([
     db
       .prepare(
