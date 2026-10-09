@@ -405,8 +405,17 @@ const appServer = {
       const publicDisplayRead = request.method === "GET"
         && (subpath === "ws" || subpath === "state")
         && url.searchParams.get("display") === "1";
+      // The Show workspace observes the live state without unlocking the editor.
+      // This mode never grants command access, even to an owner or controller.
+      const showViewRead = request.method === "GET"
+        && (subpath === "ws" || subpath === "state")
+        && url.searchParams.get("view") === "show";
+      if (showViewRead && !canUse(access, "show:view")) {
+        return new Response("Forbidden", { status: 403 });
+      }
       if (
         !publicDisplayRead
+        && !showViewRead
         && !access.hasBridgeKey
         && access.identity
         && permissionsRequireRundownPin(access.identity.role, [
@@ -419,7 +428,7 @@ const appServer = {
         return rundownPinChallenge();
       }
       const writeAccess = canControl ? "control" : canEdit ? "edit" : null;
-      const isMutation = subpath === "command" || (subpath === "ws" && writeAccess !== null);
+      const isMutation = !showViewRead && (subpath === "command" || (subpath === "ws" && writeAccess !== null));
       if (subpath === "command" && !writeAccess) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -438,7 +447,7 @@ const appServer = {
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set(
         "access",
-        isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
+        showViewRead ? "observe" : isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
       );
       if (access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);

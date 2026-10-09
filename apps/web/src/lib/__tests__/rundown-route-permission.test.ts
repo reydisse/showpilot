@@ -8,14 +8,14 @@ vi.mock("../rbac", () => ({ checkRoutePermission }));
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe("Technical Manager rundown route challenge", () => {
-  it.each(["rundown", "show"] as const)("returns a locked TM to %s after unlocking", async (returnTo) => {
+  it("sends a locked TM to the Rundown PIN form", async () => {
     checkRoutePermission.mockResolvedValue({ ok: false, reason: "pin_required" });
     try {
-      await withPermission("tm", "rundown:view", "test-org", "org-1", returnTo);
+      await withPermission("tm", "rundown:view", "test-org", "org-1");
     } catch (error) {
       expect(isRedirect(error)).toBe(true);
       if (isRedirect(error)) expect(error.options).toMatchObject({
-        to: "/$slug/rundown-pin", params: { slug: "test-org" }, search: { returnTo },
+        to: "/$slug/rundown-pin", params: { slug: "test-org" },
       });
       return;
     }

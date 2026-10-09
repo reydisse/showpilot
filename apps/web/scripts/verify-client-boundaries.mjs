@@ -174,6 +174,7 @@ const serverPermissionContracts = [
   ["src/lib/report.ts", "getShowReportIndex", /assertOrgPermission\(data\.orgId, "show:view"\)/],
   ["src/lib/report.ts", "exportShowReport", /assertOrgPermission\(data\.orgId, "show:view"\)/],
   ["src/lib/rundown.ts", "getRundownState", /assertRundownPermission\(data\.orgId, "rundown:view"\)/],
+  ["src/lib/rundown.ts", "getShowRundownState", /assertEffectiveOrgPermission\(data\.orgId, "show:view"\)[\s\S]+getRundownStateFromStorage\(data\.orgId, data\.serviceDate, data\.showId\)/],
   ["src/lib/rundown.ts", "getRundownOpeningDate", /assertEffectiveOrgPermission\(data\.orgId, "show:view"\)[\s\S]+where:\s*\{\s*orgId:\s*data\.orgId\s*\}/],
   ["src/lib/rundown.ts", "pollProPresenterSlide", /assertRundownPermission\(data\.orgId, \[\s*"lowerthird:trigger",\s*"rundown:control",?\s*\]\)/],
   ["src/lib/rundown.ts", "sendProPresenterCommand", /assertRundownControlAccess\(data\.orgId\)/],

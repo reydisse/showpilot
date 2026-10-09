@@ -205,6 +205,7 @@ export function useRundownSync(
   orgId: string,
   serviceDate?: string,
   showId?: string,
+  view: "rundown" | "show" = "rundown",
 ): UseRundownSyncReturn {
   const [items, setItems] = useState<RundownItem[]>([]);
   const [timer, setTimer] = useState<TimerState>({
@@ -328,6 +329,7 @@ export function useRundownSync(
     const query = new URLSearchParams();
     if (serviceDate) query.set("serviceDate", serviceDate);
     if (showId) query.set("showId", showId);
+    if (view === "show") query.set("view", "show");
     const suffix = query.size ? `?${query.toString()}` : "";
     const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${suffix}`;
 
@@ -519,7 +521,7 @@ export function useRundownSync(
       activeSocket?.close();
       activeSocket = null;
     };
-  }, [clearPendingTimer, confirmCommand, dispatchNextCommand, orgId, serviceDate, showId]);
+  }, [clearPendingTimer, confirmCommand, dispatchNextCommand, orgId, serviceDate, showId, view]);
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
