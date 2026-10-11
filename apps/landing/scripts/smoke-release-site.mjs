@@ -127,6 +127,20 @@ async function main() {
     { redirect: "manual" },
   );
   await fetchUntilValid(`${origin}/downloads/manifest.json`, validateManifest);
+  if (new URL(origin).hostname === "www.showpilot.tech") {
+    // The installed Bridge follows showpilot.tech -> www during discovery.
+    // A marketing HTML response here breaks its WebSocket handshake.
+    await fetchUntilValid(
+      `${origin}/api/bridge/showpilot-route-probe-not-an-organization/status?role=bridge`,
+      (response, body) => {
+        if (![401, 404].includes(response.status)
+          || !["Unauthorized", "Organization not found"].includes(body.trim())) {
+          throw new Error(`Legacy Bridge URL is not reaching the app worker (HTTP ${response.status})`);
+        }
+      },
+      { redirect: "manual" },
+    );
+  }
   console.log(`Landing release smoke passed: ${origin}`);
 }
 

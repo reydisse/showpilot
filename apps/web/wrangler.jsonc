@@ -53,6 +53,12 @@
 		]
 	},
 	"routes": [
+		// Released Bridge clients follow the marketing redirect during setup.
+		// Keep their websocket and status URLs on the authenticated app worker.
+		{
+			"pattern": "www.showpilot.tech/api/bridge/*",
+			"zone_name": "showpilot.tech"
+		},
 		{
 			"pattern": "app.showpilot.tech",
 			"custom_domain": true
