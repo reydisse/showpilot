@@ -2,9 +2,21 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "ShowPilot's trusted web app and bundled development UI may access the desktop engine.",
-  "windows": ["main", "timer-*", "show-board-*"],
+  "windows": [
+    "main",
+    "timer-*",
+    "show-board-*",
+    "confidence-*"
+  ],
   "remote": {
-    "urls": ["https://showpilot.tech/*"]
+    "urls": [
+      "https://showpilot.tech/*",
+      "https://app.showpilot.tech/*"
+    ]
   },
-  "permissions": ["core:default", "notification:default", "updater:default"]
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "updater:default"
+  ]
 }

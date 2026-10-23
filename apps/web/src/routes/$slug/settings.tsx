@@ -1,3 +1,5 @@
+import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
+import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -202,6 +204,7 @@ function OrganizationSettingsPage({
   loaderData: ReturnType<typeof Route.useLoaderData>;
 }) {
   const { settings, members, billing, orgId, slug, org, role, rundownPinEnabled } = loaderData;
+  const [confidenceLayoutValue, setConfidenceLayoutValue] = useState(settings[CONFIDENCE_LAYOUT_KEY] ?? "");
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -371,7 +374,7 @@ function OrganizationSettingsPage({
             <IntegrationsSection {...sectionProps} />
           )}
             {resolvedSection === "production" && (
-            <ProductionSection {...sectionProps} />
+            <ProductionSection {...sectionProps} confidenceLayoutValue={confidenceLayoutValue} onConfidenceLayoutApplied={setConfidenceLayoutValue} />
           )}
             {resolvedSection === "lowerthirds" && (
             <LowerThirdsSection {...sectionProps} />
@@ -1691,7 +1694,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
 
 // ─── PRODUCTION DEFAULTS ────────────────────────────────────
 
-function ProductionSection({ getSetting, saveSetting }: SectionProps) {
+function ProductionSection({ orgId, slug, getSetting, saveSetting, confidenceLayoutValue, onConfidenceLayoutApplied }: SectionProps & { confidenceLayoutValue: string; onConfidenceLayoutApplied: (value: string) => void }) {
   return (
     <div>
       <SectionHeader
@@ -1773,6 +1776,7 @@ function ProductionSection({ getSetting, saveSetting }: SectionProps) {
           />
         </FieldGroup>
       </div>
+      <ConfidenceSection orgId={orgId} slug={slug} initialValue={confidenceLayoutValue} onApplied={onConfidenceLayoutApplied} />
     </div>
   );
 }

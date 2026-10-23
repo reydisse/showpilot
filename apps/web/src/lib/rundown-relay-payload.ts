@@ -43,6 +43,9 @@ export interface RelayPPSlide {
   notes: string;
   presentationName: string;
   isScripture: boolean;
+  slideId?: string;
+  nextText?: string;
+  nextSlideId?: string;
 }
 
 export type RelayItemUpdates = Pick<
@@ -180,12 +183,18 @@ export function parseRelayPPSlide(value: unknown): RelayPPSlide | null {
     || !isBoundedString(value.notes, 20_000)
     || !isBoundedString(value.presentationName, 500)
     || typeof value.isScripture !== "boolean"
+    || (value.slideId !== undefined && !isBoundedString(value.slideId, 200))
+    || (value.nextText !== undefined && !isBoundedString(value.nextText, 20_000))
+    || (value.nextSlideId !== undefined && !isBoundedString(value.nextSlideId, 200))
   ) return null;
   return {
     text: value.text,
     notes: value.notes,
     presentationName: value.presentationName,
     isScripture: value.isScripture,
+    ...(typeof value.slideId === "string" ? { slideId: value.slideId } : {}),
+    ...(typeof value.nextText === "string" ? { nextText: value.nextText } : {}),
+    ...(typeof value.nextSlideId === "string" ? { nextSlideId: value.nextSlideId } : {}),
   };
 }
 

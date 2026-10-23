@@ -6,6 +6,12 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 
+mod confidence_output;
+use confidence_output::{
+    close_confidence_output_window, confidence_output_ready, confidence_output_status,
+    confidence_outputs, identify_confidence_monitor, start_confidence_output,
+    stop_confidence_output, OutputRuntime,
+};
 mod bridge_runtime;
 use bridge_runtime::{
     bridge_status, start_bridge, start_saved_bridge, start_supervisor, stop_bridge, BridgeRuntime,
@@ -21,7 +27,7 @@ struct EngineInfo {
 }
 
 const MAX_SNAPSHOT_BYTES: usize = 5 * 1024 * 1024;
-const PRODUCTION_ORIGIN: &str = "https://showpilot.tech";
+const PRODUCTION_ORIGIN: &str = "https://app.showpilot.tech";
 const NOTIFICATION_POLL_SCRIPT: &str =
     "window.dispatchEvent(new Event('showpilot-desktop-notification-poll'))";
 
@@ -299,6 +305,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BridgeRuntime::new())
+        .manage(OutputRuntime::default())
         .setup(|app| {
             let open =
                 MenuItem::with_id(app, "showpilot-open", "Open ShowPilot", true, None::<&str>)?;
@@ -325,6 +332,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                confidence_output::window_closed(window.app_handle(), window.label());
+            }
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -333,6 +343,13 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            identify_confidence_monitor,
+            confidence_outputs,
+            confidence_output_status,
+            start_confidence_output,
+            stop_confidence_output,
+            confidence_output_ready,
+            close_confidence_output_window,
             engine_info,
             focus_main_window,
             restart_desktop,
@@ -349,6 +366,9 @@ pub fn run() {
         .expect("error while building ShowPilot Desktop");
 
     app.run(|app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            confidence_output::shutdown();
+        }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen {
             has_visible_windows: false,
