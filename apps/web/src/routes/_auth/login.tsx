@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 
@@ -29,6 +30,7 @@ function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError(null);
     setLoading(true);
 
@@ -158,15 +160,14 @@ function LoginPage() {
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
+            size="lg"
             disabled={loading}
-            className="relative mt-2 w-full overflow-hidden rounded-xl px-4 py-3 font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
-            style={{
-              background:
-                "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-            }}
+            aria-busy={loading}
+            className="mt-2 h-12 w-full rounded-xl font-semibold"
           >
+            {loading ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <ArrowRight aria-hidden="true" />}
             {loading
               ? isSignUp
                 ? "Creating account..."
@@ -174,7 +175,7 @@ function LoginPage() {
               : isSignUp
                 ? "Create Account"
                 : "Sign In"}
-          </button>
+          </Button>
 
           {isSignUp && (
             <p className="text-center text-[11px] leading-5 text-board-muted/70">
@@ -199,16 +200,18 @@ function LoginPage() {
           <div className="h-px flex-1 bg-board-border" />
         </div>
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          disabled={loading}
           onClick={() => {
             setIsSignUp(!isSignUp);
             setError(null);
           }}
-          className="w-full rounded-xl border border-board-border bg-board-bg/60 px-4 py-2.5 text-sm font-medium text-board-text transition-all duration-200 hover:border-fire-500/40 hover:bg-board-bg"
+          className="h-11 w-full rounded-xl"
         >
           {isSignUp ? "Sign in instead" : "Create an account"}
-        </button>
+        </Button>
       </div>
 
       <p className="mt-6 text-center text-xs text-board-muted/60">
