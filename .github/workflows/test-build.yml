@@ -1,0 +1,96 @@
+name: Test unsigned native builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Unsigned bundles (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            label: linux
+          - os: windows-latest
+            label: windows
+          - os: macos-15-intel
+            label: macos-intel
+          - os: macos-14
+            label: macos-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ runner.os == 'Windows' && '1.1.21' || '1.4.0' }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
+
+      - name: Prepare Windows baseline Bun runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline.tgz'
+          $extract = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline'
+          Invoke-WebRequest `
+            -Uri 'https://registry.npmjs.org/@oven/bun-windows-x64-baseline/-/bun-windows-x64-baseline-1.1.21.tgz' `
+            -OutFile $archive
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar -xzf $archive -C $extract
+          $runtime = Join-Path $extract 'package/bin/bun.exe'
+          "SHOWPILOT_BUN_EXECUTABLE_PATH=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install workspace dependencies
+        id: install
+        run: pnpm install --frozen-lockfile
+
+      # Default app configs omit updater archives and use ad-hoc Mac signing.
+      # Do not load the signing-enabled ci-release.conf.json overrides.
+      - name: Build Desktop unsigned
+        uses: tauri-apps/tauri-action@v0
+        env:
+          NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
+        with:
+          projectPath: apps/desktop
+          args: --ci --verbose
+
+      - name: Build Bridge unsigned
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
+        with:
+          projectPath: apps/bridge-desktop
+          args: --ci --verbose
+
+      - name: Upload test bundles
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-bundles-${{ matrix.label }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle
+            apps/bridge-desktop/src-tauri/target/release/bundle
+          if-no-files-found: warn
+          include-hidden-files: true
+          compression-level: 0
