@@ -1,0 +1,30 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-desktop-controls",
+      "description": "Allow the ShowPilot workspace to use its explicitly registered native desktop commands.",
+      "commands": {
+        "allow": [
+          "identify_confidence_monitor",
+          "confidence_outputs",
+          "confidence_output_status",
+          "start_confidence_output",
+          "stop_confidence_output",
+          "confidence_output_ready",
+          "close_confidence_output_window",
+          "engine_info",
+          "focus_main_window",
+          "restart_desktop",
+          "cache_service",
+          "get_cached_service",
+          "open_companion_window",
+          "display_fullscreen_state",
+          "toggle_display_fullscreen",
+          "bridge_status",
+          "start_bridge",
+          "stop_bridge"
+        ]
+      }
+    }
+  ]
+}

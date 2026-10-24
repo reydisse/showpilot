@@ -236,6 +236,7 @@ async fn open_companion_window(
     let spec = companion_window_spec(&org_slug, &kind)?;
     if let Some(window) = app.get_webview_window(&spec.label) {
         window.show().map_err(|error| error.to_string())?;
+        window.unminimize().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
         return Ok(());
     }

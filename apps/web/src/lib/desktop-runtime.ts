@@ -161,7 +161,7 @@ export async function checkDesktopUpdate(): Promise<DesktopUpdateInfo | null> {
   return info;
 }
 
-export async function installDesktopUpdate(): Promise<DesktopUpdateInfo | null> {
+export async function installDesktopUpdate(): Promise<(DesktopUpdateInfo & { restartRequired: boolean }) | null> {
   const core = getTauriCore();
   if (!core) return null;
   const { check } = await import("@tauri-apps/plugin-updater");
@@ -177,8 +177,14 @@ export async function installDesktopUpdate(): Promise<DesktopUpdateInfo | null> 
   } finally {
     await update.close();
   }
-  await core.invoke("restart_desktop");
-  return info;
+  try {
+    await core.invoke("restart_desktop");
+    return { ...info, restartRequired: false };
+  } catch {
+    // Older shells deny this custom command even after the updater plugin has
+    // installed the new bundle. The running process still needs to be quit.
+    return { ...info, restartRequired: true };
+  }
 }
 
 export async function getDesktopEngineInfo(): Promise<DesktopEngineInfo | null> {

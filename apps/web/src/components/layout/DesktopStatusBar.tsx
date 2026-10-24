@@ -36,7 +36,7 @@ export function DesktopStatusBar() {
   const [bridgeBusy, setBridgeBusy] = useState(false);
   const [busy, setBusy] = useState<DesktopWindowKind | null>(null);
   const [update, setUpdate] = useState<DesktopUpdateInfo | null>(null);
-  const [updateState, setUpdateState] = useState<"idle" | "checking" | "current" | "installing" | "error">("idle");
+  const [updateState, setUpdateState] = useState<"idle" | "checking" | "confirming" | "current" | "installing" | "restart-required" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const desktop = isDesktopRuntime();
@@ -171,30 +171,44 @@ export function DesktopStatusBar() {
     try {
       await openDesktopWindow(kind, slug);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open desktop window");
+      setError(cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Could not open desktop window");
     } finally {
       setBusy(null);
     }
   };
 
   const handleUpdate = async () => {
-    if (updateState === "checking" || updateState === "installing") return;
+    if (updateState === "checking" || updateState === "confirming" || updateState === "installing" || updateState === "restart-required") return;
     if (update) {
-      if (!window.confirm(`Install ShowPilot Desktop ${update.version} and restart now?`)) return;
+      setUpdateState("confirming");
+      const approved = await confirm({
+        title: `Install ShowPilot Desktop ${update.version}?`,
+        description: "ShowPilot will restart to finish the update. Install when your show and local equipment are idle.",
+        confirmLabel: "Install and restart",
+        variant: "warning",
+      });
+      if (!approved) {
+        setUpdateState("idle");
+        return;
+      }
+      setError(null);
       setUpdateState("installing");
       try {
         const installed = await installDesktopUpdate();
         if (!installed) {
           setUpdate(null);
           setUpdateState("current");
+        } else if (installed.restartRequired) {
+          setUpdateState("restart-required");
         }
       } catch (cause) {
         setUpdateState("error");
-        setError(cause instanceof Error ? cause.message : "Desktop update failed");
+        setError(cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Desktop update failed");
       }
       return;
     }
 
+    setError(null);
     setUpdateState("checking");
     try {
       const available = await checkDesktopUpdate();
@@ -202,7 +216,7 @@ export function DesktopStatusBar() {
       setUpdateState(available ? "idle" : "current");
     } catch (cause) {
       setUpdateState("error");
-      setError(cause instanceof Error ? cause.message : "Could not check for updates");
+      setError(cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Could not check for updates");
     }
   };
 
@@ -263,13 +277,15 @@ export function DesktopStatusBar() {
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
-          disabled={updateState === "checking" || updateState === "installing"}
+          disabled={updateState === "checking" || updateState === "confirming" || updateState === "installing" || updateState === "restart-required"}
           onClick={() => void handleUpdate()}
           title={updateState === "error" ? error ?? "Desktop update failed" : "Check for signed Desktop updates"}
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
         >
           {update ? <Download className="h-3 w-3" /> : <RefreshCw className={`h-3 w-3 ${updateState === "checking" ? "animate-spin" : ""}`} />}
-          {updateState === "installing"
+          {updateState === "restart-required"
+            ? "Restart required"
+            : updateState === "installing"
             ? "Installing…"
             : update
               ? `Update ${update.version}`
@@ -297,6 +313,17 @@ export function DesktopStatusBar() {
           : null}
       </div>
     </div>
+    {updateState === "restart-required" ? (
+      <div role="status" className="border-b border-fire-500/30 bg-fire-500/10 px-3 py-2 text-xs text-fire-300">
+        Update installed. Choose Quit ShowPilot from the app menu, then reopen it to finish.
+      </div>
+    ) : null}
+    {error ? (
+      <div role="alert" className="flex items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+        <span>{error}</span>
+        <button type="button" onClick={() => setError(null)} className="shrink-0 rounded px-2 py-1 hover:bg-red-500/15">Dismiss</button>
+      </div>
+    ) : null}
     {ConfirmDialogEl}
     </>
   );

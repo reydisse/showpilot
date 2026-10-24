@@ -256,4 +256,22 @@ describe("desktop runtime boundary", () => {
     expect(calls).toEqual(["restart_desktop"]);
   });
 
+  it("reports a successful install needing manual restart on older shells", async () => {
+    window.__TAURI__ = { core: { invoke: vi.fn().mockRejectedValue("Command restart_desktop not allowed by ACL") } };
+    nativeUpdater.available = { version: "0.1.5" };
+    await expect(installDesktopUpdate()).resolves.toMatchObject({ version: "0.1.5", restartRequired: true });
+    expect(nativeUpdater.install).toHaveBeenCalledOnce();
+    expect(nativeUpdater.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not report an installed update when the download or installation fails", async () => {
+    const invoke = vi.fn();
+    window.__TAURI__ = { core: { invoke } };
+    nativeUpdater.available = { version: "0.1.5" };
+    nativeUpdater.install.mockRejectedValueOnce(new Error("Signature verification failed"));
+    await expect(installDesktopUpdate()).rejects.toThrow("Signature verification failed");
+    expect(nativeUpdater.close).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
 });
