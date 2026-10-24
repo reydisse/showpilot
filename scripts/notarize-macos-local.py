@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from macos_notary_retry import run_stapler
 
 
 def run(*args, capture=False):
@@ -89,8 +90,8 @@ def notarize(artifact, label, staple_target):
         "--keychain-profile", args.profile)
     if status["status"] != "Accepted":
         raise RuntimeError(f"Apple did not accept {label}: {status['status']}")
-    run("xcrun", "stapler", "staple", staple_target)
-    run("xcrun", "stapler", "validate", staple_target)
+    run_stapler("staple", staple_target)
+    run_stapler("validate", staple_target)
 
 
 archive = output / "app-for-notarization.zip"

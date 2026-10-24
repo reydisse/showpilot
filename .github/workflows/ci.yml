@@ -44,6 +44,9 @@ jobs:
       - name: Test native release verifier
         run: pnpm native:verify:test
 
+      - name: Test Apple ticket network retries
+        run: python3 -m unittest discover -s scripts -p 'test_macos_notary_retry.py'
+
       # MUST run before any typecheck step — see the header comment.
       - name: Generate Prisma client
         run: pnpm --filter @showpilot/web db:generate
