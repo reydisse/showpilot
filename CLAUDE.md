@@ -117,8 +117,13 @@ GLOBAL UI/UX RULES
 4. DARK THEME — operators work in dark booths. Dark background,
    high contrast, accent color for live/active states.
 5. KEYBOARD SHORTCUTS for critical actions; `?` opens the help overlay.
-6. MULTI-DEVICE — MacBook primary, iPad secondary, Windows laptop.
-   Responsive and touch-friendly without sacrificing desktop density.
+6. MULTI-DEVICE — support phones, tablets, laptops, 27-inch monitors,
+   and ultrawide displays. Use bounded fluid sizing so forms and typography
+   remain readable on large screens. Check narrow and short windows, long
+   labels, and reachable touch controls without sacrificing desktop density.
+   For login changes, run `node apps/web/scripts/smoke-login-responsive.mjs
+   <preview-origin>` with agent-browser installed; it checks both auth modes
+   from 320px to 3440px, including the tablet breakpoint and short windows.
 7. WEBSOCKET RESILIENCE — reconnect with backoff, subtle status
    indicator, queue outgoing messages during disconnect, never lose
    operator actions silently.
