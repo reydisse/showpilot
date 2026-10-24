@@ -43,45 +43,18 @@ export const Route = createFileRoute("/_auth")({
 
 function AuthLayout() {
   const isLogin = useRouterState({ select: (state) => state.location.pathname === "/login" });
+  if (isLogin) return <Outlet />;
   return (
     <main
-      className={`relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-board-bg py-8 text-board-text${isLogin ? " auth-signin" : ""}`}
+      className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-board-bg py-8 text-board-text"
       style={{
         backgroundImage:
           "radial-gradient(circle at top, color-mix(in srgb, var(--color-fire-500) 8%, transparent), transparent 42%)",
       }}
     >
-      {isLogin && (
-        <div className="auth-depth" aria-hidden="true">
-          <AuthDepthCard side="left" />
-          <AuthDepthCard side="right" />
-        </div>
-      )}
       <div className="relative w-full max-w-md px-4">
         <Outlet />
       </div>
     </main>
-  );
-}
-
-function AuthDepthCard({ side }: { side: "left" | "right" }) {
-  return (
-    <div className={`auth-depth-stack auth-depth-${side}`}>
-      <div className="auth-depth-layer" />
-      <div className="auth-depth-layer" />
-      <div className="auth-depth-layer">
-        <div className="auth-depth-heading"><span /><span /></div>
-        <div className="auth-depth-rows">
-          {[0, 1, 2].map((row) => (
-            <div className="auth-depth-row" key={row}>
-              <span className="auth-depth-dot" />
-              <span className="auth-depth-line" />
-              <span className="auth-depth-time" />
-            </div>
-          ))}
-        </div>
-        <div className="auth-depth-track"><span /></div>
-      </div>
-    </div>
   );
 }

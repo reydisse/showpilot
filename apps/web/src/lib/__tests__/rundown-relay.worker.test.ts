@@ -74,6 +74,9 @@ const slide = {
   presentationName: "Amazing Grace",
   isScripture: false,
   updatedAt: 1,
+  slideId: "verse-1",
+  nextText: "How sweet the sound",
+  nextSlideId: "verse-2",
 };
 
 describe("RundownRelay ProPresenter output ownership", () => {
@@ -92,7 +95,7 @@ describe("RundownRelay ProPresenter output ownership", () => {
     const stored = await env.DB.prepare(
       "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
     ).bind(orgId, `rundown-ppslide:${serviceDate}`).first<{ value: string }>();
-    expect(JSON.parse(stored?.value ?? "null")).toMatchObject({ text: slide.text });
+    expect(JSON.parse(stored?.value ?? "null")).toMatchObject({ text: slide.text, nextText: slide.nextText, slideId: slide.slideId, nextSlideId: slide.nextSlideId });
   });
 
   it("serializes the shared output switch and clears every device together", async () => {

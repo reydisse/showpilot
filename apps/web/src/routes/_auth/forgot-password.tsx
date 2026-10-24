@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
-import { Check } from "lucide-react";
+import { Check, LoaderCircle, Mail } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_auth/forgot-password")({
@@ -140,21 +141,20 @@ function ForgotPasswordPage() {
                 </div>
               )}
 
-              <button
+              <Button
                 type="submit"
+                size="lg"
                 disabled={isDisabled}
-                className="relative mt-2 w-full overflow-hidden rounded-xl px-4 py-3 font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                aria-busy={loading}
+                className="mt-2 h-12 w-full rounded-xl font-semibold"
               >
+                {loading ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <Mail aria-hidden="true" />}
                 {loading
                   ? "Sending..."
                   : cooldown > 0
                     ? `Wait ${cooldown}s`
                     : "Send Reset Link"}
-              </button>
+              </Button>
             </form>
 
             <div className="mt-6 text-center">

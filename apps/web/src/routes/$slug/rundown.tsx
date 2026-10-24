@@ -878,6 +878,9 @@ function RundownPage() {
       if (trimmedText.length < 3) return;
       const payload: PPSlidePayload = {
         text: slide.text,
+        slideId: slide.slideId,
+        nextText: slide.nextText,
+        nextSlideId: slide.nextSlideId,
         notes: slide.notes,
         presentationName: slide.presentationName,
         isScripture: slide.isScripture,

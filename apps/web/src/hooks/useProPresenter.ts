@@ -48,6 +48,9 @@ async function serverPollPP(orgId: string): Promise<PPSlideData | null> {
     if (!result) return null;
     return {
       text: result.text,
+      slideId: result.slideId,
+      nextText: result.nextText,
+      nextSlideId: result.nextSlideId,
       notes: result.notes,
       presentationName: result.presentationName,
       slideIndex: 0,

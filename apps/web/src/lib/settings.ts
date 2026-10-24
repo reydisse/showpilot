@@ -1,3 +1,4 @@
+import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
 import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -226,6 +227,7 @@ export const updateOrgSetting = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
+    if (data.key === CONFIDENCE_LAYOUT_KEY) confidenceLayoutSchema.parse(JSON.parse(data.value));
     await assertIntegrationPlanAllows(data.orgId, data.key, data.value);
     const prisma = getPrisma();
     const previousSetting = await prisma.appSetting.findUnique({
@@ -274,6 +276,7 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     for (const setting of data.settings) {
       await assertOrgPermission(data.orgId, permissionForSettingKey(setting.key));
+      if (setting.key === CONFIDENCE_LAYOUT_KEY) confidenceLayoutSchema.parse(JSON.parse(setting.value));
       await assertIntegrationPlanAllows(data.orgId, setting.key, setting.value);
     }
     const prisma = getPrisma();
@@ -415,6 +418,7 @@ export const getClockFormatBySlug = createServerFn({ method: "GET" })
   });
 
 export interface DisplaySettingsBySlug {
+  confidenceLayout: ConfidenceLayout;
   clockFormat: "12hr" | "24hr";
   timezoneDisplay: "local" | "org" | "utc";
   orgTimezone: string;
@@ -433,6 +437,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
     const org = await prisma.organization.findUnique({ where: { slug: data.orgSlug } });
     if (!org) {
       return {
+        confidenceLayout: DEFAULT_CONFIDENCE_LAYOUT,
         clockFormat: "12hr",
         timezoneDisplay: "local",
         orgTimezone: "",
@@ -450,6 +455,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
         where: {
           orgId: org.id,
           key: { in: [
+            CONFIDENCE_LAYOUT_KEY,
             "clock-format",
             "timezone-display",
             "org-timezone",
@@ -483,6 +489,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
       shows.at(-1);
 
     return {
+      confidenceLayout: readConfidenceLayout(map[CONFIDENCE_LAYOUT_KEY]),
       clockFormat: (map["clock-format"] as "12hr" | "24hr") || "12hr",
       timezoneDisplay: (map["timezone-display"] as "local" | "org" | "utc") || "local",
       orgTimezone: map["org-timezone"] || "",

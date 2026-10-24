@@ -1,3 +1,4 @@
+import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import type { NativeTimerState, RundownItem } from "@/types/rundown";
 
 export type RundownDisplayItem = Pick<
@@ -5,11 +6,7 @@ export type RundownDisplayItem = Pick<
   "id" | "title" | "type" | "duration" | "status" | "sortOrder" | "hardStop"
 >;
 
-export interface RundownDisplaySlide {
-  text: string;
-  notes: string;
-  presentationName: string;
-  isScripture: boolean;
+export interface RundownDisplaySlide extends RelayPPSlide {
   updatedAt: number;
 }
 

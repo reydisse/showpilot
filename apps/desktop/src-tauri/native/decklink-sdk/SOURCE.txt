@@ -1,0 +1,4 @@
+Blackmagic Design DeckLink SDK declarations, redistributed under the license in each file.
+Source: https://github.com/obsproject/obs-studio/tree/72e86655715d9a25d69ce446aa4dd44ba58e10d2/plugins/decklink/mac/decklink-sdk
+The dispatch shim loads the user-installed Blackmagic Desktop Video framework at runtime.
+Local modification: trailing whitespace normalized; API declarations and license text unchanged.

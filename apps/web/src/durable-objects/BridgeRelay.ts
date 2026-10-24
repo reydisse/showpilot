@@ -1,3 +1,4 @@
+import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
@@ -643,13 +644,17 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       }
       const slide = parsed;
 
-      const payload = {
+      const content = parseRelayPPSlide({
         text: String(slide.text ?? ""),
         notes: String(slide.notes ?? ""),
         presentationName: String(slide.presentationName ?? slide.pn ?? ""),
         isScripture: Boolean(slide.isScripture ?? slide.scripture ?? false),
-        updatedAt: Date.now(),
-      };
+        slideId: slide.slideId,
+        nextText: slide.nextText,
+        nextSlideId: slide.nextSlideId,
+      });
+      if (!content) return;
+      const payload = { ...content, updatedAt: Date.now() };
 
       const target = await getActiveRundownRelayTarget(this.env.DB, this.orgId);
       const rdId = this.env.RUNDOWN_RELAY.idFromName(target.key);

@@ -4,6 +4,64 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Tactile controls, without moving the target away from the operator. */
+.sp-button {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, box-shadow 160ms ease, scale 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sp-button:active:not(:disabled):not([aria-disabled="true"]):not([data-variant="link"]) {
+  scale: 0.98;
+}
+
+.route-recovery {
+  display: flex;
+  min-height: min(760px, 100dvh);
+  padding: clamp(24px, 5vw, 64px);
+  background: radial-gradient(ellipse at 75% 40%, color-mix(in srgb, var(--color-fire-500) 3%, transparent), transparent 55%), var(--board-bg);
+  color: var(--board-text);
+}
+
+.recovery-cue { position: relative; width: 100%; max-width: 320px; margin-inline: auto; }
+.recovery-cue-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--board-border);
+  border-radius: 12px;
+  background: var(--board-card);
+  box-shadow: 0 18px 55px #00000012, inset 0 1px 0 #ffffff06;
+}
+.recovery-cue-code {
+  font-size: clamp(64px, 10vw, 100px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.075em;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--board-text) 70%, var(--board-card));
+}
+.recovery-cue-rail {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--board-border);
+  margin: 0 12px 22px;
+}
+.recovery-cue-rail span {
+  width: 6px; height: 6px; margin-top: -3.5px;
+  border-radius: 50%; background: var(--board-border);
+}
+.recovery-cue-rail span:nth-child(2) {
+  background: var(--color-fire-500);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-fire-500) 8%, transparent);
+}
+.recovery-cue-track { height: 2px; background: var(--board-border); }
+.recovery-cue-track span { display: block; height: 100%; width: 38%; background: var(--color-fire-500); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-button { transition: none; }
+  .sp-button:active:not(:disabled):not([aria-disabled="true"]):not([data-variant="link"]) { scale: 1; }
+}
+
 /* ── Dynamic board tokens (swap with .dark / .light on <html>) ── */
 
 :root {
@@ -151,125 +209,6 @@
 
 .animate-ember-glow {
   animation: ember-glow 3s ease-in-out infinite;
-}
-
-/* Auth page ambient glow */
-.auth-depth {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  display: none;
-}
-
-/* Quiet layers at the edge of the page. The existing form stays the focal point. */
-@media (min-width: 760px) {
-  .auth-depth { display: block; }
-}
-
-.auth-depth-stack {
-  position: absolute;
-  width: 280px;
-  height: 210px;
-  top: calc(50% - 60px);
-  transform: perspective(900px) rotateX(52deg) rotateZ(-24deg);
-  transform-style: preserve-3d;
-}
-
-.auth-depth-left { right: calc(50% + 285px); }
-.auth-depth-right {
-  left: calc(50% + 305px);
-  top: calc(50% - 180px);
-  transform: perspective(900px) rotateX(52deg) rotateZ(24deg);
-  opacity: 0.65;
-}
-
-.auth-depth-layer {
-  position: absolute;
-  inset: 0;
-  border: 1px solid color-mix(in srgb, var(--board-border) 70%, transparent);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--board-card) 16%, transparent);
-  box-shadow: 0 16px 30px color-mix(in srgb, var(--board-bg) 55%, transparent);
-}
-
-.auth-depth-layer:nth-child(2) { transform: translateZ(28px); }
-.auth-depth-layer:nth-child(3) {
-  transform: translateZ(56px);
-  border-top-color: color-mix(in srgb, var(--color-fire-500) 18%, var(--board-border));
-}
-
-.auth-depth-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 22px 24px 20px;
-}
-
-.auth-depth-heading span:first-child {
-  width: 28px;
-  height: 2px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--color-fire-500) 30%, transparent);
-}
-
-.auth-depth-heading span:last-child {
-  width: 18px;
-  height: 5px;
-  border: 1px solid color-mix(in srgb, var(--board-muted) 18%, transparent);
-  border-radius: 4px;
-}
-
-.auth-depth-rows { margin: 0 24px; }
-.auth-depth-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 31px;
-  border-bottom: 1px solid color-mix(in srgb, var(--board-border) 40%, transparent);
-}
-.auth-depth-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--board-muted) 22%, transparent);
-}
-.auth-depth-row:first-child .auth-depth-dot {
-  background: color-mix(in srgb, var(--color-fire-500) 30%, transparent);
-}
-.auth-depth-line, .auth-depth-time {
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--board-muted) 16%, transparent);
-}
-.auth-depth-line { width: 46%; }
-.auth-depth-row:nth-child(2) .auth-depth-line { width: 34%; }
-.auth-depth-row:nth-child(3) .auth-depth-line { width: 40%; }
-.auth-depth-time { width: 19px; margin-left: auto; }
-.auth-depth-track {
-  height: 2px;
-  margin: 23px 24px 0;
-  background: color-mix(in srgb, var(--board-border) 35%, transparent);
-}
-.auth-depth-track span {
-  display: block;
-  width: 32%;
-  height: 100%;
-  background: color-mix(in srgb, var(--color-fire-500) 18%, transparent);
-}
-.auth-depth-right .auth-depth-track span { width: 58%; }
-
-.light .auth-signin-card {
-  box-shadow: 0 12px 36px rgb(41 37 36 / 8%);
-}
-
-.light .auth-signin a,
-.light .auth-signin .group:focus-within label {
-  color: #945100;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-signin .animate-float-in { animation: none; }
 }
 
 @keyframes auth-glow {

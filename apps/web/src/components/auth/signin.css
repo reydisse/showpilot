@@ -1,0 +1,882 @@
+/* Scoped artwork from the approved sign-in studies; no images or animation library. */
+.signin-shell * {
+  box-sizing: border-box;
+}
+.signin-shell button,
+.signin-shell input,
+.signin-shell a {
+  -webkit-tap-highlight-color: transparent;
+}
+.signin-shell a {
+  color: inherit;
+  text-decoration: none;
+}
+.signin-shell button,
+.signin-shell a {
+  touch-action: manipulation;
+}
+.signin-shell button {
+  cursor: pointer;
+  font: inherit;
+}
+.signin-shell button:focus-visible,
+.signin-shell a:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+}
+.signin-shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 2000px;
+  margin: auto;
+}
+.signin-shell .entry {
+  padding: 38px 48px 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+.signin-shell .wordmark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  width: fit-content;
+}
+.signin-shell .wordmark b {
+  color: var(--gold);
+  font-weight: 600;
+}
+.signin-shell .wordmark img {
+  width: 29px;
+  height: 29px;
+}
+.signin-shell .form-wrap {
+  width: 100%;
+  max-width: 350px;
+  margin: 55px auto 40px;
+}
+.signin-shell .eyebrow {
+  font-size: 9px;
+  letter-spacing: 1.9px;
+  color: #999a9e;
+  margin-bottom: 20px;
+}
+.signin-shell h1 {
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+  font-weight: 550;
+  margin: 0 0 15px;
+}
+.signin-shell .intro {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 34px;
+  line-height: 1.6;
+}
+.signin-shell label {
+  font-size: 12px;
+  color: #c4c4c9;
+  display: block;
+  margin-bottom: 9px;
+}
+.signin-shell input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid #333438;
+  background: #17181b;
+  color: #eee;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.signin-shell input:focus {
+  border-color: #b18f35;
+  box-shadow: 0 0 0 3px #ffc10709;
+}
+.signin-shell input::placeholder {
+  color: #696a72;
+}
+.signin-shell .password-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 23px;
+}
+.signin-shell .password-label a {
+  font-size: 11px;
+  color: #9b9ca3;
+  margin-bottom: 9px;
+}
+.signin-shell .password-field {
+  position: relative;
+}
+.signin-shell .password-field input {
+  padding-right: 46px;
+}
+.signin-shell .eye {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 42px;
+  height: 42px;
+  background: none;
+  border: 0;
+  color: #7f8189;
+  display: grid;
+  place-items: center;
+}
+.signin-shell .submit {
+  width: 100%;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+  border: 1px solid #ffce3d;
+  background: #ffc107;
+  border-radius: 8px;
+  color: #171307;
+  font-weight: 650;
+  font-size: 13px;
+  transition:
+    background 0.2s,
+    transform 0.2s;
+}
+.signin-shell .submit:hover {
+  background: #ffd044;
+  transform: translateY(-1px);
+}
+.signin-shell .submit span {
+  font-size: 17px;
+}
+.signin-shell .signup {
+  font-size: 12px;
+  color: #85868d;
+  text-align: center;
+  margin-top: 25px;
+}
+.signin-shell .signup a {
+  color: #ddd;
+  margin-left: 5px;
+}
+.signin-shell .signup a span {
+  font-size: 13px;
+  color: #8b8c92;
+  margin-left: 3px;
+}
+.signin-shell .feedback {
+  font-size: 12px;
+  color: #d1b878;
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+.signin-shell .feedback:empty {
+  display: none;
+}
+.signin-shell .foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  color: #6f7078;
+  line-height: 1.5;
+}
+.signin-shell .foot a {
+  white-space: nowrap;
+}
+.signin-shell .art {
+  position: relative;
+  overflow: hidden;
+  background: #191917;
+  border-left: 1px solid #ffffff08;
+  min-height: 700px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px 46px 30px;
+}
+.signin-shell .art-top {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 8px;
+  letter-spacing: 1.4px;
+  color: #b4b3a7;
+  z-index: 2;
+}
+.signin-shell .tiny-icon {
+  font-size: 21px;
+  color: #ba9c53;
+}
+.signin-shell .artwork {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+}
+.signin-shell .art-copy {
+  position: relative;
+  z-index: 2;
+  margin-top: 350px;
+}
+.signin-shell .overline {
+  font-size: 8px;
+  letter-spacing: 1.8px;
+  color: #b19d65;
+}
+.signin-shell h2 {
+  font-size: 36px;
+  line-height: 1.17;
+  letter-spacing: -1.2px;
+  font-weight: 450;
+  margin: 18px 0 15px;
+  color: #e1ded2;
+}
+.signin-shell .art-copy p {
+  color: #92938b;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0 0 42px;
+}
+.signin-shell .art-bottom {
+  border-top: 1px solid #ffffff12;
+  padding-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 7px;
+  letter-spacing: 1.3px;
+  color: #777970;
+}
+.signin-shell[data-design="rhythm"] .rhythm {
+  display: block;
+}
+.signin-shell .tiles {
+  position: absolute;
+  top: 16%;
+  left: 10%;
+  right: 10%;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+  transform: rotate(-9deg);
+  opacity: 0.8;
+}
+.signin-shell .tile {
+  aspect-ratio: 1;
+  border: 1px solid #b6a1670d;
+  border-radius: 3px;
+  background: #ffffff02;
+  position: relative;
+  overflow: hidden;
+}
+.signin-shell .tile i {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50% 50% 3% 50%;
+  background: linear-gradient(130deg, #947b3f, #4c4532 65%, #292a25);
+  box-shadow: inset 1px 1px 0 #d6b96b20;
+  transform: rotate(calc(var(--i) * 90deg));
+  animation: signin-tile-turn 20s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.8s);
+}
+.signin-shell .tile:nth-child(4n) i {
+  opacity: 0.35;
+}
+.signin-shell .tile:nth-child(7n) i {
+  background: linear-gradient(130deg, #b39955, #665631);
+  opacity: 0.9;
+}
+.signin-shell .rhythm-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, #191917 28%, transparent 69%);
+}
+@keyframes signin-tile-turn {
+  0%,
+  35%,
+  100% {
+    transform: rotate(calc(var(--i) * 90deg));
+  }
+  55%,
+  80% {
+    transform: rotate(calc(var(--i) * 90deg + 90deg));
+  }
+}
+.signin-shell[data-design="afterglow"] .art {
+  margin: 16px;
+  border-radius: 16px;
+  border: 1px solid #ffffff08;
+  background: #151614;
+  min-height: calc(100dvh - 32px);
+}
+.signin-shell[data-design="afterglow"] .entry {
+  padding-left: 34px;
+}
+.signin-shell[data-design="afterglow"] .afterglow {
+  display: block;
+}
+.signin-shell[data-design="afterglow"] .art-copy {
+  margin-top: 350px;
+}
+.signin-shell[data-design="afterglow"] .form-wrap h1 {
+  font-size: 36px;
+}
+.signin-shell .halo {
+  position: absolute;
+  width: 90%;
+  aspect-ratio: 1;
+  top: 1%;
+  left: 5%;
+  background: radial-gradient(ellipse, #bc8b2330, transparent 65%);
+  animation: signin-glow 12s ease-in-out infinite;
+}
+.signin-shell .orbital {
+  position: absolute;
+  top: 19%;
+  left: 50%;
+  width: 280px;
+  height: 280px;
+  transform: translateX(-50%) rotateX(56deg) rotateZ(-24deg);
+  transform-style: preserve-3d;
+  animation: signin-orbit 18s ease-in-out infinite;
+}
+.signin-shell .orbital i {
+  position: absolute;
+  inset: 0;
+  border: 14px solid #34342b;
+  border-top-color: #91805b;
+  border-left-color: #605b44;
+  border-radius: 50%;
+  box-shadow:
+    0 12px 12px #0006,
+    inset 0 2px 2px #dfc57b2a;
+}
+.signin-shell .orbital i:nth-child(2) {
+  inset: 30px;
+  transform: translateZ(15px);
+  border-width: 11px;
+}
+.signin-shell .orbital i:nth-child(3) {
+  inset: 60px;
+  transform: translateZ(27px);
+  border-width: 9px;
+}
+.signin-shell .orbital i:nth-child(4) {
+  inset: 90px;
+  transform: translateZ(36px);
+  border-width: 7px;
+}
+.signin-shell .orbital i:nth-child(5) {
+  inset: 116px;
+  transform: translateZ(43px);
+  border-width: 5px;
+  border-top-color: #dbc081;
+}
+.signin-shell .center-point {
+  position: absolute;
+  inset: 134px;
+  border-radius: 50%;
+  background: #e0be69;
+  box-shadow: 0 0 24px #ffc10740;
+  transform: translateZ(48px);
+}
+.signin-shell .floor {
+  position: absolute;
+  top: 50%;
+  left: 15%;
+  width: 70%;
+  height: 30px;
+  border-radius: 50%;
+  background: #0008;
+  filter: blur(24px);
+}
+.signin-shell .coord {
+  position: absolute;
+  top: 53%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 8px monospace;
+  letter-spacing: 2px;
+  color: #6d6b5c;
+}
+@keyframes signin-orbit {
+  0%,
+  100% {
+    transform: translateX(-50%) rotateX(56deg) rotateZ(-24deg) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) rotateX(52deg) rotateZ(-16deg) translateY(-5px);
+  }
+}
+@keyframes signin-glow {
+  50% {
+    opacity: 0.55;
+    transform: scale(1.05);
+  }
+}
+.signin-shell[data-design="in-sync"] .art {
+  background: #15191a;
+}
+.signin-shell[data-design="in-sync"] .insync {
+  display: block;
+}
+.signin-shell[data-design="in-sync"] .art-copy {
+  margin-top: 350px;
+}
+.signin-shell .tracks {
+  position: absolute;
+  top: 19%;
+  left: 8%;
+  right: 8%;
+  transform: rotate(-9deg);
+  opacity: 0.65;
+}
+.signin-shell .track {
+  height: 56px;
+  border-top: 1px solid #ffffff10;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font: 9px monospace;
+  letter-spacing: 1px;
+  color: #626b6e;
+}
+.signin-shell .track span {
+  width: 20px;
+}
+.signin-shell .track i {
+  height: 5px;
+  border-radius: 2px;
+  background: #76817a22;
+  width: 35%;
+}
+.signin-shell .track:nth-child(2) i {
+  width: 55%;
+}
+.signin-shell .track:nth-child(3) i {
+  width: 45%;
+  background: #b6a56c44;
+}
+.signin-shell .track small {
+  margin-left: auto;
+  font-size: 7px;
+}
+.signin-shell .cue-card {
+  position: absolute;
+  top: 24%;
+  left: 16%;
+  right: 8%;
+  border: 1px solid #a8b3a322;
+  border-radius: 12px;
+  background: linear-gradient(130deg, #2a302c, #202622 65%, #1c221f);
+  box-shadow:
+    0 24px 65px #0007,
+    inset 0 1px #e9ffd00a;
+  padding: 24px;
+  transform: rotate(4deg);
+  animation: signin-card-drift 14s ease-in-out infinite;
+}
+.signin-shell .cue-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 8px monospace;
+  letter-spacing: 1.3px;
+  color: #a9b5a8;
+}
+.signin-shell .cue-head > span:last-child {
+  margin-left: auto;
+  font-size: 18px;
+  color: #939c8b;
+}
+.signin-shell .cue-dot {
+  width: 5px;
+  height: 5px;
+  background: #c2b576;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #d9c46e33;
+}
+.signin-shell .cue-title {
+  font-size: 29px;
+  font-weight: 450;
+  line-height: 1.2;
+  letter-spacing: -0.7px;
+  color: #d8dece;
+  margin: 21px 0 25px;
+}
+.signin-shell .cue-line {
+  height: 2px;
+  background: #ffffff0c;
+  position: relative;
+}
+.signin-shell .cue-line i {
+  position: absolute;
+  inset: 0 45% 0 0;
+  background: #b3a365;
+}
+.signin-shell .cue-line:after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 8px;
+  background: #ead590;
+  animation: signin-marker 12s ease-in-out infinite;
+  box-shadow: 0 0 10px #ddc77750;
+}
+.signin-shell .cue-bottom {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 13px;
+  font: 6px monospace;
+  letter-spacing: 0.8px;
+  color: #849183;
+}
+@keyframes signin-card-drift {
+  50% {
+    transform: rotate(2deg) translateY(-5px);
+  }
+}
+@keyframes signin-marker {
+  0%,
+  100% {
+    left: 25%;
+  }
+  50% {
+    left: 55%;
+  }
+}
+.signin-shell.paused *,
+.signin-shell.paused *:after {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .signin-shell *,
+  .signin-shell *:after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (min-width: 1500px) {
+  .signin-shell .entry {
+    padding: 48px 64px 32px;
+  }
+  .signin-shell .form-wrap {
+    max-width: 380px;
+  }
+  .signin-shell .art {
+    padding: 48px 60px 32px;
+  }
+  .signin-shell .art-copy {
+    margin-top: 420px;
+  }
+  .signin-shell .tiles {
+    top: 12%;
+  }
+  .signin-shell .orbital {
+    width: 340px;
+    height: 340px;
+  }
+  .signin-shell .orbital i:nth-child(2) {
+    inset: 36px;
+  }
+  .signin-shell .orbital i:nth-child(3) {
+    inset: 72px;
+  }
+  .signin-shell .orbital i:nth-child(4) {
+    inset: 108px;
+  }
+  .signin-shell .orbital i:nth-child(5) {
+    inset: 140px;
+  }
+  .signin-shell .center-point {
+    inset: 164px;
+  }
+  .signin-shell .cue-card {
+    left: 18%;
+    right: 12%;
+    padding: 30px;
+  }
+  .signin-shell .cue-title {
+    font-size: 36px;
+  }
+}
+@media (max-width: 950px) {
+  .signin-shell .entry {
+    padding: 30px 28px 24px;
+  }
+  .signin-shell .art {
+    padding: 32px 28px 24px;
+  }
+  .signin-shell .art-top {
+    font-size: 6px;
+    letter-spacing: 1px;
+  }
+  .signin-shell h1 {
+    font-size: 33px;
+  }
+  .signin-shell h2 {
+    font-size: 29px;
+  }
+  .signin-shell .form-wrap {
+    margin-top: 60px;
+  }
+  .signin-shell .foot {
+    font-size: 8px;
+  }
+  .signin-shell .cue-card {
+    left: 10%;
+    right: 7%;
+    padding: 18px;
+  }
+  .signin-shell .cue-title {
+    font-size: 25px;
+  }
+  .signin-shell .cue-bottom {
+    font-size: 5px;
+  }
+  .signin-shell .orbital {
+    width: 240px;
+    height: 240px;
+  }
+  .signin-shell .orbital i:nth-child(2) {
+    inset: 25px;
+  }
+  .signin-shell .orbital i:nth-child(3) {
+    inset: 50px;
+  }
+  .signin-shell .orbital i:nth-child(4) {
+    inset: 75px;
+  }
+  .signin-shell .orbital i:nth-child(5) {
+    inset: 100px;
+  }
+  .signin-shell .center-point {
+    inset: 114px;
+  }
+  .signin-shell .coord {
+    font-size: 6px;
+  }
+  .signin-shell .tiles {
+    left: 3%;
+    right: 3%;
+  }
+}
+@media (max-width: 650px) {
+  .signin-shell {
+    display: block;
+  }
+  .signin-shell .entry {
+    min-height: 100dvh;
+    padding: 28px 26px 24px;
+    position: relative;
+    z-index: 1;
+  }
+  .signin-shell .art {
+    display: none !important;
+  }
+  .signin-shell .form-wrap {
+    margin: 70px auto 65px;
+    max-width: 350px;
+  }
+  .signin-shell .wordmark {
+    font-size: 21px;
+  }
+  .signin-shell .foot {
+    font-size: 9px;
+  }
+  .signin-shell h1 {
+    font-size: 36px;
+  }
+  .signin-shell[data-design="afterglow"] .entry {
+    padding: 28px 26px 24px;
+    background: radial-gradient(ellipse at 100% 0, #ffc10709, transparent 45%);
+  }
+  .signin-shell[data-design="in-sync"] .entry {
+    background: radial-gradient(ellipse at 0 100%, #a3bc8b09, transparent 45%);
+  }
+  .signin-shell .eyebrow {
+    font-size: 8px;
+  }
+}
+
+.signin-shell {
+  color-scheme: dark;
+  color: #eee;
+  background: #101113;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --gold: #ffc107;
+  --muted: #898a90;
+}
+.signin-shell .artwork {
+  display: block;
+}
+.signin-shell .entry {
+  grid-column: 1;
+  grid-row: 1;
+}
+.signin-shell .art {
+  grid-column: 2;
+  grid-row: 1;
+}
+.signin-shell .foot > div {
+  display: flex;
+  gap: 14px;
+}
+.signin-shell .name-field {
+  margin-bottom: 23px;
+}
+.signin-shell .signup button {
+  border: 0;
+  background: none;
+  color: #ddd;
+  padding: 10px 3px;
+}
+.signin-shell .legal {
+  color: #999aa2;
+  font-size: 11px;
+  line-height: 1.8;
+  margin-top: 18px;
+}
+.signin-shell .legal a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.signin-shell .signin-error {
+  border: 1px solid #f8717140;
+  background: #f871710d;
+  border-radius: 8px;
+  color: #fca5a5;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+}
+.signin-shell button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
+}
+.signin-shell .motion-control {
+  border: 0;
+  background: none;
+  color: #a5a69d;
+  padding: 12px;
+  margin: -12px 0;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.signin-shell .submit {
+  min-height: 46px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .signin-shell .motion-control {
+    display: none;
+  }
+}
+/* Retain a small seasonal motif on phones while keeping fields unobstructed. */
+@media (max-width: 650px) {
+  .signin-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+  .signin-shell .entry {
+    background: none !important;
+  }
+  .signin-shell .art {
+    display: block !important;
+    position: absolute;
+    inset: 24px 20px auto auto;
+    width: 110px;
+    height: 85px;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .signin-shell .art-top,
+  .signin-shell .art-copy,
+  .signin-shell .coord,
+  .signin-shell .floor {
+    display: none;
+  }
+  .signin-shell .tiles {
+    inset: 0;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px;
+  }
+  .signin-shell .rhythm-fade {
+    background: linear-gradient(0deg, #101113, transparent);
+  }
+  .signin-shell .orbital {
+    top: -70px;
+    left: 50%;
+    scale: 0.35;
+    transform-origin: center;
+  }
+  .signin-shell .halo {
+    top: -15px;
+  }
+  .signin-shell .cue-card {
+    inset: 7px 5px auto;
+    padding: 10px;
+    border-radius: 7px;
+  }
+  .signin-shell .cue-title {
+    font-size: 10px;
+    margin: 4px 0 8px;
+  }
+  .signin-shell .cue-head,
+  .signin-shell .cue-bottom,
+  .signin-shell .tracks {
+    display: none;
+  }
+  .signin-shell .cue-line {
+    margin-bottom: 5px;
+  }
+}
+
+.signin-shell .overline {
+  text-decoration: none;
+}
+
+.signin-shell .mobile-motion-control {
+  display: none;
+  border: 0;
+  padding: 12px;
+  background: none;
+  color: #999aa2;
+}
+@media (max-width: 650px) {
+  .signin-shell .mobile-motion-control {
+    display: block;
+  }
+  .signin-shell .foot {
+    flex-wrap: wrap;
+    row-gap: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signin-shell .mobile-motion-control {
+    display: none;
+  }
+}

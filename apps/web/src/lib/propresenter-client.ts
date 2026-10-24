@@ -24,6 +24,8 @@ export interface PPSlideData {
   receivedAt: number;
   /** Stable slide identity if PP provides one */
   slideId?: string;
+  nextText?: string;
+  nextSlideId?: string;
 }
 
 export type PPConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -235,7 +237,7 @@ export class ProPresenterClient {
           this.lastPollResult = `OK: "${slide.text.slice(0, 60)}"`;
 
           // Only emit change if text actually changed
-            const slideKey = slide.slideId || slide.text;
+            const slideKey = JSON.stringify([slide.slideId, slide.text, slide.notes, slide.nextSlideId, slide.nextText]);
             if (slideKey !== this.lastSlideKey) {
               this.lastSlideKey = slideKey;
               this.currentSlide = slide;

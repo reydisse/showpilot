@@ -1,3 +1,4 @@
+import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import {
   canApplyRundownRelayAction,
@@ -82,11 +83,7 @@ export interface TimerState {
   mode: "count-up" | "count-down" | "clock";
 }
 
-interface PPSlideState {
-  text: string;
-  notes: string;
-  presentationName: string;
-  isScripture: boolean;
+interface PPSlideState extends RelayPPSlide {
   updatedAt: number;
 }
 

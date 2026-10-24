@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { parseSlidePair, isScriptureSlide } from "./propresenter-slide.js";
 
 /**
  * ProPresenter 7 bridge protocol handler.
@@ -33,6 +34,9 @@ interface SlideSnapshot {
   slideIndex: number;
   isScripture: boolean;
   signature: string;
+  slideId?: string;
+  nextText?: string;
+  nextSlideId?: string;
 }
 
 interface PollResult {
@@ -85,6 +89,7 @@ export class ProPresenterBridge {
   private lastSlideSignature = "";
   private lastSlideEvent: Record<string, unknown> | null = null;
   private lastForwardAt = 0;
+  private lastPairPollAt = 0;
   private useWebSocket = true;
   private stageWebSocketDisabled = false;
   private stageSocketWarningLogged = false;
@@ -424,6 +429,9 @@ export class ProPresenterBridge {
     // Timer messages — skip, not slide data
     if (acn === "tmr" || acn === "sys") return;
 
+    // The REST status pair owns current/next while healthy. A legacy current-only
+    // socket update must not erase the upcoming lyric between polls.
+    if (this.lastPairPollAt > 0 && Date.now() - this.lastPairPollAt < 2000) return;
     const text = this.extractTextFromMessage(data);
     if (!text) {
       if (acn === "fv" || acn === "sd") {
@@ -433,12 +441,23 @@ export class ProPresenterBridge {
     }
 
     this.noSlideSince = 0;
-    const slideSignature = JSON.stringify(this.normalizeSlidePayload(data));
+    const current = data.cs && typeof data.cs === "object" && !Array.isArray(data.cs) ? data.cs : {};
+    const next = data.ns && typeof data.ns === "object" && !Array.isArray(data.ns) ? data.ns : {};
+    const notes = typeof data.notes === "string" ? data.notes : "csn" in current && typeof current.csn === "string" ? current.csn : "";
+    const name = typeof data.pn === "string" ? data.pn : "";
+    const canonical = {
+      ...data, text, notes, pn: name,
+      scripture: data.scripture === true || isScriptureSlide(`${name} ${notes} ${text}`),
+      nextText: typeof data.nextText === "string" ? data.nextText : "nsText" in next && typeof next.nsText === "string" ? next.nsText : "text" in next && typeof next.text === "string" ? next.text : "",
+      nextSlideId: typeof data.nextSlideId === "string" ? data.nextSlideId : "uuid" in next && typeof next.uuid === "string" ? next.uuid : "",
+      slideId: typeof data.slideId === "string" ? data.slideId : "uuid" in current && typeof current.uuid === "string" ? current.uuid : typeof data.uuid === "string" ? data.uuid : "",
+    };
+    const slideSignature = JSON.stringify(canonical);
     if (slideSignature === this.lastSlideSignature) return;
 
     this.lastSlideSignature = slideSignature;
     this.lastPollText = text;
-    this.lastSlideEvent = { ...data };
+    this.lastSlideEvent = canonical;
     this.lastForwardAt = Date.now();
     // Forward everything else — the browser client will parse it
     this.options.onSlideChange({ ...this.lastSlideEvent });
@@ -487,6 +506,9 @@ export class ProPresenterBridge {
             pn: slide.presentationName,
             si: slide.slideIndex,
             scripture: slide.isScripture,
+            slideId: slide.slideId,
+            nextText: slide.nextText,
+            nextSlideId: slide.nextSlideId,
           };
           this.lastForwardAt = now;
           this.options.onSlideChange({ ...this.lastSlideEvent });
@@ -558,8 +580,8 @@ export class ProPresenterBridge {
   private async pollSlide(): Promise<PollResult> {
     const timeout = 2000;
     const endpoints = [
-      "/v1/stage/current_slide",
       "/v1/status/slide",
+      "/v1/stage/current_slide",
       "/v1/presentation/active",
       "/v1/presentation/slide_index",
       "/v1/stage/layout_map",
@@ -576,6 +598,14 @@ export class ProPresenterBridge {
           if (!res.ok) continue;
           reachable = true;
           const payload = (await res.json()) as Record<string, unknown>;
+          // An empty current slide is authoritative; do not resurrect it from a fallback.
+          const pair = parseSlidePair(payload);
+          if (pair !== undefined) {
+            this.lastPairPollAt = Date.now();
+            return { reachable: true, slide: pair === null ? null : {
+              ...pair, slideIndex: 0, signature: JSON.stringify(pair),
+            } };
+          }
           const text = this.extractTextFromResponse(payload);
           if (text) {
             const signature = JSON.stringify(
@@ -594,7 +624,7 @@ export class ProPresenterBridge {
                   typeof payload.current_index === "number"
                     ? payload.current_index
                     : 0,
-                isScripture: false,
+                isScripture: isScriptureSlide(`${text} ${payload.notes ?? ""} ${payload.presentation_name ?? ""}`),
                 signature,
               },
             };

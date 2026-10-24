@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Check, Eye, EyeOff } from "lucide-react";
+import { Check, Eye, EyeOff, LoaderCircle, LockKeyhole } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 
@@ -53,6 +54,7 @@ function ResetPasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError(null);
 
     if (password !== confirmPassword) {
@@ -142,7 +144,7 @@ function ResetPasswordPage() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted/60 hover:text-board-muted transition-colors"
+                    className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-board-muted/60 hover:text-board-text transition-colors focus-visible:outline-2 focus-visible:outline-fire-500"
                   >
                     {showPassword ? (
                       <EyeOff className="size-[18px]" />
@@ -178,17 +180,16 @@ function ResetPasswordPage() {
                 </div>
               )}
 
-              <button
+              <Button
                 type="submit"
+                size="lg"
                 disabled={loading}
-                className="relative mt-2 w-full overflow-hidden rounded-xl px-4 py-3 font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                aria-busy={loading}
+                className="mt-2 h-12 w-full rounded-xl font-semibold"
               >
+                {loading ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <LockKeyhole aria-hidden="true" />}
                 {loading ? "Resetting..." : "Reset Password"}
-              </button>
+              </Button>
             </form>
 
             <div className="mt-6 text-center">

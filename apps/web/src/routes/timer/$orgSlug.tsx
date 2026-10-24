@@ -1,3 +1,7 @@
+import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confidence-output";
+import { isDesktopRuntime } from "@/lib/desktop-runtime";
+import { ConfidenceSlide, ConfidenceScreen } from "@/components/confidence/ConfidenceSlide";
+import { DEFAULT_CONFIDENCE_LAYOUT } from "@/lib/confidence-layout";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
@@ -267,6 +271,9 @@ function TimerKioskPage() {
   const [messageProminent, setMessageProminent] = useState(false);
   const lastStageMessageRef = useRef("");
   const messageProminentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [confidenceLayout, setConfidenceLayout] = useState(DEFAULT_CONFIDENCE_LAYOUT);
+  const [cleanOutput, setCleanOutput] = useState(false);
+  useEffect(() => { setCleanOutput(new URLSearchParams(window.location.search).get("output") === "clean"); }, []);
   const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsDisplayState | null>(null);
   const [lyricsTimecode, setLyricsTimecode] = useState<string | null>(null);
@@ -280,6 +287,19 @@ function TimerKioskPage() {
   const serviceDate = useRef(getTodayDateString());
   const [relayServiceDate, setRelayServiceDate] = useState(serviceDate.current);
   const [relayShowId, setRelayShowId] = useState("");
+  useEffect(() => {
+    if (!cleanOutput || !isDesktopRuntime()) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") void closeConfidenceOutputWindow().catch(() => {}); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [cleanOutput]);
+  const hasOutputData = state !== null;
+  useEffect(() => {
+    if (!cleanOutput || !hasOutputData || !isDesktopRuntime()) return;
+    // Wait for the clean layout to paint before the native engine captures it.
+    const timer = setTimeout(() => { void confidenceOutputReady().catch(() => {}); }, 200);
+    return () => clearTimeout(timer);
+  }, [cleanOutput, hasOutputData]);
   const hasActiveServiceDateRef = useRef(false);
   const lastTodayRef = useRef(serviceDate.current);
 
@@ -315,11 +335,12 @@ function TimerKioskPage() {
     let active = true;
     let refreshing = false;
     const refreshDisplayTarget = async () => {
-      if (document.visibilityState !== "visible" || refreshing) return;
+      if ((!cleanOutput && document.visibilityState !== "visible") || refreshing) return;
       refreshing = true;
       try {
         const settings = await getDisplaySettingsBySlug({ data: { orgSlug } });
         if (!active) return;
+        setConfidenceLayout(previous => JSON.stringify(previous) === JSON.stringify(settings.confidenceLayout) ? previous : settings.confidenceLayout);
         setClockFormat(settings.clockFormat);
         setTimezoneDisplay(settings.timezoneDisplay);
         setOrgTimezone(settings.orgTimezone);
@@ -348,7 +369,7 @@ function TimerKioskPage() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [orgSlug]);
+  }, [orgSlug, cleanOutput]);
 
   // Real-time sync via RundownRelay DO WebSocket
   const wsRef = useRef<WebSocket | null>(null);
@@ -495,7 +516,7 @@ function TimerKioskPage() {
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
-    if (document.visibilityState !== "visible" || wsConnectedRef.current) return;
+    if ((!cleanOutput && document.visibilityState !== "visible") || wsConnectedRef.current) return;
     try {
       const result = await getRundownStateBySlug({
         data: { orgSlug, serviceDate: serviceDate.current, showId: relayShowId || undefined },
@@ -516,7 +537,7 @@ function TimerKioskPage() {
     } catch {
       if (!wsConnectedRef.current) setConnected(false);
     }
-  }, [applyStageMessage, orgSlug, relayShowId]);
+  }, [applyStageMessage, orgSlug, relayShowId, cleanOutput]);
 
   useEffect(() => {
     if (hasActiveServiceDateRef.current) return;
@@ -627,16 +648,16 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (lyrics) {
-    return <LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode ?? undefined} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />;
+    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode ?? undefined} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></ConfidenceScreen>;
   }
 
   if (viewMode === "minimal") {
-    return <MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />;
+    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} /></ConfidenceScreen>;
   }
 
   if (viewMode === "stage") {
     return (
-      <StageView
+      <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><StageView
         currentItem={currentItem}
         nextItem={nextItem}
         displayTime={displayTime}
@@ -649,12 +670,12 @@ function TimerKioskPage() {
         isFullscreen={isFullscreen}
         toggleFullscreen={toggleFullscreen}
         progress={progress}
-      />
+      /></ConfidenceScreen>
     );
   }
 
   return (
-    <FullTimerView
+    <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><FullTimerView
       currentItem={currentItem}
       nextItem={nextItem}
       displayTime={displayTime}
@@ -672,7 +693,7 @@ function TimerKioskPage() {
       isFullscreen={isFullscreen}
       toggleFullscreen={toggleFullscreen}
       progress={progress}
-    />
+    /></ConfidenceScreen>
   );
 }
 
@@ -783,7 +804,7 @@ function MinimalView({
               maxWidth: "85vw",
             }}
           >
-            <div
+            <div data-stage-message-text
               style={{
                 fontSize: "min(12vw, 14vh)",
                 fontWeight: 700,
@@ -852,7 +873,7 @@ function MinimalView({
               maxWidth: "80vw",
             }}
           >
-            <div
+            <div data-stage-message-text
               style={{
                 fontSize: "min(4vw, 4vh)",
                 fontWeight: 600,
@@ -910,97 +931,9 @@ function FullscreenButton({ isFullscreen, toggleFullscreen }: { isFullscreen: bo
 // ─── PP Slide Display ────────────────────────────────────────
 
 function PPSlideDisplay({ slide, size }: { slide: PPSlidePayload; size: "large" | "small" }) {
-  const isLarge = size === "large";
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const textRef = useRef<HTMLDivElement | null>(null);
-  const [fontSize, setFontSize] = useState<number | null>(null);
-  const lines = useMemo(() => slide.text.split("\n").filter(Boolean), [slide.text]);
-
-  useLayoutEffect(() => {
-    const fitText = () => {
-      const container = containerRef.current;
-      const text = textRef.current;
-      if (!container || !text) return;
-
-      const viewportW = window.innerWidth;
-      const viewportH = window.innerHeight;
-      const maxFont = isLarge
-        ? Math.min(viewportW * 0.08, viewportH * 0.1)
-        : Math.min(viewportW * 0.02, viewportH * 0.025);
-      const minFont = isLarge
-        ? Math.min(viewportW * 0.022, viewportH * 0.03)
-        : Math.min(viewportW * 0.012, viewportH * 0.016);
-
-      let nextSize = Math.max(minFont, maxFont);
-      text.style.fontSize = `${nextSize}px`;
-
-      while (
-        nextSize > minFont &&
-        (text.scrollHeight > container.clientHeight || text.scrollWidth > container.clientWidth)
-      ) {
-        nextSize -= 2;
-        text.style.fontSize = `${nextSize}px`;
-      }
-
-      setFontSize(nextSize);
-    };
-
-    fitText();
-    window.addEventListener("resize", fitText);
-    return () => window.removeEventListener("resize", fitText);
-  }, [isLarge, slide.text, slide.notes, slide.presentationName]);
-
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: isLarge ? "1.5vh" : "0.5vh",
-        maxWidth: "90vw",
-        width: "100%",
-        maxHeight: isLarge ? "46vh" : "12vh",
-        overflow: "hidden",
-        textAlign: "center",
-      }}
-    >
-      {/* Slide text */}
-      <div
-        ref={textRef}
-        style={{
-          width: "100%",
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
-          fontSize: fontSize ? `${fontSize}px` : undefined,
-          lineHeight: 1.18,
-          fontWeight: 600,
-          color: "#ffffff",
-        }}
-      >
-        {lines.join("\n")}
-      </div>
-
-      {/* Scripture reference / presentation name — below the text */}
-      {(slide.presentationName || slide.notes) && (
-        <div
-          style={{
-            fontSize: isLarge ? "min(2vw, 2.5vh)" : "min(1.2vw, 1.5vh)",
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "rgba(255, 255, 255, 0.5)",
-            marginTop: isLarge ? "1vh" : "0.3vh",
-          }}
-        >
-          {slide.presentationName}
-          {slide.notes && slide.presentationName ? " — " : ""}
-          {slide.notes}
-        </div>
-      )}
-    </div>
-  );
+  return <div style={{ width: "100%", maxWidth: "90vw", height: size === "large" ? "40vh" : "12vh", minHeight: 0, containerType: "inline-size" }}>
+    <ConfidenceSlide slide={slide} />
+  </div>;
 }
 
 // ─── Stage View ──────────────────────────────────────────────
@@ -1066,7 +999,7 @@ function StageView({
               textAlign: "center",
             }}
           >
-            <div
+            <div data-stage-message-text
               style={{
                 fontSize: isPriority ? "min(10vw, 14vh)" : "min(5vw, 6vh)",
                 fontWeight: 700,
@@ -1387,7 +1320,7 @@ function FullTimerView({
               transition: "all 0.4s ease",
             }}
           >
-            <div
+            <div data-stage-message-text
               style={{
                 fontSize: messagePriority ? "min(8vw, 12vh)" : "min(3vw, 3.5vh)",
                 fontWeight: 700,

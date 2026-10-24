@@ -1,4 +1,4 @@
-const CLOUD_ORIGIN = "https://showpilot.tech";
+const CLOUD_ORIGIN = "https://app.showpilot.tech";
 const app = document.getElementById("app");
 let snapshot = null;
 let timer = null;

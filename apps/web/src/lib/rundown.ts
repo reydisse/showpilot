@@ -1,3 +1,5 @@
+import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
+import { parseRelayPPSlide } from "@/lib/rundown-relay-payload";
 import { createServerFn } from "@tanstack/react-start";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
@@ -1210,7 +1212,7 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
       const record = slide as Record<string, unknown>;
       const text = typeof record.text === "string" ? record.text : "";
       if (!text) return null;
-      return {
+      const content = parseRelayPPSlide({
         text,
         notes: typeof record.notes === "string" ? record.notes : "",
         presentationName:
@@ -1220,8 +1222,11 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
               ? record.pn
               : "",
         isScripture: Boolean(record.isScripture ?? record.scripture),
-        updatedAt: event.receivedAt,
-      };
+        slideId: record.slideId,
+        nextText: record.nextText,
+        nextSlideId: record.nextSlideId,
+      });
+      return content ? { ...content, updatedAt: event.receivedAt } : null;
     } catch {
       return null;
     }
@@ -1295,11 +1300,7 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
     }
   });
 
-export interface PPSlidePayload {
-  text: string;
-  notes: string;
-  presentationName: string;
-  isScripture: boolean;
+export interface PPSlidePayload extends RelayPPSlide {
   updatedAt: number;
 }
 
