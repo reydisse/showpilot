@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#101012" />
+    <title>ShowPilot · 3D concept</title>
+    <link
+      rel="preload"
+      href="/fonts/inter-var.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/concept/concept.css" />
+    <script type="module" src="/concept/main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#cue-controls">Skip to demo controls</a>
+    <main class="experience">
+      <div class="stage">
+        <header class="site-header">
+          <a class="brand" href="/" aria-label="ShowPilot home"
+            >ShowPilot<span class="brand-dot"></span
+          ></a>
+          <nav aria-label="Main">
+            <a href="/#features">Product</a><a href="/#pricing">Pricing</a>
+          </nav>
+          <a class="sign-in" href="{{loginUrl}}"
+            >Sign in <span aria-hidden="true">↗</span></a
+          >
+        </header>
+        <div class="hero-copy">
+          <h1>Great shows.<br /><span>Start here.</span></h1>
+          <p>
+            The rundown. The crew. The next cue.<br class="desktop-break" />
+            All moving together.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="{{signupUrl}}"
+              >Start free
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 12h15m-6-6 6 6-6 6" /></svg></a
+            ><button class="button secondary" id="call-cue">
+              Call a cue <span class="keycap" aria-hidden="true">↵</span>
+            </button>
+          </div>
+        </div>
+        <div
+          class="world"
+          id="world"
+          aria-label="Floating 3D show-control desk"
+        >
+          <div class="halo" aria-hidden="true"></div>
+          <div id="scene" aria-hidden="true"></div>
+          <div id="screen-layer">
+            <section
+              class="rundown"
+              id="rundown"
+              aria-label="Interactive rundown"
+            >
+              <div class="screen-head">
+                <span class="screen-brand">ShowPilot</span
+                ><span class="show-name">Evening show</span
+                ><span class="live-status" id="live-status">STAND BY</span>
+              </div>
+              <div class="screen-clock">
+                <div>
+                  <span class="micro">CURRENT CUE</span
+                  ><strong id="current-cue">Welcome</strong>
+                </div>
+                <span class="clock" id="timer">04:32</span>
+              </div>
+              <div class="column-head">
+                <span>CUE</span><span>DURATION</span>
+              </div>
+              <div class="cue-list">
+                <button data-cue="0" class="cue">
+                  <span class="cue-number">01</span><span>Opening</span
+                  ><span class="cue-duration">05:00</span
+                  ><span class="cue-light"></span>
+                </button>
+                <button data-cue="1" class="cue" aria-current="true">
+                  <span class="cue-number">02</span><span>Welcome</span
+                  ><span class="cue-duration">05:00</span
+                  ><span class="cue-light"></span>
+                </button>
+                <button data-cue="2" class="cue">
+                  <span class="cue-number">03</span><span>Keynote</span
+                  ><span class="cue-duration">08:00</span
+                  ><span class="cue-light"></span>
+                </button>
+                <button data-cue="3" class="cue">
+                  <span class="cue-number">04</span><span>Closing</span
+                  ><span class="cue-duration">05:00</span
+                  ><span class="cue-light"></span>
+                </button>
+              </div>
+              <div class="screen-foot" id="cue-controls">
+                <span><i></i> Local demo</span>
+                <div>
+                  <button id="reset" aria-label="Restart demo">↺</button
+                  ><button id="playback">Play</button
+                  ><button id="next">
+                    Next cue <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+            <div class="floating-card" id="crew-card" aria-hidden="true">
+              <span class="micro">THE CREW</span
+              ><strong>Everyone in sync.</strong>
+              <div class="avatars">
+                <i>AM</i><i>JL</i><i>SR</i><span>Ready when you are</span>
+              </div>
+              <div class="ready-line">
+                <i></i> Audio &nbsp; · &nbsp; Lighting &nbsp; · &nbsp; Stage
+              </div>
+            </div>
+          </div>
+          <p class="fallback-note" hidden>
+            3D is unavailable in this browser. You can still try the rundown.
+          </p>
+        </div>
+        <footer class="scene-footer">
+          <div class="chapters" aria-label="Scene stages">
+            <button data-phase="0" aria-pressed="true">
+              <span>01</span> Prepare<i></i></button
+            ><button data-phase="1" aria-pressed="false">
+              <span>02</span> Stand by<i></i></button
+            ><button data-phase="2" aria-pressed="false">
+              <span>03</span> Go live<i></i>
+            </button>
+          </div>
+          <div class="footer-meta">
+            <span class="concept-label">A ShowPilot concept</span
+            ><span id="scroll-hint"
+              >Scroll to bring it together
+              <span aria-hidden="true">↓</span></span
+            ><button id="motion" aria-pressed="false">Pause motion</button>
+          </div>
+        </footer>
+        <p class="sr-only" role="status" id="announcement"></p>
+      </div>
+    </main>
+  </body>
+</html>
