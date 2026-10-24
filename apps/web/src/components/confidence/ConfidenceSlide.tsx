@@ -61,11 +61,7 @@ export function ConfidenceSlide({
   const areaRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLDivElement>(null);
   const nextRef = useRef<HTMLDivElement>(null);
-  const previous = useRef<{
-    slide: ConfidenceSlideData;
-    nextTop: number | null;
-    nextFont: number;
-  }>({ slide, nextTop: null, nextFont: 0 });
+  const previous = useRef(slide);
 
   useLayoutEffect(() => {
     const area = areaRef.current;
@@ -105,38 +101,27 @@ export function ConfidenceSlide({
       layout.motion === "scroll" &&
       !reduced &&
       style.showNext &&
-      old.nextTop !== null &&
-      isConfidenceAdvance(old.slide, slide)
+      isConfidenceAdvance(old, slide)
     ) {
-      const offset = old.nextTop - current.getBoundingClientRect().top;
-      const scale =
-        old.nextFont / parseFloat(getComputedStyle(current).fontSize) || 1;
+      // Hint at the upward advance without moving across the entire pane or
+      // zooming from the smaller upcoming lyric into the current lyric.
+      const offset = Math.min(14, area.clientHeight * 0.035);
       current.animate(
         [
           {
-            transform: `translateY(${offset}px) scale(${scale})`,
-            opacity: style.nextOpacity,
+            transform: `translateY(${offset}px)`,
+            opacity: 0.7,
           },
           { transform: "translateY(0)", opacity: 1 },
         ],
-        { duration: 380, easing: "cubic-bezier(.2,.7,.2,1)" },
+        { duration: 320, easing: "ease-out" },
       );
       next?.animate([{ opacity: 0 }, { opacity: style.nextOpacity }], {
-        duration: 380,
+        duration: 320,
       });
     }
-    previous.current = {
-      slide,
-      nextTop: next?.getBoundingClientRect().top ?? null,
-      nextFont: next ? parseFloat(getComputedStyle(next).fontSize) : 0,
-    };
-    const observer = new ResizeObserver(() => {
-      fitAll();
-      previous.current.nextTop = next?.getBoundingClientRect().top ?? null;
-      previous.current.nextFont = next
-        ? parseFloat(getComputedStyle(next).fontSize)
-        : 0;
-    });
+    previous.current = slide;
+    const observer = new ResizeObserver(fitAll);
     observer.observe(area);
     let active = true;
     void document.fonts?.ready.then(() => {
@@ -146,6 +131,7 @@ export function ConfidenceSlide({
       active = false;
       observer.disconnect();
       current.getAnimations().forEach((a) => a.cancel());
+      next?.getAnimations().forEach((a) => a.cancel());
     };
   }, [
     slide.text,
@@ -175,6 +161,27 @@ export function ConfidenceSlide({
         fontFamily: CONFIDENCE_FONTS[style.font],
       }}
     >
+      {style.showReference && (slide.presentationName || slide.notes) && (
+        <div
+          data-confidence-reference
+          style={{
+            flexShrink: 0,
+            maxHeight: "18%",
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            fontFamily: CONFIDENCE_FONTS.sans,
+            fontSize: "clamp(9px, 1cqw, 16px)",
+            lineHeight: 1.4,
+            textAlign: "left",
+            textTransform: isScripture ? "none" : "uppercase",
+            letterSpacing: isScripture ? "0.04em" : "0.12em",
+            opacity: 0.5,
+            fontWeight: 500,
+          }}
+        >
+          {[slide.presentationName, slide.notes].filter(Boolean).join(" · ")}
+        </div>
+      )}
       <div
         style={{
           flex: showNext ? "1 1 68%" : "1 1 100%",
@@ -187,7 +194,6 @@ export function ConfidenceSlide({
           ref={currentRef}
           data-confidence-current
           style={{
-            transformOrigin: `${style.align} top`,
             width: "100%",
             whiteSpace: "pre-wrap",
             overflowWrap: "anywhere",
@@ -221,22 +227,6 @@ export function ConfidenceSlide({
           >
             {slide.nextText}
           </div>
-        </div>
-      )}
-      {style.showReference && (slide.presentationName || slide.notes) && (
-        <div
-          style={{
-            flexShrink: 0,
-            maxHeight: "18%",
-            overflow: "hidden",
-            overflowWrap: "anywhere",
-            fontFamily: CONFIDENCE_FONTS.sans,
-            fontSize: "clamp(9px, 1.8cqw, 28px)",
-            opacity: 0.55,
-            fontWeight: 600,
-          }}
-        >
-          {[slide.presentationName, slide.notes].filter(Boolean).join(" · ")}
         </div>
       )}
     </div>
