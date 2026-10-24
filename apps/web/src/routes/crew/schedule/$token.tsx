@@ -2,7 +2,6 @@ import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import {
   createFileRoute,
-  useNavigate,
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -27,13 +26,18 @@ export const Route = createFileRoute("/crew/schedule/$token")({
     assignment:
       typeof search.assignment === "string" ? search.assignment : undefined,
   }),
-  // Every assignment needed by this portal is loaded once. Switching between
-  // them is local state reflected in the URL, not a route reload.
+  // Legacy emailed URLs remain valid. New invitations store their selection
+  // with the access token; switching assignments never puts IDs in the URL.
   loaderDeps: () => ({}),
   loader: ({ params }) =>
     getCrewSchedulePortal({ data: { token: params.token } }),
-  component: CrewSchedulePortal,
+  component: CrewScheduleRoute,
 });
+
+function CrewScheduleRoute() {
+  const { token } = Route.useParams();
+  return <CrewSchedulePortal key={token} />;
+}
 
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString([], {
@@ -59,7 +63,7 @@ function CrewSchedulePortal() {
   const deviceTimeZone = useDeviceTimeZone();
   const { token } = Route.useParams();
   const { assignment: requestedId } = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  const [selectedId, setSelectedId] = useState(requestedId ?? data.initialAssignmentId);
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [declining, setDeclining] = useState(false);
@@ -68,10 +72,10 @@ function CrewSchedulePortal() {
   const [nowMs, setNowMs] = useState(data.responseAsOf);
   const selected = useMemo(
     () =>
-      data.assignments.find((assignment) => assignment.id === requestedId) ??
+      data.assignments.find((assignment) => assignment.id === selectedId) ??
       data.assignments[0] ??
       null,
-    [data.assignments, requestedId],
+    [data.assignments, selectedId],
   );
   const selectedClosesAt =
     selected?.responseWindow.status === "open"
@@ -294,12 +298,12 @@ function CrewSchedulePortal() {
               .map((assignment) => (
                 <button
                   key={assignment.id}
-                  onClick={() =>
-                    void navigate({
-                      search: { assignment: assignment.id },
-                      replace: true,
-                    })
-                  }
+                  onClick={() => {
+                    setSelectedId(assignment.id);
+                    setDeclining(false);
+                    setReason("");
+                    setResponseError(null);
+                  }}
                   className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-board-bg/50"
                 >
                   <span>

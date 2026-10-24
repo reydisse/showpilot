@@ -176,11 +176,11 @@ export async function sendCrewScheduleInvite(input: {
     emailAccessId = crypto.randomUUID();
     await getD1()
       .prepare(
-        "INSERT INTO crew_schedule_access (id, orgId, crewMemberId, tokenHash, expiresAt) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO crew_schedule_access (id, orgId, crewMemberId, tokenHash, expiresAt, assignmentId) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .bind(emailAccessId, input.orgId, input.crewMemberId, hash, expiresAt)
+      .bind(emailAccessId, input.orgId, input.crewMemberId, hash, expiresAt, input.assignmentId)
       .run();
-    const link = `${input.origin}/crew/schedule/${token}?assignment=${encodeURIComponent(input.assignmentId)}`;
+    const link = `${input.origin}/crew/schedule/${token}`;
     const { crewScheduleEmail, sendEmail } = await import("@/lib/email");
     const email = crewScheduleEmail({
       orgName: org.name,
@@ -237,7 +237,7 @@ async function resolvePortal(token: string) {
   const hash = await tokenHash(token);
   const access = await getD1()
     .prepare(
-      "SELECT id, orgId, crewMemberId, expiresAt FROM crew_schedule_access WHERE tokenHash = ? AND revokedAt IS NULL LIMIT 1",
+      "SELECT id, orgId, crewMemberId, expiresAt, assignmentId FROM crew_schedule_access WHERE tokenHash = ? AND revokedAt IS NULL LIMIT 1",
     )
     .bind(hash)
     .first<{
@@ -245,6 +245,7 @@ async function resolvePortal(token: string) {
       orgId: string;
       crewMemberId: string;
       expiresAt: string;
+      assignmentId: string | null;
     }>();
   if (!access || new Date(access.expiresAt).getTime() <= Date.now())
     throw new Error("This schedule link is invalid or has expired");
@@ -386,12 +387,14 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
     threshold.setDate(threshold.getDate() - 1);
     const assignments = await getD1()
       .prepare(
-        "SELECT id, showId, serviceDate, role, status, callTime, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND serviceDate >= ? ORDER BY CASE WHEN serviceDate >= ? THEN 0 ELSE 1 END, serviceDate ASC LIMIT 20",
+        "SELECT id, showId, serviceDate, role, status, callTime, notes, responseNote, invitedAt, respondedAt FROM service_assignment WHERE orgId = ? AND crewMemberId = ? AND (serviceDate >= ? OR id = ?) ORDER BY CASE WHEN id = ? THEN 0 WHEN serviceDate >= ? THEN 1 ELSE 2 END, serviceDate ASC LIMIT 20",
       )
       .bind(
         access.orgId,
         access.crewMemberId,
         threshold.toISOString().slice(0, 10),
+        access.assignmentId,
+        access.assignmentId,
         today,
       )
       .all<PortalAssignmentRow>();
@@ -420,6 +423,7 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
       orgName: org?.name ?? "Organization",
       today,
       responseAsOf: nowMs,
+      initialAssignmentId: access.assignmentId,
       orgTimezone: settingMap["org-timezone"],
       terminologyProfile: legacyTerminologyProfile(
         resolveWorkspaceProfile(settingMap).type,

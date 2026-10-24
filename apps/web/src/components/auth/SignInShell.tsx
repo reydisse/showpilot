@@ -1,11 +1,11 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
+import { Pause, Play } from "lucide-react";
 import type { SignInDesign } from "@/lib/signin-design";
 import "./signin.css";
 
 const COPY = {
   rhythm: {
-    number: "01",
     overline: "LESS FRICTION. MORE FLOW.",
     title: (
       <>
@@ -22,7 +22,6 @@ const COPY = {
     ),
   },
   afterglow: {
-    number: "02",
     overline: "THE MOMENT BEFORE THE MOMENT.",
     title: (
       <>
@@ -40,7 +39,6 @@ const COPY = {
     ),
   },
   "in-sync": {
-    number: "03",
     overline: "GOOD SHOWS START TOGETHER.",
     title: (
       <>
@@ -91,8 +89,9 @@ export function SignInShell({
               className="mobile-motion-control"
               onClick={() => setPaused(!paused)}
               aria-pressed={paused}
+              aria-label={paused ? "Resume artwork animation" : "Pause artwork animation"}
             >
-              {paused ? "Resume motion" : "Pause motion"}
+              {paused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
             </button>
             <Link to="/privacy">Privacy</Link>
             <Link to="/terms">Terms</Link>
@@ -103,7 +102,6 @@ export function SignInShell({
         <div className="art-top" aria-hidden="true">
           <span className="tiny-icon">✳</span>
           <span>BEHIND EVERY GREAT MOMENT</span>
-          <span className="edition">SP / {copy.number}</span>
         </div>
         <div className="artwork" aria-hidden="true">
           {design === "rhythm" && (
@@ -184,9 +182,10 @@ export function SignInShell({
               type="button"
               onClick={() => setPaused(!paused)}
               aria-pressed={paused}
+              aria-label={paused ? "Resume artwork animation" : "Pause artwork animation"}
               className="motion-control"
             >
-              {paused ? "Resume motion" : "Pause motion"}
+              {paused ? <Play size={14} aria-hidden="true" /> : <Pause size={14} aria-hidden="true" />}
             </button>
           </div>
         </div>
