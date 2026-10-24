@@ -155,18 +155,33 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: --ci --config ci-release.conf.json
-          uploadUpdaterJson: false
+          args: --ci --config ci-release.conf.json --verbose ${{ runner.os == 'macOS' && '--bundles app' || '' }}
+          includeUpdaterJson: false
+          retryAttempts: 2
           tagName: desktop-v__VERSION__
           releaseName: ShowPilot Desktop v__VERSION__
           releaseBody: See apps/desktop/RELEASE.md for installation and platform details.
           releaseDraft: true
           prerelease: false
 
-      - name: Verify macOS signing and notarization
+      - name: Finalize notarized macOS installers and updates
         if: runner.os == 'macOS'
         shell: bash
-        run: bash scripts/verify-macos-release.sh apps/desktop/src-tauri/target/release/bundle "ShowPilot Desktop"
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          xcrun notarytool store-credentials ShowPilot-ci --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          # finalize-macos-release.sh also runs verify-macos-release.sh and
+          # validates the notarization ticket inside the updater archive.
+          output="$RUNNER_TEMP/final-macos"
+          bash scripts/finalize-macos-release.sh "$PWD/apps/desktop/src-tauri/target/release/bundle/macos/ShowPilot Desktop.app" "$output" "${RELEASE_TAG#desktop-v}"
+          gh release upload "$RELEASE_TAG" "$output"/downloads/* --clobber
 
       - name: Verify Windows Authenticode signatures
         if: runner.os == 'Windows'
