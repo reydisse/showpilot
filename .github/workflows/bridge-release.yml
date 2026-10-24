@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - "bridge-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: bridge-release-${{ github.ref }}
+  group: bridge-release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -27,8 +33,21 @@ jobs:
           - os: macos-14
             label: macos-arm
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Reject rebuilding a published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-draft"; then
+            test "$(cat "$RUNNER_TEMP/release-draft")" = true || { echo "Refusing to replace a published release"; exit 1; }
+          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -91,7 +110,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify release tag and native contracts
-        run: pnpm native:verify --product bridge --tag "${{ github.ref_name }}"
+        run: pnpm native:verify --product bridge --tag "$RELEASE_TAG"
 
       - name: Require updater signing key
         env:
@@ -150,7 +169,8 @@ jobs:
         with:
           projectPath: apps/bridge-desktop
           args: --ci --config ci-release.conf.json
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
+          retryAttempts: 2
           tagName: bridge-v__VERSION__
           releaseName: ShowPilot Bridge v__VERSION__
           releaseBody: |
@@ -163,6 +183,27 @@ jobs:
             macOS downloads are Developer ID signed and Apple-notarized. Do not install the Intel (`x64`) Mac build on an Apple Silicon Mac. See `apps/bridge-desktop/RELEASE.md` for installation and update details.
           releaseDraft: true
           prerelease: false
+
+      - name: Notarize and staple macOS installer
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          installers=(apps/bridge-desktop/src-tauri/target/release/bundle/dmg/*.dmg)
+          test "${#installers[@]}" -eq 1
+          installer="${installers[0]}"
+          xcrun notarytool submit "$installer" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 15m
+          xcrun stapler staple "$installer"
+          xcrun stapler validate "$installer"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$installer"
+          asset="$RUNNER_TEMP/$(basename "$installer" | tr ' ' '.')"
+          cp "$installer" "$asset"
+          gh release upload "$RELEASE_TAG" "$asset" --clobber
 
       - name: Verify macOS signing and notarization
         if: runner.os == 'macOS'
