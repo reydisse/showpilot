@@ -51,3 +51,4 @@
 0044_song_section_source_identity.sql
 0045_checklist_entry_state.sql
 0046_equipment_revision.sql
+0047_crew_schedule_link_selection.sql
