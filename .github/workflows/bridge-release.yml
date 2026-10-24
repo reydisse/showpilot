@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: bridge-release-${{ inputs.tag || github.ref }}
+  group: bridge-release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -45,8 +45,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-draft"; then
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-draft" 2> "$RUNNER_TEMP/release-error"; then
             test "$(cat "$RUNNER_TEMP/release-draft")" = true || { echo "Refusing to replace a published release"; exit 1; }
+          elif ! grep -qx "release not found" "$RUNNER_TEMP/release-error"; then
+            cat "$RUNNER_TEMP/release-error" >&2
+            exit 1
           fi
 
       - uses: pnpm/action-setup@v4
@@ -168,7 +171,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/bridge-desktop
-          args: --ci --config ci-release.conf.json
+          args: --ci --config ci-release.conf.json --verbose
           includeUpdaterJson: false
           retryAttempts: 2
           tagName: bridge-v__VERSION__
