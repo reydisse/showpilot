@@ -222,7 +222,7 @@ export function DesktopStatusBar() {
 
   return (
     <>
-    <div className="flex min-h-8 shrink-0 items-center gap-3 border-b border-board-border bg-board-card px-3 text-[10px] text-board-muted">
+    <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-board-border bg-board-card px-3 py-1 text-[10px] text-board-muted">
       <span className="flex items-center gap-1.5 font-semibold text-fire-400">
         <PanelTopOpen className="h-3.5 w-3.5" />
         Desktop
@@ -274,7 +274,7 @@ export function DesktopStatusBar() {
           {bridgeError}
         </span>
       ) : null}
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex max-w-full flex-wrap items-center gap-1 [&>button]:whitespace-nowrap">
         <button
           type="button"
           disabled={updateState === "checking" || updateState === "confirming" || updateState === "installing" || updateState === "restart-required"}
@@ -320,7 +320,7 @@ export function DesktopStatusBar() {
     ) : null}
     {error ? (
       <div role="alert" className="flex items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-        <span>{error}</span>
+        <span className="min-w-0 break-words">{error}</span>
         <button type="button" onClick={() => setError(null)} className="shrink-0 rounded px-2 py-1 hover:bg-red-500/15">Dismiss</button>
       </div>
     ) : null}
