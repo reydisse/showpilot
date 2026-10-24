@@ -1,846 +1,931 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShowPilot — Run your show, not your software</title>
-  <meta name="description" content="The production OS for live production teams. Rundowns, show clock, crew check-in, comms, and device control in one place. Unlimited operators, flat per-organization pricing." />
-  <meta name="theme-color" content="#0a0a0a" />
-  <link rel="canonical" href="https://www.showpilot.tech/" />
-  <meta property="og:title" content="ShowPilot — Run your show, not your software" />
-  <meta property="og:description" content="The production OS for live production teams. Rundowns, crew, comms, device control — one place. Unlimited operators, no per-seat pricing." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://www.showpilot.tech/" />
-  <meta property="og:image" content="https://www.showpilot.tech/og.png" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="ShowPilot — Run your show, not your software" />
-  <meta name="twitter:description" content="The production OS for live production teams. Unlimited operators, flat per-organization pricing." />
-  <meta name="twitter:image" content="https://www.showpilot.tech/og.png" />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cpath d='M24 4A20 20 0 1 1 4 24' stroke='url(%23r)' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M24 8L30 26H18L24 8Z' fill='url(%23n)'/%3E%3Cpath d='M24 40L18 26H30L24 40Z' fill='url(%23s)'/%3E%3Cdefs%3E%3ClinearGradient id='r' x1='4' y1='24' x2='44' y2='24' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3ClinearGradient id='n' x1='24' y1='8' x2='24' y2='26' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23FF8F00'/%3E%3C/linearGradient%3E%3ClinearGradient id='s' x1='24' y1='26' x2='24' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23E65100'/%3E%3Cstop offset='1' stop-color='%23BF360C'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E" />
-  <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="/fonts/montserrat-var.woff2" as="font" type="font/woff2" crossorigin />
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "ShowPilot",
-    "applicationCategory": "BusinessApplication",
-    "operatingSystem": "Web",
-    "description": "The production OS for live production teams: rundowns, show clock, crew check-in, comms, and device control in one place.",
-    "url": "https://www.showpilot.tech/",
-    "offers": [
-      { "@type": "Offer", "name": "{{starter.name}}", "price": "{{starter.monthly}}", "priceCurrency": "USD" },
-      { "@type": "Offer", "name": "{{pro.name}}", "price": "{{pro.monthly}}", "priceCurrency": "USD" }
-    ]
-  }
-  </script>
-  <style>
-    /* Self-hosted variable fonts (latin subset) — same-origin, swap, no
-       render-blocking stylesheet. Source: Google Fonts woff2. */
-    @font-face {
-      font-family: 'Inter';
-      font-style: normal;
-      font-weight: 400 800;
-      font-display: swap;
-      src: url('/fonts/inter-var.woff2') format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-    @font-face {
-      font-family: 'Montserrat';
-      font-style: normal;
-      font-weight: 700 800;
-      font-display: swap;
-      src: url('/fonts/montserrat-var.woff2') format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-    :root {
-      --bg: #0a0a0a;
-      --surface: #111111;
-      --card: #161616;
-      --border: rgba(255,255,255,0.07);
-      --text: #f5f5f5;
-      --muted: #9a9a9a;
-      --fire-400: #ffca28;
-      --fire-500: #ffc107;
-      --fire-800: #ff8f00;
-      --live: #ef4444;
-      --green: #4ade80;
-      --blue: #60a5fa;
-      --mono: 'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
-    }
-
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      -webkit-font-smoothing: antialiased;
-      line-height: 1.6;
-      overflow-x: hidden;
-    }
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
-    section { padding: 4rem 0; }
-    a { color: inherit; }
-    a:focus-visible, summary:focus-visible {
-      outline: 2px solid var(--fire-500); outline-offset: 3px;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
-      *, *::before, *::after {
-        animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
-        scroll-behavior: auto !important; transition-duration: 0.01ms !important;
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShowPilot — Run your show, not your software</title>
+    <meta
+      name="description"
+      content="The production OS for live production teams. Rundowns, show clock, crew check-in, comms, and device control in one place. Simple per-organization pricing."
+    />
+    <meta name="theme-color" content="#0a0a0a" />
+    <link rel="canonical" href="https://www.showpilot.tech/" />
+    <meta
+      property="og:title"
+      content="ShowPilot — Run your show, not your software"
+    />
+    <meta
+      property="og:description"
+      content="The production OS for live production teams. Rundowns, crew, comms, device control — one place. Rundowns, crew, and the next cue, together."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.showpilot.tech/" />
+    <meta property="og:image" content="https://www.showpilot.tech/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="ShowPilot — Run your show, not your software"
+    />
+    <meta
+      name="twitter:description"
+      content="The production OS for live production teams. Simple per-organization pricing."
+    />
+    <meta name="twitter:image" content="https://www.showpilot.tech/og.png" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cpath d='M24 4A20 20 0 1 1 4 24' stroke='url(%23r)' stroke-width='2.5' stroke-linecap='round' fill='none'/%3E%3Cpath d='M24 8L30 26H18L24 8Z' fill='url(%23n)'/%3E%3Cpath d='M24 40L18 26H30L24 40Z' fill='url(%23s)'/%3E%3Cdefs%3E%3ClinearGradient id='r' x1='4' y1='24' x2='44' y2='24' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3ClinearGradient id='n' x1='24' y1='8' x2='24' y2='26' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FFC107'/%3E%3Cstop offset='1' stop-color='%23FF8F00'/%3E%3C/linearGradient%3E%3ClinearGradient id='s' x1='24' y1='26' x2='24' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23E65100'/%3E%3Cstop offset='1' stop-color='%23BF360C'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E"
+    />
+    <link
+      rel="preload"
+      href="/fonts/inter-var.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "ShowPilot",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "description": "The production OS for live production teams: rundowns, show clock, crew check-in, comms, and device control in one place.",
+        "url": "https://www.showpilot.tech/",
+        "offers": [
+          {
+            "@type": "Offer",
+            "name": "{{starter.name}}",
+            "price": "{{starter.monthly}}",
+            "priceCurrency": "USD"
+          },
+          {
+            "@type": "Offer",
+            "name": "{{pro.name}}",
+            "price": "{{pro.monthly}}",
+            "priceCurrency": "USD"
+          }
+        ]
       }
-    }
-
-    /* ── Nav ── */
-    nav { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 0; gap: 1rem; }
-    .logo { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; }
-    .logo-fire { color: var(--fire-500); }
-    .nav-links { display: none; gap: 1.75rem; font-size: 0.875rem; }
-    @media (min-width: 768px) { .nav-links { display: flex; } }
-    .nav-links a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
-    .nav-signin {
-      display: inline-flex; min-height: 2.75rem; align-items: center;
-      padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem;
-      font-weight: 500; color: var(--text); text-decoration: none;
-      border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s;
-    }
-    .nav-signin:hover { border-color: rgba(255,193,7,0.3); background: rgba(255,255,255,0.05); }
-    .nav-cta {
-      display: inline-flex; min-height: 2.75rem; align-items: center;
-      padding: 0.5rem 1.125rem; border-radius: 0.5rem; font-size: 0.875rem;
-      font-weight: 600; color: #000; text-decoration: none;
-      background: linear-gradient(135deg, #FFC107, #FF8F00); transition: all 0.2s;
-    }
-    .nav-cta:hover { box-shadow: 0 4px 20px rgba(255,193,7,0.25); }
-    @media (max-width: 380px) {
-      .container { padding-left: 1rem; padding-right: 1rem; }
-      nav { gap: 0.625rem; }
-      .logo { font-size: 1.125rem; }
-      .nav-actions { gap: 0.375rem; }
-      .nav-signin, .nav-cta {
-        padding: 0.5rem 0.625rem; font-size: 0.8125rem; white-space: nowrap;
-      }
-    }
-
-    /* ── Hero ── */
-    .hero { text-align: center; padding: 4.5rem 0 3rem; }
-    @media (min-width: 768px) { .hero { padding: 6rem 0 3.5rem; } }
-    .badge {
-      display: inline-block; border-radius: 9999px; padding: 0.375rem 1rem;
-      border: 1px solid rgba(255,193,7,0.2); background: rgba(255,193,7,0.08);
-      font-size: 0.8125rem; font-weight: 600; color: var(--fire-500);
-      margin-bottom: 1.5rem; letter-spacing: 0.04em; text-transform: uppercase;
-    }
-    h1 {
-      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
-      font-size: clamp(2.5rem, 5.5vw, 4rem); line-height: 1.08;
-      letter-spacing: -0.03em; max-width: 820px; margin: 0 auto;
-    }
-    .gradient-text {
-      background: linear-gradient(135deg, var(--fire-400), var(--fire-800));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .hero-sub {
-      margin-top: 1.5rem; font-size: clamp(1.0625rem, 2vw, 1.25rem);
-      color: var(--muted); max-width: 640px; margin-left: auto; margin-right: auto;
-      line-height: 1.7;
-    }
-    .cta-row { display: flex; justify-content: center; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; }
-    .cta-primary {
-      display: inline-block; padding: 0.875rem 2rem; border-radius: 0.75rem;
-      font-size: 1rem; font-weight: 600; color: #000; text-decoration: none;
-      background: linear-gradient(135deg, #FFC107, #FF8F00);
-      transition: all 0.2s; border: none;
-    }
-    .cta-primary:hover { box-shadow: 0 8px 30px rgba(255,193,7,0.25); transform: translateY(-1px); }
-    .cta-secondary {
-      display: inline-block; padding: 0.875rem 2rem; border-radius: 0.75rem;
-      font-size: 1rem; font-weight: 500; color: var(--text); text-decoration: none;
-      border: 1px solid rgba(255,255,255,0.12); transition: all 0.2s;
-    }
-    .cta-secondary:hover { border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.05); }
-    .cta-note { margin-top: 1rem; font-size: 0.8125rem; color: var(--muted); }
-
-    /* ── Product visual: live rundown mock ── */
-    .product-visual {
-      max-width: 760px; margin: 3.5rem auto 0; border-radius: 1rem;
-      border: 1px solid var(--border); background: var(--surface);
-      box-shadow: 0 40px 80px -30px rgba(0,0,0,0.8); overflow: hidden;
-      text-align: left; font-size: 0.8125rem;
-    }
-    .pv-titlebar {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0.625rem 1rem; border-bottom: 1px solid var(--border);
-      background: rgba(255,255,255,0.02);
-    }
-    .pv-dots { display: flex; gap: 0.375rem; }
-    .pv-dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; background: rgba(255,255,255,0.12); }
-    .pv-clock {
-      font-family: var(--mono); font-weight: 600; letter-spacing: 0.08em;
-      color: var(--fire-500); font-size: 0.875rem;
-    }
-    .pv-live {
-      display: inline-flex; align-items: center; gap: 0.375rem;
-      font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em;
-      color: var(--live); text-transform: uppercase;
-    }
-    .pv-live::before {
-      content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%;
-      background: var(--live); animation: pulse 1.6s ease-in-out infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-    .pv-rows { padding: 0.5rem; }
-    .pv-row {
-      display: grid; grid-template-columns: 3.5rem 1fr 4.5rem 5rem;
-      align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem;
-      border-radius: 0.5rem; color: var(--muted);
-    }
-    .pv-row .t { font-family: var(--mono); font-size: 0.75rem; }
-    .pv-row .s { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-align: right; }
-    .pv-row.done { opacity: 0.45; }
-    .pv-row.done .s { color: var(--muted); }
-    .pv-row.onair {
-      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
-      color: var(--text);
-    }
-    .pv-row.onair .s { color: var(--live); }
-    .pv-row.next {
-      background: rgba(255,193,7,0.06); border: 1px solid rgba(255,193,7,0.18);
-      color: var(--text);
-    }
-    .pv-row.next .s { color: var(--fire-500); }
-    .pv-footer {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0.625rem 1rem; border-top: 1px solid var(--border);
-      font-size: 0.6875rem; color: var(--muted);
-    }
-    .pv-crew { display: flex; align-items: center; gap: 0.375rem; }
-    .pv-avatars { display: flex; }
-    .pv-avatar {
-      width: 1.125rem; height: 1.125rem; border-radius: 50%;
-      border: 2px solid var(--surface); margin-left: -0.375rem;
-    }
-    .pv-avatar:first-child { margin-left: 0; }
-    @media (max-width: 560px) { .pv-row { grid-template-columns: 3rem 1fr 4rem; } .pv-row .d { display: none; } }
-
-    /* ── Section headings ── */
-    .section-header { text-align: center; margin-bottom: 3rem; }
-    .section-label {
-      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 0.1em; color: var(--fire-500); margin-bottom: 0.75rem;
-    }
-    .section-title {
-      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 700;
-      font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -0.02em;
-    }
-    .section-sub { margin-top: 0.75rem; color: var(--muted); max-width: 600px; margin-left: auto; margin-right: auto; }
-
-    /* ── Replaced-stack comparison ── */
-    .stack-grid { display: grid; gap: 1.25rem; align-items: stretch; }
-    @media (min-width: 820px) { .stack-grid { grid-template-columns: 1fr auto 1fr; } }
-    .stack-card {
-      border-radius: 1rem; border: 1px solid var(--border);
-      background: var(--surface); padding: 1.75rem;
-    }
-    .stack-card.sp { border-color: rgba(255,193,7,0.25); background: linear-gradient(180deg, rgba(255,193,7,0.05), rgba(255,193,7,0.015)); }
-    .stack-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 1.25rem; }
-    .stack-card.sp h3 { color: var(--fire-500); }
-    .stack-list { list-style: none; display: grid; gap: 0.875rem; font-size: 0.9rem; }
-    .stack-list li { display: flex; gap: 0.625rem; align-items: baseline; color: var(--muted); }
-    .stack-list .x { color: var(--live); font-weight: 700; flex-shrink: 0; }
-    .stack-list .ok { color: var(--green); font-weight: 700; flex-shrink: 0; }
-    .stack-list .item-note { display: block; font-size: 0.75rem; color: rgba(154,154,154,0.7); }
-    .stack-vs {
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
-      color: var(--muted); font-size: 0.875rem; letter-spacing: 0.1em;
-    }
-    .stack-anchor {
-      margin-top: 2rem; text-align: center; font-size: 1.0625rem; color: var(--text);
-    }
-    .stack-anchor strong { color: var(--fire-500); }
-
-    /* ── Flat pricing strip ── */
-    .flat-strip {
-      border-radius: 1rem; border: 1px solid rgba(255,193,7,0.2);
-      background: rgba(255,193,7,0.05); padding: 2.25rem 1.75rem; text-align: center;
-    }
-    .flat-strip h2 {
-      font-family: 'Montserrat', 'Inter', sans-serif; font-weight: 800;
-      font-size: clamp(1.375rem, 2.8vw, 2rem); letter-spacing: -0.02em;
-    }
-    .flat-strip p { margin-top: 0.75rem; color: var(--muted); max-width: 560px; margin-left: auto; margin-right: auto; }
-
-    /* ── Feature trio ── */
-    .features-grid { display: grid; gap: 1.25rem; }
-    @media (min-width: 768px) { .features-grid { grid-template-columns: repeat(3, 1fr); } }
-    .feature-card {
-      border-radius: 1rem; border: 1px solid var(--border);
-      background: var(--surface); padding: 1.75rem; transition: border-color 0.2s;
-    }
-    .feature-card:hover { border-color: rgba(255,193,7,0.18); }
-    .feature-icon {
-      width: 2.5rem; height: 2.5rem; border-radius: 0.5rem;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 1rem;
-    }
-    .feature-icon svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-    .feature-icon.amber { background: rgba(255,193,7,0.12); color: var(--fire-500); }
-    .feature-icon.blue { background: rgba(96,165,250,0.12); color: var(--blue); }
-    .feature-icon.green { background: rgba(74,222,128,0.12); color: var(--green); }
-    .feature-card h3 { font-size: 1.0625rem; font-weight: 600; margin-bottom: 0.5rem; }
-    .feature-card p { font-size: 0.875rem; color: var(--muted); line-height: 1.65; }
-    .feature-card ul { margin-top: 0.875rem; list-style: none; display: grid; gap: 0.375rem; font-size: 0.8125rem; color: var(--muted); }
-    .feature-card ul li::before { content: "·"; color: var(--fire-500); font-weight: 700; margin-right: 0.5rem; }
-
-    /* ── Downloads ── */
-    .download-grid { display: grid; gap: 1.25rem; align-items: stretch; }
-    @media (min-width: 720px) { .download-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .download-card {
-      display: flex; flex-direction: column; min-width: 0; padding: 1.5rem;
-      border: 1px solid var(--border); background: var(--surface); border-radius: 1rem;
-    }
-    .download-card.primary { border-color: rgba(255,193,7,0.3); background: rgba(255,193,7,0.035); }
-    .download-card-head { display: flex; align-items: flex-start; gap: 0.875rem; }
-    .download-card-icon {
-      display: flex; width: 2.5rem; height: 2.5rem; flex: 0 0 auto; align-items: center; justify-content: center;
-      border-radius: 0.625rem; background: rgba(255,193,7,0.1); color: var(--fire-500);
-    }
-    .download-card-icon svg, .mobile-note svg, .download-option > svg {
-      width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
-    }
-    .download-card h3 { font-size: 1rem; font-weight: 700; line-height: 1.35; }
-    .download-status { margin-top: 0.2rem; color: var(--fire-500); font-family: var(--mono); font-size: 0.6875rem; line-height: 1.4; }
-    .download-copy { margin: 1rem 0 1.25rem; color: var(--muted); font-size: 0.875rem; line-height: 1.65; }
-    .download-options { display: grid; gap: 0.625rem; margin-top: auto; }
-    .download-option {
-      display: flex; min-height: 3.25rem; align-items: center; gap: 0.75rem; padding: 0.65rem 0.8rem;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 0.65rem; color: var(--text); text-decoration: none;
-      transition: border-color 0.2s, background 0.2s, transform 0.2s;
-    }
-    .download-option:hover { border-color: rgba(255,193,7,0.35); background: rgba(255,193,7,0.06); transform: translateY(-1px); }
-    .download-option > svg { flex: 0 0 auto; color: var(--fire-500); }
-    .download-option span { display: block; min-width: 0; }
-    .download-option strong { display: block; font-size: 0.8125rem; font-weight: 600; }
-    .download-option small { display: block; margin-top: 0.1rem; color: var(--muted); font-family: var(--mono); font-size: 0.625rem; }
-    .download-option.is-unavailable { cursor: not-allowed; opacity: 0.45; }
-    .download-option.is-unavailable:hover { border-color: rgba(255,255,255,0.12); background: transparent; transform: none; }
-    .mobile-note {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1.25rem; padding: 1rem 1.25rem;
-      border: 1px solid var(--border); border-radius: 0.875rem; color: var(--muted); font-size: 0.8125rem;
-    }
-    .mobile-note > svg { flex: 0 0 auto; color: var(--fire-500); }
-    .mobile-note p { flex: 1 1 420px; }
-    .mobile-note a { color: var(--fire-500); font-weight: 600; text-decoration: none; }
-
-    /* ── Pricing ── */
-    .founding-banner {
-      border-radius: 1rem; border: 1px solid rgba(255,193,7,0.35);
-      background: linear-gradient(135deg, rgba(255,193,7,0.12), rgba(255,143,0,0.06));
-      padding: 1.5rem 1.75rem; margin-bottom: 2.5rem;
-      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;
-    }
-    .founding-banner .fb-text h3 { font-size: 1.125rem; font-weight: 700; }
-    .founding-banner .fb-text h3 span { color: var(--fire-500); }
-    .founding-banner .fb-text p { font-size: 0.875rem; color: var(--muted); margin-top: 0.25rem; }
-    .pricing-grid { display: grid; gap: 1.25rem; align-items: stretch; }
-    @media (min-width: 768px) { .pricing-grid { grid-template-columns: 1fr 1fr; max-width: 760px; margin: 0 auto; } }
-    .price-card {
-      border-radius: 1rem; border: 1px solid var(--border);
-      background: var(--surface); padding: 2rem; display: flex; flex-direction: column;
-    }
-    .price-card.highlight { border-color: rgba(255,193,7,0.4); background: linear-gradient(180deg, rgba(255,193,7,0.06), rgba(255,193,7,0.015)); position: relative; }
-    .price-pill {
-      position: absolute; top: -0.75rem; left: 50%; transform: translateX(-50%);
-      background: linear-gradient(135deg, #FFC107, #FF8F00); color: #000;
-      font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em;
-      text-transform: uppercase; border-radius: 9999px; padding: 0.25rem 0.875rem;
-    }
-    .price-card h3 { font-size: 1.0625rem; font-weight: 700; }
-    .price-amount { margin-top: 0.75rem; font-size: 2.5rem; font-weight: 800; font-family: 'Montserrat', 'Inter', sans-serif; }
-    .price-amount span { font-size: 0.875rem; font-weight: 500; color: var(--muted); font-family: 'Inter', sans-serif; }
-    .price-tagline { font-size: 0.875rem; color: var(--muted); margin-top: 0.375rem; }
-    .price-card ul { margin: 1.25rem 0 1.5rem; list-style: none; display: grid; gap: 0.5rem; font-size: 0.875rem; color: var(--muted); flex: 1; }
-    .price-card ul li::before { content: "✓"; color: var(--fire-500); font-weight: 700; margin-right: 0.625rem; }
-    .price-cta {
-      display: block; text-align: center; padding: 0.8125rem 1rem; border-radius: 0.75rem;
-      font-size: 0.9375rem; font-weight: 600; text-decoration: none; transition: all 0.2s;
-    }
-    .price-cta.solid { color: #000; background: linear-gradient(135deg, #FFC107, #FF8F00); }
-    .price-cta.solid:hover { box-shadow: 0 8px 24px rgba(255,193,7,0.2); }
-    .price-cta.outline { color: var(--fire-500); border: 1px solid rgba(255,193,7,0.3); }
-    .price-cta.outline:hover { background: rgba(255,193,7,0.08); }
-    .pricing-notes { margin-top: 1.75rem; text-align: center; font-size: 0.8125rem; color: var(--muted); display: grid; gap: 0.25rem; }
-
-    /* ── Final CTA ── */
-    .final-cta { text-align: center; }
-    .final-cta .cta-row { margin-top: 2rem; }
-
-    /* ── FAQ ── */
-    .faq-list { max-width: 720px; margin: 0 auto; display: grid; gap: 0.75rem; }
-    details {
-      border-radius: 0.75rem; border: 1px solid var(--border);
-      background: var(--surface); padding: 1.125rem 1.375rem;
-    }
-    details[open] { border-color: rgba(255,193,7,0.2); }
-    summary { cursor: pointer; font-weight: 600; font-size: 0.9375rem; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-    summary::-webkit-details-marker { display: none; }
-    summary::after { content: "+"; color: var(--fire-500); font-size: 1.25rem; font-weight: 400; flex-shrink: 0; }
-    details[open] summary::after { content: "–"; }
-    details p { margin-top: 0.75rem; font-size: 0.875rem; color: var(--muted); line-height: 1.7; }
-
-    /* ── Footer ── */
-    footer { border-top: 1px solid var(--border); padding: 2.5rem 0; font-size: 0.875rem; color: var(--muted); }
-    .footer-grid { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1.5rem; align-items: center; }
-    .footer-links { display: flex; flex-wrap: wrap; gap: 1.5rem; }
-    .footer-links a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
-    .footer-links a:hover { color: var(--text); }
-    .footer-line { margin-top: 1.5rem; font-size: 0.8125rem; color: rgba(154,154,154,0.6); }
-
-    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <!-- Nav -->
-    <nav aria-label="Main">
-      <a class="logo" href="/"><span class="logo-fire">Show</span>Pilot</a>
-      <div class="nav-links">
-        <a href="#switch">Why switch</a>
-        <a href="#features">Features</a>
-        <a href="#downloads">Downloads</a>
-        <a href="#pricing">Pricing</a>
-        <a href="#faq">FAQ</a>
-      </div>
+    </script>
+    <link rel="stylesheet" href="/landing.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header wrap">
+      <a class="brand" href="/" aria-label="ShowPilot home"
+        ><img
+          class="brand-symbol"
+          src="/showpilot-logo.svg"
+          width="28"
+          height="28"
+          alt=""
+        />
+        ShowPilot<span class="brand-dot">.</span></a
+      >
+      <nav id="navigation" aria-label="Main navigation">
+        <a href="#product">Product</a><a href="#integrations">Integrations</a
+        ><a href="#pricing">Pricing</a><a href="#downloads">Downloads</a>
+      </nav>
       <div class="nav-actions">
-        <a href="{{loginUrl}}" class="nav-signin">Sign in</a>
-        <a href="{{signupUrl}}" class="nav-cta" data-cta>Start free</a>
-      </div>
-    </nav>
-
-    <!-- Hero -->
-    <header class="hero">
-      <div class="badge">The production OS for live teams</div>
-      <h1>Run your show,<br /><span class="gradient-text">not your software.</span></h1>
-      <p class="hero-sub">
-        ShowPilot puts your rundown, show clock, crew, comms, and device control
-        in one place — for churches, concerts, conferences, schools, and theatres. Built for teams who go live every
-        week and can't afford a miss.
-      </p>
-      <div class="cta-row">
-        <a href="{{signupUrl}}" class="cta-primary" data-cta>Start your free trial</a>
-        <a href="#switch" class="cta-secondary">See what it replaces</a>
-      </div>
-      <p class="cta-note">Free trial · No credit card to start · Unlimited operators on every plan</p>
-
-      <!-- Product visual: live rundown with tally + show clock -->
-      <div class="product-visual" role="img" aria-label="ShowPilot rundown showing a live item, the next item, and the show clock">
-        <div class="pv-titlebar">
-          <div class="pv-dots"><span class="pv-dot"></span><span class="pv-dot"></span><span class="pv-dot"></span></div>
-          <span class="pv-live">On air</span>
-          <span class="pv-clock">00:24:13</span>
-        </div>
-        <div class="pv-rows">
-          <div class="pv-row done">
-            <span class="t">09:00</span><span>Doors + walk-in loop</span><span class="t d">10:00</span><span class="s">Done</span>
-          </div>
-          <div class="pv-row done">
-            <span class="t">09:10</span><span>Opening — full band</span><span class="t d">14:00</span><span class="s">Done</span>
-          </div>
-          <div class="pv-row onair">
-            <span class="t">09:24</span><span>Welcome + announcements</span><span class="t d">05:00</span><span class="s">Live</span>
-          </div>
-          <div class="pv-row next">
-            <span class="t">09:29</span><span>Worship set — 3 songs</span><span class="t d">16:00</span><span class="s">Next</span>
-          </div>
-          <div class="pv-row">
-            <span class="t">09:45</span><span>Message — guest speaker</span><span class="t d">35:00</span><span class="s">Cued</span>
-          </div>
-        </div>
-        <div class="pv-footer">
-          <span class="pv-crew">
-            <span class="pv-avatars">
-              <span class="pv-avatar" style="background:#7c5cff"></span>
-              <span class="pv-avatar" style="background:#2fa6a0"></span>
-              <span class="pv-avatar" style="background:#d4622a"></span>
-              <span class="pv-avatar" style="background:#3f6fd8"></span>
-            </span>
-            12 crew checked in
-          </span>
-          <span>All devices online · Sync &lt; 300 ms</span>
-        </div>
+        <a href="{{loginUrl}}" data-cta class="sign-in"
+          >Sign in <span aria-hidden="true">↗</span></a
+        ><a class="button small primary" href="{{signupUrl}}" data-cta
+          >Start free <span aria-hidden="true">→</span></a
+        ><button
+          class="menu-toggle"
+          aria-expanded="false"
+          aria-controls="navigation"
+          aria-label="Open menu"
+        >
+          ☰
+        </button>
       </div>
     </header>
-
-    <hr class="divider" />
-
-    <!-- Replaced-stack comparison -->
-    <section id="switch">
-      <div class="section-header">
-        <div class="section-label">Why switch</div>
-        <h2 class="section-title">Replace the pile, not just one tool</h2>
-        <p class="section-sub">Most teams don't have a production platform — they have a stack of workarounds held together by one heroic volunteer.</p>
-      </div>
-      <div class="stack-grid">
-        <div class="stack-card">
-          <h3>What your team juggles today</h3>
-          <ul class="stack-list">
-            <li><span class="x">✕</span><span>Run-of-show docs and spreadsheets<span class="item-note">Printed before doors, out of date by the first cue</span></span></li>
-            <li><span class="x">✕</span><span>A separate timer app on a spare laptop<span class="item-note">That nobody can see from the booth</span></span></li>
-            <li><span class="x">✕</span><span>Intercom rentals or radio handsets<span class="item-note">Hundreds per weekend, never enough packs</span></span></li>
-            <li><span class="x">✕</span><span>Device control scripts and stream decks<span class="item-note">Maintained by the one person who built them</span></span></li>
-            <li><span class="x">✕</span><span>Paper checklists and group-chat threads<span class="item-note">"Did anyone check the stream key?"</span></span></li>
-          </ul>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">
+            <span class="signal-dot"></span> FOR THE PEOPLE BEHIND THE SHOW
+          </p>
+          <h1 id="hero-title">
+            Great shows.<br />Calm
+            <span class="accent-word"
+              >crews.<svg viewBox="0 0 330 18" aria-hidden="true">
+                <path
+                  d="M3 12C90 1 210 2 325 8M30 17C130 8 231 9 300 12"
+                /></svg
+            ></span>
+          </h1>
+          <p class="hero-description">
+            One place for the rundown, the crew, and the next cue. Bring
+            everyone together before the lights go up.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="{{signupUrl}}" data-cta
+              >Start your free trial <span aria-hidden="true">↗</span></a
+            ><button class="button quiet" id="demo-go">
+              <span class="play-icon" aria-hidden="true">▶</span> Call your
+              first cue
+            </button>
+          </div>
+          <p class="trial-note">
+            No credit card to start. Just your next show.
+          </p>
+          <div class="hero-audience">
+            <span>BUILT FOR</span>
+            <p>
+              Sunday services. Live events.<br />Every moment that needs a team.
+            </p>
+          </div>
         </div>
-        <div class="stack-vs" aria-hidden="true">VS</div>
-        <div class="stack-card sp">
-          <h3>One ShowPilot subscription</h3>
-          <ul class="stack-list">
-            <li><span class="ok">✓</span><span>One live rundown — every operator sees changes in real time</span></li>
-            <li><span class="ok">✓</span><span>Show clock and stage timers on any screen — including kiosk displays</span></li>
-            <li><span class="ok">✓</span><span>Production comms with cue and alert message types, in the browser</span></li>
-            <li><span class="ok">✓</span><span>Device control for switchers, consoles, lights, and streaming software</span></li>
-            <li><span class="ok">✓</span><span>Crew check-in, pre-flight checklists, and show reports in the same place</span></li>
-          </ul>
+        <div class="hero-product">
+          <div class="orbit orbit-one" aria-hidden="true"></div>
+          <div class="orbit orbit-two" aria-hidden="true"></div>
+          <section class="show-console" aria-label="Interactive ShowPilot demo">
+            <div class="console-toolbar">
+              <img
+                class="console-mark"
+                src="/showpilot-logo.svg"
+                width="21"
+                height="21"
+                alt=""
+              /><span
+                >Sunday service <span class="muted">/</span>
+                <strong>Rundown</strong></span
+              ><span class="demo-label">TRY IT LIVE</span>
+            </div>
+            <div class="console-summary">
+              <div>
+                <span class="micro">CURRENT CUE</span>
+                <h2 id="demo-cue">Welcome</h2>
+                <span class="cue-owner">Alex Morgan <span>·</span> Stage</span>
+              </div>
+              <div class="clock-wrap">
+                <span class="status" id="demo-status">STAND BY</span
+                ><span id="demo-clock">04:32</span>
+              </div>
+            </div>
+            <div class="rundown-heading">
+              <span>RUN OF SHOW</span><span>DURATION</span>
+            </div>
+            <div class="demo-cues">
+              <button class="demo-cue" data-demo-cue="0" aria-current="false">
+                <span class="cue-index">01</span
+                ><span
+                  ><strong>Opening</strong
+                  ><small>House lights down · Audio ready</small></span
+                ><span class="cue-time">05:00</span
+                ><span class="cue-indicator" aria-hidden="true"></span>
+              </button>
+              <button class="demo-cue" data-demo-cue="1" aria-current="true">
+                <span class="cue-index">02</span
+                ><span
+                  ><strong>Welcome</strong
+                  ><small>Host to stage · Camera 1</small></span
+                ><span class="cue-time">05:00</span
+                ><span class="cue-indicator" aria-hidden="true"></span>
+              </button>
+              <button class="demo-cue" data-demo-cue="2" aria-current="false">
+                <span class="cue-index">03</span
+                ><span
+                  ><strong>Keynote</strong
+                  ><small>Presentation ready · Mic 2</small></span
+                ><span class="cue-time">08:00</span
+                ><span class="cue-indicator" aria-hidden="true"></span>
+              </button>
+              <button class="demo-cue" data-demo-cue="3" aria-current="false">
+                <span class="cue-index">04</span
+                ><span
+                  ><strong>Closing</strong
+                  ><small>Walk-out music · House lights</small></span
+                ><span class="cue-time">05:00</span
+                ><span class="cue-indicator" aria-hidden="true"></span>
+              </button>
+            </div>
+            <div class="console-controls">
+              <span><span class="signal-dot"></span> Interactive demo</span>
+              <div>
+                <button id="demo-reset" aria-label="Reset demo">↺</button
+                ><button id="demo-play">Play</button
+                ><button id="demo-next">
+                  Next cue <span aria-hidden="true">→</span>
+                </button>
+              </div>
+            </div>
+          </section>
+          <div class="crew-toast">
+            <span class="ready-icon" aria-hidden="true">✓</span>
+            <div>
+              <strong>Good to go.</strong
+              ><span>Audio, lighting &amp; stage are ready.</span>
+            </div>
+            <div class="avatar-stack" aria-hidden="true">
+              <i>AM</i><i>JL</i><i>SK</i>
+            </div>
+          </div>
+          <p class="demo-caption">
+            <span aria-hidden="true">↳</span> Your next cue is a click away. Try
+            it.
+          </p>
+          <p class="sr-only" role="status" id="demo-announcement"></p>
         </div>
-      </div>
-      <p class="stack-anchor">All of it costs <strong>less than renting one intercom beltpack for a weekend</strong>.</p>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Flat pricing strip -->
-    <section>
-      <div class="flat-strip">
-        <h2>Unlimited operators. No per-seat pricing, ever.</h2>
-        <p>
-          Volunteers rotate. Crews grow on Easter and shrink in July. Your bill
-          shouldn't notice — every ShowPilot plan is one flat price per
-          organization, with as many operators as you need.
-        </p>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Feature trio -->
-    <section id="features">
-      <div class="section-header">
-        <div class="section-label">What's inside</div>
-        <h2 class="section-title">Everything between "doors open" and "we're clear"</h2>
-      </div>
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon amber" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 2h6M12 2v3"/></svg></div>
-          <h3>Rundowns &amp; show clock</h3>
-          <p>Build the run of show once and run it live. Per-item timers, overtime alerts, hard stops, and a show clock every operator and stage display can see.</p>
-          <ul>
-            <li>Drag-and-drop rundown editor</li>
-            <li>Live / next / cued state at a glance</li>
-            <li>Stage timer &amp; confidence displays</li>
-          </ul>
+      </section>
+      <section class="tool-strip wrap" aria-label="Compatible tools">
+        <p>YOUR TOOLS.<br /><strong>WORKING TOGETHER.</strong></p>
+        <div>
+          <span>ProPresenter</span><span class="ontime-logo">ontime</span
+          ><span>OBS<span class="tool-suffix"> Studio</span></span
+          ><span class="atem-logo">ATEM</span><span>vMix</span
+          ><span>Companion</span>
         </div>
-        <div class="feature-card">
-          <div class="feature-icon green" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-          <h3>Crew &amp; check-in</h3>
-          <p>Know who's in the building before doors. Crew check in by QR code — no accounts needed — and leads see their teams fill in live.</p>
-          <ul>
-            <li>QR check-in for volunteers</li>
-            <li>Teams, roles &amp; lead views</li>
-            <li>Pre-flight checklists &amp; show reports</li>
-          </ul>
+      </section>
+
+      <section class="workflow-section" id="product">
+        <div class="wrap">
+          <div class="section-top">
+            <p class="eyebrow">01 / FROM FIRST PLAN TO FINAL CUE</p>
+            <span class="section-side-note"
+              >A little less scramble. A lot more show.</span
+            >
+          </div>
+          <div class="workflow-layout">
+            <div class="workflow-copy">
+              <h2>Everyone knows<br />what happens <em>next.</em></h2>
+              <p>
+                A plan your crew can follow. A clock everyone can see. And the
+                right information, right when it matters.
+              </p>
+              <div
+                class="workflow-tabs"
+                role="tablist"
+                aria-label="Explore the show workflow"
+                aria-orientation="vertical"
+              >
+                <button
+                  id="tab-plan"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="panel-plan"
+                  data-workflow="plan"
+                >
+                  <span class="step-number">01</span
+                  ><span
+                    ><strong>Make the plan.</strong
+                    ><small
+                      >Build the rundown. Give every cue a place.</small
+                    ></span
+                  ><span class="step-arrow" aria-hidden="true">↗</span>
+                </button>
+                <button
+                  id="tab-crew"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-crew"
+                  tabindex="-1"
+                  data-workflow="crew"
+                >
+                  <span class="step-number">02</span
+                  ><span
+                    ><strong>Bring the crew.</strong
+                    ><small>Set the call time. See who's ready.</small></span
+                  ><span class="step-arrow" aria-hidden="true">↗</span>
+                </button>
+                <button
+                  id="tab-live"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-live"
+                  tabindex="-1"
+                  data-workflow="live"
+                >
+                  <span class="step-number">03</span
+                  ><span
+                    ><strong>Run the show.</strong
+                    ><small
+                      >Keep the room moving, one cue at a time.</small
+                    ></span
+                  ><span class="step-arrow" aria-hidden="true">↗</span>
+                </button>
+              </div>
+            </div>
+            <div class="workflow-preview">
+              <div class="preview-window">
+                <div class="window-bar">
+                  <span><i></i><i></i><i></i></span
+                  ><span>ShowPilot / Sunday service</span
+                  ><span class="example-label">EXAMPLE</span>
+                </div>
+                <div
+                  id="panel-plan"
+                  role="tabpanel"
+                  aria-labelledby="tab-plan"
+                  tabindex="0"
+                >
+                  <div class="preview-heading">
+                    <div>
+                      <span class="micro">THE PLAN</span>
+                      <h3>Sunday, all lined up.</h3>
+                    </div>
+                    <span class="pill">4 cues</span>
+                  </div>
+                  <div class="plan-date">
+                    <span class="calendar-number">25<small>OCT</small></span>
+                    <div>
+                      <strong>Sunday service</strong
+                      ><span>10:00 AM · Main auditorium</span>
+                    </div>
+                  </div>
+                  <div class="plan-rows">
+                    <div>
+                      <time>10:00</time><span class="plan-line"></span
+                      ><span>Opening<small>Audio &amp; lighting</small></span
+                      ><b>05:00</b>
+                    </div>
+                    <div>
+                      <time>10:05</time><span class="plan-line"></span
+                      ><span>Welcome<small>Alex Morgan</small></span
+                      ><b>05:00</b>
+                    </div>
+                    <div>
+                      <time>10:10</time><span class="plan-line"></span
+                      ><span
+                        >Keynote<small>Stage &amp; presentation</small></span
+                      ><b>08:00</b>
+                    </div>
+                    <div>
+                      <time>10:18</time><span class="plan-line"></span
+                      ><span>Closing<small>All departments</small></span
+                      ><b>05:00</b>
+                    </div>
+                  </div>
+                  <div class="preview-foot">
+                    <span>One rundown. A shared plan.</span
+                    ><span aria-hidden="true">↗</span>
+                  </div>
+                </div>
+                <div
+                  id="panel-crew"
+                  role="tabpanel"
+                  aria-labelledby="tab-crew"
+                  tabindex="0"
+                  hidden
+                >
+                  <div class="preview-heading">
+                    <div>
+                      <span class="micro">THE PEOPLE</span>
+                      <h3>Your crew, accounted for.</h3>
+                    </div>
+                    <span class="pill green">3 checked in</span>
+                  </div>
+                  <div class="crew-list">
+                    <div>
+                      <i>AM</i
+                      ><span
+                        ><strong>Alex Morgan</strong
+                        ><small>Stage manager</small></span
+                      ><b>✓ Ready</b>
+                    </div>
+                    <div>
+                      <i>JL</i
+                      ><span
+                        ><strong>Jordan Lee</strong><small>Audio</small></span
+                      ><b>✓ Ready</b>
+                    </div>
+                    <div>
+                      <i>SK</i
+                      ><span
+                        ><strong>Sam Kim</strong><small>Lighting</small></span
+                      ><b>✓ Ready</b>
+                    </div>
+                    <div class="crew-call">
+                      <span class="micro">CREW CALL</span
+                      ><strong>9:00 AM</strong
+                      ><span>Main auditorium · Sound check</span>
+                    </div>
+                  </div>
+                  <div class="preview-foot">
+                    <span>Check in by QR. No account needed.</span
+                    ><span aria-hidden="true">↗</span>
+                  </div>
+                </div>
+                <div
+                  id="panel-live"
+                  role="tabpanel"
+                  aria-labelledby="tab-live"
+                  tabindex="0"
+                  hidden
+                >
+                  <div class="preview-heading">
+                    <div>
+                      <span class="micro">THE MOMENT</span>
+                      <h3>Keep everyone in time.</h3>
+                    </div>
+                    <span class="pill green">Stage display</span>
+                  </div>
+                  <div class="stage-preview">
+                    <span class="micro">WELCOME</span
+                    ><strong data-stage-clock>04:32</strong>
+                    <div>
+                      <span>UP NEXT</span><b data-stage-next>Keynote</b>
+                    </div>
+                    <p>Wrap up after the welcome.</p>
+                  </div>
+                  <div class="preview-foot">
+                    <span>The stage clock follows the demo above.</span
+                    ><span aria-hidden="true">↗</span>
+                  </div>
+                </div>
+              </div>
+              <p class="preview-caption">
+                Built for the booth. Clear enough for the whole crew.
+              </p>
+            </div>
+          </div>
         </div>
-        <div class="feature-card">
-          <div class="feature-icon blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
-          <h3>Device control &amp; integrations</h3>
-          <p>Bring your own stack — ShowPilot connects to it. ProPresenter, OBS, vMix, ATEM, X32, OnTime, Slack, and more. No stack? The native tools are built in.</p>
-          <ul>
-            <li>20+ device &amp; software integrations</li>
-            <li>Lower thirds to OBS / vMix overlays</li>
-            <li>Works on 5 Mbps venue Wi-Fi</li>
-          </ul>
+      </section>
+
+      <section class="integrations-section wrap" id="integrations">
+        <div class="integration-copy">
+          <p class="eyebrow">02 / KEEP WHAT WORKS</p>
+          <h2>Your setup.<br />Now in <em>sync.</em></h2>
+          <p>
+            You already have tools you love. Connect your presentation, timing,
+            and production equipment to ShowPilot. Bring the plan together
+            around them.
+          </p>
+          <a class="text-link" href="#downloads"
+            >Meet ShowPilot Bridge <span aria-hidden="true">↗</span></a
+          >
+          <p class="integration-note">
+            Starting fresh? Rundowns, timers, crew check-in, and chat are built
+            in.
+          </p>
         </div>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Downloads -->
-    <section id="downloads">
-      <div class="section-header">
-        <div class="section-label">Downloads</div>
-        <h2 class="section-title">Use ShowPilot wherever the show happens</h2>
-        <p class="section-sub">Run the full product in a browser, on desktop, or in the native mobile app. Add Bridge only when remote operators need secure access to equipment on the venue network.</p>
-      </div>
-      <div class="download-grid">
-        <article class="download-card primary">
-          <div class="download-card-head">
-            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
-            <div><h3>Web app</h3><p class="download-status">AVAILABLE NOW</p></div>
+        <div
+          class="integration-map"
+          aria-label="ShowPilot connects presentation, timing, video and audio tools"
+        >
+          <svg
+            class="connection-lines"
+            viewBox="0 0 600 400"
+            aria-hidden="true"
+          >
+            <path
+              d="M100 90H210Q250 90 250 130V200H300M500 90H390Q350 90 350 130V200H300M100 310H210Q250 310 250 270V200H300M500 310H390Q350 310 350 270V200H300M100 200H500"
+            />
+          </svg>
+          <div class="integration-node node-one">
+            <span>Pr</span><strong>ProPresenter</strong
+            ><small>PRESENTATION</small>
           </div>
-          <p class="download-copy">The complete ShowPilot product on any current browser. Nothing to install, and every operator stays in sync.</p>
-          <div class="download-options">
-            <a class="download-option" href="{{appUrl}}">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-              <span><strong>Open ShowPilot</strong><small>WEB · PHONE · TABLET · COMPUTER</small></span>
-            </a>
+          <div class="integration-node node-two">
+            <span>◷</span><strong>OnTime</strong><small>SHOW TIMING</small>
           </div>
-        </article>
-
-        <article class="download-card">
-          <div class="download-card-head">
-            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-            <div><h3>ShowPilot Desktop</h3><p class="download-status" data-product-status="desktop" aria-live="polite">CHECKING RELEASES</p></div>
+          <div class="integration-node node-three">
+            <span>◎</span><strong>OBS Studio</strong><small>STREAMING</small>
           </div>
-          <p class="download-copy">The full web app in a native desktop shell, with local device control, system notifications, and venue-ready capabilities.</p>
-          <div class="download-options">
-            <a class="download-option is-unavailable" data-download-id="desktop-macos-arm64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Apple Silicon</strong><small>CHECKING RELEASE</small></span></a>
-            <a class="download-option is-unavailable" data-download-id="desktop-macos-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Intel</strong><small>CHECKING RELEASE</small></span></a>
-            <a class="download-option is-unavailable" data-download-id="desktop-windows-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"/></svg><span><strong>Windows · 64-bit</strong><small>CHECKING RELEASE</small></span></a>
+          <div class="integration-center">
+            <img
+              src="/showpilot-logo.svg"
+              width="43"
+              height="43"
+              alt=""
+            /><strong>ShowPilot</strong>
           </div>
-        </article>
-
-        <article class="download-card">
-          <div class="download-card-head">
-            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 12h4a3 3 0 0 0 3-3V7M14 15v2a2 2 0 0 0 2 2h1"/></svg></div>
-            <div><h3>ShowPilot Bridge</h3><p class="download-status" data-product-status="bridge" aria-live="polite">CHECKING RELEASES</p></div>
+          <div class="integration-node node-four">
+            <span>▦</span><strong>ATEM</strong><small>VIDEO</small>
           </div>
-          <p class="download-copy">Install on one venue computer when off-site operators need to reach ATEM, Wing, ProPresenter, and other local equipment.</p>
-          <div class="download-options">
-            <a class="download-option is-unavailable" data-download-id="bridge-macos-arm64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Apple Silicon</strong><small>CHECKING RELEASE</small></span></a>
-            <a class="download-option is-unavailable" data-download-id="bridge-macos-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span><strong>macOS · Intel</strong><small>CHECKING RELEASE</small></span></a>
-            <a class="download-option is-unavailable" data-download-id="bridge-windows-x64" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"/></svg><span><strong>Windows · 64-bit</strong><small>CHECKING RELEASE</small></span></a>
+          <div class="integration-node node-five">
+            <span>≋</span><strong>X32 / Wing</strong><small>AUDIO</small>
           </div>
-        </article>
-
-        <article class="download-card">
-          <div class="download-card-head">
-            <div class="download-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg></div>
-            <div><h3>ShowPilot Mobile</h3><p class="download-status" data-product-status="mobile" aria-live="polite">CHECKING RELEASES</p></div>
+          <div class="integration-node node-six">
+            <span>⌘</span><strong>Companion</strong><small>CONTROL</small>
           </div>
-          <p class="download-copy">The native iOS and Android command app for live rundowns, crew calls, chat, incidents, notifications, and secure remote equipment control.</p>
-          <div class="download-options">
-            <a class="download-option is-unavailable" data-download-id="mobile-ios" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg><span><strong>iPhone &amp; iPad</strong><small>CHECKING APP STORE</small></span></a>
-            <a class="download-option is-unavailable" data-download-id="mobile-android" aria-disabled="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6 6.5 3.5M16 6l1.5-2.5M6 9h12v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM4 10v7M20 10v7M9 20v2M15 20v2"/></svg><span><strong>Android phones &amp; tablets</strong><small>CHECKING GOOGLE PLAY</small></span></a>
-          </div>
-        </article>
-      </div>
-      <div class="mobile-note">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg>
-        <p><strong style="color:var(--text)">Need access before the store release?</strong> The responsive web app remains available on every current phone and tablet. Native store buttons activate only after each reviewed build is public.</p>
-        <a href="{{appUrl}}">Open ShowPilot on mobile →</a>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Pricing -->
-    <section id="pricing">
-      <div class="section-header">
-        <div class="section-label">Pricing</div>
-        <h2 class="section-title">One flat price per organization</h2>
-        <p class="section-sub">Every plan includes unlimited operators. Start with a free trial — pick a plan when your team is ready.</p>
-      </div>
-
-      <!-- Founding member banner -->
-      <div class="founding-banner">
-        <div class="fb-text">
-          <h3>Founding member rate: <span>${{founding.monthly}}/mo for life</span></h3>
-          <p>{{founding.tagline}} — limited to teams who join during the launch window.</p>
         </div>
-        <a href="{{signupUrl}}&plan=founding" class="cta-primary" data-cta>Claim the founding rate</a>
-      </div>
+      </section>
 
-      <div class="pricing-grid">
-        <div class="price-card">
-          <h3>{{starter.name}}</h3>
-          <div class="price-amount">${{starter.monthly}}<span> / month</span></div>
-          <p class="price-tagline">{{starter.tagline}}</p>
-          <ul>
+      <section class="downloads-section wrap" id="downloads">
+        <div class="section-header">
+          <div class="section-label">03 / WHEREVER THE SHOW HAPPENS</div>
+          <h2 class="section-title">At the desk. In the booth. On the go.</h2>
+          <p class="section-sub">
+            Run the full product in a browser, on desktop, or in the native
+            mobile app. Add Bridge only when remote operators need secure access
+            to equipment on the venue network.
+          </p>
+        </div>
+        <div class="download-grid">
+          <article class="download-card primary">
+            <div class="download-card-head">
+              <div class="download-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8M12 17v4" />
+                </svg>
+              </div>
+              <div>
+                <h3>Web app</h3>
+                <p class="download-status">AVAILABLE NOW</p>
+              </div>
+            </div>
+            <p class="download-copy">
+              The complete ShowPilot product on any current browser. Nothing to
+              install, and every operator stays in sync.
+            </p>
+            <div class="download-options">
+              <a class="download-option" href="{{appUrl}}">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15 3h6v6M10 14 21 3" />
+                  <path
+                    d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+                  />
+                </svg>
+                <span
+                  ><strong>Open ShowPilot</strong
+                  ><small>WEB · PHONE · TABLET · COMPUTER</small></span
+                >
+              </a>
+            </div>
+          </article>
+
+          <article class="download-card">
+            <div class="download-card-head">
+              <div class="download-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="12" rx="2" />
+                  <path d="M8 20h8M12 16v4" />
+                </svg>
+              </div>
+              <div>
+                <h3>ShowPilot Desktop</h3>
+                <p
+                  class="download-status"
+                  data-product-status="desktop"
+                  aria-live="polite"
+                >
+                  CHECKING RELEASES
+                </p>
+              </div>
+            </div>
+            <p class="download-copy">
+              The full web app in a native desktop shell, with local device
+              control, system notifications, and venue-ready capabilities.
+            </p>
+            <div class="download-options">
+              <a
+                class="download-option is-unavailable"
+                data-download-id="desktop-macos-arm64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" /></svg
+                ><span
+                  ><strong>macOS · Apple Silicon</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+              <a
+                class="download-option is-unavailable"
+                data-download-id="desktop-macos-x64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" /></svg
+                ><span
+                  ><strong>macOS · Intel</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+              <a
+                class="download-option is-unavailable"
+                data-download-id="desktop-windows-x64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"
+                  /></svg
+                ><span
+                  ><strong>Windows · 64-bit</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+            </div>
+          </article>
+
+          <article class="download-card">
+            <div class="download-card-head">
+              <div class="download-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="19" cy="5" r="2" />
+                  <circle cx="19" cy="19" r="2" />
+                  <path d="M7 12h4a3 3 0 0 0 3-3V7M14 15v2a2 2 0 0 0 2 2h1" />
+                </svg>
+              </div>
+              <div>
+                <h3>ShowPilot Bridge</h3>
+                <p
+                  class="download-status"
+                  data-product-status="bridge"
+                  aria-live="polite"
+                >
+                  CHECKING RELEASES
+                </p>
+              </div>
+            </div>
+            <p class="download-copy">
+              Install on one venue computer when off-site operators need to
+              reach ATEM, Wing, ProPresenter, and other local equipment.
+            </p>
+            <div class="download-options">
+              <a
+                class="download-option is-unavailable"
+                data-download-id="bridge-macos-arm64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" /></svg
+                ><span
+                  ><strong>macOS · Apple Silicon</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+              <a
+                class="download-option is-unavailable"
+                data-download-id="bridge-macos-x64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="13" rx="2" />
+                  <path d="M8 21h8M12 17v4" /></svg
+                ><span
+                  ><strong>macOS · Intel</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+              <a
+                class="download-option is-unavailable"
+                data-download-id="bridge-windows-x64"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 5.5 10.5 4v7H3zM13 3.5 21 2v9h-8zM3 13h7.5v7L3 18.5zM13 13h8v9l-8-1.5z"
+                  /></svg
+                ><span
+                  ><strong>Windows · 64-bit</strong
+                  ><small>CHECKING RELEASE</small></span
+                ></a
+              >
+            </div>
+          </article>
+
+          <article class="download-card">
+            <div class="download-card-head">
+              <div class="download-card-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <rect x="6" y="2" width="12" height="20" rx="2" />
+                  <path d="M10 18h4" />
+                </svg>
+              </div>
+              <div>
+                <h3>ShowPilot Mobile</h3>
+                <p
+                  class="download-status"
+                  data-product-status="mobile"
+                  aria-live="polite"
+                >
+                  CHECKING RELEASES
+                </p>
+              </div>
+            </div>
+            <p class="download-copy">
+              The native iOS and Android command app for live rundowns, crew
+              calls, chat, incidents, notifications, and secure remote equipment
+              control.
+            </p>
+            <div class="download-options">
+              <a
+                class="download-option is-unavailable"
+                data-download-id="mobile-ios"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="6" y="2" width="12" height="20" rx="2" />
+                  <path d="M10 18h4" /></svg
+                ><span
+                  ><strong>iPhone &amp; iPad</strong
+                  ><small>CHECKING APP STORE</small></span
+                ></a
+              >
+              <a
+                class="download-option is-unavailable"
+                data-download-id="mobile-android"
+                aria-disabled="true"
+                ><svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M8 6 6.5 3.5M16 6l1.5-2.5M6 9h12v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM4 10v7M20 10v7M9 20v2M15 20v2"
+                  /></svg
+                ><span
+                  ><strong>Android phones &amp; tablets</strong
+                  ><small>CHECKING GOOGLE PLAY</small></span
+                ></a
+              >
+            </div>
+          </article>
+        </div>
+        <div class="mobile-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="6" y="2" width="12" height="20" rx="2" />
+            <path d="M10 18h4" />
+          </svg>
+          <p>
+            <strong style="color: var(--text)"
+              >Need access before the store release?</strong
+            >
+            The responsive web app remains available on every current phone and
+            tablet. Native store buttons activate only after each reviewed build
+            is public.
+          </p>
+          <a href="{{appUrl}}">Open ShowPilot on mobile →</a>
+        </div>
+      </section>
+
+      <section class="pricing-section wrap" id="pricing">
+        <div class="section-top">
+          <p class="eyebrow">04 / ROOM FOR YOUR WHOLE TEAM</p>
+          <span class="section-side-note">Monthly pricing in USD</span>
+        </div>
+        <div class="pricing-heading">
+          <h2>A great show starts<br />with a <em>simple plan.</em></h2>
+          <p>
+            One subscription for your organization.<br />Start with a free trial
+            and find your fit.
+          </p>
+        </div>
+        <div class="pricing-grid">
+          <article class="price-card">
+            <p class="micro">{{starter.name}}</p>
+            <p class="price-amount">${{starter.monthly}}<span>/ month</span></p>
+            <p class="price-tagline">{{starter.tagline}}</p>
+            <a
+              class="button outline"
+              href="{{signupUrl}}&amp;plan=starter"
+              data-cta
+              >Start with {{starter.name}} <span aria-hidden="true">↗</span></a
+            >
+            <ul>
               {{starter.features}}
-          </ul>
-          <a href="{{signupUrl}}&plan=starter" class="price-cta outline" data-cta>Start with {{starter.name}}</a>
-        </div>
-        <div class="price-card highlight">
-          <div class="price-pill">Most popular</div>
-          <h3>{{pro.name}}</h3>
-          <div class="price-amount">${{pro.monthly}}<span> / month</span></div>
-          <p class="price-tagline">{{pro.tagline}}</p>
-          <ul>
+            </ul>
+          </article>
+          <article class="price-card pro">
+            <p class="micro">
+              {{pro.name}} <span class="plan-tag">MORE ROOM TO GROW</span>
+            </p>
+            <p class="price-amount">${{pro.monthly}}<span>/ month</span></p>
+            <p class="price-tagline">For larger teams and fuller calendars</p>
+            <a class="button primary" href="{{signupUrl}}&amp;plan=pro" data-cta
+              >Start with {{pro.name}} <span aria-hidden="true">↗</span></a
+            >
+            <ul>
               {{pro.features}}
-          </ul>
-          <a href="{{signupUrl}}&plan=pro" class="price-cta solid" data-cta>Start with {{pro.name}}</a>
+            </ul>
+          </article>
+          <article class="founding-card">
+            <span class="founding-icon" aria-hidden="true">✳</span>
+            <p class="micro">THE EARLY CREW</p>
+            <h3>Be a founding<br />member.</h3>
+            <p>
+              Everything in Pro. A thank-you rate for teams joining during our
+              launch window.
+            </p>
+            <p class="founding-price">
+              ${{founding.monthly}}<span>/ month for life*</span>
+            </p>
+            <a class="text-link" href="{{signupUrl}}&amp;plan=founding" data-cta
+              >Claim the founding rate <span aria-hidden="true">↗</span></a
+            ><small>*While your subscription stays active.</small>
+          </article>
         </div>
-      </div>
+        <p class="pricing-note">{{annualNote}}.</p>
+      </section>
 
-      <div class="pricing-notes">
-        <span>{{annualNote}}.</span>
-        <span>Unlimited operators on every plan. Cancel anytime — your data stays exportable.</span>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- Final CTA -->
-    <section class="final-cta">
-      <div class="section-header" style="margin-bottom:0">
-        <div class="section-label">Get started</div>
-        <h2 class="section-title">Your next show can run on ShowPilot</h2>
-        <p class="section-sub">Sign up, pick a show template, and walk through a five-minute setup. Most teams are show-ready the same day.</p>
-      </div>
-      <div class="cta-row">
-        <a href="{{signupUrl}}" class="cta-primary" data-cta>Start your free trial</a>
-        <a href="{{signupUrl}}&plan=founding" class="cta-secondary" data-cta>Lock in ${{founding.monthly}}/mo for life</a>
-      </div>
-    </section>
-
-    <hr class="divider" />
-
-    <!-- FAQ -->
-    <section id="faq">
-      <div class="section-header">
-        <div class="section-label">FAQ</div>
-        <h2 class="section-title">Questions teams ask before switching</h2>
-      </div>
-      <div class="faq-list">
-        <details>
-          <summary>Do our volunteers need accounts?</summary>
-          <p>No. Crew check in by scanning a QR code — no account, no app install, no password. Accounts are only needed for operators who run the show (and every plan includes unlimited operators).</p>
-        </details>
-        <details>
-          <summary>Can we keep ProPresenter, OBS, and the rest of our gear?</summary>
-          <p>Yes — that's the point. ShowPilot is an integration layer first: it connects to ProPresenter, OBS, vMix, Blackmagic ATEM, Behringer X32/Wing, OnTime, Slack, Mattermost, Teams, Discord, and more. Where you don't have a tool, ShowPilot's native features fill in.</p>
-        </details>
-        <details>
-          <summary>What do we need to install?</summary>
-          <p>Nothing for most teams — ShowPilot runs in the browser on any laptop or tablet. Controlling local hardware (like ProPresenter on your venue network) uses a small bridge app on one machine; everything else is fully cloud-based.</p>
-        </details>
-        <details>
-          <summary>Our venue internet is bad. Will it work?</summary>
-          <p>ShowPilot is built for 5 Mbps venue Wi-Fi. Operator actions sync to every screen in under 300 ms on a normal connection, and the interface is designed to degrade gracefully — you never lose your rundown mid-show.</p>
-        </details>
-        <details>
-          <summary>What does per-organization pricing mean?</summary>
-          <p>One subscription covers your whole organization: every operator, every volunteer, every device. There is no per-seat math and adding crew never raises your bill.</p>
-        </details>
-        <details>
-          <summary>Is the founding member rate really locked for life?</summary>
-          <p>Yes. Teams that subscribe at the founding rate of ${{founding.monthly}}/mo during the launch window keep that price for as long as the subscription stays active — it includes everything in {{pro.name}}.</p>
-        </details>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <footer>
-      <div class="footer-grid">
-        <a class="logo" href="/"><span class="logo-fire">Show</span>Pilot</a>
-        <div class="footer-links">
-          <a href="#features">Features</a>
-          <a href="#downloads">Downloads</a>
-          <a href="#pricing">Pricing</a>
-          <a href="{{appUrl}}/terms">Terms of Service</a>
-          <a href="{{appUrl}}/privacy">Privacy Policy</a>
-          <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>
-          <a href="{{loginUrl}}">Sign in</a>
+      <section class="faq-section wrap" id="faq">
+        <div>
+          <p class="eyebrow">A FEW THINGS, BEFORE YOU GO</p>
+          <h2>Good questions.</h2>
+          <p>
+            Still have one?
+            <a href="mailto:{{supportEmail}}"
+              >Let's talk <span aria-hidden="true">↗</span></a
+            >
+          </p>
         </div>
+        <div class="faq-list">
+          <details>
+            <summary>
+              Is ShowPilot just for churches?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              ShowPilot is built for churches and live event teams. Use it to
+              coordinate a weekly service, a conference, or a production with a
+              shared rundown and crew.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Do our volunteers need accounts?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              Crew can check in by scanning a QR code, without an account or an
+              app install. Operators sign in to plan and run the show.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Can we keep the tools we already use?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Yes. Connect tools like ProPresenter, OnTime, OBS, ATEM, and X32
+              or Wing. ShowPilot also has its own rundowns, timers, crew
+              check-in, and chat.
+            </p>
+          </details>
+          <details>
+            <summary>
+              What do we need to install?<span aria-hidden="true">+</span>
+            </summary>
+            <p>
+              You can use ShowPilot in a browser on a laptop or tablet. To
+              connect to equipment on your venue network, run ShowPilot Bridge
+              on a venue computer. ShowPilot Desktop also supports local device
+              control.
+            </p>
+          </details>
+          <details>
+            <summary>
+              How does the founding member rate work?<span aria-hidden="true"
+                >+</span
+              >
+            </summary>
+            <p>
+              Teams that subscribe during the launch window get the Pro plan for
+              ${{founding.monthly}} per month. That price stays the same for as
+              long as the subscription stays active.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="closing-section">
+        <div class="wrap">
+          <p class="eyebrow">THE NEXT SHOW IS YOURS.</p>
+          <h2>
+            Ready when<br /><span>you are.</span
+            ><span class="closing-star" aria-hidden="true">✳</span>
+          </h2>
+          <div class="closing-bottom">
+            <p>Bring your crew.<br />We'll help you bring it together.</p>
+            <a class="button primary" href="{{signupUrl}}" data-cta
+              >Start your free trial <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="site-footer wrap">
+      <div class="footer-top">
+        <a class="brand" href="/" aria-label="ShowPilot home"
+          ><img
+            class="brand-symbol"
+            src="/showpilot-logo.svg"
+            width="28"
+            height="28"
+            alt=""
+          />
+          ShowPilot<span class="brand-dot">.</span></a
+        >
+        <p>For the people behind the show.</p>
+        <a href="mailto:{{supportEmail}}"
+          >{{supportEmail}} <span aria-hidden="true">↗</span></a
+        >
       </div>
-      <p class="footer-line">ShowPilot — run your show, not your software. Built for live production teams.</p>
+      <div class="footer-bottom">
+        <span>© <span id="copyright-year">2026</span> ShowPilot</span>
+        <nav aria-label="Footer">
+          <a href="#product">Product</a><a href="#downloads">Downloads</a
+          ><a href="{{appUrl}}/privacy">Privacy</a
+          ><a href="{{appUrl}}/terms">Terms</a
+          ><a href="{{loginUrl}}" data-cta>Sign in</a>
+        </nav>
+        <span class="footer-signoff"
+          ><span class="signal-dot"></span> All set for what's next.</span
+        >
+      </div>
     </footer>
-  </div>
-
-  <script>
-    // UTM passthrough: carry attribution params from this page's URL onto
-    // every CTA into the app, so PostHog (when enabled) can attribute signups.
-    (function () {
-      var params = new URLSearchParams(location.search);
-      var carried = new URLSearchParams();
-      params.forEach(function (value, key) {
-        if (key.indexOf("utm_") === 0 || key === "ref") carried.set(key, value);
-      });
-      if (![...carried.keys()].length) return;
-      document.querySelectorAll("a[data-cta], a.nav-signin").forEach(function (a) {
-        try {
-          var url = new URL(a.href);
-          carried.forEach(function (value, key) { url.searchParams.set(key, value); });
-          a.href = url.toString();
-        } catch (e) { /* leave non-URL hrefs alone */ }
-      });
-    })();
-
-    // Download buttons stay inert until the Worker confirms a published R2
-    // release. This prevents private GitHub links and half-uploaded artifacts
-    // from becoming public 404s.
-    (function () {
-      var buttons = Array.prototype.slice.call(document.querySelectorAll("[data-download-id]"));
-      if (!buttons.length) return;
-
-      buttons.forEach(function (button) {
-        button.addEventListener("click", function (event) {
-          if (button.getAttribute("aria-disabled") === "true") event.preventDefault();
-        });
-      });
-
-      function formatBytes(bytes) {
-        if (!Number.isFinite(bytes) || bytes <= 0) return "DOWNLOAD";
-        return (bytes / 1024 / 1024).toFixed(bytes > 10 * 1024 * 1024 ? 0 : 1) + " MB";
-      }
-
-      fetch("/downloads/manifest.json", { headers: { Accept: "application/json" } })
-        .then(function (response) {
-          if (!response.ok) throw new Error("release manifest unavailable");
-          return response.json();
-        })
-        .then(function (manifest) {
-          var releases = Array.isArray(manifest.releases) ? manifest.releases : [];
-          var byId = new Map(releases.map(function (release) { return [release.id, release]; }));
-          buttons.forEach(function (button) {
-            var release = byId.get(button.getAttribute("data-download-id"));
-            var meta = button.querySelector("small");
-            if (!release || typeof release.downloadUrl !== "string") {
-              if (meta) meta.textContent = "NOT YET PUBLIC";
-              return;
-            }
-            button.href = release.downloadUrl;
-            button.classList.remove("is-unavailable");
-            button.removeAttribute("aria-disabled");
-            if (meta) meta.textContent = String(release.version).toUpperCase() + " · " + (release.kind === "store" ? (release.platform === "iOS" ? "APP STORE" : "GOOGLE PLAY") : formatBytes(release.size));
-          });
-          ["desktop", "bridge", "mobile"].forEach(function (product) {
-            var available = releases.filter(function (release) {
-              return release.product === product && buttons.some(function (button) {
-                return button.getAttribute("data-download-id") === release.id;
-              });
-            });
-            var status = document.querySelector('[data-product-status="' + product + '"]');
-            if (!status) return;
-            if (!available.length) {
-              status.textContent = "NOT YET PUBLIC";
-              return;
-            }
-            var statuses = Array.from(new Set(available.map(function (release) { return String(release.status).toUpperCase(); })));
-            var versions = Array.from(new Set(available.map(function (release) { return String(release.version).toUpperCase(); })));
-            status.textContent = (statuses.length === 1 ? statuses[0] : "AVAILABLE") + (versions.length === 1 ? " · " + versions[0] : "");
-          });
-        })
-        .catch(function () {
-          document.querySelectorAll("[data-product-status]").forEach(function (status) {
-            status.textContent = "STATUS UNAVAILABLE";
-          });
-          buttons.forEach(function (button) {
-            var meta = button.querySelector("small");
-            if (meta) meta.textContent = "CHECK BACK SOON";
-          });
-        });
-    })();
-  </script>
-</body>
+    <script type="module" src="/landing.js"></script>
+    <script src="/downloads.js" defer></script>
+  </body>
 </html>

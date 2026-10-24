@@ -13,8 +13,12 @@
 		"smoke": "node scripts/smoke-release-site.mjs"
 	},
 	"devDependencies": {
+		"esbuild": "0.28.1",
 		"typescript": "^5.7.2",
 		"vitest": "^4.1.11",
 		"wrangler": "4.127.0"
+	},
+	"dependencies": {
+		"three": "^0.186.1"
 	}
 }

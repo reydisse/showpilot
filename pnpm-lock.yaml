@@ -134,7 +134,14 @@ importers:
         version: 5.9.3
 
   apps/landing:
+    dependencies:
+      three:
+        specifier: ^0.186.1
+        version: 0.186.1
     devDependencies:
+      esbuild:
+        specifier: 0.28.1
+        version: 0.28.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -8651,6 +8658,9 @@ packages:
   threadedclass@1.4.0:
     resolution: {integrity: sha512-A/eDdLKNCyDxWDWIm7SBp2vMkkoDrsQC+iaunyfFj0dXI0+3ivxZ8/0cLVzribSylfy8ebFS+cThcOxyx3Wv7w==}
     engines: {node: '>=8.0'}
+
+  three@0.186.1:
+    resolution: {integrity: sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==}
 
   throat@5.0.0:
     resolution: {integrity: sha512-fcwX4mndzpLQKBS1DVYhGAcYaYt7vsHNIvQV+WXMvnow5cgjPphq5CaayLaGsjRdSCKZFNGt7/GYAuXaNOiYCA==}
@@ -19654,6 +19664,8 @@ snapshots:
       eventemitter3: 4.0.7
       is-running: 2.1.0
       tslib: 1.14.1
+
+  three@0.186.1: {}
 
   throat@5.0.0: {}
 
