@@ -1,25 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { SignInShell } from "@/components/auth/SignInShell";
+import { getSignInDesign } from "@/lib/signin-design";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 
 export const Route = createFileRoute("/_auth/login")({
   // ?signup=1 opens the page in sign-up mode — the landing page's CTAs land
   // here. Unknown params (utm_*) pass through untouched for analytics.
-  validateSearch: (search: Record<string, unknown>): { signup?: 1; returnTo?: string } => {
-    const signup = search.signup === "1" || search.signup === 1 ? 1 as const : undefined;
-    const returnTo = typeof search.returnTo === "string" && /^\/delete-account(?:\?token=[A-Za-z0-9]+)?$/.test(search.returnTo)
-      ? search.returnTo
-      : undefined;
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { signup?: 1; returnTo?: string } => {
+    const signup =
+      search.signup === "1" || search.signup === 1 ? (1 as const) : undefined;
+    const returnTo =
+      typeof search.returnTo === "string" &&
+      /^\/delete-account(?:\?token=[A-Za-z0-9]+)?$/.test(search.returnTo)
+        ? search.returnTo
+        : undefined;
     return { ...(signup ? { signup } : {}), ...(returnTo ? { returnTo } : {}) };
   },
+  loader: () => ({ design: getSignInDesign(new Date()) }),
   component: LoginPage,
 });
 
 function LoginPage() {
   const { signup, returnTo } = Route.useSearch();
+  const { design } = Route.useLoaderData();
   const [isSignUp, setIsSignUp] = useState(Boolean(signup));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,186 +45,158 @@ function LoginPage() {
     try {
       if (isSignUp) {
         const result = await authClient.signUp.email({ email, password, name });
-        if (result.error) throw new Error(`[${result.error.code ?? "ERR"}] ${result.error.message}`);
+        if (result.error)
+          throw new Error(
+            `[${result.error.code ?? "ERR"}] ${result.error.message}`,
+          );
         window.location.href = returnTo ?? "/";
       } else {
         const result = await authClient.signIn.email({ email, password });
-        if (result.error) throw new Error(result.error.message ?? "Sign in failed");
+        if (result.error)
+          throw new Error(result.error.message ?? "Sign in failed");
         window.location.href = returnTo ?? "/";
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : String(err)
-      );
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="animate-float-in">
-      {/* Logo & Brand */}
-      <div className="mb-8 flex flex-col items-center">
-        <h1 className="text-3xl font-bold tracking-tight">
-          <span className="text-fire-500">Show</span>
-          <span className="text-board-text">Pilot</span>
-        </h1>
-        <p className="mt-1 text-sm tracking-widest uppercase text-board-muted">
-          Production Board
-        </p>
-      </div>
-
-      {/* Card */}
-      <div className="auth-signin-card rounded-2xl border border-board-border bg-board-card/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
-        <h2 className="mb-6 text-center text-xl font-semibold text-board-text">
-          {isSignUp ? "Create your account" : "Welcome back"}
-        </h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isSignUp && (
-            <div className="group">
-              <label
-                htmlFor="name"
-                className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500"
-              >
-                Full Name
-              </label>
-              <input
-                id="name"
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
-              />
-            </div>
-          )}
-
-          <div className="group">
-            <label
-              htmlFor="email"
-              className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500"
-            >
-              Email
-            </label>
+    <SignInShell initialDesign={design}>
+      <div className="eyebrow">YOUR NEXT SHOW STARTS HERE</div>
+      <h1>
+        {isSignUp ? (
+          <>
+            Your next great
+            <br />
+            show starts here.
+          </>
+        ) : (
+          <>
+            Good to have
+            <br />
+            you back.
+          </>
+        )}
+      </h1>
+      <p className="intro">
+        {isSignUp
+          ? "Create an account to bring your team together."
+          : "Your team. Your cues. All in one place."}
+      </p>
+      <form onSubmit={handleSubmit}>
+        {isSignUp && (
+          <div className="name-field">
+            <label htmlFor="name">Full name</label>
             <input
-              id="email"
-              type="email"
+              id="name"
+              type="text"
+              autoComplete="name"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name"
             />
           </div>
-
-          <div className="group">
-            <div className="mb-1.5 flex items-center justify-between">
-              <label
-                htmlFor="password"
-                className="block text-xs font-medium uppercase tracking-wider text-board-muted transition-colors group-focus-within:text-fire-500"
-              >
-                Password
-              </label>
-              {!isSignUp && (
-                <Link
-                  to="/forgot-password"
-                  className="text-xs text-fire-500/70 hover:text-fire-500 transition-colors"
-                >
-                  Forgot password?
-                </Link>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                required
-                minLength={isSignUp ? PASSWORD_MIN_LENGTH : undefined}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={isSignUp ? `At least ${PASSWORD_MIN_LENGTH} characters` : "Your password"}
-                className="w-full rounded-xl border border-board-border bg-board-bg/70 px-4 py-3 pr-12 text-board-text placeholder:text-board-muted/70 outline-none transition-all duration-200 focus:border-fire-500/60 focus:ring-2 focus:ring-fire-500/20"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-board-muted/60 transition-colors hover:text-board-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fire-500"
-              >
-                {showPassword ? (
-                  <EyeOff className="size-[18px]" />
-                ) : (
-                  <Eye className="size-[18px]" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-            </div>
-          )}
-
-          <Button
-            type="submit"
-            size="lg"
-            disabled={loading}
-            aria-busy={loading}
-            className="mt-2 h-12 w-full rounded-xl font-semibold"
-          >
-            {loading ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <ArrowRight aria-hidden="true" />}
-            {loading
-              ? isSignUp
-                ? "Creating account..."
-                : "Signing in..."
-              : isSignUp
-                ? "Create Account"
-                : "Sign In"}
-          </Button>
-
-          {isSignUp && (
-            <p className="text-center text-[11px] leading-5 text-board-muted/70">
-              By creating an account you agree to the{" "}
-              <Link to="/terms" className="text-fire-500/80 hover:text-fire-500 underline-offset-2 hover:underline">
-                Terms of Service
-              </Link>{" "}
-              and{" "}
-              <Link to="/privacy" className="text-fire-500/80 hover:text-fire-500 underline-offset-2 hover:underline">
-                Privacy Policy
-              </Link>
-              .
-            </p>
-          )}
-        </form>
-
-        <div className="my-6 flex items-center gap-3">
-          <div className="h-px flex-1 bg-board-border" />
-          <span className="text-xs text-board-muted">
-            {isSignUp ? "Already have an account?" : "New to ShowPilot?"}
-          </span>
-          <div className="h-px flex-1 bg-board-border" />
+        )}
+        <label htmlFor="email">Email address</label>
+        <input
+          id="email"
+          type="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+        />
+        <div className="password-label">
+          <label htmlFor="password">Password</label>
+          {!isSignUp && <Link to="/forgot-password">Forgot password?</Link>}
         </div>
-
-        <Button
+        <div className="password-field">
+          <input
+            id="password"
+            type={showPassword ? "text" : "password"}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            required
+            minLength={isSignUp ? PASSWORD_MIN_LENGTH : undefined}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={
+              isSignUp
+                ? `At least ${PASSWORD_MIN_LENGTH} characters`
+                : "Enter your password"
+            }
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "signin-error" : undefined}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            className="eye size-10"
+          >
+            {showPassword ? (
+              <EyeOff size={18} aria-hidden="true" />
+            ) : (
+              <Eye size={18} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+        {error && (
+          <p className="signin-error" id="signin-error" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="submit"
+          disabled={loading}
+          aria-busy={loading}
+        >
+          {loading
+            ? isSignUp
+              ? "Creating account…"
+              : "Signing in…"
+            : isSignUp
+              ? "Create account"
+              : "Sign in"}
+          {loading ? (
+            <LoaderCircle
+              size={16}
+              aria-hidden="true"
+              className="motion-safe:animate-spin"
+            />
+          ) : (
+            <ArrowRight size={16} aria-hidden="true" />
+          )}
+        </button>
+        {isSignUp && (
+          <p className="legal">
+            By creating an account you agree to the{" "}
+            <Link to="/terms">Terms of Service</Link> and{" "}
+            <Link to="/privacy">Privacy Policy</Link>.
+          </p>
+        )}
+      </form>
+      <p className="signup">
+        {isSignUp ? "Already have an account?" : "New to ShowPilot?"}{" "}
+        <button
           type="button"
-          variant="outline"
           disabled={loading}
           onClick={() => {
             setIsSignUp(!isSignUp);
             setError(null);
           }}
-          className="h-11 w-full rounded-xl"
         >
-          {isSignUp ? "Sign in instead" : "Create an account"}
-        </Button>
-      </div>
-
-      <p className="mt-6 text-center text-xs text-board-muted/60">
-        Powering live production teams everywhere
+          {isSignUp ? "Sign in instead" : "Create an account"}{" "}
+          <span aria-hidden="true">↗</span>
+        </button>
       </p>
-    </div>
+    </SignInShell>
   );
 }
