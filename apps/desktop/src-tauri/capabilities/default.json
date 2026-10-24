@@ -6,7 +6,8 @@
     "main",
     "timer-*",
     "show-board-*",
-    "confidence-*"
+    "confidence-*",
+    "check-in-*"
   ],
   "remote": {
     "urls": [
@@ -17,6 +18,7 @@
   "permissions": [
     "core:default",
     "notification:default",
-    "updater:default"
+    "updater:default",
+    "allow-desktop-controls"
   ]
 }

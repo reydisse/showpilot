@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { useEffect, useRef, useState } from "react";
+import { runBridgeUpdate } from "./updates";
 import { enable } from "@tauri-apps/plugin-autostart";
 import { Activity, CheckCircle2, Eye, EyeOff, Radio, RefreshCw, Server, ShieldCheck, Square, XCircle } from "lucide-react";
 import { getBridgeConfig, getBridgeStatus, getMtcStatus, listMidiInputs, startBridge, startMtcInput, stopBridge, stopMtcInput, type BridgeConfig, type BridgeStatus, type MidiInputInfo, type MtcStatus } from "./desktop";
@@ -13,6 +13,9 @@ export function App() {
   const [showKey, setShowKey] = useState(false);
   const [updateMessage, setUpdateMessage] = useState("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<string | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const updateInFlight = useRef(false);
   const [midiInputs, setMidiInputs] = useState<MidiInputInfo[]>([]);
   const [mtc, setMtc] = useState<MtcStatus>({ connected: false, inputName: null, timecode: null });
 
@@ -52,39 +55,32 @@ export function App() {
     await refresh();
   }
 
-  async function checkForUpdates(options: { automatic?: boolean } = {}) {
+  async function checkForUpdates(options: { automatic?: boolean; install?: boolean } = {}) {
+    if (updateInFlight.current) return;
+    updateInFlight.current = true;
     const automatic = options.automatic === true;
+    const install = options.install === true;
     setCheckingUpdate(true);
-    if (!automatic) setUpdateMessage("");
+    setInstallingUpdate(install);
+    if (!automatic) setUpdateMessage(install ? "Downloading and installing the update…" : "");
     try {
-      const update = await check();
-      if (!update) {
+      const result = await runBridgeUpdate(install ? "install" : "check");
+      if (result.kind === "current") {
+        setAvailableUpdate(null);
         if (!automatic) setUpdateMessage("You are up to date.");
-        return;
-      }
-      if (automatic) {
-        setUpdateMessage(`ShowPilot Bridge ${update.version} is available. Use Check for updates when it is safe to install.`);
-        await update.close();
-        return;
-      }
-      if (window.confirm(`ShowPilot Bridge ${update.version} is available. Download and install it now?`)) {
-        setUpdateMessage(`Downloading ShowPilot Bridge ${update.version}…`);
-        try {
-          await update.downloadAndInstall();
-          setUpdateMessage(`Update ${update.version} installed. Quit and reopen ShowPilot Bridge to finish.`);
-        } finally {
-          await update.close();
-        }
+      } else if (result.kind === "available") {
+        setAvailableUpdate(result.version);
+        setUpdateMessage(`ShowPilot Bridge ${result.version} is available. Install when your equipment is idle.`);
       } else {
-        setUpdateMessage(`Update ${update.version} is available.`);
-        await update.close();
+        setAvailableUpdate(null);
+        setUpdateMessage(`Update ${result.version} installed. Choose Quit ShowPilot Bridge from the tray menu, then reopen it to finish.`);
       }
     } catch (reason) {
-      if (!automatic) {
-        setUpdateMessage(`Update check failed: ${reason instanceof Error ? reason.message : String(reason)}`);
-      }
+      if (!automatic) setUpdateMessage(`Update failed: ${reason instanceof Error ? reason.message : String(reason)}`);
     } finally {
+      updateInFlight.current = false;
       setCheckingUpdate(false);
+      setInstallingUpdate(false);
     }
   }
 
@@ -155,7 +151,7 @@ export function App() {
       <div className="actions">{status.running && <button className="secondary" onClick={() => void stop()}><Square /> Stop bridge</button>}<button className="primary" onClick={() => void saveAndStart()}>{status.running ? "Save & restart" : "Save & start bridge"}</button></div>
 
       <section className="card logs-card"><div className="logs-title"><ShieldCheck /><span>Recent bridge output</span></div>{status.logs.length ? <pre>{status.logs.slice(-10).join("\n")}</pre> : <p>No bridge output yet.</p>}</section>
-      <section className="card update-card"><div><h1>Updates</h1><p>Check for signed ShowPilot Bridge releases without re-entering your setup.</p></div><button className="secondary update-button" onClick={() => void checkForUpdates()} disabled={checkingUpdate}><RefreshCw />{checkingUpdate ? "Checking…" : "Check for updates"}</button>{updateMessage && <p className="update-message">{updateMessage}</p>}</section>
+      <section className="card update-card"><div><h1>Updates</h1><p>Check for signed ShowPilot Bridge releases without re-entering your setup.</p></div><button className="secondary update-button" onClick={() => void checkForUpdates()} disabled={checkingUpdate}><RefreshCw />{checkingUpdate ? "Checking…" : "Check for updates"}</button>{availableUpdate && <button className="primary update-button" type="button" disabled={checkingUpdate} onClick={() => void checkForUpdates({ install: true })}>{installingUpdate ? "Installing…" : `Install ${availableUpdate}`}</button>}{updateMessage && <p className="update-message" role="status">{updateMessage}</p>}</section>
       <footer>Keep this app running on the same network as the production equipment.</footer>
     </main>
   );

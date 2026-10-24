@@ -11,6 +11,8 @@ const PRODUCT_CONTRACTS = {
     cargoPath: "apps/desktop/src-tauri/Cargo.toml",
     cargoLockPath: "apps/desktop/src-tauri/Cargo.lock",
     sourcePath: "apps/desktop/src-tauri/src/lib.rs",
+    capabilitiesPath: "apps/desktop/src-tauri/capabilities/default.json",
+    permissionsPath: "apps/desktop/src-tauri/permissions/desktop.json",
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/desktop-release.yml",
@@ -104,6 +106,8 @@ function productSnapshot(root, product) {
     releaseConfig: readJson(root, contract.releaseConfigPath),
     workflow: readText(root, contract.workflowPath),
     source: contract.sourcePath ? readText(root, contract.sourcePath) : undefined,
+    capabilities: contract.capabilitiesPath ? readJson(root, contract.capabilitiesPath) : undefined,
+    permissions: contract.permissionsPath ? readJson(root, contract.permissionsPath) : undefined,
   };
 }
 
@@ -238,6 +242,35 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       `Landing Worker is missing the ${product} updater route.`,
     );
   }
+
+  const desktopProduct = snapshot.products.desktop;
+  const desktopCapability = desktopProduct.capabilities;
+  const desktopPermission = desktopProduct.permissions?.permission?.find(
+    (permission) => permission.identifier === "allow-desktop-controls",
+  );
+  const registeredCommands = desktopProduct.source
+    ?.match(/tauri::generate_handler!\[([\s\S]*?)\]/)?.[1]
+    .split(",").map((command) => command.trim()).filter(Boolean) ?? [];
+  const allowedCommands = desktopPermission?.commands?.allow ?? [];
+  add(
+    registeredCommands.length > 0
+      && registeredCommands.length === allowedCommands.length
+      && registeredCommands.every((command) => allowedCommands.includes(command))
+      && desktopCapability?.permissions?.includes("allow-desktop-controls"),
+    "Desktop must explicitly permit its registered native commands for the hosted workspace.",
+  );
+  const desktopWindows = ["main", "timer-*", "show-board-*", "check-in-*", "confidence-*"];
+  add(
+    desktopWindows.every((window) => desktopCapability?.windows?.includes(window))
+      && desktopCapability.windows.every((window) => desktopWindows.includes(window)),
+    "Desktop capabilities must cover every companion window without a wildcard window grant.",
+  );
+  const trustedDesktopOrigins = ["https://showpilot.tech/*", "https://app.showpilot.tech/*"];
+  add(
+    desktopCapability?.remote?.urls?.includes("https://app.showpilot.tech/*")
+      && desktopCapability.remote.urls.every((url) => trustedDesktopOrigins.includes(url)),
+    "Desktop native commands must be limited to the trusted ShowPilot web origins.",
+  );
 
   const desktop = snapshot.products.desktop.tauri;
   const desktopSource = snapshot.products.desktop.source ?? "";

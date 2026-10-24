@@ -109,3 +109,20 @@ test("rejects desktop builds that bypass the bundled offline shell", () => {
   const issues = findNativeReleaseIssues(current);
   assert.ok(issues.some((issue) => issue.includes("bundled offline shell")));
 });
+
+
+test("rejects missing hosted-workspace native command permissions", () => {
+  const current = snapshot();
+  const permission = current.products.desktop.permissions.permission[0];
+  permission.commands.allow = permission.commands.allow.filter((command) => command !== "open_companion_window");
+  assert.ok(findNativeReleaseIssues(current).some((issue) => issue.includes("explicitly permit")));
+});
+
+test("rejects untrusted origins and missing check-in window access", () => {
+  const current = snapshot();
+  current.products.desktop.capabilities.remote.urls.push("https://untrusted.example/*");
+  current.products.desktop.capabilities.windows = ["main", "timer-*", "show-board-*", "confidence-*"];
+  const issues = findNativeReleaseIssues(current);
+  assert.ok(issues.some((issue) => issue.includes("trusted ShowPilot web origins")));
+  assert.ok(issues.some((issue) => issue.includes("every companion window")));
+});
