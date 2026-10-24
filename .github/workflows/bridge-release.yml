@@ -4,18 +4,12 @@ on:
   push:
     tags:
       - "bridge-v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to rebuild
-        required: true
-        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: bridge-release-${{ inputs.tag || github.ref_name }}
+  group: bridge-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -33,24 +27,8 @@ jobs:
           - os: macos-14
             label: macos-arm
     runs-on: ${{ matrix.os }}
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Reject rebuilding a published release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-draft" 2> "$RUNNER_TEMP/release-error"; then
-            test "$(cat "$RUNNER_TEMP/release-draft")" = true || { echo "Refusing to replace a published release"; exit 1; }
-          elif ! grep -qx "release not found" "$RUNNER_TEMP/release-error"; then
-            cat "$RUNNER_TEMP/release-error" >&2
-            exit 1
-          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -90,30 +68,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
 
-      - name: Require Apple signing and notarization credentials
+      - name: Import Developer ID certificate
         if: runner.os == 'macOS'
-        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          missing=()
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name}" ]; then missing+=("$name"); fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Refusing to publish an unsigned macOS Bridge. Missing secrets: ${missing[*]}"
-            exit 1
-          fi
+          test -n "$APPLE_CERTIFICATE"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/showpilot-certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          security default-keychain -s showpilot-build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          security set-keychain-settings -t 3600 -u showpilot-build.keychain
+          security import "$RUNNER_TEMP/showpilot-certificate.p12" -k showpilot-build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          identity=$(security find-identity -v -p codesigning showpilot-build.keychain | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$identity"
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Verify release tag and native contracts
-        run: pnpm native:verify --product bridge --tag "$RELEASE_TAG"
+        run: pnpm native:verify --product bridge --tag "${{ github.ref_name }}"
 
       - name: Require updater signing key
         env:
@@ -163,15 +149,13 @@ jobs:
           NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/bridge-desktop
-          args: --ci --config ci-release.conf.json --verbose
+          args: --ci --config ci-release.conf.json --verbose ${{ runner.os == 'macOS' && '--bundles app' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
           tagName: bridge-v__VERSION__
@@ -187,31 +171,24 @@ jobs:
           releaseDraft: true
           prerelease: false
 
-      - name: Notarize and staple macOS installer
+      - name: Finalize notarized macOS installers and updates
         if: runner.os == 'macOS'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          shopt -s nullglob
-          installers=(apps/bridge-desktop/src-tauri/target/release/bundle/dmg/*.dmg)
-          test "${#installers[@]}" -eq 1
-          installer="${installers[0]}"
-          xcrun notarytool submit "$installer" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 15m
-          xcrun stapler staple "$installer"
-          xcrun stapler validate "$installer"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$installer"
-          asset="$RUNNER_TEMP/$(basename "$installer" | tr ' ' '.')"
-          cp "$installer" "$asset"
-          gh release upload "$RELEASE_TAG" "$asset" --clobber
-
-      - name: Verify macOS signing and notarization
-        if: runner.os == 'macOS'
-        shell: bash
-        run: bash scripts/verify-macos-release.sh apps/bridge-desktop/src-tauri/target/release/bundle "ShowPilot Bridge"
+          xcrun notarytool store-credentials ShowPilot-ci --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          # finalize-macos-release.sh also runs verify-macos-release.sh and
+          # validates the notarization ticket inside the updater archive.
+          output="$RUNNER_TEMP/final-macos"
+          bash scripts/finalize-macos-release.sh "$PWD/apps/bridge-desktop/src-tauri/target/release/bundle/macos/ShowPilot Bridge.app" "$output" "${RELEASE_TAG#bridge-v}"
+          gh release upload "$RELEASE_TAG" "$output"/downloads/* --clobber
 
       - name: Verify Windows Authenticode signatures
         if: runner.os == 'Windows'

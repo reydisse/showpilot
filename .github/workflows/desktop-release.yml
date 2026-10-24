@@ -4,18 +4,12 @@ on:
   push:
     tags:
       - "desktop-v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing release tag to rebuild
-        required: true
-        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ inputs.tag || github.ref_name }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -33,24 +27,8 @@ jobs:
           - os: ubuntu-22.04
             label: linux
     runs-on: ${{ matrix.os }}
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Reject rebuilding a published release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-draft" 2> "$RUNNER_TEMP/release-error"; then
-            test "$(cat "$RUNNER_TEMP/release-draft")" = true || { echo "Refusing to replace a published release"; exit 1; }
-          elif ! grep -qx "release not found" "$RUNNER_TEMP/release-error"; then
-            cat "$RUNNER_TEMP/release-error" >&2
-            exit 1
-          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -94,7 +72,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify release tag and native contracts
-        run: pnpm native:verify --product desktop --tag "$RELEASE_TAG"
+        run: pnpm native:verify --product desktop --tag "${{ github.ref_name }}"
 
       - name: Require updater signing key
         env:
@@ -177,7 +155,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          args: --ci --config ci-release.conf.json --verbose
+          args: --ci --config ci-release.conf.json --verbose ${{ runner.os == 'macOS' && '--bundles app' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
           tagName: desktop-v__VERSION__
@@ -186,31 +164,24 @@ jobs:
           releaseDraft: true
           prerelease: false
 
-      - name: Notarize and staple macOS installer
+      - name: Finalize notarized macOS installers and updates
         if: runner.os == 'macOS'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          shopt -s nullglob
-          installers=(apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg)
-          test "${#installers[@]}" -eq 1
-          installer="${installers[0]}"
-          xcrun notarytool submit "$installer" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 15m
-          xcrun stapler staple "$installer"
-          xcrun stapler validate "$installer"
-          spctl --assess --type open --context context:primary-signature --verbose=4 "$installer"
-          asset="$RUNNER_TEMP/$(basename "$installer" | tr ' ' '.')"
-          cp "$installer" "$asset"
-          gh release upload "$RELEASE_TAG" "$asset" --clobber
-
-      - name: Verify macOS signing and notarization
-        if: runner.os == 'macOS'
-        shell: bash
-        run: bash scripts/verify-macos-release.sh apps/desktop/src-tauri/target/release/bundle "ShowPilot Desktop"
+          xcrun notarytool store-credentials ShowPilot-ci --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          # finalize-macos-release.sh also runs verify-macos-release.sh and
+          # validates the notarization ticket inside the updater archive.
+          output="$RUNNER_TEMP/final-macos"
+          bash scripts/finalize-macos-release.sh "$PWD/apps/desktop/src-tauri/target/release/bundle/macos/ShowPilot Desktop.app" "$output" "${RELEASE_TAG#desktop-v}"
+          gh release upload "$RELEASE_TAG" "$output"/downloads/* --clobber
 
       - name: Verify Windows Authenticode signatures
         if: runner.os == 'Windows'

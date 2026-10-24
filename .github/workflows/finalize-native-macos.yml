@@ -1,0 +1,93 @@
+name: Finalize native Mac draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft desktop-vX.Y.Z or bridge-vX.Y.Z release to finalize
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-native-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            asset_arch: aarch64
+          - os: macos-15-intel
+            asset_arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate draft release
+        shell: bash
+        run: |
+          node -e 'const m = /^(desktop|bridge)-v(\d+\.\d+\.\d+)$/.exec(process.env.RELEASE_TAG); if (!m) process.exit(1); require("node:fs").appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${m[2]}\nPRODUCT_NAME=ShowPilot ${m[1] === "desktop" ? "Desktop" : "Bridge"}\n`);'
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install release tooling
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Import Developer ID certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$APPLE_CERTIFICATE"
+          test -n "$APPLE_CERTIFICATE_PASSWORD"
+          test -n "$KEYCHAIN_PASSWORD"
+          test -n "$APPLE_ID"
+          test -n "$APPLE_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/showpilot-certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          security default-keychain -s showpilot-build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          security set-keychain-settings -t 3600 -u showpilot-build.keychain
+          security import "$RUNNER_TEMP/showpilot-certificate.p12" -k showpilot-build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" showpilot-build.keychain
+          identity=$(security find-identity -v -p codesigning showpilot-build.keychain | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          test -n "$identity"
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Finalize signed Mac artifacts
+        shell: bash
+        env:
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          gh release download "$RELEASE_TAG" --pattern "*_${ASSET_ARCH}.app.tar.gz" --dir "$RUNNER_TEMP/source"
+          archives=("$RUNNER_TEMP/source/"*.app.tar.gz)
+          test "${#archives[@]}" -eq 1
+          tar -xzf "${archives[0]}" -C "$RUNNER_TEMP/source"
+          xcrun notarytool store-credentials ShowPilot-ci --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          output="$RUNNER_TEMP/final-macos"
+          bash scripts/finalize-macos-release.sh "$RUNNER_TEMP/source/$PRODUCT_NAME.app" "$output" "$RELEASE_VERSION"
+          gh release upload "$RELEASE_TAG" "$output"/downloads/* --clobber
