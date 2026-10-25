@@ -17,6 +17,31 @@ afterEach(() => {
 });
 
 describe("ProPresenter slide continuity", () => {
+  it("holds the lyric through a long empty transition while the slide layer remains active", async () => {
+    vi.useFakeTimers();
+    let payload: unknown = { current: { text: "Lyric A", uuid: "a" } };
+    let layerActive = true;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => Response.json(
+      url.endsWith("/v1/status/layers") ? { slide: layerActive } : payload,
+    )));
+    const slides: (Record<string, unknown> | null)[] = [];
+    const bridge = new ProPresenterBridge({ host: "127.0.0.1", port: 1025, apiPort: 1025, onSlideChange: (slide) => slides.push(slide), onStatusChange: () => {} });
+    try {
+      bridge.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      payload = { current: null };
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A"]);
+      payload = { current: { text: "Lyric B", uuid: "b" } };
+      await vi.advanceTimersByTimeAsync(400);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A", "Lyric B"]);
+      payload = { current: null };
+      layerActive = false;
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A", "Lyric B", null]);
+    } finally { bridge.disconnect(); }
+  });
+
   it("does not turn unsupported or unavailable responses into a slide clear", async () => {
     vi.useFakeTimers();
     let payload: unknown = { current: { text: "Lyric A", uuid: "a" }, next: { text: "Lyric B", uuid: "b" } };

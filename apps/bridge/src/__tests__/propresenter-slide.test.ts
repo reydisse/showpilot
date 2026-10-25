@@ -48,6 +48,8 @@ describe("ProPresenter confidence pairs", () => {
       response.setHeader("Content-Type", "application/json");
       if (request.url === "/v1/status/slide")
         response.end(JSON.stringify(payload));
+      else if (request.url === "/v1/status/layers")
+        response.end(JSON.stringify({ slide: false }));
       else {
         fallbackRequests++;
         response.end(JSON.stringify({ text: "Stale text" }));
