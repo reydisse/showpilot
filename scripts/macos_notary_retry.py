@@ -21,3 +21,13 @@ def run_stapler(action, target):
         delay = 5 * (2 ** attempt)
         print(f"Apple ticket service connection failed; retrying in {delay}s.", flush=True)
         time.sleep(delay)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("staple", "validate"))
+    parser.add_argument("target")
+    args = parser.parse_args()
+    run_stapler(args.action, args.target)
