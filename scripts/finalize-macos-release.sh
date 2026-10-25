@@ -42,6 +42,6 @@ pnpm --filter @showpilot/desktop exec tauri signer sign "$archive"
 # Confirm the archive retained the ticket, not just the staging directory.
 mkdir "$output/archive-check"
 tar -xzf "$archive" -C "$output/archive-check"
-xcrun stapler validate "$output/archive-check/$product_name.app"
+python3 "$script_dir/macos_notary_retry.py" validate "$output/archive-check/$product_name.app"
 codesign --verify --deep --strict "$output/archive-check/$product_name.app"
 echo "Verified Mac release files: $output/downloads"

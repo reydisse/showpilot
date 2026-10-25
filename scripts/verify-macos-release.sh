@@ -49,7 +49,7 @@ verify_developer_id_signature "$app_path/Contents/MacOS/showpilot-bridge"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 node "$script_dir/smoke-macos-engine.mjs" "$app_path/Contents/MacOS/showpilot-bridge"
 
-xcrun stapler validate "$app_path"
+python3 "$script_dir/macos_notary_retry.py" validate "$app_path"
 spctl --assess --type execute --verbose=4 "$app_path"
 spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
 
