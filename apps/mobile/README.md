@@ -50,7 +50,21 @@ The production API defaults to `https://showpilot.tech`. Set `EXPO_PUBLIC_SHOWPI
 pnpm --filter @showpilot/mobile verify
 ```
 
-That command checks native screen/API contracts, TypeScript, lint,
+The native login uses `AuthScreen` for both auth routes and shares its seasonal
+selection and artwork copy with web through `@showpilot/shared`. With Expo
+running locally and `agent-browser` installed globally, check the rendered
+React Native layouts with:
+
+```bash
+node apps/mobile/scripts/smoke-auth-responsive.cjs http://127.0.0.1:8081
+```
+
+This checks both forms at phone/tablet sizes, scrolling, validation, navigation,
+and password visibility. It stubs auth reads and rejects auth writes. Also check
+the native build in Simulator with the software keyboard, both orientations,
+and accessibility text sizes before distributing an auth UI change.
+
+The `verify` command checks native screen/API contracts, TypeScript, lint,
 iOS/Android/web bundles, native bundle-size ceilings, and Expo Doctor. Mobile
 icons must use direct `lucide-react-native/icons/*` imports; the verifier rejects
 the package barrel because it pulls the complete icon catalog into Metro. Both

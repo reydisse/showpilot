@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { SignInShell } from "@/components/auth/SignInShell";
-import { getSignInDesign } from "@/lib/signin-design";
+import { getSignInDesign } from "@showpilot/shared";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 

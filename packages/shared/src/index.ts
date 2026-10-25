@@ -8,6 +8,7 @@ export * from "./device-control-surface";
 export * from "./spreadsheet";
 export * from "./rundown";
 export * from "./auth";
+export * from "./signin-design";
 export * from "./equipment";
 export * from "./emoji";
 export * from "./workspace";

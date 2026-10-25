@@ -1,61 +1,8 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Pause, Play } from "lucide-react";
-import type { SignInDesign } from "@/lib/signin-design";
+import { signInArtworkCopy, type SignInDesign } from "@showpilot/shared";
 import "./signin.css";
-
-const COPY = {
-  rhythm: {
-    overline: "LESS FRICTION. MORE FLOW.",
-    title: (
-      <>
-        Every cue.
-        <br />A little more in sync.
-      </>
-    ),
-    description: (
-      <>
-        A calm place to bring your next
-        <br />
-        great moment together.
-      </>
-    ),
-  },
-  afterglow: {
-    overline: "THE MOMENT BEFORE THE MOMENT.",
-    title: (
-      <>
-        Make room
-        <br />
-        for a great show.
-      </>
-    ),
-    description: (
-      <>
-        Everything you need, quietly in place.
-        <br />
-        Now let’s bring it to life.
-      </>
-    ),
-  },
-  "in-sync": {
-    overline: "GOOD SHOWS START TOGETHER.",
-    title: (
-      <>
-        Everyone ready.
-        <br />
-        Everything in reach.
-      </>
-    ),
-    description: (
-      <>
-        From the first cue to the final moment.
-        <br />
-        Keep your whole team connected.
-      </>
-    ),
-  },
-};
 
 export function SignInShell({
   initialDesign,
@@ -67,7 +14,7 @@ export function SignInShell({
   // Keep the chosen artwork still even if a session refresh crosses a month boundary.
   const [design] = useState(initialDesign);
   const [paused, setPaused] = useState(false);
-  const copy = COPY[design];
+  const copy = signInArtworkCopy[design];
   return (
     <main
       className={`signin-shell${paused ? " paused" : ""}`}
@@ -174,8 +121,8 @@ export function SignInShell({
         </div>
         <div className="art-copy">
           <span className="overline">{copy.overline}</span>
-          <h2>{copy.title}</h2>
-          <p>{copy.description}</p>
+          <h2 style={{ whiteSpace: "pre-line" }}>{copy.title}</h2>
+          <p style={{ whiteSpace: "pre-line" }}>{copy.description}</p>
           <div className="art-bottom">
             <span>LIVE PRODUCTION, CONNECTED.</span>
             <button
