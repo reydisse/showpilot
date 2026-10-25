@@ -41,7 +41,8 @@ interface SlideSnapshot {
 
 interface PollResult {
   reachable: boolean;
-  slide: SlideSnapshot | null;
+  /** null is a confirmed empty status pair; undefined is an unsupported response. */
+  slide: SlideSnapshot | null | undefined;
 }
 
 interface PresentationSummary {
@@ -472,7 +473,12 @@ export class ProPresenterBridge {
       try {
         const result = await this.pollSlide();
         this.setPollingActive(result.reachable);
-        if (!result.reachable) return;
+        if (!result.reachable || result.slide === undefined) {
+          // Connection failures and partial/unsupported responses say nothing
+          // about whether the operator cleared the current slide.
+          this.noSlideSince = 0;
+          return;
+        }
 
         const slide = result.slide;
         if (!slide?.text) {
@@ -602,6 +608,27 @@ export class ProPresenterBridge {
           const pair = parseSlidePair(payload);
           if (pair !== undefined) {
             this.lastPairPollAt = Date.now();
+            if (pair === null) {
+              const current = payload.current;
+              const hasBlankSlide = current !== null && typeof current === "object"
+                && "uuid" in current && typeof current.uuid === "string" && current.uuid.trim() !== "";
+              if (!hasBlankSlide) {
+                // An empty text sample between slides is not a Clear. Confirm
+                // the slide layer is off before clearing an unidentified slide.
+                try {
+                  const layers = await fetch(`${base}/v1/status/layers`, {
+                    signal: AbortSignal.timeout(timeout),
+                  });
+                  if (!layers.ok) return { reachable: true, slide: undefined };
+                  const status: unknown = await layers.json();
+                  if (!status || typeof status !== "object" || !("slide" in status) || status.slide !== false) {
+                    return { reachable: true, slide: undefined };
+                  }
+                } catch {
+                  return { reachable: true, slide: undefined };
+                }
+              }
+            }
             return { reachable: true, slide: pair === null ? null : {
               ...pair, slideIndex: 0, signature: JSON.stringify(pair),
             } };
@@ -635,7 +662,7 @@ export class ProPresenterBridge {
       }
     }
 
-    return { reachable, slide: null };
+    return { reachable, slide: undefined };
   }
 
   private extractTextFromMessage(data: Record<string, unknown>): string {

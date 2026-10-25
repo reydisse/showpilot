@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
+import { getActiveRundownRelayTarget } from "../active-rundown-relay";
 
 afterEach(async () => {
   await abortAllDurableObjects();
@@ -53,6 +54,46 @@ function nextClose(socket: WebSocket): Promise<CloseEvent> {
 }
 
 describe("BridgeRelay device dispatch", () => {
+  it("keeps the displayed lyric through device and bridge outages, replaces it directly, and honors an explicit clear", async () => {
+    const orgId = "bridge-lyric-continuity";
+    await env.DB.prepare("INSERT INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, ?)")
+      .bind(orgId, orgId, orgId, new Date().toISOString()).run();
+    await env.DB.prepare("INSERT INTO app_setting (id, orgId, key, value) VALUES (?, ?, 'propresenter-stage-display', 'true')")
+      .bind(`${orgId}-output`, orgId).run();
+    const target = await getActiveRundownRelayTarget(env.DB, orgId);
+    const relay = env.RUNDOWN_RELAY.getByName(target.key);
+    const readSlide = async () => {
+      const response = await relay.fetch(new Request(`https://rundown.test/state?orgId=${orgId}&serviceDate=${target.serviceDate}&access=observe`));
+      const state = await response.json<{ ppSlide: { text: string } | null }>();
+      return state.ppSlide?.text ?? null;
+    };
+    const sendSlide = (socket: WebSocket, data: unknown) => socket.send(JSON.stringify({
+      type: "device-event", target: "propresenter:venue", eventName: "slide", data: JSON.stringify(data),
+    }));
+    const { socket, stub } = await openBridge(orgId);
+    const client = await openClient(orgId);
+    sendSlide(socket, { text: "Lyric A" });
+    await expect.poll(readSlide).toBe("Lyric A");
+    const disconnected = nextMessage(client);
+    socket.send(JSON.stringify({ type: "device-status", target: "propresenter:venue", connected: false }));
+    await expect(disconnected).resolves.toMatchObject({ type: "device-status", connected: false });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await readSlide()).toBe("Lyric A");
+    socket.close();
+    await expect.poll(async () => (await stub.getBridgeStatus()).bridgeOnline).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await readSlide()).toBe("Lyric A");
+
+    const { socket: reconnected } = await openBridge(orgId);
+    sendSlide(reconnected, { text: "Lyric B" });
+    await expect.poll(readSlide).toBe("Lyric B");
+    sendSlide(reconnected, []); // Malformed data is not a Clear command.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await readSlide()).toBe("Lyric B");
+    sendSlide(reconnected, null);
+    await expect.poll(readSlide).toBeNull();
+  });
+
   it("requires the internal secret and can purge an unused organization without a prior connection", async () => {
     const stub = env.BRIDGE_RELAY.getByName("unused-organization-purge");
     const url = "https://bridge.test/internal/purge-org";
