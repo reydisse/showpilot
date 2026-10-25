@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSignInDesign } from "../signin-design";
+import { getSignInDesign } from "@showpilot/shared";
 
 describe("monthly sign-in artwork", () => {
   it("starts with Rhythm, rotates at UTC month boundaries, and repeats across years", () => {
