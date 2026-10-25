@@ -13,6 +13,47 @@ function createBridge(onStatusChange: (connected: boolean) => void) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("ProPresenter slide continuity", () => {
+  it("does not turn unsupported or unavailable responses into a slide clear", async () => {
+    vi.useFakeTimers();
+    let payload: unknown = { current: { text: "Lyric A", uuid: "a" }, next: { text: "Lyric B", uuid: "b" } };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json(payload)));
+    const slides: (Record<string, unknown> | null)[] = [];
+    const bridge = new ProPresenterBridge({ host: "127.0.0.1", port: 1025, apiPort: 1025, onSlideChange: (slide) => slides.push(slide), onStatusChange: () => {} });
+    try {
+      bridge.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      payload = {}; // Reachable API, but no usable current-slide response.
+      await vi.advanceTimersByTimeAsync(2400);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A"]);
+      payload = { current: { text: "Lyric B", uuid: "b" }, next: { text: "Lyric C", uuid: "c" } };
+      await vi.advanceTimersByTimeAsync(400);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A", "Lyric B"]);
+    } finally { bridge.disconnect(); }
+  });
+
+  it("ignores an empty transition, but forwards a sustained clear or blank slide", async () => {
+    vi.useFakeTimers();
+    let payload: unknown = { current: { text: "Lyric A", uuid: "a" } };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => Response.json(payload)));
+    const slides: (Record<string, unknown> | null)[] = [];
+    const bridge = new ProPresenterBridge({ host: "127.0.0.1", port: 1025, apiPort: 1025, onSlideChange: (slide) => slides.push(slide), onStatusChange: () => {} });
+    try {
+      bridge.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      payload = { current: null };
+      await vi.advanceTimersByTimeAsync(800);
+      payload = { current: { text: "Lyric B", uuid: "b" } };
+      await vi.advanceTimersByTimeAsync(400);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A", "Lyric B"]);
+      payload = { current: { text: "", uuid: "blank" } };
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(slides.map((slide) => slide?.text ?? null)).toEqual(["Lyric A", "Lyric B", null]);
+    } finally { bridge.disconnect(); }
+  });
 });
 
 describe("ProPresenter connection readiness", () => {

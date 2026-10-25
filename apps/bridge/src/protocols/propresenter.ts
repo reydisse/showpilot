@@ -41,7 +41,8 @@ interface SlideSnapshot {
 
 interface PollResult {
   reachable: boolean;
-  slide: SlideSnapshot | null;
+  /** null is a confirmed empty status pair; undefined is an unsupported response. */
+  slide: SlideSnapshot | null | undefined;
 }
 
 interface PresentationSummary {
@@ -472,7 +473,12 @@ export class ProPresenterBridge {
       try {
         const result = await this.pollSlide();
         this.setPollingActive(result.reachable);
-        if (!result.reachable) return;
+        if (!result.reachable || result.slide === undefined) {
+          // Connection failures and partial/unsupported responses say nothing
+          // about whether the operator cleared the current slide.
+          this.noSlideSince = 0;
+          return;
+        }
 
         const slide = result.slide;
         if (!slide?.text) {
@@ -635,7 +641,7 @@ export class ProPresenterBridge {
       }
     }
 
-    return { reachable, slide: null };
+    return { reachable, slide: undefined };
   }
 
   private extractTextFromMessage(data: Record<string, unknown>): string {

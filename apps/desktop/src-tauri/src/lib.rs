@@ -245,6 +245,7 @@ async fn open_companion_window(
         .parse()
         .map_err(|error| format!("Invalid ShowPilot URL: {error}"))?;
     tauri::WebviewWindowBuilder::new(&app, spec.label, tauri::WebviewUrl::External(url))
+        .disable_drag_drop_handler()
         .title(spec.title)
         .inner_size(1280.0, 800.0)
         .min_inner_size(760.0, 520.0)

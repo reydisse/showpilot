@@ -146,6 +146,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
 
 export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private bridgeWs: WebSocket | null = null;
+  private previewWrite: Promise<void> = Promise.resolve();
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
   private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [], deviceEvents: {} };
@@ -335,7 +336,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           return;
         }
         // Message from bridge → forward to clients
-        void this.handleBridgeMessage(msg);
+        await this.handleBridgeMessage(msg);
       } else {
         const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
         if (
@@ -362,7 +363,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
       this.failPendingClientCommands("Venue Bridge disconnected");
-      void this.clearPreviewSlide();
+      // Losing the transport is not a slide Clear. Keep the last confirmed
+      // lyric until the bridge supplies its replacement or an explicit clear.
       void this.stopBridgeTimecode();
       void this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
@@ -429,7 +431,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
       case "device-event":
         if (msg.eventName === "slide" && typeof msg.data === "string") {
-          void this.pushPreviewSlide(msg.data);
+          const data = msg.data;
+          this.previewWrite = this.previewWrite.then(() => this.pushPreviewSlide(data));
+          await this.previewWrite;
         }
         if (
           msg.type === "device-event" &&
@@ -473,14 +477,6 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
               error: msg.connected === true ? undefined : "Venue Bridge could not connect to the device",
             });
           }
-        }
-        if (
-          msg.type === "device-status" &&
-          msg.connected === false &&
-          typeof msg.target === "string" &&
-          msg.target.startsWith("propresenter:")
-        ) {
-          void this.clearPreviewSlide();
         }
         // Forward directly to all browser clients
         await this.broadcastToClients(JSON.stringify(msg));
@@ -638,10 +634,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
     try {
       const parsed: unknown = JSON.parse(data);
-      if (!isRecord(parsed)) {
+      if (parsed === null) {
         await this.clearPreviewSlide();
         return;
       }
+      if (!isRecord(parsed)) return;
       const slide = parsed;
 
       const content = parseRelayPPSlide({
