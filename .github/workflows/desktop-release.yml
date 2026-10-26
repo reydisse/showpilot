@@ -146,6 +146,8 @@ jobs:
           # linuxdeploy's bundled strip cannot handle newer ELF sections in
           # runner libraries and aborts AppImage packaging after deb/rpm have
           # already succeeded. Cargo strips our release binaries separately.
+          # The Bun engine itself is a shell wrapper in usr/bin; the real
+          # binary is under usr/share so the GTK plugin does not ldd it.
           NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}

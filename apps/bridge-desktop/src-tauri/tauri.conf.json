@@ -31,6 +31,23 @@
     "macOS": {
       "signingIdentity": "-"
     },
+    "linux": {
+      "appimage": {
+        "files": {
+          "/usr/share/showpilot-bridge/showpilot-bridge": "binaries/showpilot-bridge-linux-real"
+        }
+      },
+      "deb": {
+        "files": {
+          "/usr/share/showpilot-bridge/showpilot-bridge": "binaries/showpilot-bridge-linux-real"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/showpilot-bridge/showpilot-bridge": "binaries/showpilot-bridge-linux-real"
+        }
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
