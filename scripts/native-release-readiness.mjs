@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { linuxEngineBundleFiles } from "./linux-bridge-sidecar.mjs";
 
 const SEMVER =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -16,6 +17,8 @@ const PRODUCT_CONTRACTS = {
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/desktop-release.yml",
+    buildScriptPath: "apps/desktop/scripts/build-bridge.mjs",
+    linuxEngineDir: "showpilot-desktop",
     cargoName: "showpilot-desktop",
     identifier: "tech.showpilot.desktop",
     productName: "ShowPilot Desktop",
@@ -35,6 +38,8 @@ const PRODUCT_CONTRACTS = {
     tauriPath: "apps/bridge-desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/bridge-desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/bridge-release.yml",
+    buildScriptPath: "apps/bridge-desktop/scripts/build-bridge.mjs",
+    linuxEngineDir: "showpilot-bridge",
     cargoName: "showpilot-bridge-desktop",
     identifier: "tech.showpilot.bridge",
     productName: "ShowPilot Bridge",
@@ -105,6 +110,7 @@ function productSnapshot(root, product) {
     tauri,
     releaseConfig: readJson(root, contract.releaseConfigPath),
     workflow: readText(root, contract.workflowPath),
+    buildScript: readText(root, contract.buildScriptPath),
     source: contract.sourcePath ? readText(root, contract.sourcePath) : undefined,
     capabilities: contract.capabilitiesPath ? readJson(root, contract.capabilitiesPath) : undefined,
     permissions: contract.permissionsPath ? readJson(root, contract.permissionsPath) : undefined,
@@ -176,6 +182,22 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
     add(
       current.tauri.bundle?.externalBin?.includes("binaries/showpilot-bridge"),
       `${contract.productName} must package the local Bridge engine.`,
+    );
+    const linuxEngineFiles = linuxEngineBundleFiles(contract.linuxEngineDir);
+    for (const format of ["appimage", "deb", "rpm"]) {
+      add(
+        JSON.stringify(current.tauri.bundle?.linux?.[format]?.files ?? null) ===
+          JSON.stringify(linuxEngineFiles),
+        `${contract.productName} ${format} bundle must install the Linux device engine under usr/share.`,
+      );
+    }
+    add(
+      current.buildScript.includes("publishLinuxEngine(") &&
+        current.buildScript.includes(`shareDirectory: "${contract.linuxEngineDir}"`) &&
+        current.buildScript.includes(
+          'resolve(root, "src-tauri/binaries", LINUX_ENGINE_FILENAME)',
+        ),
+      `${contract.productName} Linux build must publish the Bun engine outside usr/bin.`,
     );
     add(
       current.releaseConfig.bundle?.createUpdaterArtifacts === true,
