@@ -468,3 +468,7 @@ mod tests {
         // No EnableVideoOutput, profile switch, or screen-capture request.
     }
 }
+
+pub fn diagnose_decklink() -> Result<Value, String> {
+    native::inventory()
+}

@@ -44,6 +44,12 @@ verify_developer_id_signature "$app_path"
 verify_developer_id_signature "$dmg_path"
 verify_developer_id_signature "$app_path/Contents/MacOS/showpilot-bridge"
 
+if [[ "$product_name" == "ShowPilot Desktop" ]]; then
+  # A signed app can launch correctly while macOS silently blocks the vendor SDK.
+  # Check the packaged binary, since checking only the source plist misses signing regressions.
+  python3 "$(dirname "${BASH_SOURCE[0]}")/verify-decklink-signing.py" "$app_path"
+fi
+
 # A valid signature alone does not prove the compiled JavaScript engine runs
 # under the release signature and hardened runtime.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

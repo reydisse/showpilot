@@ -126,3 +126,12 @@ test("rejects untrusted origins and missing check-in window access", () => {
   assert.ok(issues.some((issue) => issue.includes("trusted ShowPilot web origins")));
   assert.ok(issues.some((issue) => issue.includes("every companion window")));
 });
+
+test("rejects missing DeckLink runtime signing entitlement", () => {
+  const current = snapshot();
+  current.products.desktop.tauri.bundle.macOS.entitlements = undefined;
+  assert.ok(findNativeReleaseIssues(current).some(issue => issue.includes("Blackmagic driver")));
+  current.products.desktop.tauri.bundle.macOS.entitlements = "entitlements.plist";
+  current.products.desktop.entitlements = current.products.desktop.entitlements.replace("<true/>", "<false/>");
+  assert.ok(findNativeReleaseIssues(current).some(issue => issue.includes("Blackmagic driver")));
+});

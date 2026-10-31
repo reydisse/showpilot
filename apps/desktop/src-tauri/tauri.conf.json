@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ShowPilot Desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "identifier": "tech.showpilot.desktop",
   "build": {
     "beforeDevCommand": "pnpm -C ../web exec vite dev --port 3001 --strictPort",
@@ -23,7 +23,7 @@
         "dragDropEnabled": false,
         "fullscreen": false,
         "backgroundColor": "#090a0b",
-        "userAgent": "ShowPilotDesktop/0.1.6"
+        "userAgent": "ShowPilotDesktop/0.1.7"
       }
     ],
     "security": { "csp": null }
@@ -36,7 +36,8 @@
     "shortDescription": "ShowPilot production control for desktop",
     "longDescription": "The complete ShowPilot production workspace with native local-engine, offline snapshot and dedicated output-window capabilities.",
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
     },
     "icon": [
       "icons/32x32.png",
