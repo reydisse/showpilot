@@ -24,7 +24,7 @@ jobs:
             label: windows
           - os: macos-15-intel
             label: macos-intel
-          - os: macos-14
+          - os: macos-15
             label: macos-arm
     runs-on: ${{ matrix.os }}
     steps:

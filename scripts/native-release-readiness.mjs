@@ -216,7 +216,7 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       "APPLE_PASSWORD",
       "APPLE_TEAM_ID",
       "verify-macos-release.sh",
-      "macos-14",
+      "macos-15",
       "macos-15-intel",
       "windows-latest",
       "ubuntu-22.04",

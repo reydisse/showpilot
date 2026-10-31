@@ -7,6 +7,12 @@ on:
         description: Draft desktop-vX.Y.Z or bridge-vX.Y.Z release to finalize
         required: true
         type: string
+      architecture:
+        description: Mac architecture to finalize
+        required: true
+        default: all
+        type: choice
+        options: [all, aarch64, x64]
 
 permissions:
   contents: write
@@ -20,12 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-14
-            asset_arch: aarch64
-          - os: macos-15-intel
-            asset_arch: x64
-    runs-on: ${{ matrix.os }}
+        asset_arch: ${{ inputs.architecture == 'all' && fromJSON('["aarch64","x64"]') || fromJSON(format('["{0}"]', inputs.architecture)) }}
+    runs-on: ${{ matrix.asset_arch == 'aarch64' && 'macos-15' || 'macos-15-intel' }}
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
