@@ -8,7 +8,7 @@ import sys
 
 app = pathlib.Path(sys.argv[1])
 entitlements = subprocess.run(
-    ["codesign", "-d", "--entitlements", "-", str(app)],
+    ["codesign", "-d", "--entitlements", "-", "--xml", str(app)],
     check=True, capture_output=True,
 ).stdout
 settings = plistlib.loads(entitlements)
