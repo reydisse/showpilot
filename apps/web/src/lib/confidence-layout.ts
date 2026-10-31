@@ -10,7 +10,9 @@ const textLayout = z.object({
   align: z.enum(["left", "center", "right"]),
   color,
   showNext: z.boolean(),
-  nextOpacity: z.number().min(0.2).max(0.75),
+  nextOpacity: z.number().min(0.2).max(1),
+  nextSize: z.number().min(0.5).max(1.8).default(1),
+  nextColor: color.optional(),
   showReference: z.boolean(),
 });
 
@@ -34,6 +36,7 @@ export const DEFAULT_CONFIDENCE_LAYOUT: ConfidenceLayout = {
     color: "#ffffff",
     showNext: true,
     nextOpacity: 0.45,
+    nextSize: 1,
     showReference: true,
   },
   scripture: {
@@ -43,6 +46,7 @@ export const DEFAULT_CONFIDENCE_LAYOUT: ConfidenceLayout = {
     color: "#ffffff",
     showNext: false,
     nextOpacity: 0.4,
+    nextSize: 1,
     showReference: true,
   },
   motion: "scroll",

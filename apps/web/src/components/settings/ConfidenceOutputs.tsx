@@ -1,115 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { isDesktopRuntime } from "@/lib/desktop-runtime";
-import {
-  identifyConfidenceMonitor,
-  getConfidenceOutputs,
-  getConfidenceOutputStatus,
-  preferredDeckLinkMode,
-  outputTargetSchema,
-  startConfidenceOutput,
-  stopConfidenceOutput,
-  type OutputInventory,
-  type OutputStatus,
-  type OutputTarget,
-} from "@/lib/confidence-output";
+import { identifyConfidenceMonitor, preferredDeckLinkMode } from "@/lib/confidence-output";
+import { useConfidenceOutput } from "@/lib/use-confidence-output";
 
-const field =
-  "mt-1 h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text";
+const field = "mt-1 h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text";
 export function ConfidenceOutputs({ slug }: { slug: string }) {
-  const [native, setNative] = useState(false);
-  const [inventory, setInventory] = useState<OutputInventory | null>(null);
-  const [target, setTarget] = useState<OutputTarget | null>(null);
-  const [status, setStatus] = useState<OutputStatus>({
-    state: "stopped",
-    message: "Output disabled",
-  });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const refresh = useCallback(async () => {
-    try {
-      const inventory = await getConfidenceOutputs();
-      setInventory(inventory);
-      setTarget((previous) => inventory.active?.target ?? previous ?? null);
-      setStatus(await getConfidenceOutputStatus());
-      setError("");
-    } catch {
-      setError(
-        "Could not read outputs. Make sure this computer has the latest ShowPilot Desktop build.",
-      );
-    }
-  }, []);
-  useEffect(() => {
-    const desktop = isDesktopRuntime();
-    setNative(desktop);
-    if (!desktop) return;
-    try {
-      const saved = outputTargetSchema.safeParse(
-        JSON.parse(
-          localStorage.getItem(`showpilot:confidence-output:${slug}`) ?? "null",
-        ),
-      );
-      if (saved.success) setTarget(saved.data);
-    } catch {
-      /* A stale local preference must not block output setup. */
-    }
-    void refresh();
-    let active = true;
-    let pending = false;
-    const timer = setInterval(async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const next = await getConfidenceOutputStatus();
-        if (active) {
-          setStatus(next);
-          if (next.state === "stopped")
-            setInventory((value) =>
-              value ? { ...value, active: null } : value,
-            );
-        }
-      } catch {
-        if (active)
-          setError(
-            "Lost contact with the local output engine. Refresh outputs to reconnect.",
-          );
-      } finally {
-        pending = false;
-      }
-    }, 2000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [refresh, slug]);
-  useEffect(() => {
-    if (!native || !target) return;
-    try {
-      localStorage.setItem(
-        `showpilot:confidence-output:${slug}`,
-        JSON.stringify(target),
-      );
-    } catch {
-      /* Output still works when local storage is unavailable. */
-    }
-  }, [native, target, slug]);
-  const enabled =
-    status.state === "starting" ||
-    status.state === "running" ||
-    inventory?.active != null;
-  async function toggle() {
-    setBusy(true);
-    setError("");
-    try {
-      if (enabled) await stopConfidenceOutput();
-      else if (target) await startConfidenceOutput(slug, target);
-      await refresh();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const output = useConfidenceOutput(slug);
+  return <ConfidenceOutputControls slug={slug} output={output} />;
+}
+
+export function ConfidenceOutputControls({ slug, output }: {
+  slug: string;
+  output: ReturnType<typeof useConfidenceOutput>;
+}) {
+  const { native, inventory, target, setTarget, status, busy, error, setError, enabled, toggle, refresh } = output;
   const device =
     target?.kind === "decklink"
       ? inventory?.decklink.devices.find((device) => device.id === target.id)

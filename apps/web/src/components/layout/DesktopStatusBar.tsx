@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Download, Laptop, MonitorPlay, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
@@ -18,6 +18,8 @@ import {
   type DesktopUpdateInfo,
 } from "@/lib/desktop-runtime";
 
+const ConfidenceToolbar = lazy(() => import("@/components/confidence/ConfidenceToolbar").then((module) => ({ default: module.ConfidenceToolbar })));
+
 const WINDOW_ACTIONS: Array<{
   kind: DesktopWindowKind;
   label: string;
@@ -28,7 +30,7 @@ const WINDOW_ACTIONS: Array<{
   { kind: "check-in", label: "Check-in", icon: UserCheck },
 ];
 
-export function DesktopStatusBar() {
+export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
   const { slug } = useParams({ strict: false });
   const [engine, setEngine] = useState<DesktopEngineInfo | null>(null);
   const [bridge, setBridge] = useState<DesktopBridgeStatus | null>(null);
@@ -297,6 +299,7 @@ export function DesktopStatusBar() {
                     ? "Retry update"
                     : "Check update"}
         </button>
+        {slug && <Suspense fallback={null}><ConfidenceToolbar key={slug} slug={slug} orgId={orgId} /></Suspense>}
         {slug
           ? WINDOW_ACTIONS.map(({ kind, label, icon: Icon }) => (
             <button

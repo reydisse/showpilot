@@ -381,11 +381,15 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
     await navigate({ to: "/$slug/schedule", params: { slug }, search: { date: destination.date, assignment: destination.assignment } });
     return;
   }
+  if (destination.kind === "personal-duty") {
+    await navigate({ to: "/$slug/assignments", params: { slug }, search: { date: destination.date, assignment: undefined } });
+    return;
+  }
   if (destination.kind === "personal-assignment") {
     await navigate({
       to: "/$slug/assignments",
       params: { slug },
-      search: { assignment: destination.assignment },
+      search: { assignment: destination.assignment, date: undefined },
     });
     return;
   }

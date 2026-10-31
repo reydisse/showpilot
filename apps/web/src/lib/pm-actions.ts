@@ -267,21 +267,9 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
       if (!member) throw new Error("Not found");
     }
 
+    const { saveDutySlots } = await import("@/lib/duty-roster.server");
     if (data.duty === "pm") {
-      await db
-        .prepare(
-          "DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND kind = 'pm'",
-        )
-        .bind(data.orgId, data.weekStart)
-        .run();
-      if (data.userId) {
-        await db
-          .prepare(
-            "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'pm', NULL, ?)",
-          )
-          .bind(crypto.randomUUID(), data.orgId, data.weekStart, data.userId)
-          .run();
-      }
+      await saveDutySlots(db, data.orgId, data.weekStart, [{ kind: "pm", roleId: null, userId: data.userId }]);
       return { ok: true };
     }
 
@@ -298,25 +286,6 @@ export const setDutyOfficer = createServerFn({ method: "POST" })
       );
     }
 
-    await db
-      .prepare(
-        "DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ? AND roleId = ?",
-      )
-      .bind(data.orgId, data.weekStart, role.id)
-      .run();
-    if (data.userId) {
-      await db
-        .prepare(
-          "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'tech', ?, ?)",
-        )
-        .bind(
-          crypto.randomUUID(),
-          data.orgId,
-          data.weekStart,
-          role.id,
-          data.userId,
-        )
-        .run();
-    }
+    await saveDutySlots(db, data.orgId, data.weekStart, [{ kind: "tech", roleId: role.id, userId: data.userId }]);
     return { ok: true };
   });
