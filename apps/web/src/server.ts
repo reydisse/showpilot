@@ -743,10 +743,12 @@ const appServer = {
   },
   async scheduled(_controller: ScheduledController, e: Env): Promise<void> {
     const { checkExpoPushReceipts } = await import("./lib/expo-push-receipts.server");
+    const { createDueDutyReminders } = await import("./lib/duty-roster.server");
     const { createDuePostShowReminders } = await import("./lib/show-report-notes");
     await Promise.all([
       checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
       createDuePostShowReminders(e.DB),
+      createDueDutyReminders(e.DB),
     ]);
   },
 };

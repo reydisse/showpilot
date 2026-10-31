@@ -25,7 +25,7 @@ export function AppShell({
       <div className="flex h-[100dvh] overflow-hidden bg-board-bg">
         <Sidebar />
         <div className="flex-1 min-w-0 flex flex-col">
-          <DesktopStatusBar />
+          <DesktopStatusBar orgId={orgId} />
           <MobileHeader />
           {showLiveRundown && orgId && slug ? (
             <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} />

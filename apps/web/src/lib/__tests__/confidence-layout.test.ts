@@ -19,6 +19,14 @@ const slide = {
   nextSlideId: "b",
 };
 describe("confidence screen contracts", () => {
+  it("preserves existing colors and fonts when adding next-text controls to saved layouts", () => {
+    const old = { ...DEFAULT_CONFIDENCE_LAYOUT, lyrics: { ...DEFAULT_CONFIDENCE_LAYOUT.lyrics, font: "serif", color: "#ffaa00", nextSize: undefined } };
+    const saved = readConfidenceLayout(JSON.stringify(old));
+    expect(saved.lyrics.font).toBe("serif");
+    expect(saved.lyrics.color).toBe("#ffaa00");
+    expect(saved.lyrics.nextSize).toBe(1);
+    expect(saved.lyrics.nextColor).toBeUndefined();
+  });
   it("moves the next slide only on an actual advance, never a heartbeat, edit, or jump", () => {
     expect(isConfidenceAdvance(slide, { ...slide })).toBe(false);
     expect(

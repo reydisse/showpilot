@@ -2,6 +2,7 @@ export type NotificationDestination =
   | { kind: "tech-manager" }
   | { kind: "incident"; incident?: string; date?: string; show?: string }
   | { kind: "schedule"; date?: string; assignment?: string }
+  | { kind: "personal-duty"; date: string }
   | { kind: "personal-assignment"; assignment: string }
   | { kind: "chat"; room: string; message?: string }
   | { kind: "report"; date?: string; show?: string }
@@ -56,6 +57,8 @@ export function getNotificationDestination(actionUrl: string): NotificationDesti
 
   if (actionUrl.startsWith("assignments?")) {
     const search = new URLSearchParams(actionUrl.slice(actionUrl.indexOf("?") + 1));
+    const date = search.get("date");
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return { kind: "personal-duty", date };
     const assignment = search.get("assignment")?.trim();
     if (assignment && assignment.length <= 128) {
       return { kind: "personal-assignment", assignment };
@@ -107,6 +110,7 @@ export function getNotificationPath(orgSlug: string, actionUrl: string): string 
     if (destination.assignment) search.set("assignment", destination.assignment);
     return `${base}/schedule${search.size ? `?${search}` : ""}`;
   }
+  if (destination.kind === "personal-duty") return `${base}/assignments?date=${destination.date}`;
   if (destination.kind === "personal-assignment") {
     search.set("assignment", destination.assignment);
     return `${base}/assignments?${search}`;

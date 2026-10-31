@@ -13,6 +13,8 @@ import {
   type ConfidenceSlideData,
 } from "@/lib/confidence-layout";
 
+import { splitScriptureText } from "@/lib/scripture-text";
+
 const ConfidenceContext = createContext(DEFAULT_CONFIDENCE_LAYOUT);
 
 export function ConfidenceScreen({
@@ -53,11 +55,15 @@ export function ConfidenceSlide({
 }) {
   const inherited = useContext(ConfidenceContext);
   const layout = override ?? inherited;
+  const scripture = splitScriptureText(slide.text, [slide.notes, slide.presentationName]);
   const isScripture =
     layout.contentMode === "scripture" ||
-    (layout.contentMode === "auto" && slide.isScripture);
+    (layout.contentMode === "auto" && (slide.isScripture || Boolean(scripture.reference)));
   const style = isScripture ? layout.scripture : layout.lyrics;
-  const showNext = style.showNext && Boolean(slide.nextText?.trim());
+  const showNext = style.showNext;
+  const text = isScripture ? scripture.text : slide.text;
+  const upcoming = isScripture ? splitScriptureText(slide.nextText ?? "") : { text: slide.nextText ?? "", reference: "" };
+  const reference = isScripture ? scripture.reference : [slide.presentationName, slide.notes].filter(Boolean).join(" · ");
   const areaRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLDivElement>(null);
   const nextRef = useRef<HTMLDivElement>(null);
@@ -90,7 +96,9 @@ export function ConfidenceSlide({
         Math.min(area.clientWidth * 0.09, area.clientHeight * 0.29) *
         style.size;
       fit(current, maximum);
-      if (next) fit(next, maximum * 0.62);
+      // Reserve a stable preview region and use a viewport-based size, independent
+      // of the current verse length. Shrink only when unusually long text overflows.
+      if (next) fit(next, Math.min(area.clientWidth * 0.035, area.clientHeight * 0.085) * style.nextSize);
     };
     fitAll();
     const old = previous.current;
@@ -110,15 +118,13 @@ export function ConfidenceSlide({
         [
           {
             transform: `translateY(${offset}px)`,
-            opacity: 0.7,
+            opacity: 1,
           },
           { transform: "translateY(0)", opacity: 1 },
         ],
         { duration: 320, easing: "ease-out" },
       );
-      next?.animate([{ opacity: 0 }, { opacity: style.nextOpacity }], {
-        duration: 320,
-      });
+
     }
     previous.current = slide;
     const observer = new ResizeObserver(fitAll);
@@ -134,6 +140,10 @@ export function ConfidenceSlide({
       next?.getAnimations().forEach((a) => a.cancel());
     };
   }, [
+    text,
+    reference,
+    upcoming.text,
+    upcoming.reference,
     slide.text,
     slide.slideId,
     slide.nextText,
@@ -161,7 +171,7 @@ export function ConfidenceSlide({
         fontFamily: CONFIDENCE_FONTS[style.font],
       }}
     >
-      {style.showReference && (slide.presentationName || slide.notes) && (
+      {style.showReference && reference && (
         <div
           data-confidence-reference
           style={{
@@ -170,7 +180,7 @@ export function ConfidenceSlide({
             overflow: "hidden",
             overflowWrap: "anywhere",
             fontFamily: CONFIDENCE_FONTS.sans,
-            fontSize: "clamp(9px, 1cqw, 16px)",
+            fontSize: isScripture ? "clamp(12px, 2cqw, 38px)" : "clamp(9px, 1cqw, 16px)",
             lineHeight: 1.4,
             textAlign: "left",
             textTransform: isScripture ? "none" : "uppercase",
@@ -179,7 +189,7 @@ export function ConfidenceSlide({
             fontWeight: 500,
           }}
         >
-          {[slide.presentationName, slide.notes].filter(Boolean).join(" · ")}
+          {reference}
         </div>
       )}
       <div
@@ -201,7 +211,7 @@ export function ConfidenceSlide({
             fontWeight: 600,
           }}
         >
-          {slide.text}
+          {text}
         </div>
       </div>
       {showNext && (
@@ -221,11 +231,17 @@ export function ConfidenceSlide({
               whiteSpace: "pre-wrap",
               overflowWrap: "anywhere",
               lineHeight: 1.2,
-              fontWeight: 500,
+              fontWeight: 600,
+              color: style.nextColor ?? style.color,
               opacity: style.nextOpacity,
             }}
           >
-            {slide.nextText}
+            {upcoming.text}
+            {style.showReference && upcoming.reference && (
+              <span data-confidence-next-reference style={{ display: "block", fontSize: "0.55em", marginTop: "0.4em" }}>
+                {upcoming.reference}
+              </span>
+            )}
           </div>
         </div>
       )}

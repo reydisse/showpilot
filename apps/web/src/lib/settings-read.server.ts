@@ -7,6 +7,7 @@ const MEMBER_VISIBLE_SETTING_KEYS = [
   "default-call-lead-minutes",
   "overtime-behavior",
   "lyrics-output",
+  "default-confidence-layout",
 ] as const;
 
 interface SettingsResult<T> {

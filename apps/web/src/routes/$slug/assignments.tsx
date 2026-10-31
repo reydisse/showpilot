@@ -1,3 +1,4 @@
+import { getMyDutyRoster } from "@/lib/personal-duty";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Check, Clock3, MapPin, X } from "lucide-react";
@@ -9,15 +10,17 @@ import {
 
 export const Route = createFileRoute("/$slug/assignments")({
   validateSearch: (search: Record<string, unknown>) => ({
+    date: typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? search.date : undefined,
     assignment:
       typeof search.assignment === "string" && search.assignment.length <= 128
         ? search.assignment
         : undefined,
   }),
-  loaderDeps: ({ search }) => ({ assignment: search.assignment }),
+  loaderDeps: ({ search }) => ({ assignment: search.assignment, date: search.date }),
   loader: async ({ context, deps }) => ({
     orgId: context.orgId,
     slug: context.slug,
+    duties: await getMyDutyRoster({ data: { orgId: context.orgId, date: deps.date } }),
     data: await getMyAssignments({
       data: {
         orgId: context.orgId,
@@ -33,9 +36,9 @@ type Assignment = Awaited<
 >["assignments"][number];
 
 function MyAssignmentsPage() {
-  const { orgId, slug, data } = Route.useLoaderData();
+  const { orgId, slug, data, duties } = Route.useLoaderData();
   const deviceTimeZone = useDeviceTimeZone();
-  const { assignment: requestedAssignment } = Route.useSearch();
+  const { assignment: requestedAssignment, date: dutyDate } = Route.useSearch();
   const router = useRouter();
   const [responding, setResponding] = useState<string | null>(null);
   const [declining, setDeclining] = useState<string | null>(null);
@@ -89,13 +92,28 @@ function MyAssignmentsPage() {
             <Link
               to="/$slug/assignments"
               params={{ slug }}
-              search={{ assignment: undefined }}
+              search={{ assignment: undefined, date: undefined }}
               className="rounded-xl border border-board-border px-4 py-2 text-sm font-semibold text-board-text"
             >
               View all mine
             </Link>
           ) : null}
         </header>
+
+        {(duties.length > 0 || dutyDate) && (
+          <section className="rounded-2xl border border-board-border bg-board-card p-5" aria-label="On-duty roster">
+            <h2 className="font-semibold text-board-text">My on-duty roster</h2>
+            <p className="mt-1 text-sm text-board-muted">Weekly duties run Sunday through Saturday.</p>
+            {duties.length === 0 ? <p className="mt-3 text-sm text-board-muted">You have no duty assignment for the week of {dutyDate}.</p> : (
+              <ul className="mt-3 space-y-3">{duties.map((duty) => (
+                <li key={duty.id} className="flex flex-wrap justify-between gap-2 text-sm">
+                  <span className="font-medium text-board-text">{duty.roleName}</span>
+                  <span className="text-board-muted">Week of {duty.weekStart}</span>
+                </li>
+              ))}</ul>
+            )}
+          </section>
+        )}
 
         {error ? (
           <p

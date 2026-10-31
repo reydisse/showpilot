@@ -332,26 +332,15 @@ export const saveRosterWeek = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertKioskAdmin(data.orgId);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.weekStart)) throw new Error("Invalid week");
-    // Replace the whole week atomically-ish.
-    await db()
-      .prepare("DELETE FROM roster_assignment WHERE orgId = ? AND weekStart = ?")
-      .bind(data.orgId, data.weekStart)
-      .run();
-    for (const t of data.tech) {
-      if (!t.userId) continue;
-      await db()
-        .prepare(
-          "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'tech', ?, ?)",
-        )
-        .bind(uid(), data.orgId, data.weekStart, t.roleId, t.userId)
-        .run();
-    }
-    if (data.pmUserId) {
-      await db()
-        .prepare(
-          "INSERT INTO roster_assignment (id, orgId, weekStart, kind, roleId, userId) VALUES (?, ?, ?, 'pm', NULL, ?)",
-        )
-        .bind(uid(), data.orgId, data.weekStart, data.pmUserId)
-        .run();
-    }
+    const { saveDutySlots } = await import("@/lib/duty-roster.server");
+    const roles = await db().prepare("SELECT id FROM roster_role WHERE orgId = ?")
+      .bind(data.orgId).all<{ id: string }>();
+    const requested = new Map(data.tech.map((slot) => [slot.roleId, slot.userId]));
+    if (requested.size !== data.tech.length) throw new Error("Duplicate duty role");
+    const validRoles = new Set(roles.results.map((role) => role.id));
+    if (data.tech.some((slot) => !validRoles.has(slot.roleId))) throw new Error("Duty role not found");
+    await saveDutySlots(db(), data.orgId, data.weekStart, [
+      { kind: "pm", roleId: null, userId: data.pmUserId },
+      ...roles.results.map((role) => ({ kind: "tech" as const, roleId: role.id, userId: requested.get(role.id) ?? null })),
+    ]);
   });

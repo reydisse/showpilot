@@ -24,6 +24,8 @@ export type OperationalNotification = {
    * of creating duplicates when an operation is retried.
    */
   dedupeKey?: string;
+  /** Insert once and push only for a newly created inbox item. Requires dedupeKey. */
+  once?: boolean;
 };
 
 async function notificationIdFor(
@@ -93,13 +95,14 @@ async function deliverOperationalEvent(input: OperationalNotification) {
       try {
         const deviceAlerts = preferences.get(userId) ?? true;
         const notificationId = await notificationIdFor(input, userId);
-        await getD1()
+        if (input.once && !input.dedupeKey) throw new Error("Once-only notifications require an event key");
+        const inserted = await getD1()
           .prepare(
             `INSERT INTO notification
              (id, orgId, userId, type, severity, title, message, target, source, actionUrl,
               category, deviceAlertEnabled, dismissed, createdAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-             ON CONFLICT(id) DO UPDATE SET
+             ${input.once ? "ON CONFLICT(id) DO NOTHING" : `ON CONFLICT(id) DO UPDATE SET
                type = excluded.type,
                severity = excluded.severity,
                title = excluded.title,
@@ -111,7 +114,7 @@ async function deliverOperationalEvent(input: OperationalNotification) {
                deviceAlertEnabled = excluded.deviceAlertEnabled,
                dismissed = 0,
                readAt = NULL,
-               createdAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+               createdAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`}`,
           )
           .bind(
             notificationId,
@@ -128,6 +131,7 @@ async function deliverOperationalEvent(input: OperationalNotification) {
             deviceAlerts ? 1 : 0,
           )
           .run();
+        if (input.once && inserted.meta.changes === 0) return false;
         if (deviceAlerts) {
           try {
             const { deliverPushToUser } = await import("@/lib/push-delivery.server");

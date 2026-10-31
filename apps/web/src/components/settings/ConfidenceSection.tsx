@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfidenceSlide } from "@/components/confidence/ConfidenceSlide";
 import {
@@ -65,12 +65,15 @@ export function ConfidenceSection({
   slug,
   initialValue,
   onApplied,
+  showOutputs = true,
 }: {
   orgId: string;
   slug: string;
   initialValue: string;
   onApplied: (value: string) => void;
+  showOutputs?: boolean;
 }) {
+  const headingId = useId();
   const [draft, setDraft] = useState(() => readConfidenceLayout(initialValue));
   const [applied, setApplied] = useState(() =>
     JSON.stringify(readConfidenceLayout(initialValue)),
@@ -109,10 +112,10 @@ export function ConfidenceSection({
   return (
     <section
       className="mt-10 border-t border-board-border pt-8"
-      aria-labelledby="confidence-heading"
+      aria-labelledby={headingId}
     >
       <h2
-        id="confidence-heading"
+        id={headingId}
         className="text-lg font-semibold text-board-text"
       >
         Confidence screen
@@ -204,7 +207,7 @@ export function ConfidenceSection({
             </select>
           </label>
           <label className="block text-sm text-board-muted">
-            Text size · {Math.round(style.size * 100)}%
+            Current text size · {Math.round(style.size * 100)}%
             <input
               className="mt-2 w-full accent-amber-400"
               type="range"
@@ -232,9 +235,9 @@ export function ConfidenceSection({
             </select>
           </label>
           <label className="flex items-center justify-between gap-3 text-sm text-board-muted">
-            Text color
+            Current text color
             <input
-              aria-label="Text color"
+              aria-label="Current text color"
               type="color"
               value={style.color}
               onChange={(event) => change({ color: event.target.value })}
@@ -251,13 +254,26 @@ export function ConfidenceSection({
             Show upcoming {tab === "lyrics" ? "lyric" : "verse"}
           </label>
           {style.showNext && (
+            <>
             <label className="block text-sm text-board-muted">
-              Upcoming text opacity · {Math.round(style.nextOpacity * 100)}%
+              Upcoming text size · {Math.round(style.nextSize * 100)}%
+              <input type="range" min="0.5" max="1.8" step="0.05" value={style.nextSize}
+                className="mt-2 w-full accent-amber-400"
+                onChange={(event) => change({ nextSize: Number(event.target.value) })} />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-board-muted">
+              Upcoming text color
+              <input aria-label="Upcoming text color" type="color" value={style.nextColor ?? style.color}
+                onChange={(event) => change({ nextColor: event.target.value })}
+                className="h-9 w-12 rounded border border-board-border bg-transparent" />
+            </label>
+            <label className="block text-sm text-board-muted">
+              Upcoming text brightness · {Math.round(style.nextOpacity * 100)}%
               <input
                 className="mt-2 w-full accent-amber-400"
                 type="range"
                 min="0.2"
-                max="0.75"
+                max="1"
                 step="0.05"
                 value={style.nextOpacity}
                 onChange={(event) =>
@@ -265,6 +281,7 @@ export function ConfidenceSection({
                 }
               />
             </label>
+            </>
           )}
           <label className="flex items-center gap-3 text-sm text-board-text">
             <input
@@ -401,7 +418,7 @@ export function ConfidenceSection({
           {error}
         </p>
       )}
-      <ConfidenceOutputs slug={slug} />
+      {showOutputs && <ConfidenceOutputs slug={slug} />}
     </section>
   );
 }
