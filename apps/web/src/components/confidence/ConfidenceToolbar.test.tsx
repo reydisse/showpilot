@@ -30,6 +30,10 @@ describe("confidence quick controls", () => {
     await waitFor(() => expect(output.startConfidenceOutput).toHaveBeenCalledWith("church", { kind: "monitor", id: "display-1" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await screen.findByRole("button", { name: "Confidence On" });
+    fireEvent.click(screen.getByRole("button", { name: "Confidence output and appearance" }));
+    await screen.findByRole("dialog");
+    expect(output.stopConfidenceOutput).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     vi.mocked(output.getConfidenceOutputStatus).mockResolvedValue({ state: "stopped", message: "Output disabled" });
     fireEvent.click(screen.getByRole("button", { name: "Confidence On" }));
     await waitFor(() => expect(output.stopConfidenceOutput).toHaveBeenCalledTimes(1));

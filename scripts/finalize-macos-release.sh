@@ -35,7 +35,7 @@ installers=("$output"/dmg/*.dmg)
 test "${#installers[@]}" -eq 1
 cp "${installers[0]}" "$output/downloads/${asset_prefix}_${version}_${artifact_arch}.dmg"
 archive="$output/downloads/${asset_prefix}_${artifact_arch}.app.tar.gz"
-tar -czf "$archive" -C "$output/macos" "$product_name.app"
+python3 "$script_dir/macos_updater_archive.py" "$output/macos/$product_name.app" "$archive"
 cd "$repo_root"
 pnpm --filter @showpilot/desktop exec tauri signer sign "$archive"
 

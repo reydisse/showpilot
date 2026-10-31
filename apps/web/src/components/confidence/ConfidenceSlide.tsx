@@ -67,6 +67,8 @@ export function ConfidenceSlide({
   const areaRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLDivElement>(null);
   const nextRef = useRef<HTMLDivElement>(null);
+  const nextTextRef = useRef<HTMLSpanElement>(null);
+  const nextReferenceRef = useRef<HTMLSpanElement>(null);
   const previous = useRef(slide);
 
   useLayoutEffect(() => {
@@ -92,13 +94,23 @@ export function ConfidenceSlide({
       element.style.fontSize = `${low}px`;
     };
     const fitAll = () => {
+      if (!area.clientWidth || !area.clientHeight) return;
       const maximum =
         Math.min(area.clientWidth * 0.09, area.clientHeight * 0.29) *
         style.size;
       fit(current, maximum);
-      // Reserve a stable preview region and use a viewport-based size, independent
-      // of the current verse length. Shrink only when unusually long text overflows.
-      if (next) fit(next, Math.min(area.clientWidth * 0.035, area.clientHeight * 0.085) * style.nextSize);
+      // Upcoming lyrics are a cue preview. Keep their size steady between slides
+      // and truncate overflow instead of making a long cue unreadably small.
+      const nextText = nextTextRef.current;
+      if (next && nextText && next.parentElement) {
+        const size = Math.min(area.clientWidth * 0.035, area.clientHeight * 0.085) * style.nextSize;
+        next.style.fontSize = `${size}px`;
+        const referenceHeight = nextReferenceRef.current
+          ? nextReferenceRef.current.getBoundingClientRect().height + size * 0.4
+          : 0;
+        const available = next.parentElement.clientHeight - referenceHeight;
+        nextText.style.webkitLineClamp = String(Math.max(1, Math.floor(available / (size * 1.2))));
+      }
     };
     fitAll();
     const old = previous.current;
@@ -194,7 +206,7 @@ export function ConfidenceSlide({
       )}
       <div
         style={{
-          flex: showNext ? "1 1 68%" : "1 1 100%",
+          flex: "1 1 0",
           minHeight: 0,
           display: "flex",
           alignItems: "center",
@@ -217,7 +229,8 @@ export function ConfidenceSlide({
       {showNext && (
         <div
           style={{
-            flex: "0 1 26%",
+            flex: "0 0 26%",
+            overflow: "hidden",
             minHeight: 0,
             display: "flex",
             alignItems: "center",
@@ -236,9 +249,15 @@ export function ConfidenceSlide({
               opacity: style.nextOpacity,
             }}
           >
-            {upcoming.text}
+            <span
+              ref={nextTextRef}
+              data-confidence-next-text
+              style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", overflow: "hidden" }}
+            >
+              {upcoming.text}
+            </span>
             {style.showReference && upcoming.reference && (
-              <span data-confidence-next-reference style={{ display: "block", fontSize: "0.55em", marginTop: "0.4em" }}>
+              <span ref={nextReferenceRef} data-confidence-next-reference style={{ display: "block", fontSize: "0.55em", marginTop: "0.4em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {upcoming.reference}
               </span>
             )}

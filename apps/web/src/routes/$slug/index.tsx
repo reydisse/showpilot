@@ -1,9 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/$slug/")({
-  beforeLoad: ({ params, context }) => {
+  beforeLoad: ({ params }) => {
     throw redirect({
-      to: context.workspace.modules.includes("board") ? "/$slug/board" : "/$slug/show",
+      to: "/$slug/show",
       params: { slug: params.slug },
     });
   },

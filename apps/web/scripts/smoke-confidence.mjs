@@ -49,11 +49,13 @@ import './fixture.css';
 function App() {
   const [index, setIndex] = useState(0);
   const [scripture, setScripture] = useState(false);
-  const texts = ['Amazing grace, how sweet the sound\\nThat saved a wretch like me', 'I once was lost, but now am found\\nWas blind, but now I see', 'Hallelujah'];
-  const slide = { text: scripture ? 'John 3:16\\nKJV\\nFor God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.' : texts[index % 3], nextText: scripture ? '' : texts[(index + 1) % 3], notes: '', presentationName: '', isScripture: false };
+  const [nextSize, setNextSize] = useState(1);
+  const texts = ['Amazing grace, how sweet the sound\\nThat saved a wretch like me', 'I once was lost, but now am found\\nWas blind, but now I see', 'Hallelujah', 'A long upcoming lyric that should stay readable instead of shrinking. '.repeat(20), Array(12).fill('Another line of the upcoming lyric').join('\\n'), 'Hallelujah'.repeat(40), ''];
+  const slide = { text: scripture ? 'John 3:16\\nKJV\\nFor God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.' : texts[index % texts.length], nextText: scripture ? 'John 3:17\\nKJV\\nFor God sent not his Son into the world to condemn the world; but that the world through him might be saved.' : texts[(index + 1) % texts.length], notes: '', presentationName: '', isScripture: false };
   return <main className="bg-board-bg text-board-text p-4">
     <div className="flex flex-wrap items-center gap-3"><ConfidenceToolbar slug="demo" orgId="demo" /><button id="advance" onClick={() => setIndex(i => i + 1)}>Advance</button><button id="scripture" onClick={() => setScripture(s => !s)}>Scripture</button></div>
-    <div id="output" className="mt-4 aspect-video bg-black p-[4%]" style={{ containerType: 'inline-size' }}><ConfidenceSlide slide={slide} layout={{ ...DEFAULT_CONFIDENCE_LAYOUT, motion: 'none' }} /></div>
+    <button id="size" onClick={() => setNextSize(s => s === 1 ? 1.8 : 1)}>Upcoming size</button>
+    <div id="output" className="mt-4 aspect-video bg-black p-[4%]" style={{ containerType: 'inline-size' }}><ConfidenceSlide slide={slide} layout={{ ...DEFAULT_CONFIDENCE_LAYOUT, lyrics: { ...DEFAULT_CONFIDENCE_LAYOUT.lyrics, nextSize }, scripture: { ...DEFAULT_CONFIDENCE_LAYOUT.scripture, showNext: true, nextSize }, motion: 'none' }} /></div>
   </main>;
 }
 createRoot(document.getElementById('root')).render(<App />);
@@ -73,10 +75,16 @@ try {
   await server.listen();
   await browser("open", "http://127.0.0.1:3198");
   await browser("wait", "[data-confidence-next]");
-  for (const [width, height] of [[390, 844], [768, 1024], [1280, 600], [1920, 1080], [2560, 1440]]) {
+  await browser("click", "#scripture");
+  await browser("click", '#size');
+  assert.equal((await browser("eval", `(() => { const next = document.querySelector('[data-confidence-next]'); return next.getBoundingClientRect().height > next.parentElement.clientHeight + 1; })()`)).result, false, 'Scripture preview and reference must fit at maximum upcoming size');
+  await browser("click", '#size');
+  await browser("click", "#scripture");
+  for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1280, 600], [1920, 1080], [2560, 1440], [3440, 1440]]) {
     await browser("set", "viewport", String(width), String(height));
     const sizes = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 14; i++) {
+      if (i === 7) await browser("click", "#size");
       const { result } = await browser("eval", `(() => {
         const next = document.querySelector('[data-confidence-next]');
         const current = document.querySelector('[data-confidence-current]');
@@ -90,7 +98,12 @@ try {
       sizes.push(result.size);
       await browser("click", "#advance");
     }
-    assert.ok(Math.max(...sizes) - Math.min(...sizes) < 0.5, `Next font changed at ${width}: ${sizes}`);
+    for (const group of [sizes.slice(0, 7), sizes.slice(7)]) {
+      assert.ok(Math.max(...group) - Math.min(...group) < 0.5, `Next font changed at ${width}: ${group}`);
+    }
+    assert.ok(Math.abs(sizes[7] / sizes[0] - 1.8) < 0.01, 'Upcoming size control must still apply');
+    await browser("click", "#size");
+    if (width === 1280) await browser("screenshot", "/tmp/showpilot-confidence-toolbar-fixed.png");
     await browser("click", '[aria-label="Confidence output and appearance"]');
     await browser("wait", '[role="dialog"] input[type="color"]');
     const { result: bounds } = await browser("eval", `(() => { const el = document.querySelector('[role="dialog"]'); const r = el.getBoundingClientRect(); return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, overflow:el.scrollWidth > el.clientWidth + 1 }; })()`);

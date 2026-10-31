@@ -4,7 +4,7 @@ import { resolveWorkspaceProfile } from "@showpilot/shared";
 import { Route } from "../../routes/$slug/index";
 
 it.each([
-  { modules: ["show", "rundown", "team", "board"], destination: "/$slug/board" },
+  { modules: ["show", "rundown", "team", "board"], destination: "/$slug/show" },
   { modules: ["show", "rundown", "team"], destination: "/$slug/show" },
 ])("opens $destination when the workspace enables $modules", ({ modules, destination }) => {
   const beforeLoad = Route.options.beforeLoad;

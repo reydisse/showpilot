@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Monitor } from "lucide-react";
+import { Monitor, Power } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ConfidenceOutputControls } from "@/components/settings/ConfidenceOutputs";
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
@@ -27,21 +27,35 @@ export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: strin
   const failed = Boolean(output.error) || output.status.state === "error";
   return (
     <>
-      <div className="flex shrink-0 items-center rounded-md border border-board-border">
-        <button type="button" disabled={output.busy}
+      <div className="flex shrink-0 items-center gap-1 rounded-xl border border-board-border bg-board-card/70 p-1 shadow-sm">
+        <button
+          type="button"
+          aria-label="Confidence output and appearance"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+          className="sp-button flex h-8 items-center gap-2 rounded-lg px-2 text-sm font-medium text-board-text hover:bg-board-text/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+        >
+          <Monitor aria-hidden="true" className="size-4 text-board-muted" />
+          <span>Confidence</span>
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium ${failed ? "bg-red-500/10 text-red-400" : output.enabled ? "bg-green-500/10 text-green-400" : "bg-board-text/5 text-board-muted"}`}>
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+            {output.busy ? "Updating…" : output.status.state === "starting" ? "Starting…" : failed ? "Error" : output.enabled ? "Live" : "Off"}
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={output.busy}
+          aria-label={`Confidence ${output.busy ? "Updating…" : output.status.state === "starting" ? "Starting…" : failed ? "Error" : output.enabled ? "On" : "Off"}`}
           aria-pressed={output.enabled}
-          title={output.error || output.status.message}
+          title={failed ? output.error || output.status.message : output.enabled ? "Turn confidence output off" : "Turn confidence output on"}
           onClick={() => {
             if (failed || (!output.enabled && !output.target)) setOpen(true);
             else void output.toggle();
           }}
-          className={`flex min-h-8 items-center gap-1.5 rounded-l-md px-2 py-1 disabled:opacity-50 ${failed ? "text-red-400" : output.enabled ? "bg-green-500/10 text-green-400" : "text-board-muted hover:text-board-text"}`}>
-          <Monitor className="size-3.5" />
-          Confidence {output.busy ? "Updating…" : output.status.state === "starting" ? "Starting…" : failed ? "Error" : output.enabled ? "On" : "Off"}
-        </button>
-        <button type="button" aria-label="Confidence output and appearance" aria-expanded={open}
-          onClick={() => setOpen(true)} className="min-h-8 rounded-r-md border-l border-board-border px-2 hover:text-board-text">
-          <ChevronDown className="size-3.5" />
+          className={`sp-button flex size-8 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50 ${failed ? "text-red-400 hover:bg-red-500/10" : output.enabled ? "bg-green-500/10 text-green-400 hover:bg-green-500/20" : "text-board-muted hover:bg-board-text/5 hover:text-board-text"}`}
+        >
+          <Power aria-hidden="true" className="size-4" />
         </button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
