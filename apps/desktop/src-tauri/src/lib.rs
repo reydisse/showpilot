@@ -454,3 +454,8 @@ mod tests {
         assert!(!is_display_surface("main", "/faithfire/board/settings"));
     }
 }
+
+/// Read-only support command; does not create a window or enable hardware output.
+pub fn diagnose_decklink() -> Result<serde_json::Value, String> {
+    confidence_output::diagnose_decklink()
+}

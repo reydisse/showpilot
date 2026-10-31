@@ -47,7 +47,12 @@ extern "C" char *sp_decklink_inventory() {
     @autoreleasepool {
         NSMutableArray *devices = [NSMutableArray array];
         ComPtr<IDeckLinkIterator> iterator(CreateDeckLinkIteratorInstance());
-        if (!iterator) return json(@{@"devices": devices, @"error": @"Install Blackmagic Desktop Video to use DeckLink output."});
+        if (!iterator) {
+            BOOL installed = [[NSFileManager defaultManager] fileExistsAtPath:@"/Library/Frameworks/DeckLinkAPI.framework"];
+            return json(@{@"devices": devices, @"error": installed
+                ? @"Blackmagic Desktop Video is installed, but ShowPilot could not load its driver. Update ShowPilot, check Desktop Video Setup, then restart ShowPilot."
+                : @"Install Blackmagic Desktop Video to use DeckLink output."});
+        }
         IDeckLink *deviceRaw = nullptr;
         while (iterator->Next(&deviceRaw) == S_OK) {
             ComPtr<IDeckLink> device(deviceRaw);

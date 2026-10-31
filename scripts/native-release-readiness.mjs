@@ -11,6 +11,7 @@ const PRODUCT_CONTRACTS = {
     cargoPath: "apps/desktop/src-tauri/Cargo.toml",
     cargoLockPath: "apps/desktop/src-tauri/Cargo.lock",
     sourcePath: "apps/desktop/src-tauri/src/lib.rs",
+    entitlementsPath: "apps/desktop/src-tauri/entitlements.plist",
     capabilitiesPath: "apps/desktop/src-tauri/capabilities/default.json",
     permissionsPath: "apps/desktop/src-tauri/permissions/desktop.json",
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
@@ -107,6 +108,7 @@ function productSnapshot(root, product) {
     workflow: readText(root, contract.workflowPath),
     source: contract.sourcePath ? readText(root, contract.sourcePath) : undefined,
     capabilities: contract.capabilitiesPath ? readJson(root, contract.capabilitiesPath) : undefined,
+    entitlements: contract.entitlementsPath ? readText(root, contract.entitlementsPath) : undefined,
     permissions: contract.permissionsPath ? readJson(root, contract.permissionsPath) : undefined,
   };
 }
@@ -136,6 +138,11 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
 
   for (const [product, contract] of Object.entries(PRODUCT_CONTRACTS)) {
     const current = snapshot.products[product];
+    if (product === "desktop") {
+      add(current.tauri.bundle?.macOS?.entitlements === "entitlements.plist" &&
+        /<key>com\.apple\.security\.cs\.disable-library-validation<\/key>\s*<true\s*\/>/.test(current.entitlements ?? ""),
+        "ShowPilot Desktop must allow the separately signed Blackmagic driver through library validation.");
+    }
     const versions = {
       package: current.packageVersion,
       Cargo: current.cargoVersion,
