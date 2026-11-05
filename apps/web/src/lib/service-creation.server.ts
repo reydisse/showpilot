@@ -129,7 +129,7 @@ export async function createServiceForOrg(data: CreateServiceForOrgInput) {
     await prisma.$transaction([
       prisma.rundown.deleteMany({ where: { id: rundown.id, orgId: data.orgId } }),
       prisma.appSetting.deleteMany({
-        where: { orgId: data.orgId, key: `rundown-items:${rundown.id}` },
+        where: { orgId: data.orgId, key: { in: [`rundown-items:${rundown.id}`, `rundown-items-storage:${rundown.id}`] } },
       }),
     ]);
     throw error;

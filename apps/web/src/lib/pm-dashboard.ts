@@ -14,6 +14,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
+import { requestDatabase } from "@/lib/request-database.server";
+import { rundownItemStorageKey } from "@/lib/rundown-item-storage.server";
 import type { Permission } from "@/lib/app-permissions";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
@@ -333,12 +335,18 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const prisma = getPrisma();
     const orgId = data.orgId;
 
-    const [settingRows, rundownRows] = await Promise.all([
+    const [settingRows, rundownRows, itemRows] = await Promise.all([
       prisma.appSetting.findMany({
         where: { orgId },
         select: { key: true, value: true },
       }),
       loadRundownRows(orgId),
+      requestDatabase.prepare(`SELECT showId, serviceDate,
+        SUM(CASE WHEN type != 'header' THEN 1 ELSE 0 END) AS itemCount,
+        SUM(CASE WHEN type != 'header' AND duration <= 0 THEN 1 ELSE 0 END) AS missingDuration,
+        SUM(CASE WHEN type != 'header' AND TRIM(assignee) = '' THEN 1 ELSE 0 END) AS missingOwner,
+        SUM(CASE WHEN type != 'header' THEN MAX(0, duration) ELSE 0 END) AS plannedMs
+        FROM rundown_item WHERE orgId = ? GROUP BY showId, serviceDate`).bind(orgId).all<ItemSummary & { showId: string | null; serviceDate: string }>(),
     ]);
 
     const settings: Record<string, string> = {};
@@ -353,6 +361,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         settings[row.key] = row.value;
       }
     }
+    for (const row of itemRows.results) itemSummaries.set(row.showId ?? row.serviceDate, row);
 
     const orgTimezone = settings["org-timezone"] ?? "";
     const today = getTodayDateString(orgTimezone);
@@ -365,7 +374,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     }
     const summaryForShow = (show: RundownDateRow): ItemSummary =>
       itemSummaries.get(show.id) ??
-      (firstShowByDate.get(show.serviceDate)?.id === show.id
+      (settings[rundownItemStorageKey(show.id)] === "rows-v1" ? EMPTY_SUMMARY : firstShowByDate.get(show.serviceDate)?.id === show.id
         ? itemSummaries.get(show.serviceDate)
         : undefined) ??
       EMPTY_SUMMARY;

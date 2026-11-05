@@ -763,8 +763,12 @@
       "phase": "1",
       "section": "1.7 Rundown persistence and active show pointer (audit H11, H14)",
       "line": 140,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "RundownRelay and setup/import persistence now share scoped row-diff statements: one insert/update/delete per changed item, stable row IDs, ordered timer updates and atomic D1 batches. Live commands retain the serialized relay/revision path. Failed setup/import batches throw instead of silently falling back to JSON. Scheduling and actual timestamps are preserved.",
+        "Full rundown JSON snapshots are no longer written to app_setting. A small rows-v1 marker distinguishes an intentionally empty show from unmigrated data; legacy snapshots migrate atomically, cannot overwrite a concurrent clear/save, and are deleted when their owning show migrates. PM summaries/counts and show deletion now use relational rows and clean up the marker. Request-scoped replica/primary read policy is preserved.",
+        "The 1.5 MB aggregate parser/persistence cap is removed while existing per-field and 500-item validation remain. Durable state stores changed items under individual keys and commits the item index, timer, lyrics and revision together; it reads the prior single-value snapshot and converts on the next command. Hydration batches at most 128 keys. Ten real Worker tests cover 100-item single-row writes with SQL audit triggers, a 150-item/3 MB timeline through eviction, setup/import timestamps, migration/clear races, same-date scoping, delete/restore ordering, two-row timer advance, atomic failure/retry and old durable-state migration. Current ppSlide is verified through direct slide, preview and output-toggle commands across eviction."
+      ]
     },
     {
       "id": "47be6f2522a57b0e",
@@ -948,8 +952,12 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 175,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Full web suite passed: 1327 unit tests and 270 Worker tests; TypeScript and production build passed. SQL audit triggers prove editing one item in a 100-item rundown updates exactly that row without inserting/deleting others. A 150-item rundown larger than 3 MB saves, edits and reloads through eviction without the former size cliff; direct/preview/output-toggle ppSlide state survives eviction.",
+        "Built smoke-rundown-persistence.mjs passed real login, editing a cue through the UI in a 3 MB rundown, stable IDs and unchanged sibling rows, absence of JSON item snapshots, full local Worker restart with item/lyrics recovery, and PM dashboard showing the second show with the correct two-item count from relational rows. smoke-show-day-safety.mjs also passed confirmations, Undo, keyboard guards, offline draft/reconnect and stale-command rejection. All data was disposable local fixture data.",
+        "Durable snapshots now use an itemIds index with per-item values. A release rollback must target a build that understands this format, or explicitly recover from the intact relational rows; older builds reading only state.items cannot interpret the new durable snapshot. Include this pairing in the Phase 3 rollback runbook."
+      ]
     },
     {
       "id": "12ba8a8451b41f72",

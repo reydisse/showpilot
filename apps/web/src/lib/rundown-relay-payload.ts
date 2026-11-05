@@ -148,7 +148,6 @@ export function parseRelayRundownItem(value: unknown, sortOrder: number): RelayR
 
 export function parseRelayRundownItems(value: unknown): RelayRundownItem[] | null {
   if (!Array.isArray(value) || value.length > 500) return null;
-  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 1_500_000) return null;
   const parsed = value.map((item, index) => parseRelayRundownItem(item, index));
   if (parsed.some((item) => item === null)) return null;
   const items = parsed as RelayRundownItem[];
