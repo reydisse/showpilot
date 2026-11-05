@@ -309,6 +309,7 @@ export class TimecodeRelay extends DurableObject {
       && await hasLivePermissionAuthority(this.env.DB, authClaim, "timecode:access");
 
     if (url.pathname === "/ws") {
+      if (authClaim && !canWrite) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);

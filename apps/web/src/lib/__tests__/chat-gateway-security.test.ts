@@ -68,7 +68,7 @@ describe("chat gateway authority boundary", () => {
   });
 
   it("counts only the authenticated user's group rooms and accessible DMs", async () => {
-    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Crew" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Crew" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
     mocks.rooms = ["production", "planning", "dm:member-1:member-2", "dm:member-2:member-3", "dm:member-1:removed"];
     mocks.relay.mockImplementation(async () => Response.json({ unread: 2 }));
@@ -82,7 +82,7 @@ describe("chat gateway authority boundary", () => {
 
   it("does not expose unread counts to guests or members without chat access", async () => {
     expect((await server.fetch(new Request("https://chat.test/api/chat/org/unread?guestToken=valid"), testEnv, {})).status).toBe(401);
-    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Crew" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Crew" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: [] });
     expect((await server.fetch(new Request("https://chat.test/api/chat/org/unread"), testEnv, {})).status).toBe(401);
     expect(mocks.relay).not.toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe("chat gateway authority boundary", () => {
   });
 
   it("takes member identity from authentication and discards a forged guest lease", async () => {
-    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Authenticated Member" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Authenticated Member" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
     await server.fetch(new Request("https://chat.test/api/chat/org/ws?userId=other-member&name=Owner&role=owner&guestExpiresAt=1"), testEnv, {});
     const forwarded: Request = mocks.relay.mock.calls[0][0];
@@ -137,7 +137,7 @@ describe("chat gateway authority boundary", () => {
   });
 
   it("lets only the uploader remove an unreferenced draft attachment", async () => {
-    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Authenticated Member" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Authenticated Member" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
     mocks.storageGet.mockResolvedValue({ customMetadata: { uploadedBy: "member-1", roomId: "production" } });
     mocks.relay.mockResolvedValue(Response.json({ referenced: false }));
@@ -151,7 +151,7 @@ describe("chat gateway authority boundary", () => {
   });
 
   it("refuses to remove another member's attachment", async () => {
-    mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Authenticated Member" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Authenticated Member" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
     mocks.storageGet.mockResolvedValue({ customMetadata: { uploadedBy: "member-2", roomId: "production" } });
 
