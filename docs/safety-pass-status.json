@@ -776,7 +776,9 @@
       "section": "1.7 Rundown persistence and active show pointer (audit H11, H14)",
       "line": 141,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "2026-11-05 prerequisite: RundownRelay serializes the entire HTTP lifecycle and WebSocket message handling with commands. Real Worker tests reproduce rejected edits leaking through state and socket hydration and purge completion overtaking an in-flight D1 batch; all four now pass. Full web suite: 1327 unit + 274 Worker tests, tsc --noEmit and production build passed. Active-pointer transaction and response target metadata remain pending; this requirement is not yet verified. Built browser smoke also passed login, a 3 MB rundown edit, stable row IDs, no JSON item snapshots, Worker restart restoring items/lyrics, and PM dashboard row counts."
+      ]
     },
     {
       "id": "d6b8358682c376fb",

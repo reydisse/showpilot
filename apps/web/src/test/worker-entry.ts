@@ -6,7 +6,38 @@ export { BridgeRelay } from "../durable-objects/BridgeRelay";
 export { ChatRelay } from "../durable-objects/ChatRelay";
 export { CueSheetRelay } from "../durable-objects/CueSheetRelay";
 
-export class TestRundownRelay extends RundownRelay {}
+// Hold one real D1 batch to exercise concurrent lifecycle requests deterministically.
+export class TestRundownRelay extends RundownRelay {
+  private readonly batchGate: { next?: Promise<void>; release?: () => void; waiting: boolean };
+
+  constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
+    const gate: { next?: Promise<void>; release?: () => void; waiting: boolean } = { waiting: false };
+    const database = new Proxy(bindings.DB, {
+      get(target, property) {
+        if (property === "batch") return async (statements: D1PreparedStatement[]) => {
+          const pending = gate.next;
+          gate.next = undefined;
+          if (pending) {
+            gate.waiting = true;
+            await pending;
+            gate.waiting = false;
+          }
+          return target.batch(statements);
+        };
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    super(ctx, { ...bindings, DB: database });
+    this.batchGate = gate;
+  }
+
+  holdNextBatch(): void {
+    this.batchGate.next = new Promise<void>(resolve => { this.batchGate.release = resolve; });
+  }
+  isBatchWaiting(): boolean { return this.batchGate.waiting; }
+  releaseBatch(): void { this.batchGate.release?.(); }
+}
 export class TestTimecodeRelay extends TimecodeRelay {
   private readonly queries: { count: number };
 
