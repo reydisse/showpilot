@@ -88,7 +88,7 @@ describe("relay read authorization cache", () => {
     url.pathname = kind === "graphics" ? "/trigger" : kind === "cue-sheet" ? "/broadcast" : "/send";
     url.searchParams.set("access", kind === "cue-sheet" ? "notes" : "write");
     const body = kind === "graphics" ? { line1: "Private graphic" }
-      : kind === "cue-sheet" ? { type: "note", serviceDate: "2026-11-05", itemId: "fixture", columnId: "fixture", text: "Private note", by: "Fixture", at: 1 }
+      : kind === "cue-sheet" ? { type: "note", showId: "show", serviceDate: "2026-11-05", itemId: "fixture", columnId: "fixture", text: "Private note", by: "Fixture", at: 1 }
       : { text: "Private message" };
     const response = await test.stub.fetch(url, { method: "POST", body: JSON.stringify(body) });
     expect(response.status).toBe(200); await response.text();

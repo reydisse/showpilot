@@ -1,3 +1,4 @@
+import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { isEmojiReaction } from "@showpilot/shared";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -268,7 +269,7 @@ function IncidentsPage() {
   }, [openIncidentId, loadingIncidents]);
 
   const loadIncidents = useCallback(
-    async (date: string, targetShowId: string | null) => {
+    async (date: string, targetShowId: string | null, reportFailure = false) => {
       const version = ++requestVersion.current;
       setLoadingIncidents(true);
       setLoadError(null);
@@ -294,6 +295,7 @@ function IncidentsPage() {
         setComments(latestComments);
       } catch (cause) {
         if (version === requestVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load incidents. Try again.");
+        if (reportFailure) throw cause;
       } finally {
         if (version === requestVersion.current) setLoadingIncidents(false);
       }
@@ -301,10 +303,11 @@ function IncidentsPage() {
     [orgId],
   );
 
-  const { publish: publishIncident } = useCueSheetSync({
+  const { publish: publishIncident, syncError, retrySync } = useCueSheetSync({
     orgId,
     onNote: () => {},
     onColumns: () => {},
+    onRefresh: () => loadIncidents(serviceDate, showId, true),
     onIncident: (event) => {
       if (event.showId === showId) void loadIncidents(serviceDate, showId);
     },
@@ -454,6 +457,7 @@ function IncidentsPage() {
 
   return (
     <div className="h-full overflow-auto">
+      <RelaySyncNotice error={syncError} onRetry={retrySync} />
       <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-lg font-semibold text-board-text">

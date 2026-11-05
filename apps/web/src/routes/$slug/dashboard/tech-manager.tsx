@@ -1,3 +1,4 @@
+import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
 /**
@@ -135,10 +136,11 @@ function TechManagerPage() {
   const [editingLayout, setEditingLayout] = useState(false);
   const [layout, setLayout] = useState<TmDashboardLayout>(dashboardLayout);
   const [layoutSaving, setLayoutSaving] = useState(false);
-  const { publish: publishIncident } = useCueSheetSync({
+  const { publish: publishIncident, syncError, retrySync } = useCueSheetSync({
     orgId,
     onNote: () => {},
     onColumns: () => {},
+    onRefresh: async () => { await router.invalidate(); },
     onIncident: () =>
       void router.invalidate().then(() => setLastRefresh(Date.now())),
   });
@@ -306,6 +308,7 @@ function TechManagerPage() {
   );
   return (
     <div className="h-full overflow-auto">
+      <RelaySyncNotice error={syncError} onRetry={retrySync} />
       <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="flex items-center gap-3 flex-wrap px-6 py-3">
           <div className="flex items-center gap-2 shrink-0">

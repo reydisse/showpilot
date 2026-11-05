@@ -1,3 +1,4 @@
+import { RelaySequenceTracker } from "@/lib/relay-sequence";
 import { getRundownStateBySlug } from "@/lib/display-data";
 import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confidence-output";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
@@ -451,16 +452,27 @@ function TimerKioskPage() {
     setLyrics(null); setLyricsTimecode(null);
     if (!relayShowId) return;
     let disposed = false;
+    const sequence = new RelaySequenceTracker();
     let socket: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | null = null;
     const connect = () => {
       if (disposed) return;
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1&showId=${encodeURIComponent(relayShowId)}`);
+      const current = socket;
+      let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
+      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => current.close(), 5000); };
+      socket.onopen = awaitHydrate;
       socket.onmessage = (event) => {
-        if (disposed) return;
+        if (disposed || socket !== current) return;
         try {
           const message = JSON.parse(event.data) as TimecodeWsMessage;
+          if (message.type === "hydrate") { clearTimeout(hydrateTimeout); sequence.snapshot(message); }
+          else {
+            const decision = sequence.delta(message);
+            if (decision === "refresh") { awaitHydrate(); current.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence } satisfies TimecodeWsMessage)); }
+            if (decision !== "apply") return;
+          }
           if (message.type === "hydrate" || message.type === "tc-update") {
             setLyrics(message.state.lyrics ?? null);
             setLyricsTimecode(message.state.display);
@@ -470,9 +482,10 @@ function TimerKioskPage() {
         } catch {}
       };
       socket.onclose = () => {
-        if (!disposed) reconnect = setTimeout(connect, 2_000);
+        clearTimeout(hydrateTimeout);
+        if (!disposed && socket === current) { sequence.disconnect(); reconnect = setTimeout(connect, 2_000); }
       };
-      socket.onerror = () => socket?.close();
+      socket.onerror = () => current.close();
     };
     connect();
     return () => { disposed = true; if (reconnect) clearTimeout(reconnect); socket?.close(); };

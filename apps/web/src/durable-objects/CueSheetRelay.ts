@@ -8,8 +8,8 @@
  * others pick it up on their next load — a broken socket must never cost
  * an operator a note they typed during a service.
  *
- * Nothing is written to DO storage for the same reason. There is no state
- * here worth surviving an eviction that isn't already in D1.
+ * Only a message revision is stored here; the authoritative cells stay in D1.
+ * A reconnect compares revisions and reloads the caller's scoped D1 view.
  */
 
 import { DurableObject } from "cloudflare:workers";
@@ -19,41 +19,19 @@ import {
   type LiveSessionAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 
-/** A cell changed. Scoped by service date so other dates ignore it. */
-export interface CueNoteEvent {
-  type: "note";
-  serviceDate: string;
-  itemId: string;
-  columnId: string;
-  text: string;
-  /** Who typed it, for the "editing" hint. Empty when unknown. */
-  by: string;
-  at: number;
-}
+import { cueSheetEventSchema, type CueSheetEvent } from "@/lib/cue-sheet-events";
+import { RelaySequenceStore } from "@/lib/relay-sequence.server";
 
-/**
- * Columns changed shape — added, renamed, recoloured, resized, reordered
- * or deleted. The payload is deliberately not a diff: column edits are
- * rare and a "reload your columns" nudge is far harder to get wrong than
- * replaying a structural patch.
- */
-export interface CueColumnsEvent {
-  type: "columns";
-  at: number;
-}
-
-/** An incident changed in D1; subscribers reload their scoped view. */
-export interface IncidentEvent {
-  type: "incident";
-  incidentId: string;
-  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted" | "commented";
-  at: number;
-}
-
-export type CueSheetEvent = CueNoteEvent | CueColumnsEvent | IncidentEvent;
 type CueRelayScope = "columns" | "notes" | "incidents";
 
 export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH_SECRET?: string }> {
+  private readonly revisions = new RelaySequenceStore(this.ctx.storage.sql);
+
+  private hydrate(socket: WebSocket): void {
+    if (!socketReadLeaseAllows(socket, socketAuthorityClaim(socket) !== null)) return;
+    socket.send(JSON.stringify({ type: "hydrate", ...this.revisions.envelope(socket) }));
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -78,15 +56,18 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
       });
       if (authClaim) renewSocketReadLease(server);
       await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null);
+      this.hydrate(server);
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/broadcast" && request.method === "POST") {
-      const event = (await request.json()) as CueSheetEvent;
+      const parsed = cueSheetEventSchema.safeParse(await request.json());
+      if (!parsed.success) return new Response("Invalid cue-sheet event", { status: 400 });
+      const event = parsed.data;
       if (!(await this.canPublish(this.readAuthorityClaim(url), this.readScopes(url), event))) {
         return new Response("Unauthorized", { status: 401 });
       }
-      this.broadcast(JSON.stringify(event));
+      this.broadcast(event);
       return Response.json({ ok: true });
     }
 
@@ -104,7 +85,18 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
         scopes?: CueRelayScope[];
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
-      const parsed = JSON.parse(data as string) as CueSheetEvent;
+      const message: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
+      if (message && typeof message === "object" && "type" in message) {
+        if (message.type === "sync") { this.hydrate(sender); return; }
+        // Old clients sent a keepalive. It carries no data or write authority.
+        if (message.type === "ping") {
+          if (socketReadLeaseAllows(sender, socketAuthorityClaim(sender) !== null)) sender.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
+      }
+      const result = cueSheetEventSchema.safeParse(message);
+      if (!result.success) return;
+      const parsed = result.data;
       if (!(await this.canPublish(attachment?.authClaim ?? null, attachment?.scopes ?? [], parsed))) {
         sender.close(4403, "Cue sheet access changed");
         return;
@@ -113,7 +105,7 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
       renewSocketReadLease(sender);
       // Don't echo to the sender: it already applied the change locally,
       // and bouncing it back would fight their cursor mid-word.
-      this.broadcast(data as string, sender);
+      this.broadcast(parsed, sender);
     } catch {
       // A malformed frame is not worth dropping the connection over.
     }
@@ -151,14 +143,15 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
         : ["incidents:report", "incidents:access"]);
   }
 
-  private broadcast(data: string, except?: WebSocket) {
+  private broadcast(data: CueSheetEvent, except?: WebSocket) {
+    const sequence = this.revisions.next();
     // getWebSockets survives Durable Object hibernation; an in-memory Set
     // does not and silently loses every subscriber after the object wakes.
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === except) continue;
       if (!socketReadLeaseAllows(ws, socketAuthorityClaim(ws) !== null)) continue;
       try {
-        ws.send(data);
+        ws.send(JSON.stringify({ ...data, ...this.revisions.envelope(ws, sequence) }));
       } catch {
         try { ws.close(1011, "Broadcast failed"); } catch {}
       }
