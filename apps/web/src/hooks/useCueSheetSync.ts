@@ -80,9 +80,9 @@ export function useCueSheetSync(options: Options) {
           const message: unknown = JSON.parse(event.data);
           if (message && typeof message === "object" && "type" in message && message.type === "hydrate") {
             clearTimeout(hydrateTimeout);
-            sequence.snapshot(message);
+            const { changed } = sequence.snapshot(message);
             // Also closes the race between the route loader and WS admission.
-            if (refreshing) refreshAgain = true;
+            if (refreshing) refreshAgain ||= changed;
             else void refresh();
             return;
           }

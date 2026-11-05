@@ -29,11 +29,13 @@ it("refreshes D1 before marking connected and applies notifications received dur
   const { result } = renderHook(() => useCueSheetSync({ orgId: "org", onRefresh, onNote, onColumns: vi.fn() }));
   const socket = Socket.instances[0];
   act(() => hydrate(socket));
+  act(() => socket.receive({ type: "hydrate", sequence: 0, previousSequence: 0 }));
   expect(result.current.connected).toBe(false);
   act(() => socket.receive({ ...note, sequence: 1, previousSequence: 0 }));
   expect(onNote).not.toHaveBeenCalled();
   await act(async () => { load.resolve(); });
   expect(result.current.connected).toBe(true);
+  expect(onRefresh).toHaveBeenCalledTimes(1);
   expect(onNote).toHaveBeenCalledExactlyOnceWith(note);
   act(() => vi.advanceTimersByTime(25000));
   expect(socket.sent).toEqual([]); // Idle rooms can hibernate; no keepalive edit.
