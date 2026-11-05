@@ -1,3 +1,4 @@
+import { readSettingValuesForUse } from "./credential-settings.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import {
   resolveWorkspaceProfile,
@@ -131,6 +132,7 @@ export interface MobileApiDatabase extends ChecklistWriteDatabase {
 }
 
 export interface MobileApiEnvironment {
+  CREDENTIAL_ENCRYPTION_KEYS?: string;
   BETTER_AUTH_SECRET?: string;
   DB: MobileApiDatabase;
   BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
@@ -725,6 +727,7 @@ interface MobileProPresenterSettings {
 async function readMobileProPresenterSettings(
   db: MobileApiDatabase,
   orgId: string,
+  encryptionSecret?: string,
 ): Promise<MobileProPresenterSettings> {
   const result = await db
     .prepare(
@@ -736,9 +739,7 @@ async function readMobileProPresenterSettings(
     )
     .bind(orgId)
     .all<{ key: string; value: string }>();
-  const values = Object.fromEntries(
-    (result.results ?? []).map((setting) => [setting.key, setting.value]),
-  );
+  const values = await readSettingValuesForUse(encryptionSecret, orgId, result.results ?? []);
   const port = (value: string | undefined, fallback: number) => {
     const parsed = Number.parseInt(value ?? "", 10);
     return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535
@@ -823,7 +824,7 @@ async function rundown(
       )
       .bind(orgId)
       .first<{ value: string }>(),
-    readMobileProPresenterSettings(db, orgId),
+    readMobileProPresenterSettings(db, orgId, env.CREDENTIAL_ENCRYPTION_KEYS),
     mobileBridgeStatus(env, orgId),
   ]);
   const proPresenterTarget = bridge.connectedTargets.find((target) =>
@@ -870,7 +871,7 @@ async function controlMobileProPresenter(
   if (command !== "next" && command !== "previous" && command !== "clear") {
     return json({ error: "Choose a valid ProPresenter command." }, 400);
   }
-  const settings = await readMobileProPresenterSettings(env.DB, access.orgId);
+  const settings = await readMobileProPresenterSettings(env.DB, access.orgId, env.CREDENTIAL_ENCRYPTION_KEYS);
   if (!settings.host)
     return json(
       { error: "Configure ProPresenter in ShowPilot settings first." },

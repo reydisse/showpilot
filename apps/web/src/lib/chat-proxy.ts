@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers";
+import { readSettingValuesForUse } from "./credential-settings.server";
 /**
  * Chat Proxy — Server-side functions for external chat platform APIs.
  *
@@ -76,9 +78,7 @@ async function getChatCredentials(
   const settings = await prisma.appSetting.findMany({
     where: { orgId, key: { in: keys } },
   });
-  const map: Record<string, string> = {};
-  for (const s of settings) map[s.key] = s.value;
-  return map;
+  return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, orgId, settings);
 }
 
 // ─── Test Connection ────────────────────────────────────────

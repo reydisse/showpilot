@@ -31,6 +31,7 @@ export default defineConfig(async () => {
           },
           bindings: {
             TEST_MIGRATIONS: migrations,
+            CREDENTIAL_ENCRYPTION_KEYS: JSON.stringify({ active: "test", keys: { test: Buffer.alloc(32, 19).toString("base64") } }),
             BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only",
             KIOSK_SECRET: "worker-test-kiosk-secret-for-local-integration-only",
             COMPANION_SECRET: "worker-test-companion-secret-for-local-integration-only",

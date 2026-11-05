@@ -1,3 +1,5 @@
+import { encryptSettingValue, maskSettingValue, readSettingValuesForUse } from "./credential-settings.server";
+import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
 import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
 import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
@@ -84,7 +86,7 @@ async function assertApiOrWebhookPermission(orgId: string) {
 // always allowed so downgraded orgs can untangle themselves.
 async function assertIntegrationPlanAllows(orgId: string, key: string, value: string) {
   if (permissionForSettingKey(key) !== "settings:integrations") return;
-  if (!value || value === "native") return;
+  if (!value || value === "native" || value === CREDENTIAL_MASK) return;
   const { requirePlanFeature } = await import("@/lib/plan-limits");
   await requirePlanFeature(orgId, "integrations");
 }
@@ -148,7 +150,7 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
       settings
         .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY && setting.key !== "api-key")
         .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
-        .map((setting) => [setting.key, setting.value]),
+        .map((setting) => [setting.key, maskSettingValue(setting.key, setting.value)]),
     );
   });
 
@@ -202,7 +204,7 @@ export const getProPresenterRuntimeSettings = createServerFn({ method: "GET" })
       },
       select: { key: true, value: true },
     });
-    return Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
+    return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, settings);
   });
 
 /** Returns native device credentials only to members allowed to manage API keys. */
@@ -219,8 +221,19 @@ export const getDesktopBridgeSettings = createServerFn({ method: "GET" })
       },
       select: { key: true, value: true },
     });
-    return Object.fromEntries(settings.map((setting) => [setting.key, setting.value]));
+    return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, settings);
   });
+
+async function recordCredentialSettingChange(orgId: string, key: string, value: string, wasConfigured: boolean) {
+  if (key !== "webhook-url") return;
+  try {
+    await appendWebhookEvent(getPrisma(), orgId, {
+      source: "settings", type: wasConfigured ? "webhook-url-updated" : "webhook-url-set",
+      direction: "system", status: "info",
+      details: value ? "Incoming webhook URL has been configured." : "Incoming webhook URL has been cleared.",
+    });
+  } catch { /* Telemetry must not turn a committed setting into a failed save. */ }
+}
 
 export const updateOrgSetting = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -238,31 +251,50 @@ export const updateOrgSetting = createServerFn({ method: "POST" })
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
       select: { value: true },
     });
+    if (data.value === CREDENTIAL_MASK) {
+      if (!isCredentialField(data.key)) throw new Error("Invalid setting value.");
+      return { key: data.key, value: previousSetting ? maskSettingValue(data.key, previousSetting.value) : "" };
+    }
+    const storedValue = await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, data.key, data.value);
     const result = await prisma.appSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
-      update: { value: data.value },
-      create: { orgId: data.orgId, key: data.key, value: data.value },
+      update: { value: storedValue },
+      create: { orgId: data.orgId, key: data.key, value: storedValue },
     });
 
-    if (data.key === "webhook-url") {
-      try {
-        await appendWebhookEvent(prisma, data.orgId, {
-          source: "settings",
-          type: previousSetting?.value
-            ? "webhook-url-updated"
-            : "webhook-url-set",
-          direction: "system",
-          status: "info",
-          details: data.value
-            ? "Incoming webhook URL has been configured."
-            : "Incoming webhook URL has been cleared.",
-        });
-      } catch {
-        // Non-blocking telemetry
-      }
-    }
+    await recordCredentialSettingChange(data.orgId, data.key, data.value, Boolean(previousSetting?.value));
 
-    return result;
+    return { key: result.key, value: maskSettingValue(result.key, result.value) };
+  });
+
+export const updateOrgCredential = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema,
+    key: genericSettingKeySchema.refine(isCredentialField, "Choose a credential setting."),
+    change: z.discriminatedUnion("action", [
+      z.object({ action: z.literal("keep") }),
+      z.object({ action: z.literal("replace"), value: settingValueSchema.min(1) }),
+      z.object({ action: z.literal("clear") }),
+    ]),
+  }), data))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
+    const prisma = getPrisma();
+    if (data.change.action === "keep") {
+      const row = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } });
+      return { key: data.key, value: row ? maskSettingValue(data.key, row.value) : "" };
+    }
+    const value = data.change.action === "clear" ? "" : data.change.value;
+    await assertIntegrationPlanAllows(data.orgId, data.key, value);
+    const storedValue = await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, data.key, value);
+    const previousSetting = data.key === "webhook-url"
+      ? await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } }) : null;
+    await prisma.appSetting.upsert({
+      where: { orgId_key: { orgId: data.orgId, key: data.key } },
+      create: { orgId: data.orgId, key: data.key, value: storedValue }, update: { value: storedValue },
+    });
+    await recordCredentialSettingChange(data.orgId, data.key, value, Boolean(previousSetting?.value));
+    return { key: data.key, value: maskSettingValue(data.key, storedValue) };
   });
 
 export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
@@ -284,14 +316,25 @@ export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
       await assertIntegrationPlanAllows(data.orgId, setting.key, setting.value);
     }
     const prisma = getPrisma();
+    // Prepare encryption before any write so a missing key cannot half-save a form.
+    const prepared = await Promise.all(data.settings.map(async setting => ({
+      key: setting.key,
+      value: setting.value === CREDENTIAL_MASK ? null : await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, setting.key, setting.value),
+    })));
+    if (prepared.some(setting => setting.value === null && !isCredentialField(setting.key))) throw new Error("Invalid setting value.");
     const results = [];
-    for (const s of data.settings) {
+    for (const s of prepared) {
+      if (s.value === null) {
+        const row = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: s.key } }, select: { value: true } });
+        results.push({ key: s.key, value: row ? maskSettingValue(s.key, row.value) : "" });
+        continue;
+      }
       const r = await prisma.appSetting.upsert({
         where: { orgId_key: { orgId: data.orgId, key: s.key } },
         update: { value: s.value },
         create: { orgId: data.orgId, key: s.key, value: s.value },
       });
-      results.push(r);
+      results.push({ key: r.key, value: maskSettingValue(r.key, r.value) });
     }
     return results;
   });

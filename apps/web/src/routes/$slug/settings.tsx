@@ -1,3 +1,5 @@
+import { CredentialSettingInput } from "@/components/settings/CredentialSettingInput";
+import type { CredentialChange } from "@/lib/credential-fields";
 import { BridgeTargetSettings } from "@/components/settings/BridgeTargetSettings";
 import { BridgeInstallationSettings } from "@/components/settings/BridgeInstallationSettings";
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
@@ -49,6 +51,7 @@ import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getManageableOrgSettings,
   updateOrgSetting,
+  updateOrgCredential,
   updateRundownPinProtection,
   getOrgMembers,
   getRecentWebhookEvents,
@@ -212,10 +215,15 @@ function OrganizationSettingsPage({
       updateOrgSetting({ data: { orgId, key, value } }),
     [orgId],
   );
-  const { getSetting, saveSetting, saveState } = useSettingAutosave({
+  const { getSetting, saveSetting, saveState, acceptSavedSetting } = useSettingAutosave({
     initialSettings: settings,
     persist: persistSetting,
   });
+
+  const saveCredential = useCallback(async (key: string, change: CredentialChange) => {
+    const result = await updateOrgCredential({ data: { orgId, key, change } });
+    acceptSavedSetting(result.key, result.value);
+  }, [orgId, acceptSavedSetting]);
 
   const canManageMembers = hasPermission(role, "settings:members");
   const canViewBilling = hasPermission(role, "settings:billing");
@@ -261,6 +269,7 @@ function OrganizationSettingsPage({
     org,
     getSetting,
     saveSetting,
+    saveCredential,
     members,
     openBilling,
     rundownPinEnabled,
@@ -346,7 +355,7 @@ function OrganizationSettingsPage({
               <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span>
             ) : null}
             {saveState.kind === "saved" ? (
-              <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />Changes save automatically</span>
+              <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />General settings save automatically</span>
             ) : null}
             {saveState.kind === "error" ? (
               <span role="alert" title={saveState.message} className="inline-flex items-center gap-2 text-xs text-red-400"><CircleAlert className="size-4" />Save failed. Try again.</span>
@@ -415,6 +424,7 @@ interface SectionProps {
   };
   getSetting: (key: string, fallback?: string) => string;
   saveSetting: (key: string, value: string) => Promise<void>;
+  saveCredential: (key: string, change: CredentialChange) => Promise<void>;
   members: Array<{
     id: string;
     role: string;
@@ -1296,7 +1306,7 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
 
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
-function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
+function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }: SectionProps) {
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -1360,11 +1370,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           >
             <div className="space-y-2">
               <FieldGroup label="Bot Token">
-                <SettingInput
-                  settingKey="slack-token"
+                <CredentialSettingInput
+                  label="Slack bot token"
+                  configured={Boolean(getSetting("slack-token"))}
+                  save={change => saveCredential("slack-token", change)}
                   placeholder="xoxb-..."
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <FieldGroup label="Channel ID">
@@ -1379,12 +1389,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                 label="Signing Secret"
                 description="Required for live inbound messages and complete Slack thread sync. Add the event URL below to your Slack app's Event Subscriptions."
               >
-                <SettingInput
-                  settingKey="slack-signing-secret"
-                  type="password"
+                <CredentialSettingInput
+                  label="Slack signing secret"
+                  configured={Boolean(getSetting("slack-signing-secret"))}
+                  save={change => saveCredential("slack-signing-secret", change)}
                   placeholder="Slack app signing secret"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <div className="rounded-lg border border-board-border bg-board-bg/60 px-3 py-2">
@@ -1415,11 +1424,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                 />
               </FieldGroup>
               <FieldGroup label="Bot Token">
-                <SettingInput
-                  settingKey="mattermost-token"
+                <CredentialSettingInput
+                  label="Mattermost token"
+                  configured={Boolean(getSetting("mattermost-token"))}
+                  save={change => saveCredential("mattermost-token", change)}
                   placeholder="Bot token"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <FieldGroup label="Channel ID">
@@ -1445,11 +1454,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           >
             <div className="space-y-2">
               <FieldGroup label="Webhook URL">
-                <SettingInput
-                  settingKey="teams-webhook-url"
+                <CredentialSettingInput
+                  label="Teams webhook URL"
+                  configured={Boolean(getSetting("teams-webhook-url"))}
+                  save={change => saveCredential("teams-webhook-url", change)}
                   placeholder="https://outlook.office.com/webhook/..."
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <p className="text-[10px] text-board-muted/60 mt-1">
@@ -1471,11 +1480,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
           >
             <div className="space-y-2">
               <FieldGroup label="Bot Token">
-                <SettingInput
-                  settingKey="discord-bot-token"
+                <CredentialSettingInput
+                  label="Discord bot token"
+                  configured={Boolean(getSetting("discord-bot-token"))}
+                  save={change => saveCredential("discord-bot-token", change)}
                   placeholder="Bot token"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <FieldGroup label="Channel ID">
@@ -1617,11 +1626,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
                 </p>
               </FieldGroup>
               <FieldGroup label="Stage Display Password">
-                <SettingInput
-                  settingKey="propresenter-password"
+                <CredentialSettingInput
+                  label="ProPresenter password"
+                  configured={Boolean(getSetting("propresenter-password"))}
+                  save={change => saveCredential("propresenter-password", change)}
                   placeholder="(leave blank if none)"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
                 />
               </FieldGroup>
               <SettingToggle
@@ -2045,7 +2054,7 @@ function NotificationPolicyRow({
 
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
-function ApiSection({ orgId, role, getSetting, saveSetting }: SectionProps) {
+function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
   const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [eventsError, setEventsError] = useState<string | null>(null);
@@ -2094,12 +2103,12 @@ function ApiSection({ orgId, role, getSetting, saveSetting }: SectionProps) {
           label="Webhook URL"
           description="Incoming webhook endpoint for external triggers"
         >
-          <SettingInput
-            settingKey="webhook-url"
-            placeholder="https://your-server.com/webhook"
-            getSetting={getSetting}
-            saveSetting={saveSetting}
-          />
+          <CredentialSettingInput
+                  label="Webhook URL"
+                  configured={Boolean(getSetting("webhook-url"))}
+                  save={change => saveCredential("webhook-url", change)}
+                  placeholder="https://your-server.com/webhook"
+                />
         </FieldGroup>
 
         {/* Recent webhook delivery history */}

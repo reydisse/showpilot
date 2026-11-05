@@ -1,3 +1,4 @@
+import { readSettingValuesForUse } from "./credential-settings.server";
 import type { ChatAttachment, MessageType } from "@/lib/adapters/chat-adapter";
 
 export type ExternalChatPlatform = "mattermost" | "slack" | "discord" | "teams";
@@ -73,12 +74,13 @@ function required(settings: Record<string, string>, key: string, platform: strin
 export async function loadExternalChatConfiguration(
   db: ExternalChatSettingsStore,
   orgId: string,
+  encryptionSecret?: string,
 ): Promise<ExternalChatConfiguration | null> {
   const rows = await db.prepare(
     `SELECT key, value FROM app_setting
      WHERE orgId = ? AND key IN (${EXTERNAL_SETTING_KEYS.map(() => "?").join(", ")})`,
   ).bind(orgId, ...EXTERNAL_SETTING_KEYS).all<{ key: string; value: string }>();
-  const settings = Object.fromEntries(rows.results.map((row) => [row.key, row.value]));
+  const settings = await readSettingValuesForUse(encryptionSecret, orgId, rows.results);
   const platform = settings["chat-adapter"]?.trim();
 
   switch (platform) {

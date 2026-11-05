@@ -61,10 +61,8 @@ describe("confidence layout apply", () => {
     ).toBe(true);
     expect(onApplied).not.toHaveBeenCalled();
     resolve({
-      id: "setting-one",
       key: "default-confidence-layout",
       value: "saved",
-      orgId: "org-one",
     });
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
     expect(JSON.parse(onApplied.mock.calls[0][0]).lyrics.showNext).toBe(false);
