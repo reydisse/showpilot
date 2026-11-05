@@ -48,6 +48,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorCookie, ope
     };
     window.watchdogMaster.send(JSON.stringify({ type: 'command', action: 'stop' }));
   })`);
+  await browser("eval", "window.watchdogMaster.close(); true");
+  await browser("wait", "text=Timecode controls are available.");
   await browser("wait", "text=Resume Internal Generator");
   await browser("find", "role", "button", "click", "--name", "Resume Internal Generator", "--exact");
   await browser("wait", "text=Stop Generator");

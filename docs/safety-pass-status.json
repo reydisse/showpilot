@@ -697,8 +697,12 @@
       "phase": "1",
       "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
       "line": 128,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "TimecodeRelay now grants one socket control per show. Opening a viewer does not claim it; Take control or the first explicit edit/start reserves an available room synchronously. Every external mutation checks this owner after live session/permission validation. HTTP commands require the owning socket's authenticated user/session and cannot acquire control themselves. Internal Bridge feeds remain separately attested and do not acquire editing ownership.",
+        "Control resides in hibernating socket attachments and is released on disconnect or permission revocation. Existing generator ownership migrates on wake-up. A running local source must Stop before releasing control; delayed feeds cannot restart it or reclaim a released room. Editing ownership never suppresses a live Bridge feed.",
+        "Timecode and song editors show available/yours/other status with Take control and Release control. Rejected edits retain form drafts and fail immediately; control metadata does not cause false sequence gaps. Tests: timecode-control.worker.test.ts, useTimecode.test.tsx, and real two-tab smoke-timecode-control.mjs."
+      ]
     },
     {
       "id": "c6f314add708b790",
@@ -896,8 +900,12 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 172,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "timecode-control.worker.test.ts exercises all external mutations against both a second socket sharing the login and another authenticated HTTP session, asserting unchanged timeline, format, clock and lyrics. A valid HTTP session without a connected control owner receives 409. Same-session HTTP writes remain allowed only while its owner exists, as permitted by the requirement.",
+        "Nine Worker cases also cover competing claim races, hibernation, explicit release, disconnect/revocation, Bridge continuity during edits, Stop followed by delayed feed, and migration of a pre-ownership generator socket. Existing watchdog tests still verify fresh Bridge promotion on master disconnect.",
+        "Full web verification: 1302 unit tests passed; final Worker suite 239 tests passed. Typecheck and production build passed. Built browser checks passed ownership/draft retention, watchdog/held-clock resume, show isolation, sequence recovery, and show-day confirmations/offline draft recovery. All fixtures are disposable local data; this change is not a production deployment."
+      ]
     },
     {
       "id": "a4380d9c75169389",

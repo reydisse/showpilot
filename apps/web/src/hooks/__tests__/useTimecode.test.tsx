@@ -50,6 +50,41 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("shows control separately from generator ownership and rejects edits while another tab controls the show", async () => {
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state, events: [], control: "other", sequence: 1, previousSequence: null }); });
+    expect(result.current.control).toBe("other");
+    expect(result.current.connected).toBe(true);
+    let save: Promise<void> = Promise.resolve();
+    act(() => { save = result.current.addEvent(event); });
+    await expect(save).rejects.toThrow("Another operator");
+    expect(socket.sent).toEqual([]);
+    act(() => socket.receive({ type: "control-status", control: "available" }));
+    act(() => result.current.claimControl());
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ action: "claim-control" });
+    act(() => socket.receive({ type: "control-status", control: "yours" }));
+    expect(result.current.control).toBe("yours");
+    expect(result.current.isMaster).toBe(false);
+    expect(result.current.connected).toBe(true); // Unsequenced ownership metadata is not a data gap.
+    act(() => result.current.releaseControl());
+    expect(JSON.parse(socket.sent[1])).toMatchObject({ action: "release-control" });
+    act(() => socket.close());
+    expect(result.current.control).toBeNull();
+  });
+
+  it("reports a lost control race immediately and keeps an event form's draft instead of waiting for a timeout", async () => {
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => hydrate(socket));
+    let save: Promise<void> = Promise.resolve();
+    act(() => { save = result.current.addEvent(event); });
+    act(() => socket.receive({ type: "command-rejected", action: "add-event", error: "Another operator controls timecode." }));
+    await expect(save).rejects.toThrow("Another operator");
+    expect(result.current.lastError).toBe("Another operator controls timecode.");
+    expect(result.current.events).toEqual([]);
+  });
+
   it("refreshes a missing sequence from a full hydrate and confirms a save whose event echo was missed", async () => {
     const { result } = hook();
     const socket = Socket.instances[0];

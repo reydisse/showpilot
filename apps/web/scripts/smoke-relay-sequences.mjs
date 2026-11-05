@@ -6,6 +6,10 @@ import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 await withLocalSmokeFixture(async ({ origin, orgId, date, browser, queryFixture, operatorCookie, operatorEmail, operatorPassword }) => {
   const headers = { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" };
   async function command(kind, action, payload) {
+    if (kind === "timecode") {
+      const { result } = await browser("eval", `fetch('/api/timecode/${orgId}/command?showId=smoke-show', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(${JSON.stringify({ action, payload })})}).then(async response => ({status:response.status, body:await response.json()}))`);
+      assert.equal(result.status, 200); assert.equal(result.body.ok, true); return;
+    }
     const response = await fetch(`${origin}/api/${kind}/${orgId}/command?showId=smoke-show&serviceDate=${date}`, { method: "POST", headers, body: JSON.stringify({ action, payload }) });
     assert.equal(response.status, 200); assert.equal((await response.json()).ok, true);
   }
@@ -49,6 +53,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, queryFixture,
     await waitFor(async () => (await browser("eval", "window.fixtureSockets.some(socket => socket.readyState === 1 && socket.url.includes('/timecode/'))")).result, "Selected show socket did not open");
   }
   assert.ok((await browser("eval", "window.fixtureSockets.some(socket => socket.url.includes('/timecode/'))")).result);
+  await browser("find", "role", "button", "click", "--name", "Take control", "--exact");
+  await browser("wait", "text=You control this show's timecode.");
   await browser("eval", "window.dropTimecodeEvents = true");
   await command("timecode", "add-event", { id: "recovered-cue", action: "lyrics-clear", label: "Recovered timeline cue", triggerTimecode: { hours: 0, minutes: 0, seconds: 20, frames: 0 }, payload: {} });
   assert.equal((await browser("eval", "document.body.textContent.includes('Recovered timeline cue')")).result, false);

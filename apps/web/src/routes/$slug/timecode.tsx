@@ -2,7 +2,7 @@ import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { FileDown, Music2 } from "lucide-react";
-import { useShowTimecode, TimecodeShowPicker } from "@/components/timecode/TimecodeContext";
+import { useShowTimecode, TimecodeShowPicker, TimecodeControlNotice } from "@/components/timecode/TimecodeContext";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
@@ -94,6 +94,7 @@ function TimecodePage() {
 
       <div className="p-6 max-w-4xl mx-auto space-y-6">
         <TimecodeShowPicker />
+        <TimecodeControlNotice />
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
         <button

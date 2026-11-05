@@ -1,3 +1,4 @@
+import { claimTimecodeControl, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,9 +26,12 @@ async function room(target: TimecodeTarget) {
     url.searchParams.set("authSessionId", authority.sessionId);
     return url;
   };
+  let controller: WebSocket | null = null;
   return {
     stub, url,
     async command(action: string, payload?: Record<string, unknown>) {
+      controller ??= await claimTimecodeControl(stub, url("/ws"));
+      if (action === "feed-tc") await startFixtureTimecodeFeed(stub, url);
       const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action, payload }),
       }));

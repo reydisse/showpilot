@@ -74,3 +74,17 @@ export function TimecodeShowPicker() {
     {timecode.isMaster && <span className="text-xs text-board-muted">Stop this generator before switching shows.</span>}
   </div>;
 }
+
+/** Shared by timecode and song controls so ownership stays visible across routes. */
+export function TimecodeControlNotice() {
+  const { connected, control, isMaster, generatorPending, claimControl, releaseControl } = useShowTimecode();
+  if (!connected || !control) return null;
+  return <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-board-border px-4 py-3 text-sm text-board-muted">
+    <p role="status">{control === "other" ? "Another operator controls this show's timecode. Ask them to release control to make changes."
+      : control === "yours" ? "You control this show's timecode."
+      : "Timecode controls are available. Editing or starting a source takes control."}</p>
+    {control === "available" && <button type="button" onClick={claimControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text">Take control</button>}
+    {control === "yours" && <button type="button" disabled={isMaster || generatorPending !== null} onClick={releaseControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text disabled:opacity-50">Release control</button>}
+    {control === "yours" && (isMaster || generatorPending !== null) && <p className="w-full text-xs">Stop the local source before releasing control.</p>}
+  </div>;
+}
