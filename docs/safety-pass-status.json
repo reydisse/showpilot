@@ -294,8 +294,13 @@
       "phase": "0",
       "section": "0.8 Timeouts and parallel execution (audit C11)",
       "line": 76,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/automation-execution.ts: per-output ordering, independent execution via TimecodeRelay Promise.allSettled, AbortSignal deadlines of 5s for webhooks and 10s for other actions; guards prevent late follow-up dispatch.",
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: same-frame webhook regression fails on 12c7252 and passes after the fix; hung webhook times out after 5s, late ACK stays failed, delayed graphics show precedes clear.",
+        "apps/web/src/lib/__tests__/automation-execution.test.ts: independent outputs run concurrently, same-output order is retained, late follow-up and expired queued actions never dispatch.",
+        "2026-11-04: full web test command passed (1169 unit, 87 Worker, migration and client-boundary checks); tsc --noEmit passed. Timings are stored in executionDurationMs and rendered on timeline rows."
+      ]
     },
     {
       "id": "5782016414228f30",
@@ -418,8 +423,13 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 95,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/automation-execution.ts: per-output ordering, independent execution via TimecodeRelay Promise.allSettled, AbortSignal deadlines of 5s for webhooks and 10s for other actions; guards prevent late follow-up dispatch.",
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: same-frame webhook regression fails on 12c7252 and passes after the fix; hung webhook times out after 5s, late ACK stays failed, delayed graphics show precedes clear.",
+        "apps/web/src/lib/__tests__/automation-execution.test.ts: independent outputs run concurrently, same-output order is retained, late follow-up and expired queued actions never dispatch.",
+        "2026-11-04: full web test command passed (1169 unit, 87 Worker, migration and client-boundary checks); tsc --noEmit passed. Timings are stored in executionDurationMs and rendered on timeline rows."
+      ]
     },
     {
       "id": "092369f71bc16a53",

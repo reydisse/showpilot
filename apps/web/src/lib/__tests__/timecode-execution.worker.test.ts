@@ -1,9 +1,12 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AutomationEvent, TimecodeCommand } from "@/types/timecode";
 
-afterEach(() => abortAllDurableObjects());
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await abortAllDurableObjects();
+});
 
 function timeline() {
   const orgId = `automation-test-${crypto.randomUUID()}`;
@@ -31,6 +34,59 @@ const atZero = { hours: 0, minutes: 0, seconds: 0, frames: 0 };
 const tick = { timecode: atZero, format: { frameRate: 30, dropFrame: "ndf" } };
 
 describe("automation acknowledgement", () => {
+  it("keeps same-output show and clear cues in timeline order", async () => {
+    const test = timeline();
+    const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
+    await (await graphics.fetch(new Request("https://test/test/delay", { method: "POST", body: "150" }))).text();
+    for (const action of ["lower-third-show", "lower-third-clear"]) {
+      await test.command("add-event", { action, label: action, triggerTimecode: atZero, payload: { line1: "Temporary graphic" } });
+    }
+    await test.command("feed-tc", tick);
+    expect((await test.events()).every((event) => event.fired)).toBe(true);
+    expect(await (await graphics.fetch("https://test/current")).json()).toMatchObject({ current: null });
+  });
+
+  it("times out a hung webhook and ignores its late acknowledgement", async () => {
+    const requests = vi.fn<typeof fetch>(async () => {
+      // Deliberately ignore AbortSignal, as an RPC or remote device might.
+      await new Promise((resolve) => setTimeout(resolve, 5200));
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal("fetch", requests);
+    const test = timeline();
+    await test.command("add-event", { id: "hung", action: "custom-webhook", label: "Hung", triggerTimecode: atZero, payload: { url: "https://hooks.example.com/hung" } });
+    await test.command("feed-tc", tick);
+    const event = (await test.events())[0];
+    expect(event).toMatchObject({ fired: false, executionStatus: "failed", executionRetryable: false });
+    expect(event.executionError).toContain("timed out after 5000 ms");
+    expect(event.executionDurationMs).toBeGreaterThanOrEqual(5000);
+    expect(requests.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await test.events())[0]).toMatchObject({ fired: false, executionStatus: "failed", executionAttempts: 1 });
+    expect(await test.display()).toMatchObject({ automation: { status: "failed", failedCueCount: 1 } });
+  }, 10000);
+
+  it("runs a later lyric cue while a same-frame webhook is still awaiting acknowledgement", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return Response.json({ ok: true });
+    }));
+    const test = timeline();
+    await test.command("add-event", { id: "slow", action: "custom-webhook", label: "Slow", triggerTimecode: atZero, payload: { url: "https://hooks.example.com/cue" } });
+    await test.command("add-event", {
+      id: "lyrics", action: "lyrics-goto", label: "Verse", triggerTimecode: atZero,
+      payload: { songId: "song", songTitle: "Song", sectionId: "verse", sectionLabel: "Verse", lyrics: "Visible immediately" },
+    });
+    const feed = test.command("feed-tc", tick);
+    try {
+      await expect.poll(async () => (await test.events()).find((event) => event.id === "lyrics")?.fired, { timeout: 1000 }).toBe(true);
+      expect((await test.events()).find((event) => event.id === "slow")).toMatchObject({ fired: false, executionStatus: "dispatching" });
+      expect(await test.display()).toMatchObject({ running: true, lyrics: { lyrics: "Visible immediately" } });
+    } finally {
+      await feed;
+    }
+  });
+
   it.each(["lower-third-show", "lower-third-clear"] as const)("does not acknowledge a rejected %s", async (action) => {
     const test = timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);

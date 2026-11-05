@@ -24,6 +24,7 @@ import {
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { z } from "zod";
+import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
@@ -80,6 +81,8 @@ class AutomationRejection extends Error {
   }
 }
 
+class AutomationCancelled extends Error {}
+
 export class TimecodeRelay extends DurableObject {
   private state: TimecodeState = {
     timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
@@ -97,6 +100,7 @@ export class TimecodeRelay extends DurableObject {
   private previousFeedFrame: number | null = null;
   private masterSessionId: string | null = null;
   private lastPersistedAt = 0;
+  private readonly executor = new AutomationExecutor();
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -343,6 +347,8 @@ export class TimecodeRelay extends DurableObject {
         // Evaluate automation events
         const previousFrame = this.previousFeedFrame;
         this.previousFeedFrame = totalFrames;
+        // Clock delivery cannot wait for device or webhook acknowledgement.
+        await this.broadcastState();
         const eventFired = await this.evaluateEvents(previousFrame, totalFrames);
 
         // Persist automation results immediately; otherwise snapshot the
@@ -608,7 +614,7 @@ export class TimecodeRelay extends DurableObject {
 
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
     if (!this.state.triggersEnabled) return false;
-    let changed = false;
+    const executions: Promise<void>[] = [];
     for (const event of this.events) {
       if (!event.enabled || event.fired || event.executionStatus === "dispatching") continue;
       const attempts = event.executionAttempts ?? 0;
@@ -620,10 +626,10 @@ export class TimecodeRelay extends DurableObject {
         ? event.executionRetryable === true && attempts < 3 && withinRetryWindow
         : crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames);
       if (!shouldRun) continue;
-      changed = true;
-      await this.runEvent(event);
+      executions.push(this.runEvent(event));
     }
-    return changed;
+    await Promise.allSettled(executions);
+    return executions.length > 0;
   }
 
   private async runEvent(event: AutomationEvent): Promise<void> {
@@ -635,19 +641,25 @@ export class TimecodeRelay extends DurableObject {
     const startedAt = Date.now();
     delete event.executionError;
     try {
-      // Persist the reservation before any external effect. After a restart,
-      // an interrupted acknowledgement needs an operator's decision.
-      await this.persist();
-      await this.broadcastEvents();
-      if (!this.state.triggersEnabled || !event.enabled) {
+      // Reserve output order before the first await. Persist the dispatch
+      // before external effects so restart recovery can detect uncertainty.
+      await this.executor.run(
+        automationOutput(event),
+        event.action === "custom-webhook" ? 5000 : 10000,
+        async (signal) => {
+          await this.persist();
+          await this.broadcastEvents();
+          await this.executeEventAction(event, signal);
+        },
+      );
+      event.fired = true;
+      event.executionStatus = "acknowledged";
+    } catch (error) {
+      if (error instanceof AutomationCancelled) {
         event.executionStatus = "scheduled";
         await this.broadcastEvents();
         return;
       }
-      await this.executeEventAction(event);
-      event.fired = true;
-      event.executionStatus = "acknowledged";
-    } catch (error) {
       const message = error instanceof Error ? error.message : "Automation action failed.";
       event.fired = false;
       event.executionStatus = "failed";
@@ -665,10 +677,18 @@ export class TimecodeRelay extends DurableObject {
     event.executionDurationMs = event.executedAt - startedAt;
     await this.broadcastEventFired(event);
     await this.broadcastEvents();
+    await this.broadcastState();
   }
 
-  private async executeEventAction(event: AutomationEvent): Promise<void> {
+  private async executeEventAction(event: AutomationEvent, signal: AbortSignal): Promise<void> {
     const env = this.env as unknown as Env;
+    const assertCanDispatch = () => {
+      signal.throwIfAborted();
+      if (!this.state.triggersEnabled || !event.enabled || !this.events.includes(event)) {
+        throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
+      }
+    };
+    assertCanDispatch();
     const actionSummary = sanitizePayloadSummary({
       action: event.action,
       label: event.label,
@@ -696,13 +716,17 @@ export class TimecodeRelay extends DurableObject {
       payload?: Record<string, unknown>,
     ) => {
       const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+      assertCanDispatch();
       const rdStub = env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(target.key));
       const response = await rdStub.fetch(
         new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
+          signal,
           body: JSON.stringify({ id: event.executionId, action, ...(payload ? { payload } : {}) }),
         }),
       );
+      signal.throwIfAborted();
+      await response.body?.cancel();
       if (!response.ok) throw new AutomationRejection(type, response.status);
       logResult(type, "success", `${type} action executed.`);
     };
@@ -712,6 +736,7 @@ export class TimecodeRelay extends DurableObject {
     ) => {
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
       const status = await relay.getBridgeStatus();
+      assertCanDispatch();
       const target = typeof event.payload.target === "string"
         ? event.payload.target
         : status.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"));
@@ -723,13 +748,16 @@ export class TimecodeRelay extends DurableObject {
         target,
         command: JSON.stringify({ action: command, ...event.payload }),
       });
+      signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
     };
 
     const executeDeviceCommand = async () => {
       const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId, event);
+      assertCanDispatch();
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
       const status = await relay.getBridgeStatus();
+      assertCanDispatch();
       if (!status.bridgeOnline) throw new Error("Venue Bridge is offline.");
       if (!status.connectedTargets.includes(resolved.target)) {
         const connected = await relay.dispatchBridgeMessage({
@@ -738,6 +766,7 @@ export class TimecodeRelay extends DurableObject {
           target: resolved.target,
           settings: resolved.connectionSettings,
         });
+        assertCanDispatch();
         if (!connected.success) {
           throw new Error(connected.error ?? `Could not connect to ${resolved.deviceName}.`);
         }
@@ -749,6 +778,7 @@ export class TimecodeRelay extends DurableObject {
         target: resolved.target,
         command: resolved.command,
       });
+      signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? `Command to ${resolved.deviceName} failed.`);
       logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);
     };
@@ -760,8 +790,11 @@ export class TimecodeRelay extends DurableObject {
         const show = event.action === "lower-third-show";
         const response = await ltStub.fetch(new Request(`https://internal/${show ? "trigger" : "clear"}`, {
           method: "POST",
+          signal,
           ...(show ? { body: JSON.stringify(event.payload) } : {}),
         }));
+        signal.throwIfAborted();
+        await response.body?.cancel();
         if (!response.ok) throw new AutomationRejection(event.action, response.status);
         logResult(event.action, "success", `${event.action} action acknowledged.`);
         break;
@@ -845,6 +878,7 @@ export class TimecodeRelay extends DurableObject {
         }
         const response = await fetch(url, {
           method: "POST",
+          signal,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             event: event.label,
@@ -853,6 +887,8 @@ export class TimecodeRelay extends DurableObject {
             firedAt: Date.now(),
           }),
         });
+        signal.throwIfAborted();
+        await response.body?.cancel();
         if (!response.ok) throw new AutomationRejection("Custom webhook", response.status);
         logResult(event.action, "success", "Custom webhook acknowledged.");
         break;
