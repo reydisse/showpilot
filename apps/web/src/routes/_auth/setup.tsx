@@ -65,10 +65,15 @@ import type { RundownItem } from "@/types/rundown";
 // ─────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute("/_auth/setup")({
-  loader: async () => {
-    const progress = await getOnboardingProgress();
+  validateSearch: (search: Record<string, unknown>): { mode?: "new"; orgId?: string } => ({
+    mode: search.mode === "new" ? "new" : undefined,
+    orgId: typeof search.orgId === "string" ? search.orgId : undefined,
+  }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => {
+    const progress = await getOnboardingProgress({ data: deps.mode === "new" ? { mode: "new" } : { mode: "resume", orgId: deps.orgId } });
     if (!progress.authenticated) {
-      throw redirect({ to: "/login" });
+      throw redirect({ to: "/login", search: { returnTo: deps.mode === "new" ? "/setup?mode=new" : undefined } });
     }
     const decision = deriveResumeScene({
       hasOrg: progress.hasOrg,
@@ -205,6 +210,8 @@ const fmtLong = (sec: number) => {
 
 function SetupWizard() {
   const { progress, initialScene, initialWorkspace } = Route.useLoaderData();
+  const { mode } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const { user } = Route.useRouteContext() as {
     user: { id?: string; email: string; emailVerified?: boolean } | null;
   };
@@ -286,7 +293,9 @@ function SetupWizard() {
           {scene === 1 && (
             <SceneOrgCreate
               user={user}
-              onCreated={(created) => {
+              additional={mode === "new"}
+              onCreated={async (created) => {
+                await navigate({ search: { orgId: created.id }, replace: true });
                 setOrg(created);
                 go("1b");
               }}
@@ -933,10 +942,12 @@ function deriveSlug(name: string): string {
 
 function SceneOrgCreate({
   user,
+  additional,
   onCreated,
 }: {
   user: { email: string; emailVerified?: boolean } | null;
-  onCreated: (org: WizardOrg) => void;
+  additional: boolean;
+  onCreated: (org: WizardOrg) => Promise<void>;
 }) {
   const needsVerification = Boolean(user && !user.emailVerified);
   const [orgName, setOrgName] = useState("");
@@ -945,6 +956,7 @@ function SceneOrgCreate({
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [createdOrg, setCreatedOrg] = useState<WizardOrg | null>(null);
   const [verificationSent, setVerificationSent] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
   const latestSlug = useRef("");
@@ -992,29 +1004,29 @@ function SceneOrgCreate({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (slugState !== "ok" || creating || needsVerification) return;
+    if ((!createdOrg && slugState !== "ok") || creating || needsVerification) return;
     setError(null);
     setCreating(true);
     try {
-      const name = orgName.trim();
-      const { data: created, error: createError } = await authClient.organization.create({
-        name,
-        slug,
-      });
-      if (createError || !created) {
-        // Collision despite the live check, or any create failure:
-        // inline error, stay on Scene 1, re-run the availability check.
-        setSlugState("idle");
-        throw new Error(createError?.message ?? "Could not create your organization");
+      let nextOrg = createdOrg;
+      if (!nextOrg) {
+        const name = orgName.trim();
+        const { data: created, error: createError } = await authClient.organization.create({ name, slug });
+        if (createError || !created) {
+          // Keep the name and let the operator retry or choose another slug.
+          throw new Error(createError?.message ?? "Could not create your organization");
+        }
+        nextOrg = { id: created.id, name, slug };
+        setCreatedOrg(nextOrg);
       }
       const { error: activeError } = await authClient.organization.setActive({
-        organizationSlug: slug,
+        organizationId: nextOrg.id,
       });
       if (activeError) throw new Error(activeError.message);
 
-      await markOnboardingStarted({ data: { orgId: created.id } });
-      track("org_created", { slug });
-      onCreated({ id: created.id, name, slug });
+      await markOnboardingStarted({ data: { orgId: nextOrg.id } });
+      track("org_created", { slug: nextOrg.slug });
+      await onCreated(nextOrg);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
@@ -1022,17 +1034,16 @@ function SceneOrgCreate({
     }
   }
 
-  const ctaReady = slugState === "ok" && !needsVerification && !creating;
+  const ctaReady = (createdOrg !== null || slugState === "ok") && !needsVerification && !creating;
 
   return (
     <form className="rise" onSubmit={handleSubmit}>
+      {additional && <a href="/" className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">Back to workspace</a>}
       <h1 className="mb-2.5 mt-12 text-[40px] font-extrabold leading-tight tracking-[-0.02em]">
-        Let's get your first show
-        <br />
-        on the air.
+        {additional ? "Create another organization" : <>Let's get your first show<br />on the air.</>}
       </h1>
       <p className="mb-9 text-base" style={{ color: T.muted }}>
-        Name your organization — everything else takes about four minutes.
+        {additional ? "Give your new team its own workspace. Your existing organizations stay available in the switcher." : "Name your organization. Everything else takes about four minutes."}
       </p>
 
       {needsVerification && (
@@ -1065,8 +1076,11 @@ function SceneOrgCreate({
         </div>
       )}
 
+      <label htmlFor="organization-name" className="mb-2 block text-sm">Organization name</label>
       <input
+        id="organization-name"
         autoFocus
+        readOnly={createdOrg !== null || creating}
         value={orgName}
         onChange={(e) => {
           setOrgName(e.target.value);
@@ -1106,7 +1120,7 @@ function SceneOrgCreate({
                 style={{ background: T.red }}
               />
               taken
-              {suggestion && (
+              {suggestion && !createdOrg && (
                 <>
                   {" — try "}
                   <button
@@ -1126,6 +1140,7 @@ function SceneOrgCreate({
 
       {error && (
         <div
+          role="alert"
           className="mt-4 rounded-lg border px-3 py-2.5 text-sm"
           style={{ borderColor: `${T.red}40`, background: `${T.red}14`, color: "#FCA5A5" }}
         >
@@ -1144,7 +1159,7 @@ function SceneOrgCreate({
           cursor: ctaReady ? "pointer" : "default",
         }}
       >
-        {creating ? "Building…" : "Build my show"} <ArrowRight size={17} />
+        {creating ? "Creating…" : createdOrg ? "Continue setup" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
       </button>
     </form>
   );

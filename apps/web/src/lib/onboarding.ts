@@ -126,20 +126,28 @@ const EMPTY_PROGRESS: OnboardingProgressPayload = {
  * Server-derived wizard state for the setup route. A refresh mid-wizard
  * resumes from this — no localStorage.
  */
-export const getOnboardingProgress = createServerFn({ method: "GET" }).handler(
-  async (): Promise<OnboardingProgressPayload> => {
+export const getOnboardingProgress = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("new") }),
+    z.object({ mode: z.literal("resume"), orgId: idSchema.optional() }),
+  ]), data))
+  .handler(async ({ data }): Promise<OnboardingProgressPayload> => {
     const user = await getSessionUser().catch(() => null);
     if (!user) return EMPTY_PROGRESS;
+    if (data.mode === "new") return { ...EMPTY_PROGRESS, authenticated: true };
 
     const prisma = getPrisma();
     const membership = await prisma.member.findFirst({
-      where: { userId: user.id },
+      where: { userId: user.id, ...(data.orgId ? { organizationId: data.orgId } : {}) },
       orderBy: { createdAt: "asc" },
       include: {
         organization: { select: { id: true, name: true, slug: true } },
       },
     });
-    if (!membership) return { ...EMPTY_PROGRESS, authenticated: true };
+    if (!membership) {
+      if (data.orgId) throw new Error("You do not have access to this organization's setup.");
+      return { ...EMPTY_PROGRESS, authenticated: true };
+    }
 
     const orgId = membership.organizationId;
     const roleKey = onboardingRoleKey(user.id);
