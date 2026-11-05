@@ -7,7 +7,27 @@ export { ChatRelay } from "../durable-objects/ChatRelay";
 export { CueSheetRelay } from "../durable-objects/CueSheetRelay";
 
 export class TestRundownRelay extends RundownRelay {}
-export class TestTimecodeRelay extends TimecodeRelay {}
+export class TestTimecodeRelay extends TimecodeRelay {
+  private readonly queries: { count: number };
+
+  constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
+    const queries = { count: 0 };
+    const database = new Proxy(bindings.DB, {
+      get(target, property) {
+        if (property === "prepare") return (sql: string) => {
+          queries.count += 1;
+          return target.prepare(sql);
+        };
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    super(ctx, { ...bindings, DB: database });
+    this.queries = queries;
+  }
+
+  getQueryCount(): number { return this.queries.count; }
+}
 
 // Fault injection exists only in the isolated Worker test entrypoint.
 // Successful requests still run the production relay and its persistence.

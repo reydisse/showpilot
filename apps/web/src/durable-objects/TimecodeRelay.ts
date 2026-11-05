@@ -1,3 +1,4 @@
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { DurableObject } from "cloudflare:workers";
 import { displaySocketMayReceive } from "@/lib/display-access.server";
@@ -320,6 +321,9 @@ export class TimecodeRelay extends DurableObject {
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
+      if (canWrite) renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+
       // Hydrate
       const hydrate: TimecodeWsMessage = canWrite
         ? { type: "hydrate", state: this.state, events: this.events }
@@ -382,6 +386,7 @@ export class TimecodeRelay extends DurableObject {
           ws.close(4403, "Timecode access changed");
           return;
         }
+        renewSocketReadLease(ws);
         if (attachment.orgId) this.orgId = attachment.orgId;
         try { await this.handleCommand(msg.action, msg.payload, attachment.sessionId); }
         catch (error) {
@@ -401,7 +406,7 @@ export class TimecodeRelay extends DurableObject {
       this.previousFeedFrame = null;
       this.state.running = false;
       await this.persist();
-      await this.broadcastState();
+      this.broadcastState();
     }
   }
 
@@ -431,7 +436,7 @@ export class TimecodeRelay extends DurableObject {
         this.sendMasterStatus(sessionId, true);
         this.state.running = true;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
 
       case "stop":
@@ -441,7 +446,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.running = false;
         this.previousFeedFrame = null;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
 
       case "feed-tc": {
@@ -460,7 +465,7 @@ export class TimecodeRelay extends DurableObject {
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           this.previousFeedFrame = null;
-          await this.broadcastEvents();
+          this.broadcastEvents();
         }
         // The relay derives frame position from the accepted format instead of
         // trusting a stale client-side conversion.
@@ -478,7 +483,7 @@ export class TimecodeRelay extends DurableObject {
         const previousFrame = this.previousFeedFrame;
         this.previousFeedFrame = totalFrames;
         // Clock delivery cannot wait for device or webhook acknowledgement.
-        await this.broadcastState();
+        this.broadcastState();
         const eventFired = await this.evaluateEvents(previousFrame, totalFrames);
 
         // Persist automation results immediately; otherwise snapshot the
@@ -486,7 +491,7 @@ export class TimecodeRelay extends DurableObject {
         if (eventFired || Date.now() - this.lastPersistedAt >= 5_000) {
           await this.persist();
         }
-        await this.broadcastState();
+        this.broadcastState();
         break;
       }
 
@@ -496,7 +501,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.running = false;
         this.previousFeedFrame = null;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
 
       case "set-timecode": {
@@ -512,7 +517,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.serverTime = Date.now();
         this.previousFeedFrame = null;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
       }
 
@@ -524,7 +529,7 @@ export class TimecodeRelay extends DurableObject {
         }
         this.state.source = payload.source;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
 
       case "set-format":
@@ -538,8 +543,8 @@ export class TimecodeRelay extends DurableObject {
           this.previousFeedFrame = null;
         }
         await this.persist();
-        await this.broadcastState();
-        await this.broadcastEvents();
+        this.broadcastState();
+        this.broadcastEvents();
         break;
 
       case "add-event": {
@@ -555,7 +560,7 @@ export class TimecodeRelay extends DurableObject {
         event.id = event.id || crypto.randomUUID();
         if (this.events.some((existing) => existing.id === event.id)) {
           // A save retry may follow a lost echo. Return the canonical timeline.
-          await this.broadcastEvents();
+          this.broadcastEvents();
           break;
         }
         event.enabled = event.enabled !== false;
@@ -576,7 +581,7 @@ export class TimecodeRelay extends DurableObject {
         this.events.push(event);
         this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
         await this.persist();
-        await this.broadcastEvents();
+        this.broadcastEvents();
         break;
       }
 
@@ -634,7 +639,7 @@ export class TimecodeRelay extends DurableObject {
         if (!valid) break;
         this.events = replaceAutomationEventGroup(this.events, sourceKey, nextEvents);
         await this.persist();
-        await this.broadcastEvents();
+        this.broadcastEvents();
         break;
       }
 
@@ -659,7 +664,7 @@ export class TimecodeRelay extends DurableObject {
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           await this.persist();
-          await this.broadcastEvents();
+          this.broadcastEvents();
         }
         break;
       }
@@ -670,7 +675,7 @@ export class TimecodeRelay extends DurableObject {
           (e) => e.id !== (payload.id as string)
         );
         await this.persist();
-        await this.broadcastEvents();
+        this.broadcastEvents();
         break;
       }
 
@@ -678,7 +683,7 @@ export class TimecodeRelay extends DurableObject {
         if (typeof payload?.enabled !== "boolean") break;
         this.state.triggersEnabled = payload.enabled;
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
 
       case "set-event-enabled": {
@@ -687,7 +692,7 @@ export class TimecodeRelay extends DurableObject {
         if (!event) break;
         event.enabled = payload.enabled;
         await this.persist();
-        await this.broadcastEvents();
+        this.broadcastEvents();
         break;
       }
 
@@ -702,7 +707,7 @@ export class TimecodeRelay extends DurableObject {
         delete event.executionStartedAt;
         await this.runEvent(event);
         await this.persist();
-        await this.broadcastState();
+        this.broadcastState();
         break;
       }
 
@@ -720,7 +725,7 @@ export class TimecodeRelay extends DurableObject {
         }
         this.previousFeedFrame = null;
         await this.persist();
-        await this.broadcastEvents();
+        this.broadcastEvents();
         break;
 
       case "set-lyrics": {
@@ -738,7 +743,7 @@ export class TimecodeRelay extends DurableObject {
         };
         await this.persist();
         this.broadcastLyrics(this.state.lyrics);
-        await this.broadcastState();
+        this.broadcastState();
         break;
       }
 
@@ -746,7 +751,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.lyrics = null;
         await this.persist();
         this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
-        await this.broadcastState();
+        this.broadcastState();
         break;
     }
   }
@@ -789,7 +794,7 @@ export class TimecodeRelay extends DurableObject {
         event.action === "custom-webhook" ? 5000 : 10000,
         async (signal) => {
           await this.persist();
-          await this.broadcastEvents();
+          this.broadcastEvents();
           await this.executeEventAction(event, signal);
         },
       );
@@ -798,7 +803,7 @@ export class TimecodeRelay extends DurableObject {
     } catch (error) {
       if (error instanceof AutomationCancelled) {
         event.executionStatus = "scheduled";
-        await this.broadcastEvents();
+        this.broadcastEvents();
         return;
       }
       const message = error instanceof Error ? error.message : "Automation action failed.";
@@ -816,9 +821,9 @@ export class TimecodeRelay extends DurableObject {
     }
     event.executedAt = Date.now();
     event.executionDurationMs = event.executedAt - startedAt;
-    await this.broadcastEventFired(event);
-    await this.broadcastEvents();
-    await this.broadcastState();
+    this.broadcastEventFired(event);
+    this.broadcastEvents();
+    this.broadcastState();
   }
 
   private async executeEventAction(event: AutomationEvent, signal: AbortSignal): Promise<void> {
@@ -1046,13 +1051,12 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Broadcasting ───────────────────────────────────────
 
-  private async broadcastState(): Promise<void> {
+  private broadcastState(): void {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as {
         canWrite?: boolean;
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
-      if (!(await this.socketMayReceive(ws, attachment))) continue;
       const msg: TimecodeWsMessage = {
         type: "tc-update",
         state: attachment?.canWrite ? this.state : this.getDisplayState(),
@@ -1061,21 +1065,21 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
-  private async broadcastEvents(): Promise<void> {
+  private broadcastEvents(): void {
     const msg: TimecodeWsMessage = {
       type: "events-update",
       events: this.events,
     };
-    await this.broadcastToWriters(JSON.stringify(msg));
+    this.broadcastToWriters(JSON.stringify(msg));
   }
 
-  private async broadcastEventFired(event: AutomationEvent): Promise<void> {
+  private broadcastEventFired(event: AutomationEvent): void {
     const msg: TimecodeWsMessage = {
       type: "event-fired",
       event,
       firedAt: Date.now(),
     };
-    await this.broadcastToWriters(JSON.stringify(msg));
+    this.broadcastToWriters(JSON.stringify(msg));
   }
 
   private broadcastLyrics(lyrics: LyricsDisplayState): void {
@@ -1083,39 +1087,39 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private broadcast(data: string): void {
-    // getWebSockets() is the authoritative list after hibernation wakes.
-    for (const ws of this.ctx.getWebSockets()) {
-      if (!displaySocketMayReceive(ws)) continue;
-      try {
-        ws.send(data);
-      } catch {
-        try { ws.close(1011, "Broadcast failed"); } catch {}
-      }
-    }
+    for (const ws of this.ctx.getWebSockets()) this.send(ws, data);
   }
 
-  private async broadcastToWriters(data: string): Promise<void> {
+  private broadcastToWriters(data: string): void {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as {
         canWrite?: boolean;
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
-      if (attachment?.canWrite && await this.socketMayReceive(ws, attachment)) this.send(ws, data);
+      if (attachment?.canWrite) this.send(ws, data);
     }
   }
 
-  private async socketMayReceive(
-    ws: WebSocket,
-    attachment: { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null } | null,
-  ): Promise<boolean> {
-    if (!attachment?.canWrite) return true;
-    if (attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access")) return true;
-    ws.close(4403, "Timecode access changed");
-    return false;
+  private socketNeedsReadLease(socket: WebSocket): boolean {
+    const attachment = socket.deserializeAttachment() as { canWrite?: boolean } | null;
+    return attachment?.canWrite === true;
   }
 
+  /** Worker-only RPC used by permission changes; alarms handle missed pushes. */
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const attachment = socket.deserializeAttachment() as { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null } | null;
+      if (!attachment?.canWrite) return null;
+      if (userId && attachment.authClaim?.userId !== userId) return null;
+      return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"));
+    });
+    await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+  }
+
+  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
+
   private send(ws: WebSocket, data: string): void {
-    if (!displaySocketMayReceive(ws)) return;
+    if (!displaySocketMayReceive(ws) || !socketReadLeaseAllows(ws, this.socketNeedsReadLease(ws))) return;
     try {
       ws.send(data);
     } catch {
