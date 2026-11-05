@@ -25,16 +25,26 @@ async function fixture() {
 }
 
 describe("RundownRelay live authority", () => {
-  it("requires the current PIN for a technical manager and rejects an old socket after rotation", async () => {
+  async function pinProtectedFixture() {
     const test = await fixture();
     await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(test.orgId, test.authority.userId).run();
-    // Independently generated Node PBKDF2 fixtures; the crypto unit suite tests hashing.
+    // Independently generated Node PBKDF2 fixture at the production work factor.
     const pin = "pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:dn1Cq81hnTfBlkh2maxSEZ3GzIkOQC9w2mVohTIJ_uo";
     await env.DB.prepare("INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(), test.orgId, RUNDOWN_PIN_SETTING_KEY, pin).run();
+    return test;
+  }
+
+  it("requires the current PIN for a technical manager's HTTP command", async () => {
+    const test = await pinProtectedFixture();
     const denied = await test.command(test.url("/command"));
     expect(denied.status).toBe(401); await denied.text();
     const accepted = await test.stub.fetch(test.url("/command"), { method: "POST", headers: { [RUNDOWN_PIN_HEADER]: "2468" }, body: '{"action":"stage-message","payload":{"message":"PIN protected"}}' });
     expect(accepted.status).toBe(200); await accepted.text();
+    expect(await (await test.stub.fetch(test.url("/state", false))).json()).toMatchObject({ stageMessage: "PIN protected" });
+  }, 30000);
+
+  it("rejects a previously PIN-authorized socket after PIN rotation", async () => {
+    const test = await pinProtectedFixture();
     const response = await test.stub.fetch(test.url("/ws"), { headers: { Upgrade: "websocket", [RUNDOWN_PIN_HEADER]: "2468" } });
     const socket = response.webSocket;
     if (!socket) throw new Error("Missing PIN-authorized socket");
@@ -42,9 +52,9 @@ describe("RundownRelay live authority", () => {
     socket.accept(); await hydrated;
     await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?").bind("pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:y3Naihn0jaG2wHtict2bDNzjCpnFJHzB5e-PAeC8rqg", test.orgId, RUNDOWN_PIN_SETTING_KEY).run();
     const closed = new Promise<CloseEvent>(resolve => socket.addEventListener("close", resolve, { once: true }));
-    socket.send(JSON.stringify({ type: "command", action: "stage-clear" }));
+    socket.send(JSON.stringify({ type: "command", action: "stage-message", payload: { message: "Rejected after rotation" } }));
     expect(await closed).toMatchObject({ code: 4403 });
-    expect(await (await test.stub.fetch(test.url("/state", false))).json()).toMatchObject({ stageMessage: "PIN protected" });
+    expect(await (await test.stub.fetch(test.url("/state", false))).json()).toMatchObject({ stageMessage: "" });
   }, 30000);
 
   it.each(["http", "socket"])("checks authority when a queued %s command executes", async transport => {
