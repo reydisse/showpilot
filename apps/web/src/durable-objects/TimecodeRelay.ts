@@ -83,6 +83,7 @@ class AutomationRejection extends Error {
 }
 
 class AutomationCancelled extends Error {}
+class TimecodeCommandRejection extends Error {}
 
 export class TimecodeRelay extends DurableObject {
   private state: TimecodeState = {
@@ -230,7 +231,11 @@ export class TimecodeRelay extends DurableObject {
         action: TimecodeCommand;
         payload?: Record<string, unknown>;
       };
-      await this.handleCommand(body.action, body.payload);
+      try { await this.handleCommand(body.action, body.payload); }
+      catch (error) {
+        if (error instanceof TimecodeCommandRejection) return Response.json({ ok: false, error: error.message }, { status: 400 });
+        throw error;
+      }
       return Response.json({ ok: true });
     }
 
@@ -256,7 +261,11 @@ export class TimecodeRelay extends DurableObject {
           return;
         }
         if (attachment.orgId) this.orgId = attachment.orgId;
-        await this.handleCommand(msg.action, msg.payload, attachment.sessionId);
+        try { await this.handleCommand(msg.action, msg.payload, attachment.sessionId); }
+        catch (error) {
+          if (!(error instanceof TimecodeCommandRejection)) throw error;
+          ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message } satisfies TimecodeWsMessage));
+        }
       }
     } catch {
       // Ignore
@@ -389,9 +398,12 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "set-source":
-        if (payload?.source) {
-          this.state.source = payload.source as TimecodeState["source"];
+        // These are the only sources with an actual producer today. Extend
+        // this boundary when LTC/network/rundown producers are implemented.
+        if (payload?.source !== "internal-freerun" && payload?.source !== "mtc") {
+          throw new TimecodeCommandRejection("This timecode source is not implemented.");
         }
+        this.state.source = payload.source;
         await this.persist();
         await this.broadcastState();
         break;

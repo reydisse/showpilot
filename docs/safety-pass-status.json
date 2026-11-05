@@ -417,7 +417,8 @@
       "evidence": [
         "2026-11-04 final Phase 0 web gate: pnpm --filter @showpilot/web test passed migration checks, client-boundary checks, 1248 unit tests across 184 files, and 116 Worker tests across 26 files. pnpm --filter @showpilot/web exec tsc --noEmit and the production build passed. Logs: /tmp/showpilot-phase0-gate-tests.log, /tmp/showpilot-phase0-gate-tsc.log, /tmp/showpilot-phase0-gate-build.log.",
         "Monorepo CI 41965324691 passed both ci and Native Rust tests: web and Bridge typechecks/tests, native release contracts, macOS packaging tests, Desktop and Bridge Rust tests, Bridge updater tests, mobile verification, and landing verification. The subsequent product change is limited to BridgeRelay close handling and its regression, covered by the final full web run above. https://github.com/reydisse/showpilot/actions/runs/41965324691",
-        "Bridge-initiated close regression fails with the previous cleanup-only handler (5s timeout) and passes with reciprocal close completion. The separate local runtime TCP close delay is documented in the browser credential rehearsal, which still requires immediate write refusal and correct eventual close code."
+        "Bridge-initiated close regression fails with the previous cleanup-only handler (5s timeout) and passes with reciprocal close completion. The separate local runtime TCP close delay is documented in the browser credential rehearsal, which still requires immediate write refusal and correct eventual close code.",
+        "Latest Phase 0 head ae49dc3 also passed complete monorepo CI 41967665691, including both ci and Native Rust tests. Credential PR head 950fa2b passed CI 41967360341."
       ]
     },
     {
@@ -551,7 +552,12 @@
       "section": "1.1 Scope relays per show and per venue (audit C4, C3)",
       "line": 105,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Architecture investigation, not implementation: server.ts keys TIMECODE_RELAY by orgId; TimecodeProvider supplies no show identity; TimecodeRelay.executeRundownCommand resolves the mutable global active show at dispatch. Together these permit cross-show clock/list collisions and automation retargeting.",
+        "Chosen direction: one timecode DO per immutable org/show target using the existing rundownRelayKey convention. The Worker resolves and validates a target once, the relay persists its identity and rejects mismatches, and automation uses that bound rundown target rather than resolving the active show on every cue. Browser provider, timer display, Bridge feed/disconnect, rundown stop, and org deletion callers all require migration.",
+        "Alternative considered: retain one org DO with separate event arrays. Rejected because the clock, master session, alarms, and persistence would still need full per-show partitioning; a missed branch could couple shows. The existing stable-show room convention (4724c2a, 16645c0) supplies a stronger ownership boundary.",
+        "Before implementation: define show selection for the org-wide timecode provider, preserve explicit show targeting in display URLs, and design an idempotent one-destination transfer of the old org room snapshot. Never copy legacy armed automation into multiple show rooms. These remain pending."
+      ]
     },
     {
       "id": "f86aba8c7721934e",
@@ -742,16 +748,25 @@
       "phase": "1",
       "section": "1.12 Web MTC decoder hardening (audit TC/M1, TC/M3 validation half)",
       "line": 162,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "MtcSource now accepts only exact broadcast full-frame packets with F7 termination and seven-bit payload bytes, validates SMPTE hour/minute/second/frame ranges and skipped DF labels through isValidTimecode, and clears the quarter-frame accumulator at relocation. Directed messages are ignored because ShowPilot has no assigned SysEx device ID.",
+        "mtc-full-frame.test.ts adds 19 tests through the installed MIDI message handler. Fourteen failed against the prior decoder; all 19 pass with the change, alongside the 21 existing quarter-frame tests.",
+        "getInputs() and start() deliberately request requestMIDIAccess() without SysEx permission; the permission regression confirms that both requests remain unprivileged. Full-frame fixtures are synthetic and do not establish browser jam-sync support. W3C MIDIOptions defaults sysex to false: https://www.w3.org/TR/webmidi/#dictdef-midioptions",
+        "2026-11-04: full web suite passed 1268 unit and 123 Worker tests plus migration/client-boundary checks; web typecheck and production build passed. Physical MIDI jam sync is not claimed."
+      ]
     },
     {
       "id": "2dfb667e7bbd3409",
       "phase": "1",
       "section": "1.12 Web MTC decoder hardening (audit TC/M1, TC/M3 validation half)",
       "line": 163,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "TimecodeRelay set-source now accepts only internal-freerun and mtc, which have implemented producers. LTC, network, internal-rundown, unknown values, and malformed values return HTTP 400 or a command-rejected socket response without mutating source state. useTimecode displays the rejection and cancels a pending local source.",
+        "All seven new timecode-source.worker.test.ts cases failed against the prior relay and pass after the guard. A hook regression verifies source rejection cancels the pending generator and ignores later start acknowledgements.",
+        "2026-11-04 full web suite, typecheck, and production build pass. LTC will be admitted only when its Phase 2 producer is implemented."
+      ]
     },
     {
       "id": "e1ac50eb64328458",

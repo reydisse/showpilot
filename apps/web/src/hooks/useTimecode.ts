@@ -226,6 +226,10 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
             case "event-fired": setEvents((prev) => prev.map((e) => e.id === msg.event.id ? msg.event : e)); break;
             case "lyrics-update": setState((prev) => prev ? { ...prev, lyrics: msg.lyrics } : prev); break;
             case "lyrics-clear": setState((prev) => prev ? { ...prev, lyrics: null } : prev); break;
+            case "command-rejected":
+              setLastError(msg.error);
+              if (msg.action === "set-source") stopLocalSources();
+              break;
             case "master-status":
               if (msg.granted && pendingSourceRef.current) masterGrantedRef.current = true;
               else if (!msg.granted) {

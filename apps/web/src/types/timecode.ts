@@ -159,6 +159,7 @@ export type TimecodeWsMessage =
   | { type: "lyrics-update"; lyrics: LyricsDisplayState }
   | { type: "lyrics-clear" }
   | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
+  | { type: "command-rejected"; action: TimecodeCommand; error: string }
   | { type: "master-status"; granted: boolean };
 
 export type TimecodeCommand =

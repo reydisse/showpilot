@@ -43,6 +43,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("shows source rejection and cancels the pending local generator", () => {
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => { hydrate(socket); result.current.startFreerun(); });
+    act(() => socket.receive({ type: "command-rejected", action: "set-source", error: "This timecode source is not implemented." }));
+    expect(result.current.lastError).toBe("This timecode source is not implemented.");
+    expect(result.current.generatorPending).toBeNull();
+    act(() => {
+      socket.receive({ type: "master-status", granted: true });
+      socket.receive({ type: "tc-update", state: { ...state, running: true } });
+    });
+    expect(start).not.toHaveBeenCalled();
+    expect(result.current.isMaster).toBe(false);
+  });
+
   it("keeps the large clock, header clock, and generator button consistent", () => {
     function Controls() {
       const clock = useTimecode({ orgId: "test-org", enabled: true });
