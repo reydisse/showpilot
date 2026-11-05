@@ -1068,6 +1068,7 @@ export class Bridge {
 
     const res = await fetch(url, {
       method,
+      redirect: "error",
       headers: {
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...(body ? { "Content-Type": "application/json" } : {}),
@@ -1075,12 +1076,11 @@ export class Bridge {
       ...(body ? { body } : {}),
     });
 
-    const text = await res.text();
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ""}`);
+      await res.body?.cancel();
+      throw new Error(`HTTP ${res.status}`);
     }
-
-    return text;
+    return await res.text();
   }
 
   private async executeWol(command: string): Promise<void> {

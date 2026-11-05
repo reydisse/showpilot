@@ -1,3 +1,5 @@
+import { authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
+import { BridgeTargetError } from "@/lib/bridge-target";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
@@ -471,11 +473,17 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
-  async dispatchBridgeMessage(message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
+  async dispatchBridgeMessage(message: BridgeDispatchMessage, actor: BridgeTargetActor): Promise<BridgeDispatchResult> {
     const operation = await this.ownership.run(async () => {
       const socket = this.bridgeWs;
       if (!socket || !this.bridgeOnline) return { result: Promise.resolve({ success: false, error: "Venue Bridge is offline" }) };
-      if (!await this.authorizeBridgeWrite(socket, message.type, "to-bridge")) return { result: Promise.resolve({ success: false, error: "Venue Bridge credential is unavailable" }) };
+      if (!await this.authorizeBridgeWrite(socket, message.type, "to-bridge", actor.actorUserId ?? undefined)) return { result: Promise.resolve({ success: false, error: "Venue Bridge credential is unavailable" }) };
+      if (message.type !== "disconnect-device") {
+        try { await authorizeBridgeTarget(this.env.DB, this.orgId, message, actor); }
+        catch (error) {
+          return { result: Promise.resolve({ success: false, error: error instanceof BridgeTargetError ? error.message : "Bridge destination approval could not be verified." }) };
+        }
+      }
       return { result: this.beginDispatch(socket, message) };
     });
     return operation.result;
@@ -745,13 +753,24 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       return;
     }
 
+    if (msg.type !== "ping") {
+      try { await authorizeBridgeTarget(this.env.DB, this.orgId, msg, { source: "operator", actorUserId }); }
+      catch (error) {
+        const detail = error instanceof BridgeTargetError ? error.message : "Bridge destination approval could not be verified.";
+        clientWs.send(JSON.stringify(msg.type === "command"
+          ? { type: "command-response", id: msg.id, success: false, error: detail }
+          : { type: "device-status", target: msg.target, connected: false, error: detail }));
+        return;
+      }
+    }
+
     switch (msg.type) {
       case "command": {
         if (typeof msg.id !== "string" || !msg.id) return;
         const operationId = `client_${crypto.randomUUID()}`;
         this.pendingClientCommands.set(operationId, { socket: clientWs, clientId: msg.id });
         try {
-          this.bridgeWs.send(JSON.stringify({ ...msg, id: operationId }));
+          this.bridgeWs.send(JSON.stringify({ type: "command", id: operationId, protocol: msg.protocol, target: msg.target, command: msg.command }));
         } catch {
           this.pendingClientCommands.delete(operationId);
           try {
@@ -768,7 +787,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       case "connect-device":
         // Forward to bridge
         try {
-          this.bridgeWs.send(JSON.stringify(msg));
+          this.bridgeWs.send(JSON.stringify({ type: "connect-device", protocol: msg.protocol, target: msg.target, settings: msg.settings ?? {} }));
         } catch {
           // Bridge disconnected
         }

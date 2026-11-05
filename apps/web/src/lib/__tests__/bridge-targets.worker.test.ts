@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { approveBridgeTarget, authorizeBridgeTarget, listBridgeTargets, recordBridgeTargetConnection, removeBridgeTarget } from "../bridge-targets.server";
+import { approveBridgeTarget, authorizeBridgeTarget, listBridgeTargets, removeBridgeTarget } from "../bridge-targets.server";
 import { ensureBridgeTestOrg } from "@/test/bridge-fixtures";
 const endpoint = { host: "venue.local", port: 4455, protocol: "obs" as const };
 const actor = { source: "operator" as const, actorUserId: "operator" };
@@ -64,10 +64,9 @@ describe("authoritative Bridge destination allowlist", () => {
   it("records connection attribution without storing settings or command bodies", async () => {
     const orgId = await org();
     await approve(orgId);
-    const endpoints = await authorizeBridgeTarget(env.DB, orgId, request, actor);
-    await recordBridgeTargetConnection(env.DB, orgId, endpoints, actor);
-    await recordBridgeTargetConnection(env.DB, orgId, endpoints, { source: "automation", actorUserId: "armed-by", executionId: "show-cue-run" });
-    const audit = await env.DB.prepare("SELECT actorUserId, source, executionId, host, port, protocol FROM bridge_target_audit WHERE orgId = ? AND action = 'connected' ORDER BY rowid").bind(orgId).all();
+    await authorizeBridgeTarget(env.DB, orgId, request, actor);
+    await authorizeBridgeTarget(env.DB, orgId, request, { source: "automation", actorUserId: "armed-by", executionId: "show-cue-run" });
+    const audit = await env.DB.prepare("SELECT actorUserId, source, executionId, host, port, protocol FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested' ORDER BY rowid").bind(orgId).all();
     expect(audit.results).toEqual([
       { actorUserId: "operator", source: "operator", executionId: null, ...endpoint },
       { actorUserId: "armed-by", source: "automation", executionId: "show-cue-run", ...endpoint },

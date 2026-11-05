@@ -1,3 +1,5 @@
+import http from "node:http";
+import { ProPresenterBridge } from "../protocols/propresenter";
 import net from "node:net";
 import dgram from "node:dgram";
 import { once } from "node:events";
@@ -130,4 +132,45 @@ describe("Bridge active and standby transport", () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
     expect(packets).toHaveLength(count);
   });
+});
+
+async function httpServer(handler: http.RequestListener) {
+  const server = http.createServer(handler);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  cleanups.push(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No HTTP address");
+  return { port: address.port, url: `http://127.0.0.1:${address.port}` };
+}
+
+it("does not let a configured HTTP device redirect commands or credentials to another destination", async () => {
+  let unapprovedRequests = 0;
+  const other = await httpServer((_request, response) => { unapprovedRequests++; response.end("unexpected"); });
+  const approved = await httpServer((_request, response) => { response.writeHead(302, { Location: other.url }); response.end(); });
+  const { socket } = await fixture();
+  await role(socket, "active");
+  const connected = next(socket, "device-status");
+  send(socket, { type: "connect-device", protocol: "http-command", target: approved.url, settings: { authToken: "private-fixture-token" } });
+  await connected;
+  const reply = next(socket, "command-response");
+  send(socket, { type: "command", id: "redirect", protocol: "http-command", target: approved.url, command: "GET /action" });
+  expect(await reply).toMatchObject({ id: "redirect", success: false });
+  expect(unapprovedRequests).toBe(0);
+});
+
+it("does not follow ProPresenter command, discovery, or polling redirects outside its configured ports", async () => {
+  let unapprovedRequests = 0;
+  let approvedRequests = 0;
+  const other = await httpServer((_request, response) => { unapprovedRequests++; response.end("{}"); });
+  const approved = await httpServer((_request, response) => { approvedRequests++; response.writeHead(302, { Location: other.url }); response.end(); });
+  const pp = new ProPresenterBridge({ host: "127.0.0.1", port: approved.port, apiPort: approved.port, onSlideChange: () => {}, onStatusChange: () => {} });
+  cleanups.push(() => pp.disconnect());
+  await expect(pp.sendCommand("next")).rejects.toThrow();
+  await expect(pp.sendCommand(JSON.stringify({ action: "query-presentations" }))).rejects.toThrow();
+  const beforePolling = approvedRequests;
+  pp.connect();
+  await expect.poll(() => approvedRequests).toBeGreaterThan(beforePolling);
+  pp.disconnect();
+  expect(unapprovedRequests).toBe(0);
 });

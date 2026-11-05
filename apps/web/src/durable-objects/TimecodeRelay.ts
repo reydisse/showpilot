@@ -1202,7 +1202,7 @@ export class TimecodeRelay extends DurableObject {
         protocol: "propresenter",
         target,
         command: JSON.stringify({ action: command, ...event.payload }),
-      });
+      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
       signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
     };
@@ -1220,7 +1220,7 @@ export class TimecodeRelay extends DurableObject {
           protocol: resolved.protocol,
           target: resolved.target,
           settings: resolved.connectionSettings,
-        });
+        }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
         assertCanDispatch();
         if (!connected.success) {
           throw new Error(connected.error ?? `Could not connect to ${resolved.deviceName}.`);
@@ -1232,7 +1232,7 @@ export class TimecodeRelay extends DurableObject {
         protocol: resolved.protocol,
         target: resolved.target,
         command: resolved.command,
-      });
+      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
       signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? `Command to ${resolved.deviceName} failed.`);
       logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);

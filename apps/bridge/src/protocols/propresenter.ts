@@ -280,6 +280,7 @@ export class ProPresenterBridge {
         try {
           const res = await fetch(`${base}${path}`, {
             method,
+            redirect: "error",
             signal: AbortSignal.timeout(3000),
           });
           if (res.ok) return;
@@ -300,7 +301,7 @@ export class ProPresenterBridge {
   private async requestJson(path: string): Promise<unknown> {
     for (const port of this.getApiPorts()) {
       try {
-        const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.timeout(4_000) });
+        const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.timeout(4_000), redirect: "error" });
         if (response.ok) return response.json();
       } catch {}
     }
@@ -599,6 +600,7 @@ export class ProPresenterBridge {
       for (const endpoint of endpoints) {
         try {
           const res = await fetch(`${base}${endpoint}`, {
+            redirect: "error",
             signal: AbortSignal.timeout(timeout),
           });
           if (!res.ok) continue;
@@ -617,6 +619,7 @@ export class ProPresenterBridge {
                 // the slide layer is off before clearing an unidentified slide.
                 try {
                   const layers = await fetch(`${base}/v1/status/layers`, {
+                    redirect: "error",
                     signal: AbortSignal.timeout(timeout),
                   });
                   if (!layers.ok) return { reachable: true, slide: undefined };

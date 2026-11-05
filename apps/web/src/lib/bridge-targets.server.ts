@@ -10,7 +10,7 @@ export type BridgeTargetActor =
   | { source: "operator"; actorUserId: string }
   | { source: "automation"; actorUserId: string | null; executionId: string };
 
-function audit(db: D1Database, orgId: string, actor: BridgeTargetActor, action: "approved" | "removed" | "connected" | "rejected", endpoint: BridgeEndpoint | null, reason: string | null = null) {
+function audit(db: D1Database, orgId: string, actor: BridgeTargetActor, action: "approved" | "removed" | "connection-requested" | "rejected", endpoint: BridgeEndpoint | null, reason: string | null = null) {
   return db.prepare(`INSERT INTO bridge_target_audit (id, orgId, action, actorUserId, source, executionId, host, port, protocol, reason, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
     crypto.randomUUID(), orgId, action, actor.actorUserId, actor.source,
@@ -57,17 +57,17 @@ export async function authorizeBridgeTarget(db: D1Database, orgId: string, input
     await audit(db, orgId, actor, "rejected", null, error.code).run();
     throw error;
   }
-  for (const endpoint of endpoints) {
-    const approved = await db.prepare("SELECT id FROM bridge_target_allowlist WHERE orgId = ? AND host = ? AND port = ? AND protocol = ?")
-      .bind(orgId, endpoint.host, endpoint.port, endpoint.protocol).first();
-    if (!approved) {
-      await audit(db, orgId, actor, "rejected", endpoint, "unapproved-target").run();
-      throw new BridgeTargetError("unapproved-target");
-    }
+  if (typeof input === "object" && input !== null && "type" in input && input.type === "connect-device") {
+    await db.batch(endpoints.map(endpoint => audit(db, orgId, actor, "connection-requested", endpoint)));
+  }
+  // One D1 batch gives all destinations the same authorization snapshot.
+  const approvals = await db.batch(endpoints.map(endpoint => db.prepare(
+    "SELECT id FROM bridge_target_allowlist WHERE orgId = ? AND host = ? AND port = ? AND protocol = ?",
+  ).bind(orgId, endpoint.host, endpoint.port, endpoint.protocol)));
+  const denied = endpoints.find((_, index) => approvals[index].results.length === 0);
+  if (denied) {
+    await audit(db, orgId, actor, "rejected", denied, "unapproved-target").run();
+    throw new BridgeTargetError("unapproved-target");
   }
   return endpoints;
-}
-
-export async function recordBridgeTargetConnection(db: D1Database, orgId: string, endpoints: BridgeEndpoint[], actor: BridgeTargetActor): Promise<void> {
-  await db.batch(endpoints.map(endpoint => audit(db, orgId, actor, "connected", endpoint)));
 }

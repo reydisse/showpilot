@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
-import { openTestBridge, bridgeClientTestRequest } from "@/test/bridge-fixtures";
+import { openTestBridge, approveTestBridgeTarget, bridgeClientTestRequest } from "@/test/bridge-fixtures";
 import { rotateBridgeInstallation, revokeBridgeInstallation } from "../bridge-credentials.server";
 import { getActiveRundownRelayTarget } from "../active-rundown-relay";
 
@@ -109,6 +109,7 @@ describe("BridgeRelay device dispatch", () => {
   it("persists only the credential ID in socket attachments and audits the operator's write", async () => {
     const orgId = "bridge-audit-attachment";
     const { stub, socket, credential } = await openBridge(orgId);
+    await approveTestBridgeTarget(orgId, "obs", "venue:4455");
     const client = await openClient(orgId);
     await runInDurableObject(stub, async (_instance, state) => {
       const attachments = state.getWebSockets().map((ws) => ws.deserializeAttachment());
@@ -117,7 +118,7 @@ describe("BridgeRelay device dispatch", () => {
       expect(JSON.stringify(attachments)).not.toContain("bridgeKey");
     });
     const forwarded = nextMessage(socket);
-    client.send(JSON.stringify({ type: "command", id: "operator-write", protocol: "obs", target: "venue", command: "fixture" }));
+    client.send(JSON.stringify({ type: "command", id: "operator-write", protocol: "obs", target: "venue:4455", command: "fixture" }));
     const operation = await forwarded;
     expect(operation).toMatchObject({ type: "command", id: expect.stringMatching(/^client_/) });
     const acknowledged = commandResponse(client, "operator-write");
@@ -128,7 +129,7 @@ describe("BridgeRelay device dispatch", () => {
     const closed = nextClose(socket);
     await revokeBridgeInstallation(env.DB, { orgId, installationId: credential.installationId, actorUserId: "owner" });
     const rejected = commandResponse(client, "revoked-write");
-    client.send(JSON.stringify({ type: "command", id: "revoked-write", protocol: "obs", target: "venue", command: "fixture" }));
+    client.send(JSON.stringify({ type: "command", id: "revoked-write", protocol: "obs", target: "venue:4455", command: "fixture" }));
     await expect(closed).resolves.toMatchObject({ code: 4403 });
     await expect(rejected).resolves.toMatchObject({ success: false });
     const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM bridge_credential_audit WHERE orgId = ? AND direction = 'to-bridge'").bind(orgId).first<{ count: number }>();
@@ -230,6 +231,7 @@ describe("BridgeRelay device dispatch", () => {
 
   it("correlates connect and command RPCs while retaining live device state", async () => {
     const { stub, socket } = await openBridge("relay-device-org");
+    await approveTestBridgeTarget("relay-device-org", "obs", "10.0.0.40:4455");
 
     const connectMessage = nextMessage(socket);
     const connectResult = stub.dispatchBridgeMessage({
@@ -237,7 +239,7 @@ describe("BridgeRelay device dispatch", () => {
       protocol: "obs",
       target: "10.0.0.40:4455",
       settings: { host: "10.0.0.40", port: 4455 },
-    });
+    }, { source: "operator", actorUserId: "test-operator" });
     expect(await connectMessage).toEqual({
       type: "connect-device",
       protocol: "obs",
@@ -254,7 +256,7 @@ describe("BridgeRelay device dispatch", () => {
       protocol: "obs",
       target: "10.0.0.40:4455",
       command: JSON.stringify({ actionId: "start_streaming", params: {} }),
-    });
+    }, { source: "operator", actorUserId: "test-operator" });
     expect(await commandMessage).toEqual(expect.objectContaining({
       type: "command",
       id: "worker-command-1",
@@ -289,14 +291,16 @@ describe("BridgeRelay device dispatch", () => {
   it("routes colliding browser command IDs only to their originating operator", async () => {
     const orgId = "relay-command-owner";
     const { socket: bridge } = await openBridge(orgId);
+    await approveTestBridgeTarget(orgId, "pjlink", "projector-a:4352");
+    await approveTestBridgeTarget(orgId, "pjlink", "projector-b:4352");
     const clientA = await openClient(orgId);
     const clientB = await openClient(orgId);
 
     const commandA = nextMessage(bridge);
-    clientA.send(JSON.stringify({ type: "command", id: "cmd_1", protocol: "pjlink", target: "projector-a", command: "%1POWR 1\r" }));
+    clientA.send(JSON.stringify({ type: "command", id: "cmd_1", protocol: "pjlink", target: "projector-a:4352", command: "%1POWR 1\r" }));
     const forwardedA = await commandA;
     const commandB = nextMessage(bridge);
-    clientB.send(JSON.stringify({ type: "command", id: "cmd_1", protocol: "pjlink", target: "projector-b", command: "%1POWR 1\r" }));
+    clientB.send(JSON.stringify({ type: "command", id: "cmd_1", protocol: "pjlink", target: "projector-b:4352", command: "%1POWR 1\r" }));
     const forwardedB = await commandB;
 
     expect(forwardedA.id).not.toBe("cmd_1");

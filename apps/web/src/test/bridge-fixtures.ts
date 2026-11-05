@@ -1,3 +1,5 @@
+import { approveBridgeTarget } from "@/lib/bridge-targets.server";
+import { resolveBridgeEndpoints } from "@/lib/bridge-target";
 import { env } from "cloudflare:workers";
 import { issueBridgeInstallation } from "@/lib/bridge-credentials.server";
 
@@ -41,4 +43,10 @@ export async function bridgeClientTestRequest(orgId: string): Promise<Request> {
       VALUES (?, ?, ?, 'owner', CURRENT_TIMESTAMP)`).bind(`${orgId}-member`, orgId, userId),
   ]);
   return new Request(`https://bridge.test/ws?${new URLSearchParams({ orgId, role: "client", authUserId: userId, authSessionId: sessionId })}`, { headers: internalHeaders });
+}
+
+export async function approveTestBridgeTarget(orgId: string, protocol: string, target: string, settings: Record<string, unknown> = {}) {
+  for (const endpoint of resolveBridgeEndpoints({ type: "connect-device", protocol, target, settings })) {
+    await approveBridgeTarget(env.DB, { orgId, endpoint, label: "Fixture destination", actorUserId: "fixture-admin" });
+  }
 }

@@ -18,7 +18,7 @@ CREATE INDEX bridge_target_allowlist_org ON bridge_target_allowlist(orgId, label
 CREATE TABLE bridge_target_audit (
   id TEXT NOT NULL PRIMARY KEY,
   orgId TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('approved', 'removed', 'connected', 'rejected')),
+  action TEXT NOT NULL CHECK (action IN ('approved', 'removed', 'connection-requested', 'rejected')),
   actorUserId TEXT,
   source TEXT NOT NULL CHECK (source IN ('operator', 'automation')),
   executionId TEXT,
