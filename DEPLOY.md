@@ -40,6 +40,10 @@ pnpm --filter @showpilot/web deploy          # = vite build && wrangler deploy
 To roll back a bad deploy: Cloudflare dashboard → Workers & Pages →
 `showpilot` → Deployments → roll back to the previous version (or
 `pnpm exec wrangler rollback` from `apps/web`).
+Check data compatibility first. Once kiosk or Companion token hashes have been
+stored, the rollback build must support digest lookup. Earlier builds that look
+up plaintext tokens will reject those credentials; use a compatible build or a
+forward fix instead of restoring plaintext credentials.
 
 ---
 
@@ -174,8 +178,7 @@ mode for `.dev.vars` values):
 ## D1 migrations
 
 Migrations are **hand-written sequential SQL files** in
-`apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0039_auth_rate_limit.sql`). They deliberately do **not** use wrangler's
+`apps/web/prisma/migrations/` named `000N_name.sql`. They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -183,6 +186,32 @@ blocks.
 (The timestamped directories in the same folder are legacy Prisma-dev
 artifacts; the numbered files are the convention. After editing
 `schema.prisma`, run `pnpm db:generate`.)
+
+### Kiosk and Companion token storage
+
+The token digest release keeps the existing `token` columns and stores a
+`sha256:` digest in them. It does not need a SQL schema change or new signing
+secrets. New credentials are returned only by the creation response. Listing
+and revoking credentials return metadata only; copy a new token before leaving
+Settings or dismissing it.
+
+Previously issued tokens remain valid. Authentication converts a matching old
+row with an organization-scoped compare-and-set update. The scheduled Worker
+also converts up to 100 rows per token table on each run, including expired and
+revoked tokens, so unused credentials do not remain in plaintext. Revocation,
+expiry, token IDs and device configuration are preserved. Re-running this
+backfill is safe.
+
+After deployment, verify that both counts reach zero. This read-only query
+prints counts, never token values. Run it from `apps/web`:
+
+```sh
+pnpm exec wrangler d1 execute showpilot-db --remote --command "SELECT 'kiosk' AS kind, COUNT(*) AS remaining FROM kiosk_token WHERE token NOT LIKE 'sha256:%' UNION ALL SELECT 'companion', COUNT(*) FROM companion_token WHERE token NOT LIKE 'sha256:%';"
+```
+
+Do not restore a pre-digest Worker after this conversion. The hash cannot be
+converted back to the issued token. Keep a compatible rollback build, and test
+an existing kiosk display and Companion control with the saved device tokens.
 
 ### Applying a migration to production
 

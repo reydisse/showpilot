@@ -1,3 +1,4 @@
+import { scopedTokenDigest, findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
@@ -88,6 +89,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
       orgSlug: org.slug,
       view: data.view,
       iat: Math.floor(Date.now() / 1000),
+      jti: crypto.randomUUID(),
       ...(exp ? { exp } : {}),
     };
 
@@ -98,13 +100,14 @@ export const createKioskToken = createServerFn({ method: "POST" })
         orgId: data.orgId,
         label: data.label,
         view: data.view,
-        token,
+        token: await scopedTokenDigest(token),
         expiresAt: exp ? new Date(exp * 1000) : null,
         createdBy: userId,
       },
+      select: { id: true, label: true, expiresAt: true, createdAt: true, view: true },
     });
 
-    return kioskToken;
+    return { ...kioskToken, token };
   });
 
 export const listKioskTokens = createServerFn({ method: "GET" })
@@ -115,6 +118,7 @@ export const listKioskTokens = createServerFn({ method: "GET" })
     return await prisma.kioskToken.findMany({
       where: { orgId: data.orgId, revokedAt: null },
       orderBy: { createdAt: "desc" },
+      select: { id: true, label: true, expiresAt: true, createdAt: true, view: true },
     });
   });
 
@@ -129,8 +133,9 @@ export const revokeKioskToken = createServerFn({ method: "POST" })
     if (!existing) throw new Error("Token not found");
     await assertKioskTokenPermission(existing.orgId);
     return await prisma.kioskToken.update({
-      where: { id: data.tokenId },
+      where: { id: data.tokenId, orgId: existing.orgId },
       data: { revokedAt: new Date() },
+      select: { id: true, revokedAt: true },
     });
   });
 
@@ -141,13 +146,9 @@ export const validateKioskToken = createServerFn({ method: "GET" })
     const payload = await verifyToken(data, getKioskSecret());
     if (!payload) return null;
 
-    // Then check it hasn't been revoked in the database
-    const prisma = getPrisma();
-    const kioskToken = await prisma.kioskToken.findUnique({
-      where: { token: data },
-      select: { revokedAt: true, view: true, orgId: true },
-    });
-    if (!kioskToken || kioskToken.revokedAt) return null;
+    if (typeof payload.orgId !== "string" || typeof payload.view !== "string") return null;
+    const kioskToken = await findScopedToken(env.DB, "kiosk", payload.orgId, data);
+    if (!scopedTokenIsActive(kioskToken) || kioskToken.view !== payload.view) return null;
 
     return {
       orgId: payload.orgId as string,

@@ -1,3 +1,4 @@
+import { findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { env } from "cloudflare:workers";
 import { z } from "zod";
@@ -33,8 +34,6 @@ import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
 // Companion API HTTP layer: auth, JSON helpers, rate limiting, and the real
 // CompanionDeps wired to relays + DB. Mirrors kiosk-api.ts conventions.
 // ─────────────────────────────────────────────────────────────
-
-type DB = typeof env.DB;
 
 const BASE_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
@@ -92,12 +91,9 @@ export async function authenticateCompanion(
     return { error: { code: "unauthorized", message: "Invalid or expired companion token", status: 401 } };
   }
 
-  const row = await (env.DB as DB)
-    .prepare("SELECT revokedAt, orgId FROM companion_token WHERE token = ? LIMIT 1")
-    .bind(token)
-    .first<{ revokedAt: unknown; orgId: string }>();
-  if (!row || row.revokedAt) {
-    return { error: { code: "unauthorized", message: "Revoked or unknown companion token", status: 401 } };
+  const row = await findScopedToken(env.DB, "companion", payload.orgId, token);
+  if (!scopedTokenIsActive(row)) {
+    return { error: { code: "unauthorized", message: "Revoked, expired or unknown companion token", status: 401 } };
   }
   if (row.orgId !== payload.orgId) {
     return { error: { code: "unauthorized", message: "Token organization mismatch", status: 401 } };

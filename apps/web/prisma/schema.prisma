@@ -884,7 +884,7 @@ model KioskToken {
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   label        String // e.g. "Stage Timer", "Confidence Monitor"
   view         String // route/view scoped to: timer | overlay | board
-  token        String       @unique // signed JWT string
+  token        String       @unique // sha256: digest of the signed bearer token
   expiresAt    DateTime? // null = permanent
   createdBy    String // userId who created it
   revokedAt    DateTime? // null = active
@@ -900,7 +900,7 @@ model CompanionToken {
   orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   label        String // e.g. "Booth Stream Deck", "FOH iPad"
-  token        String       @unique // signed JWT string, prefixed `cmp_`
+  token        String       @unique // sha256: digest of the signed cmp_ bearer token
   expiresAt    DateTime? // null = permanent
   createdBy    String // userId who created it
   revokedAt    DateTime? // null = active

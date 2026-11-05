@@ -1,3 +1,5 @@
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CreatedTokenNotice } from "./CreatedTokenNotice";
 import { useState, useEffect, useCallback } from "react";
 import { APP_ORIGIN } from "@/lib/domain-routing";
 import { Plus, Trash2, KeyRound, Copy, Check, Gamepad2 } from "lucide-react";
@@ -18,14 +20,9 @@ import {
 type CompanionTokenRow = {
   id: string;
   label: string;
-  token: string;
   expiresAt: string | Date | null;
   createdAt: string | Date;
 };
-
-function maskToken(t: string): string {
-  return t.length > 18 ? `${t.slice(0, 12)}…${t.slice(-6)}` : t;
-}
 
 interface ActionRecipe {
   n: number;
@@ -88,77 +85,74 @@ const ACTION_GROUPS: { group: string; actions: ActionRecipe[] }[] = [
   },
 ];
 
-export function CompanionSection({ orgId, slug }: { orgId: string; slug: string }) {
+export function CompanionSection(props: { orgId: string; slug: string }) {
+  return <CompanionSettings key={props.orgId} {...props} />;
+}
+function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
   const [tokens, setTokens] = useState<CompanionTokenRow[]>([]);
   const [label, setLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [issuedToken, setIssuedToken] = useState<{ id: string; label: string; token: string } | null>(null);
+  const [removal, setRemoval] = useState<CompanionTokenRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [copiedRecipe, setCopiedRecipe] = useState<string | null>(null);
   const [activeTokenId, setActiveTokenId] = useState<string | null>(null);
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : APP_ORIGIN;
 
   const reload = useCallback(async () => {
-    const rows = (await listCompanionTokens({ data: { orgId } })) as CompanionTokenRow[];
+    const rows = await listCompanionTokens({ data: { orgId } });
     setTokens(rows);
     setActiveTokenId((prev) => prev ?? rows[0]?.id ?? null);
     setLoading(false);
   }, [orgId]);
 
   useEffect(() => {
-    reload();
+    void reload().catch(cause => { setLoading(false); setError(cause instanceof Error ? cause.message : "Could not load tokens."); });
   }, [reload]);
 
   const generate = async () => {
-    if (!label.trim() || busy) return;
-    setBusy(true);
+    if (!label.trim() || busy || issuedToken) return;
+    setBusy(true); setError(null);
     try {
-      const created = (await createCompanionToken({
+      const created = await createCompanionToken({
         data: { orgId, label: label.trim(), expiresInDays: null },
-      })) as CompanionTokenRow;
+      });
       setLabel("");
-      setRevealed((prev) => new Set(prev).add(created.id));
+      setIssuedToken(created);
       setActiveTokenId(created.id);
       await reload();
-    } finally {
-      setBusy(false);
-    }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create token."); }
+    finally { setBusy(false); }
   };
 
-  const revoke = async (id: string) => {
-    await revokeCompanionToken({ data: { tokenId: id } });
-    await reload();
+  const revoke = async () => {
+    if (!removal || busy) return;
+    setBusy(true); setError(null);
+    try {
+      await revokeCompanionToken({ data: { tokenId: removal.id } });
+      if (issuedToken?.id === removal.id) setIssuedToken(null);
+      await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not revoke token."); }
+    finally { setBusy(false); setRemoval(null); }
   };
 
-  const copy = async (text: string, key: string, kind: "token" | "recipe") => {
-    await navigator.clipboard.writeText(text);
-    if (kind === "token") {
-      setCopiedId(key);
-      setTimeout(() => setCopiedId((c) => (c === key ? null : c)), 1500);
-    } else {
+  const copy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
       setCopiedRecipe(key);
-      setTimeout(() => setCopiedRecipe((c) => (c === key ? null : c)), 1500);
-    }
+      setTimeout(() => setCopiedRecipe(current => current === key ? null : current), 1500);
+    } catch { setError("Could not copy the recipe. Select and copy its text instead."); }
   };
-
-  const toggleReveal = (id: string) =>
-    setRevealed((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  const activeToken = tokens.find((t) => t.id === activeTokenId);
-  const tokenForExamples = activeToken
-    ? revealed.has(activeToken.id)
-      ? activeToken.token
-      : "<your-token>"
-    : "<your-token>";
+  const activeToken = tokens.find(token => token.id === activeTokenId);
+  const tokenForExamples = issuedToken?.id === activeTokenId ? issuedToken.token : "<your-token>";
 
   return (
     <div>
+      {error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
+      {issuedToken && <CreatedTokenNotice key={issuedToken.id} label={issuedToken.label} token={issuedToken.token} onDismiss={() => setIssuedToken(null)} />}
+      <ConfirmDialog open={removal !== null} onOpenChange={open => { if (!open && !busy) setRemoval(null); }} title={`Revoke ${removal?.label ?? "this token"}?`} description="Devices using this token will lose access. Generate a replacement before revoking a token still in use." confirmLabel="Revoke token" loading={busy} onConfirm={() => { void revoke(); }} />
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
           Companion / Stream Deck
@@ -188,13 +182,14 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && generate()}
+            aria-label="Token label"
             placeholder="Token label (e.g. Booth Stream Deck)"
-            className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500"
+            className="min-w-0 min-h-11 flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500"
           />
           <button
             onClick={generate}
-            disabled={busy || !label.trim()}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50"
+            disabled={busy || !label.trim() || issuedToken !== null}
+            className="min-h-11 shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50"
           >
             <Plus className="w-3.5 h-3.5" /> Generate
           </button>
@@ -212,7 +207,6 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
         ) : (
           <div className="space-y-2 mt-3">
             {tokens.map((row) => {
-              const shown = revealed.has(row.id);
               const isActive = row.id === activeTokenId;
               return (
                 <div
@@ -224,37 +218,21 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
                   <button
                     onClick={() => setActiveTokenId(row.id)}
                     title="Use this token in the examples below"
-                    className={`shrink-0 ${isActive ? "text-fire-500" : "text-board-muted hover:text-board-text"}`}
+                    className={`min-h-11 min-w-11 flex items-center justify-center shrink-0 ${isActive ? "text-fire-500" : "text-board-muted hover:text-board-text"}`}
                   >
                     <KeyRound className="w-4 h-4" />
                   </button>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-board-text truncate">{row.label}</div>
                     <code className="text-[11px] text-board-muted font-mono break-all">
-                      {shown ? row.token : maskToken(row.token)}
+                      Token saved. Its value cannot be shown again.
                     </code>
                   </div>
                   <button
-                    onClick={() => toggleReveal(row.id)}
-                    className="px-2 py-1 rounded-lg text-[11px] text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
-                  >
-                    {shown ? "Hide" : "Reveal"}
-                  </button>
-                  <button
-                    onClick={() => copy(row.token, row.id, "token")}
-                    title="Copy token"
-                    className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
-                  >
-                    {copiedId === row.id ? (
-                      <Check className="w-4 h-4 text-green-500" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => revoke(row.id)}
+                    onClick={() => setRemoval(row)}
+                    disabled={busy}
                     title="Revoke token"
-                    className="p-2 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                    className="min-h-11 min-w-11 flex items-center justify-center p-2 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -274,7 +252,7 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
         {activeToken && (
           <span className="text-[10px] text-board-muted/60">
             using <span className="font-mono text-board-muted">{activeToken.label}</span>
-            {!revealed.has(activeToken.id) && " (reveal it to embed the real token)"}
+            {issuedToken?.id !== activeToken.id && " (paste your saved token into the recipe)"}
           </span>
         )}
       </div>
@@ -309,7 +287,7 @@ export function CompanionSection({ orgId, slug }: { orgId: string; slug: string 
                         {a.method}
                       </span>
                       <button
-                        onClick={() => copy(curl, recipeKey, "recipe")}
+                        onClick={() => copy(curl, recipeKey)}
                         title="Copy as curl"
                         className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
                       >

@@ -1,3 +1,4 @@
+import { findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { env } from "cloudflare:workers";
 import { verifyToken, getKioskSecret } from "@/lib/kiosk";
 import { interpretBlankedValue } from "@/lib/kiosk-display";
@@ -70,12 +71,9 @@ export async function authenticateKiosk(
   if (!payload || typeof payload.orgId !== "string") {
     return { error: { code: "unauthorized", message: "Invalid or expired kiosk token", status: 401 } };
   }
-  const row = await db()
-    .prepare("SELECT revokedAt, orgId FROM kiosk_token WHERE token = ? LIMIT 1")
-    .bind(token)
-    .first<{ revokedAt: unknown; orgId: string }>();
-  if (!row || row.revokedAt) {
-    return { error: { code: "unauthorized", message: "Revoked or unknown kiosk token", status: 401 } };
+  const row = await findScopedToken(env.DB, "kiosk", payload.orgId, token);
+  if (!scopedTokenIsActive(row)) {
+    return { error: { code: "unauthorized", message: "Revoked, expired or unknown kiosk token", status: 401 } };
   }
   if (row.orgId !== payload.orgId) {
     return { error: { code: "unauthorized", message: "Token organization mismatch", status: 401 } };
