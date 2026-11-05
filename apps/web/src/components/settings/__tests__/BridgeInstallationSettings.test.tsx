@@ -1,6 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const api = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), rotate: vi.fn(), revoke: vi.fn() }));
+const api = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), rotate: vi.fn(), revoke: vi.fn(), selection: vi.fn(), takeover: vi.fn() }));
+vi.mock("@/lib/bridge-selection", () => ({ getBridgeSelection: api.selection, takeBridgeControl: api.takeover }));
 vi.mock("@/lib/bridge-installations", () => ({ getBridgeInstallations: api.list, createBridgeInstallation: api.create, rotateBridgeInstallationKey: api.rotate, revokeBridgeInstallationKey: api.revoke }));
 import { BridgeInstallationSettings } from "../BridgeInstallationSettings";
 const installation = { id: "installation-1", label: "Main room", createdAt: 1, lastUsedAt: null, revokedAt: null };
@@ -8,10 +9,35 @@ beforeEach(() => {
   vi.resetAllMocks(); api.list.mockResolvedValue([installation]);
   api.create.mockResolvedValue({ installationId: "installation-1", key: "sp_created_once" });
   api.rotate.mockResolvedValue({ installationId: "installation-1", key: "sp_rotated_once", previousKeysExpireAt: Date.now() + 600_000, connectionUpdated: true });
+  api.selection.mockResolvedValue({ activeInstallation: null, connections: [] });
   api.revoke.mockResolvedValue({ revoked: true, connectionUpdated: true });
 });
 afterEach(cleanup);
 describe("Bridge installation settings", () => {
+  it("shows active and standby names, requires confirmation, and reports a failed takeover", async () => {
+    const standby = { ...installation, id: "standby", label: "Backup room" };
+    api.list.mockResolvedValue([installation, standby]);
+    api.selection.mockResolvedValue({ activeInstallation: { installationId: installation.id, label: installation.label }, connections: [
+      { installationId: installation.id, label: installation.label, role: "active" },
+      { installationId: standby.id, label: standby.label, role: "standby" },
+    ] });
+    api.takeover.mockRejectedValue(new Error("Active Bridge changed. Review the selection and confirm again."));
+    render(<BridgeInstallationSettings orgId="org-1" />);
+    await screen.findByText("Standby · Connected");
+    fireEvent.click(screen.getByRole("button", { name: "Take control" }));
+    expect(screen.getByRole("dialog").textContent).toContain("Use Backup room");
+    expect(api.takeover).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.takeover).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Take control" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Take control" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Active Bridge changed");
+    expect(api.takeover).toHaveBeenCalledExactlyOnceWith({ data: { orgId: "org-1", installationId: "standby", expectedActiveInstallationId: "installation-1", confirmed: true } });
+    expect(screen.getByText("Active: Main room · Connected")).toBeTruthy();
+    api.selection.mockResolvedValue({ activeInstallation: { installationId: installation.id, label: installation.label }, connections: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await screen.findByText("Active: Main room · Offline. Choose a connected standby to take control.");
+  });
   it("shows a newly issued key once and removes it when dismissed", async () => {
     render(<BridgeInstallationSettings orgId="org-1" />);
     await screen.findByText("Main room");

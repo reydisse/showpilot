@@ -1,3 +1,4 @@
+import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
@@ -15,7 +16,7 @@ import {
  * BridgeRelay — mediates between browser clients and the ShowPilot Bridge agent.
  *
  * Two types of WebSocket connections:
- * - Bridge agent (one per org, connects with role=bridge)
+ * - Named Bridge installations (one selected active, others standby)
  * - Browser clients (multiple, connect with role=client)
  *
  * Flow: Browser sends command → DO forwards to bridge → bridge executes → response flows back
@@ -53,6 +54,8 @@ interface SocketAttachment {
   orgId: string;
   bridgeInfo?: BridgeRelayStatusInfo;
   credentialId?: string;
+  installationId?: string;
+  installationLabel?: string;
   timecodeTarget?: TimecodeTarget;
   authClaim?: LiveSessionAuthorityClaim;
 }
@@ -71,7 +74,18 @@ interface BridgeRelayStatusInfo {
   deviceEvents?: Record<string, BridgeDeviceEventSnapshot>;
 }
 
+export interface BridgeSelection {
+  installationId: string;
+  label: string;
+}
+
+export interface BridgeConnectionStatus extends BridgeSelection {
+  role: "active" | "standby";
+}
+
 export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
+  activeInstallation: BridgeSelection | null;
+  connections: BridgeConnectionStatus[];
   timecodeTarget: TimecodeTarget | null;
   bridgeOnline: boolean;
   clientCount: number;
@@ -136,6 +150,8 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     role: value.role,
     orgId: value.orgId,
     bridgeInfo: bridgeInfo ?? undefined,
+    installationId: typeof value.installationId === "string" ? value.installationId : undefined,
+    installationLabel: typeof value.installationLabel === "string" ? value.installationLabel : undefined,
     credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
     timecodeTarget: isRecord(value.timecodeTarget)
       && value.timecodeTarget.orgId === value.orgId
@@ -165,6 +181,10 @@ function bridgeAuditAction(type: string): BridgeAuditAction | null {
 
 export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private bridgeWs: WebSocket | null = null;
+  private readonly ownership = new SerialCommandExecutor();
+  private activeInstallation: BridgeSelection | null = null;
+  private pendingDemotion: { socket: WebSocket; id: string; resolve: () => void; reject: (error: Error) => void } | null = null;
+  private readonly bridges = new Map<WebSocket, BridgeSelection & { credentialId: string }>();
   private previewWrite: Promise<void> = Promise.resolve();
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
@@ -179,33 +199,50 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   constructor(ctx: DurableObjectState, env: BridgeRelayEnv) {
     super(ctx, env);
 
-    for (const ws of ctx.getWebSockets()) {
-      const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
-      if (!attachment) continue;
-
-      if (!this.orgId && attachment.orgId) {
-        this.orgId = attachment.orgId;
-      }
-
-      if (attachment.role === "bridge") {
-        if (!attachment.credentialId) {
-          ws.serializeAttachment?.({ role: "bridge", orgId: attachment.orgId });
-          ws.close(4403, "Reconnect with installation credentials");
-          continue;
+    ctx.blockConcurrencyWhile(async () => {
+      this.activeInstallation = await ctx.storage.get<BridgeSelection>("active-installation") ?? null;
+      for (const ws of ctx.getWebSockets()) {
+        const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
+        if (!attachment) continue;
+        this.orgId ||= attachment.orgId;
+        if (attachment.role === "bridge") {
+          const authority = attachment.credentialId
+            ? await getBridgeCredentialAuthority(this.env.DB, this.orgId, attachment.credentialId) : null;
+          if (!authority) {
+            ws.serializeAttachment({ role: "bridge", orgId: attachment.orgId });
+            ws.close(4403, "Reconnect with installation credentials");
+            continue;
+          }
+          const installation = { installationId: authority.installationId, label: authority.label };
+          this.bridges.set(ws, { ...installation, credentialId: authority.credentialId });
+          // Existing releases had only one Bridge socket. Preserve its identity
+          // when upgrading instead of treating it as a new takeover.
+          if (!this.activeInstallation) {
+            await ctx.storage.put("active-installation", installation);
+            this.activeInstallation = installation;
+          }
+          if (installation.installationId === this.activeInstallation.installationId) {
+            this.bridgeWs = ws;
+            this.credentialId = authority.credentialId;
+            this.timecodeTarget = attachment.timecodeTarget ?? null;
+            this.bridgeOnline = true;
+            if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
+          }
+        } else {
+          if (!attachment.authClaim) { ws.close(4403, "Device access required"); continue; }
+          this.clientSessions.add(ws);
         }
-        this.bridgeWs = ws;
-        this.credentialId = attachment.credentialId ?? null;
-        this.timecodeTarget = attachment.timecodeTarget ?? null;
-        this.bridgeOnline = true;
-        if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
-      } else {
-        if (!attachment.authClaim) { ws.close(4403, "Device access required"); continue; }
-        this.clientSessions.add(ws);
       }
-    }
+    });
   }
 
-  async fetch(request: Request): Promise<Response> {
+  fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    return path === "/ws" || path === "/internal/purge-org"
+      ? this.ownership.run(() => this.handleRequest(request)) : this.handleRequest(request);
+  }
+
+  private async handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     // Deletion addresses the durable object by organization ID. It must also
     // work before the first Bridge connection establishes in-memory scope.
@@ -218,6 +255,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.failPendingClientCommands("Organization deleted");
       await this.ctx.storage.deleteAll();
       this.bridgeWs = null;
+      this.activeInstallation = null;
+      this.bridges.clear();
       this.clientSessions.clear();
       this.bridgeOnline = false;
       this.credentialId = null;
@@ -268,45 +307,41 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         server.serializeAttachment?.(attachment);
 
         if (role === "bridge") {
-          // Bridge agent connecting
-          await this.stopBridgeTimecode(this.timecodeTarget);
-          if (this.bridgeWs) {
-            this.failPendingDispatches("Venue Bridge was replaced");
-            // A deliberate replacement must not become a reconnect war. The
-            // displaced installation treats 4410 as a terminal takeover and
-            // remains stopped until an operator starts it again.
-            try {
-              this.bridgeWs.close(4410, "Venue Bridge replaced by another installation");
-            } catch {}
+          const authority = credentialId ? await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId) : null;
+          if (!authority) { server.close(4403, "Bridge credential unavailable"); return new Response("Unauthorized", { status: 401 }); }
+          if ([...this.bridges].some(([socket, installation]) => socket.readyState === WebSocket.OPEN && installation.installationId === authority.installationId)) {
+            server.close(4410, "This installation is already connected. Use a separate named installation for another computer.");
+            return new Response(null, { status: 101, webSocket: client });
           }
-          this.bridgeWs = server;
-          this.credentialId = attachment.credentialId ?? null;
-          this.timecodeTarget = await resolveTimecodeTarget(this.env.DB, this.orgId);
-          attachment.timecodeTarget = this.timecodeTarget ?? undefined;
+          const installation = { installationId: authority.installationId, label: authority.label };
+          this.bridges.set(server, { ...installation, credentialId: authority.credentialId });
+          attachment.installationId = installation.installationId;
+          attachment.installationLabel = installation.label;
           server.serializeAttachment(attachment);
-          this.bridgeOnline = true;
-          if (!(await this.authorizeBridgeWrite(server, "connected", "from-bridge"))) return new Response("Unauthorized", { status: 401 });
-          await this.refreshCredentialAuthority();
-          this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
-          // Notify all clients bridge is online
-          this.broadcastToClients(
-            JSON.stringify({
-              type: "bridge-status",
-              online: true,
-              ...this.bridgeInfo,
-            })
-          );
+          if (!await recordBridgeWrite(this.env.DB, authority, { action: "connected", direction: "from-bridge" })) {
+            server.close(4403, "Bridge credential unavailable"); this.bridges.delete(server);
+            return new Response("Unauthorized", { status: 401 });
+          }
+          if (!this.activeInstallation) {
+            await this.ctx.storage.put("active-installation", installation);
+            this.activeInstallation = installation;
+          }
+          if (this.activeInstallation.installationId === installation.installationId) await this.activateConnection(server);
+          this.sendBridgeRole(server);
+          await this.refreshConnections();
+          this.broadcastStatus();
         } else {
           // Browser client connecting
           renewSocketReadLease(server);
           this.clientSessions.add(server);
-          await this.refreshCredentialAuthority();
+          await this.refreshConnections();
           // Send current bridge status
           server.send(
             JSON.stringify({
               type: "bridge-status",
               online: this.bridgeOnline,
               ...this.bridgeInfo,
+              ...this.selectionStatus(),
             })
           );
         }
@@ -326,38 +361,142 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     return new Response("Not found", { status: 404 });
   }
 
-  async getBridgeStatus(): Promise<BridgeRelayStatus> {
-    await this.refreshCredentialAuthority();
+  private selectionStatus() {
     return {
-      bridgeOnline: this.bridgeOnline,
-      clientCount: this.clientSessions.size,
-      timecodeTarget: this.timecodeTarget,
-      ...this.bridgeInfo,
+      activeInstallation: this.activeInstallation,
+      connections: [...this.bridges].filter(([socket]) => socket.readyState === WebSocket.OPEN).map(([socket, installation]) => ({
+        installationId: installation.installationId, label: installation.label,
+        role: socket === this.bridgeWs ? "active" as const : "standby" as const,
+      })),
     };
+  }
+
+  private broadcastStatus(): void {
+    this.broadcastToClients(JSON.stringify({ type: "bridge-status", online: this.bridgeOnline, ...this.bridgeInfo, ...this.selectionStatus() }));
+  }
+
+  private sendBridgeRole(socket: WebSocket, role = socket === this.bridgeWs ? "active" : "standby", selectionId?: string): void {
+    const installation = this.bridges.get(socket);
+    if (!installation) return;
+    socket.send(JSON.stringify({ type: "bridge-role", role, selectionId, installationId: installation.installationId, activeInstallation: this.activeInstallation }));
+  }
+
+  private sendBridgeRoles(): void {
+    for (const socket of this.bridges.keys()) {
+      try { this.sendBridgeRole(socket); }
+      catch { this.disconnectSocket(socket); }
+    }
+  }
+
+  private async quiesceBridge(socket: WebSocket): Promise<void> {
+    const id = crypto.randomUUID();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.pendingDemotion = { socket, id, resolve, reject };
+        timer = setTimeout(() => reject(new Error("The active Bridge did not confirm standby. Update or stop that Bridge before taking control here.")), 5000);
+        this.sendBridgeRole(socket, "standby", id);
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+      this.pendingDemotion = null;
+    }
+  }
+
+  private async activateConnection(socket: WebSocket, preparedTarget?: { target: TimecodeTarget | null }): Promise<void> {
+    const installation = this.bridges.get(socket);
+    if (!installation || socket.readyState !== WebSocket.OPEN) throw new Error("Selected Bridge is offline.");
+    const target = preparedTarget ? preparedTarget.target : await resolveTimecodeTarget(this.env.DB, this.orgId);
+    this.bridgeWs = socket;
+    this.credentialId = installation.credentialId;
+    this.bridgeOnline = true;
+    this.bridgeInfo = parseSocketAttachment(socket.deserializeAttachment())?.bridgeInfo ?? { connectedTargets: [], deviceEvents: {} };
+    this.timecodeTarget = target;
+    this.serializeBridgeAttachment();
+  }
+
+  /** Worker-only RPC. Caller must authorize key management before selecting. */
+  async selectInstallation(input: { orgId: string; installationId: string; expectedActiveInstallationId: string | null; actorUserId: string }): Promise<BridgeRelayStatus> {
+    return this.ownership.run(async () => {
+      if (input.orgId !== this.orgId) throw new Error("Bridge organization mismatch.");
+      if (input.expectedActiveInstallationId !== (this.activeInstallation?.installationId ?? null)) throw new Error("Active Bridge changed. Review the selection and confirm again.");
+      const entry = [...this.bridges].find(([socket, installation]) => socket.readyState === WebSocket.OPEN && installation.installationId === input.installationId);
+      if (!entry) throw new Error("Selected Bridge is offline. Connect it before taking control.");
+      const [socket, installation] = entry;
+      const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, installation.credentialId);
+      if (!authority || !await recordBridgeWrite(this.env.DB, authority, { action: "selection-requested", direction: "to-bridge", actorUserId: input.actorUserId })) throw new Error("Selected Bridge credential is unavailable.");
+      if (socket !== this.bridgeWs) {
+        const target = await resolveTimecodeTarget(this.env.DB, this.orgId);
+        const previous = this.bridgeWs;
+        const previousTarget = this.timecodeTarget;
+        try {
+          if (previous?.readyState === WebSocket.OPEN) await this.quiesceBridge(previous);
+          // Stop the previous clock before publishing a new owner. A failed
+          // clock handoff leaves the old selection intact and restores its role.
+          await this.stopBridgeTimecode(previousTarget);
+          if (!await getBridgeCredentialAuthority(this.env.DB, this.orgId, installation.credentialId)) throw new Error("Selected Bridge credential is unavailable.");
+          if (socket.readyState !== WebSocket.OPEN) throw new Error("Selected Bridge disconnected before takeover.");
+          const selection = { installationId: installation.installationId, label: installation.label };
+          await this.ctx.storage.put("active-installation", selection);
+          this.failPendingDispatches("Active Bridge changed. Check the device before retrying.");
+          this.failPendingClientCommands("Active Bridge changed. Check the device before retrying.");
+          this.activeInstallation = selection;
+          // Publication is committed. If the chosen transport closed during
+          // storage I/O it stays selected, offline; never reactivate the old one.
+          this.bridgeWs = null;
+          this.credentialId = null;
+          this.bridgeOnline = false;
+          this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
+          this.timecodeTarget = null;
+          if (socket.readyState === WebSocket.OPEN) await this.activateConnection(socket, { target });
+        } catch (error) {
+          // Failed preparation/publication leaves the old selected installation.
+          // Restore its role if it already acknowledged standby.
+          this.sendBridgeRoles();
+          throw error;
+        }
+        this.sendBridgeRoles();
+        this.broadcastStatus();
+      }
+      return this.statusSnapshot();
+    });
+  }
+
+  private statusSnapshot(): BridgeRelayStatus {
+    return { bridgeOnline: this.bridgeOnline, clientCount: this.clientSessions.size, timecodeTarget: this.timecodeTarget, ...this.bridgeInfo, ...this.selectionStatus() };
+  }
+
+  async getBridgeStatus(): Promise<BridgeRelayStatus> {
+    return this.ownership.run(async () => { await this.refreshConnections(); return this.statusSnapshot(); });
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
   async dispatchBridgeMessage(message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
-    const bridgeSocket = this.bridgeWs;
-    if (!bridgeSocket || !this.bridgeOnline) return { success: false, error: "Venue Bridge is offline" };
+    const operation = await this.ownership.run(async () => {
+      const socket = this.bridgeWs;
+      if (!socket || !this.bridgeOnline) return { result: Promise.resolve({ success: false, error: "Venue Bridge is offline" }) };
+      if (!await this.authorizeBridgeWrite(socket, message.type, "to-bridge")) return { result: Promise.resolve({ success: false, error: "Venue Bridge credential is unavailable" }) };
+      return { result: this.beginDispatch(socket, message) };
+    });
+    return operation.result;
+  }
 
-    if (!(await this.authorizeBridgeWrite(bridgeSocket, message.type, "to-bridge"))) return { success: false, error: "Venue Bridge credential is unavailable" };
-
+  private beginDispatch(bridgeSocket: WebSocket, message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
     if (message.type === "disconnect-device") {
       try {
         bridgeSocket.send(JSON.stringify(message));
-        return { success: true };
+        return Promise.resolve({ success: true });
       } catch {
-        return { success: false, error: "Venue Bridge disconnected" };
+        return Promise.resolve({ success: false, error: "Venue Bridge disconnected" });
       }
     }
 
     const key = message.type === "command"
       ? typeof message.id === "string" ? message.id : ""
       : typeof message.target === "string" ? message.target : "";
-    if (!key) return { success: false, error: "Bridge operation is missing an identifier" };
+    if (!key) return Promise.resolve({ success: false, error: "Bridge operation is missing an identifier" });
     const pending = message.type === "command" ? this.pendingCommands : this.pendingConnections;
-    if (pending.has(key)) return { success: false, error: "A matching device operation is already running" };
+    if (pending.has(key)) return Promise.resolve({ success: false, error: "A matching device operation is already running" });
 
     return new Promise<BridgeDispatchResult>((resolve) => {
       const timer = setTimeout(() => {
@@ -375,12 +514,38 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     });
   }
 
-  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    // The handoff owns the command queue while waiting. Its one narrow ack
+    // releases that wait; it cannot forward device data or grant authority.
+    try {
+      const message: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
+      if (isRecord(message) && message.type === "bridge-role-applied") {
+        if (this.pendingDemotion?.socket === ws && message.selectionId === this.pendingDemotion.id && message.role === "standby") this.pendingDemotion.resolve();
+        return Promise.resolve();
+      }
+    } catch { return Promise.resolve(); }
+    return this.ownership.run(() => this.handleSocketMessage(ws, data));
+  }
+
+  private async handleSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
     try {
       const parsed: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
       if (!isRecord(parsed) || typeof parsed.type !== "string") return;
       const msg: BridgeMessage = { ...parsed, type: parsed.type };
 
+      const installation = this.bridges.get(ws);
+      if (installation && ws !== this.bridgeWs) {
+        const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, installation.credentialId);
+        if (!authority) { ws.close(4403, "Bridge credential unavailable"); this.disconnectSocket(ws); return; }
+        // Standbys can report readiness, but never drive lyrics, timecode,
+        // device state, or acknowledge another installation's command.
+        if (msg.type === "bridge-status") {
+          const attachment = parseSocketAttachment(ws.deserializeAttachment());
+          if (attachment) ws.serializeAttachment({ ...attachment, bridgeInfo: { connectedTargets: [], devices: 0, version: typeof msg.version === "string" ? msg.version : undefined } });
+          this.broadcastStatus();
+        }
+        return;
+      }
       if (ws === this.bridgeWs) {
         const action = bridgeAuditAction(msg.type);
         if (!action || !(await this.authorizeBridgeWrite(ws, action, "from-bridge"))) return;
@@ -405,7 +570,12 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     }
   }
 
-  webSocketClose(ws: WebSocket, code: number, reason: string) {
+  webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    if (this.pendingDemotion?.socket === ws) this.pendingDemotion.reject(new Error("Active Bridge disconnected during takeover. Review its status and retry."));
+    return this.ownership.run(async () => this.closeSocket(ws, code, reason));
+  }
+
+  private closeSocket(ws: WebSocket, code: number, reason: string): void {
     // Our compatibility date predates automatic close replies. Reciprocate
     // peer-initiated closure before dropping the transport's local state.
     const replyCode = code === 1005 || code === 1006 || code === 1015 ? 1000 : code;
@@ -414,6 +584,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private disconnectSocket(ws: WebSocket) {
+    const wasBridge = this.bridges.delete(ws);
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
       this.credentialId = null;
@@ -425,12 +596,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       // lyric until the bridge supplies its replacement or an explicit clear.
       const target = this.timecodeTarget;
       this.timecodeTarget = null;
-      void this.stopBridgeTimecode(target);
-      void this.broadcastToClients(JSON.stringify({
-        type: "bridge-status",
-        online: false,
-      }));
+      void this.stopBridgeTimecode(target).catch(() => console.error("[BridgeRelay] disconnected clock cleanup failed"));
+      this.broadcastStatus();
     } else {
+      if (wasBridge) this.broadcastStatus();
       this.clientSessions.delete(ws);
       for (const [operationId, owner] of this.pendingClientCommands) {
         if (owner.socket === ws) this.pendingClientCommands.delete(operationId);
@@ -438,8 +607,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     }
   }
 
-  webSocketError(ws: WebSocket) {
-    this.disconnectSocket(ws);
+  webSocketError(ws: WebSocket): Promise<void> {
+    if (this.pendingDemotion?.socket === ws) this.pendingDemotion.reject(new Error("Active Bridge connection failed during takeover. Review its status and retry."));
+    return this.ownership.run(async () => this.disconnectSocket(ws));
   }
 
   // ─── Message Routing ────────────────────────────────────
@@ -461,6 +631,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           type: "bridge-status",
           online: true,
           ...this.bridgeInfo,
+          ...this.selectionStatus(),
         }));
         break;
 
@@ -656,23 +827,26 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       role: "bridge",
       orgId: this.orgId,
       bridgeInfo: this.bridgeInfo,
+      installationId: this.activeInstallation?.installationId,
+      installationLabel: this.activeInstallation?.label,
       timecodeTarget: this.timecodeTarget ?? undefined,
       ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);
   }
 
   /** Called by settings after rotation/revocation and by the expiry alarm. */
-  async refreshCredentialAuthority(): Promise<void> {
-    const socket = this.bridgeWs;
-    const credentialId = this.credentialId;
+  refreshCredentialAuthority(): Promise<void> {
+    return this.ownership.run(() => this.refreshConnections());
+  }
+
+  private async refreshConnections(): Promise<void> {
     let expiresAt: number | null = null;
-    if (socket && credentialId) {
-      const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
-      if (socket !== this.bridgeWs || credentialId !== this.credentialId) return;
+    for (const [socket, installation] of this.bridges) {
+      const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, installation.credentialId);
       if (!authority) {
         socket.close(4403, "Venue Bridge credential expired or revoked");
         this.disconnectSocket(socket);
-      } else expiresAt = authority.expiresAt;
+      } else if (authority.expiresAt !== null) expiresAt = expiresAt === null ? authority.expiresAt : Math.min(expiresAt, authority.expiresAt);
     }
     await scheduleSocketReadRefresh(this.ctx, ws => parseSocketAttachment(ws.deserializeAttachment())?.role === "client", expiresAt);
   }
@@ -804,5 +978,6 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       headers: { "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
     }));
     await response.body?.cancel();
+    if (!response.ok) throw new Error("Previous Bridge clock could not be stopped. Retry takeover after checking its status.");
   }
 }

@@ -5181,6 +5181,7 @@ async function mobileBridgeStatus(
   orgId: string,
 ): Promise<BridgeRelayStatus> {
   const fallback: BridgeRelayStatus = {
+    activeInstallation: null, connections: [],
     bridgeOnline: false,
     timecodeTarget: null,
     clientCount: 0,

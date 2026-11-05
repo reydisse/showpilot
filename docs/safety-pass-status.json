@@ -567,8 +567,16 @@
       "phase": "1",
       "section": "1.1 Scope relays per show and per venue (audit C4, C3)",
       "line": 106,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "BridgeRelay persists the selected installation, accepts named standby sockets without replacing the active connection, rejects duplicate installation connections with 4410, and serializes explicit selection with dispatch and socket lifecycle. Selection requires expected-current identity, live installation authority, and authenticated settings:api_keys permission; it records the acting user.",
+        "Native Bridge waits for an active role before connecting devices or forwarding timecode. Demotion drains queued commands, closes device connections including awaited switcher shutdown, and stops repeating lighting/mixer output before acknowledging the relay nonce. The relay refuses takeover without that acknowledgment, stops the old clock before publication, and fails pending operations with an explicit check-before-retry warning.",
+        "apps/web/src/lib/__tests__/bridge-selection.worker.test.ts: seven real Worker tests cover active/standby restoration across hibernation, offline selection persistence, duplicate rejection, exact socket/nonce acknowledgment, late revocation, legacy-client timeout, failed-storage recovery, stale/cross-org/offline selection rejection, standby state/ack isolation, and command routing after takeover. timecode-show-scope.worker.test.ts verifies old-clock stop and late standby-feed isolation across shows.",
+        "apps/bridge/src/__tests__/bridge-ownership.test.ts: three real WebSocket/TCP/UDP tests prove waiting/standby blocks device commands, TCP completion precedes demotion, DMX repeating packets stop after standby acknowledgment, reactivation works, and cloud disconnect stops autonomous output. No physical hardware claim is made.",
+        "2026-11-05: full web tests passed migration/client boundaries, 1329 unit tests and 296 Worker tests; web tsc --noEmit passed. All 74 Bridge tests and Bridge build passed. Web production build passed unchanged 600000 raw / 175000 gzip launch budgets: 560605 raw / 175000 gzip.",
+        "apps/web/scripts/smoke-bridge-selection.mjs passed against the built app, real local authentication/D1/Worker and two Bridge sockets: named roles, cancel, confirmed takeover, actor audit, no automatic promotion, explicit offline recovery. Updated smoke-bridge-credentials.mjs passed creation/hash storage, rotation overlap and duplicate rejection, reconnect, transport-only access, query-key rejection, live revocation, independent installations and one-time display.",
+        "BridgeInstallationSettings shows named Active/Standby/Offline state and explicit confirmation; component and server-function tests cover authorization, cancellation, stale confirmation errors and status refresh. apps/bridge-desktop/README.md documents selection, rotation and older-agent migration behavior."
+      ]
     },
     {
       "id": "2f5514f91b02e920",

@@ -2,6 +2,7 @@
 export interface BridgeCredentialAuthority {
   orgId: string;
   installationId: string;
+  label: string;
   credentialId: string;
   expiresAt: number | null;
 }
@@ -15,7 +16,7 @@ export interface BridgeInstallationSummary {
 interface InstallationActor { orgId: string; installationId: string; actorUserId: string }
 export const BRIDGE_ROTATION_OVERLAP_MS = 10 * 60_000;
 
-const AUTHORITY_SELECT = `SELECT c.orgId, c.installationId, c.id AS credentialId, c.expiresAt
+const AUTHORITY_SELECT = `SELECT c.orgId, c.installationId, i.label, c.id AS credentialId, c.expiresAt
   FROM bridge_credential c
   JOIN bridge_installation i ON i.id = c.installationId AND i.orgId = c.orgId
   WHERE c.orgId = ? AND i.revokedAt IS NULL AND (c.expiresAt IS NULL OR c.expiresAt > ?)`;
@@ -107,13 +108,13 @@ export async function getBridgeCredentialAuthority(db: D1Database, orgId: string
   return db.prepare(`${AUTHORITY_SELECT} AND c.id = ?`).bind(orgId, now, credentialId).first<BridgeCredentialAuthority>();
 }
 
-export type BridgeAuditAction = "connected" | "command" | "connect-device" | "disconnect-device"
+export type BridgeAuditAction = "selection-requested" | "connected" | "command" | "connect-device" | "disconnect-device"
   | "bridge-status" | "command-response" | "device-event" | "device-status" | "timecode-feed" | "ping" | "pong";
 
 /** Revalidate and record before forwarding a write. No device payload reaches the audit table. */
 export async function recordBridgeWrite(
   db: D1Database,
-  authority: BridgeCredentialAuthority,
+  authority: Omit<BridgeCredentialAuthority, "label">,
   input: { action: BridgeAuditAction; direction: "from-bridge" | "to-bridge"; actorUserId?: string },
   now = Date.now(),
 ): Promise<boolean> {

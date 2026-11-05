@@ -57,8 +57,14 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, queryFixture, opera
     socket.send(JSON.stringify({ type: "bridge-status", version: "credential-fixture", devices: 0, uptime: 2 }));
     const overlapWrites = await queryFixture("SELECT COUNT(*) AS count FROM bridge_credential_audit WHERE orgId = 'display-smoke' AND action = 'bridge-status'");
     assert.equal(overlapWrites[0].count, 2, "The old connection must still write during overlap");
+    const duplicate = await probeKey(rotatedKey);
+    const duplicateClosed = await new Promise(resolve => duplicate.socket.once("close", resolve));
+    assert.equal(duplicateClosed, 4410, "Rotated keys must not create a second connection for one installation");
+    const originalClosed = new Promise(resolve => socket.once("close", resolve));
+    socket.close(1000, "Reconnect with rotated key");
+    await originalClosed;
     const replacement = await probeKey(rotatedKey);
-    assert.equal(replacement.status, 101, "The new key must connect successfully");
+    assert.equal(replacement.status, 101, "The new key must reconnect successfully");
     assert.equal((await fetch(`${origin}/api/bridge/${orgId}/status?key=${rotatedKey}`)).status, 401);
     for (const path of [`/api/timecode/${orgId}/state`, `/api/rundown/${orgId}/state`, `/api/lowerthirds/${orgId}/current`]) {
       assert.equal((await status(rotatedKey, path)).status, 401, "Bridge key must not grant member access");

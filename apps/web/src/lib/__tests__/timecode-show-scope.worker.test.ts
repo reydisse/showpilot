@@ -141,6 +141,28 @@ describe("show-scoped timecode rooms", () => {
     expect(await evening.state()).toMatchObject({ running: true });
   });
 
+  it("stops the previous Bridge clock during explicit takeover and ignores late standby feeds", async () => {
+    const [a, b] = await shows();
+    const morning = await room(a);
+    const evening = await room(b);
+    const first = await openTestBridge(a.orgId);
+    const second = await openTestBridge(a.orgId);
+    const feed = (seconds: number) => JSON.stringify({ type: "timecode-feed", timecode: { hours: 0, minutes: 0, seconds, frames: 0 }, format: { frameRate: 30, dropFrame: "ndf" } });
+    first.socket.send(feed(1));
+    await expect.poll(async () => (await morning.state()).totalFrames).toBe(30);
+    await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key='active-show-id'").bind(b.showId, a.orgId).run();
+    await first.stub.selectInstallation({ orgId: a.orgId, installationId: second.credential.installationId, expectedActiveInstallationId: first.credential.installationId, actorUserId: "owner" });
+    expect(await first.stub.getBridgeStatus()).toMatchObject({ timecodeTarget: b });
+    expect(await morning.state()).toMatchObject({ running: false, totalFrames: 30 });
+    expect(await evening.state()).toMatchObject({ running: false, totalFrames: 0 });
+    first.socket.send(feed(9));
+    second.socket.send(feed(2));
+    await expect.poll(async () => (await evening.state()).totalFrames).toBe(60);
+    expect(await morning.state()).toMatchObject({ running: false, totalFrames: 30 });
+    second.socket.close();
+    await expect.poll(async () => (await evening.state()).running).toBe(false);
+  });
+
   it("accepts only valid internal Bridge feeds and leaves an operator's clock in control", async () => {
     const [a] = await shows();
     const morning = await room(a);

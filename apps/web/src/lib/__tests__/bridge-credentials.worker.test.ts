@@ -84,7 +84,7 @@ describe("Bridge installation credentials", () => {
     const created = await issue(orgId);
     expect(created.key).toMatch(/^sp_[0-9a-f]{64}$/);
     expect(await authenticateBridgeRequest(env.DB, request(created.key), orgId, now)).toEqual({
-      orgId, installationId: created.installationId, credentialId: created.credentialId, expiresAt: null,
+      orgId, installationId: created.installationId, credentialId: created.credentialId, expiresAt: null, label: "Main venue",
     });
     expect(await authenticateBridgeRequest(env.DB, request(created.key), otherOrg, now)).toBeNull();
     expect(await authenticateBridgeRequest(env.DB, request("wrong-key"), orgId, now)).toBeNull();
