@@ -16,6 +16,10 @@ import {
 } from "@/lib/email";
 import { beforeDeleteAccount } from "@/lib/account-deletion.server";
 import { env } from "cloudflare:workers";
+import { refreshOrgReadAuthority, refreshUserReadAuthority } from "./relay-read-invalidation.server";
+
+const refreshMemberAuthority = ({ member }: { member: { organizationId: string; userId: string } }) =>
+  refreshOrgReadAuthority(member.organizationId, member.userId);
 
 const orgConfig = {
   // Login is allowed pre-verification (with a banner prompt), but creating
@@ -47,6 +51,10 @@ const orgConfig = {
     maximumRolesPerOrganization: 20,
   },
   organizationHooks: {
+    afterAddMember: refreshMemberAuthority,
+    afterAcceptInvitation: refreshMemberAuthority,
+    afterRemoveMember: refreshMemberAuthority,
+    afterUpdateMemberRole: refreshMemberAuthority,
     // Every new org gets a 14-day pro trial, no card required. On expiry
     // the org naturally evaluates as free via getEffectivePlan — no cron.
     //
@@ -156,6 +164,9 @@ export function getAuth() {
       ...getDevelopmentTrustedOrigins(baseURL),
     ],
     database: prismaAdapter(prisma, { provider: "sqlite" }),
+    databaseHooks: {
+      session: { delete: { after: session => refreshUserReadAuthority(session.userId) } },
+    },
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,

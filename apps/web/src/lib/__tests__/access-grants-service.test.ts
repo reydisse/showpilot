@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   grantFindFirst: vi.fn(),
   databaseRun: vi.fn(),
   notificationCreate: vi.fn(),
+  refreshReadAuthority: vi.fn(),
 }));
+
+vi.mock("../relay-read-invalidation.server", () => ({ refreshOrgReadAuthority: mocks.refreshReadAuthority }));
 
 vi.mock("../effective-access", () => ({
   resolveAccessGrantAuthority: mocks.resolveAuthority,
@@ -148,6 +151,7 @@ describe("shared access-grant service", () => {
       "owner-1",
     ]);
     expect(mocks.notificationCreate).toHaveBeenCalledOnce();
+    expect(mocks.refreshReadAuthority).toHaveBeenCalledWith("org-1", "member-1");
   });
 
   it("converges concurrent duplicate grants without a second notification", async () => {
@@ -198,5 +202,18 @@ describe("shared access-grant service", () => {
       database,
     })).rejects.toThrow("no longer active");
     expect(mocks.notificationCreate).not.toHaveBeenCalled();
+    expect(mocks.refreshReadAuthority).not.toHaveBeenCalled();
+  });
+
+  it("pushes revoked access only after the database confirms the change", async () => {
+    mocks.grantFindFirst.mockResolvedValue({
+      id: "grant-weekly", userId: "member-1", capability: "rundown-operator",
+      startsOn: "2026-08-23", expiresOn: "2026-08-30",
+    });
+    await revokeMemberAccessForActor({
+      orgId: "org-1", actor: { userId: "owner-1", name: "Owner" }, grantId: "grant-weekly", database,
+    });
+    expect(mocks.refreshReadAuthority).toHaveBeenCalledWith("org-1", "member-1");
+    expect(mocks.databaseRun.mock.invocationCallOrder[0]).toBeLessThan(mocks.refreshReadAuthority.mock.invocationCallOrder[0]);
   });
 });
