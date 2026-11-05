@@ -72,13 +72,15 @@ describe("live Bridge target enforcement", () => {
 
   it("records the authenticated browser's connection attempt and strips supplied attribution fields", async () => {
     const orgId = "target-live-actor";
-    const { socket } = await openTestBridge(orgId);
+    const { socket, recipient, credential } = await openTestBridge(orgId);
     const browser = await client(orgId);
     await approveTestBridgeTarget(orgId, "obs", command.target);
     const forwarded = next(socket, "connect-device");
     const connect = { type: "connect-device", protocol: "obs", target: command.target, settings: {} };
     browser.send(JSON.stringify({ ...connect, actorUserId: "forged", source: "automation", extra: "not-forwarded" }));
-    expect(await forwarded).toEqual(connect);
+    const protectedMessage = await forwarded;
+    expect(Object.keys(protectedMessage).sort()).toEqual(["protectedSettings", "protocol", "target", "type"]);
+    expect(await recipient.open(protectedMessage.protectedSettings, { orgId, installationId: credential.installationId, protocol: connect.protocol, target: connect.target })).toEqual(connect.settings);
     const audit = await env.DB.prepare("SELECT actorUserId, source, executionId FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested'").bind(orgId).all();
     expect(audit.results).toEqual([{ actorUserId: `${orgId}-operator`, source: "operator", executionId: null }]);
   });
@@ -256,10 +258,10 @@ it("does not approve an unknown operation, a removed destination, or an unaudita
   } finally { await env.DB.exec("DROP TRIGGER fail_implicit_audit"); }
 });
 
-it("rejects policy-v1 native Bridges that cannot audit command-created connections", async () => {
+it.each(["1", "2"])("rejects policy-v%s native Bridges without protected settings", async version => {
   const orgId = "target-policy-v1-upgrade";
   const { stub, credential } = await openTestBridge(orgId);
   const url = `https://bridge.test/ws?${new URLSearchParams({ orgId, role: "bridge", authCredentialId: credential.credentialId })}`;
-  const response = await stub.fetch(new Request(url, { headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": "1", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } }));
+  const response = await stub.fetch(new Request(url, { headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": version, "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } }));
   expect(response.status).toBe(426);
 });

@@ -1,8 +1,10 @@
+import { createBridgeSettingsRecipient } from "../../../packages/shared/src/bridge-settings.mjs";
 // Built browser + real Worker/D1 + two local Bridge sockets. No remote data.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
+const recipient = await createBridgeSettingsRecipient();
 await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, operatorCookie, queryFixture }) => {
   const sockets = [];
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
@@ -18,7 +20,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     const key = (await browser("eval", "[...document.querySelectorAll('code')].map(el => el.textContent).find(text => /^sp_[a-f0-9]{64}$/.test(text))")).result;
     assert.match(key, /^sp_[a-f0-9]{64}$/);
     await click("Dismiss key");
-    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" } });
+    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "3", "x-showpilot-settings-key": recipient.publicKey } });
     sockets.push(socket);
     let currentRole;
     await new Promise((resolve, reject) => {

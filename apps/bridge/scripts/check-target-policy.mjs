@@ -1,6 +1,7 @@
 // Exercise a compiled sidecar against disposable local network fixtures.
 // Usage: node apps/bridge/scripts/check-target-policy.mjs /absolute/path/to/sidecar
 import assert from "node:assert/strict";
+import { sealBridgeSettings } from "../../../packages/shared/src/bridge-settings.mjs";
 import dgram from "node:dgram";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
@@ -12,7 +13,18 @@ if (!executable) throw new Error("Pass the compiled Bridge executable path.");
 const receivers = [];
 let child;
 let server;
-const send = (socket, value) => socket.send(JSON.stringify(value));
+const recipientKeys = new WeakMap();
+const outgoing = new WeakMap();
+function send(socket, value) {
+  const work = (outgoing.get(socket) ?? Promise.resolve()).then(async () => {
+    if (value.type === "connect-device") {
+      const protectedSettings = await sealBridgeSettings(recipientKeys.get(socket), { orgId: "fixture-org", installationId: "fixture", protocol: value.protocol, target: value.target }, value.settings);
+      socket.send(JSON.stringify({ type: value.type, protocol: value.protocol, target: value.target, protectedSettings }));
+    } else socket.send(JSON.stringify(value));
+  });
+  outgoing.set(socket, work);
+  return work;
+}
 function next(socket, type) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { socket.off("message", receive); reject(new Error(`No ${type} acknowledgement`)); }, 10_000);
@@ -41,7 +53,7 @@ try {
   await once(server, "listening");
   const connection = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("Sidecar did not connect")), 10_000);
-    server.once("connection", socket => { clearTimeout(timer); resolve({ socket, ready: next(socket, "bridge-status") }); });
+    server.once("connection", (socket, request) => { recipientKeys.set(socket, request.headers["x-showpilot-settings-key"]); clearTimeout(timer); resolve({ socket, ready: next(socket, "bridge-status") }); });
   });
   let diagnostic = "";
   child = spawn(resolve(executable), ["--desktop", "--no-open"], {
@@ -59,7 +71,7 @@ try {
   const { socket, ready } = await connection.catch(error => { throw new Error(`${error.message}: ${diagnostic}`); });
   await ready;
   const selected = next(socket, "bridge-role-applied");
-  send(socket, { type: "bridge-role", role: "active", activeInstallation: { installationId: "fixture", label: "Fixture" }, selectionId: "select", approvedTargets: [] });
+  send(socket, { type: "bridge-role", role: "active", orgId: "fixture-org", installationId: "fixture", activeInstallation: { installationId: "fixture", label: "Fixture" }, selectionId: "select", approvedTargets: [] });
   await selected;
   const denied = next(socket, "command-response");
   send(socket, { type: "command", id: "denied", protocol: "dmx-artnet", target: first.target, command: '{"actionId":"blackout"}' });

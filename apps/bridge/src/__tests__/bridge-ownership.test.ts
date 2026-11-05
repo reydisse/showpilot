@@ -1,4 +1,5 @@
 import http from "node:http";
+import { sealBridgeSettings } from "@showpilot/shared/bridge-settings";
 import { ProPresenterBridge } from "../protocols/propresenter";
 import net from "node:net";
 import dgram from "node:dgram";
@@ -12,7 +13,21 @@ import { resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/b
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const owner = { installationId: "main", label: "Main venue" };
-function send(socket: WebSocket, value: object) { socket.send(JSON.stringify(value)); }
+const recipientKeys = new WeakMap<WebSocket, string>();
+const outgoing = new WeakMap<WebSocket, Promise<void>>();
+function send(socket: WebSocket, value: Record<string, unknown>) {
+  const work = (outgoing.get(socket) ?? Promise.resolve()).then(async () => {
+    if (value.type === "connect-device") {
+      if (typeof value.protocol !== "string" || typeof value.target !== "string" || typeof value.settings !== "object" || !value.settings || Array.isArray(value.settings)) throw new Error("Invalid fixture connection");
+      const protectedSettings = await sealBridgeSettings(recipientKeys.get(socket) ?? "", {
+        orgId: "fixture-org", installationId: owner.installationId, protocol: value.protocol, target: value.target,
+      }, Object.fromEntries(Object.entries(value.settings)));
+      socket.send(JSON.stringify({ type: value.type, protocol: value.protocol, target: value.target, protectedSettings }));
+    } else socket.send(JSON.stringify(value));
+  });
+  outgoing.set(socket, work);
+  return work;
+}
 function next(socket: WebSocket, type: string) {
   return new Promise<Record<string, unknown>>(resolve => {
     const handler = (data: WebSocket.RawData) => {
@@ -30,7 +45,12 @@ async function fixture(propresenter?: { host: string; port: number; apiPort: num
   cleanups.push(() => new Promise<void>(resolve => { for (const client of server.clients) client.terminate(); server.close(() => resolve()); }));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No websocket address");
-  const accepted = new Promise<{ socket: WebSocket; ready: Promise<Record<string, unknown>> }>(resolve => server.once("connection", socket => resolve({ socket, ready: next(socket, "bridge-status") })));
+  const accepted = new Promise<{ socket: WebSocket; ready: Promise<Record<string, unknown>> }>(resolve => server.once("connection", (socket, request) => {
+    const key = request.headers["x-showpilot-settings-key"];
+    if (typeof key !== "string") throw new Error("Missing native recipient key");
+    recipientKeys.set(socket, key);
+    resolve({ socket, ready: next(socket, "bridge-status") });
+  }));
   const bridge = new Bridge({ url: `ws://127.0.0.1:${address.port}`, reconnect: false, propresenter });
   cleanups.push(() => bridge.stop());
   bridge.start();
@@ -40,7 +60,7 @@ async function fixture(propresenter?: { host: string; port: number; apiPort: num
 }
 async function role(socket: WebSocket, role: "active" | "standby", approvedTargets: BridgeEndpoint[] = [], selectionId = crypto.randomUUID()) {
   const applied = next(socket, "bridge-role-applied");
-  send(socket, { type: "bridge-role", role, activeInstallation: owner, selectionId, approvedTargets });
+  send(socket, { type: "bridge-role", role, orgId: "fixture-org", installationId: owner.installationId, activeInstallation: owner, selectionId, approvedTargets });
   expect(await applied).toMatchObject({ role, selectionId });
 }
 async function barrier(socket: WebSocket) {
@@ -412,4 +432,37 @@ it("requires a fresh receipt for each Wake-on-LAN socket and never broadcasts on
   expect(connect).toHaveBeenCalledTimes(2);
   expect(connect).toHaveBeenCalledWith("255.255.255.255", 9);
   expect(transmit).toHaveBeenCalledTimes(2);
+});
+
+it("opens a fresh PJLink handshake when a retained socket has dropped", async () => {
+  const tcp = net.createServer();
+  tcp.listen(0, "127.0.0.1");
+  await once(tcp, "listening");
+  const connections: net.Socket[] = [];
+  tcp.on("connection", socket => { connections.push(socket); socket.write("PJLINK 0\r"); });
+  cleanups.push(() => new Promise<void>(resolve => { for (const socket of connections) socket.destroy(); tcp.close(() => resolve()); }));
+  const address = tcp.address();
+  if (!address || typeof address === "string") throw new Error("No PJLink address");
+  const target = `127.0.0.1:${address.port}`;
+  const { socket } = await fixture();
+  const connect = { type: "connect-device", protocol: "pjlink", target, settings: {} };
+  await role(socket, "active", resolveBridgeEndpoints(connect));
+  const first = next(socket, "device-status"); send(socket, connect);
+  expect(await first).toMatchObject({ connected: true });
+  const closed = once(connections[0], "close"); connections[0].destroy(); await closed;
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const second = next(socket, "device-status"); send(socket, connect);
+  expect(await second).toMatchObject({ connected: true });
+  expect(connections).toHaveLength(2);
+});
+
+it("refuses plaintext connection settings even from the authenticated relay", async () => {
+  const { target, packets } = await udp();
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "udp", target }));
+  const rejected = next(socket, "device-status");
+  socket.send(JSON.stringify({ type: "connect-device", protocol: "udp", target, settings: { password: "must-not-be-used" } }));
+  expect(await rejected).toMatchObject({ target, connected: false });
+  await barrier(socket);
+  expect(packets).toHaveLength(0);
 });

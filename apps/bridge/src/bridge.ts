@@ -1,4 +1,5 @@
 import WebSocket, { type ClientOptions } from "ws";
+import { createBridgeSettingsRecipient, type BridgeSettingsRecipient } from "@showpilot/shared/bridge-settings";
 import { BridgeTargetError, parseBridgeEndpoint, resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { credentialFreeUrl } from "./transport-url.js";
 import { Atem, type AtemState } from "atem-connection";
@@ -45,11 +46,15 @@ interface CommandMessage {
   settings?: Record<string, unknown>;
 }
 
-interface ConnectDeviceMessage {
+interface DeviceConnectionInput {
   type: "connect-device";
   protocol: string;
   target: string;
   settings: Record<string, unknown>;
+}
+
+interface ConnectDeviceMessage extends Omit<DeviceConnectionInput, "settings"> {
+  protectedSettings: unknown;
 }
 
 interface DisconnectDeviceMessage {
@@ -67,6 +72,8 @@ interface BridgeRoleMessage {
   selectionId?: string;
   activeInstallation: { installationId: string; label: string } | null;
   approvedTargets: BridgeEndpoint[];
+  orgId: string;
+  installationId: string;
 }
 
 interface BridgePolicyMessage {
@@ -136,8 +143,7 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
     case "connect-device":
       return typeof value.protocol === "string"
         && typeof value.target === "string"
-        && isRecord(value.settings)
-        ? { type: value.type, protocol: value.protocol, target: value.target, settings: value.settings }
+        ? { type: value.type, protocol: value.protocol, target: value.target, protectedSettings: value.protectedSettings }
         : null;
     case "disconnect-device":
       return typeof value.target === "string" ? { type: value.type, target: value.target } : null;
@@ -149,10 +155,11 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
         : null;
     case "bridge-role": {
       if (value.role !== "active" && value.role !== "standby") return null;
+      if (typeof value.orgId !== "string" || !value.orgId || typeof value.installationId !== "string" || !value.installationId) return null;
       if (value.selectionId !== undefined && typeof value.selectionId !== "string") return null;
       const active = value.activeInstallation;
       if (active !== null && (!isRecord(active) || typeof active.installationId !== "string" || typeof active.label !== "string")) return null;
-      return { type: value.type, role: value.role, selectionId: value.selectionId, approvedTargets: parseApprovedTargets(value.approvedTargets),
+      return { type: value.type, role: value.role, orgId: value.orgId, installationId: value.installationId, selectionId: value.selectionId, approvedTargets: parseApprovedTargets(value.approvedTargets),
         activeInstallation: active === null ? null : { installationId: String(active.installationId), label: String(active.label) } };
     }
     default:
@@ -163,13 +170,14 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
 export function bridgeWebSocketOptions(
   url: string,
   key?: string,
+  settingsPublicKey?: string,
 ): { url: string; options?: ClientOptions } {
   const wsUrlObject = credentialFreeUrl(url);
   wsUrlObject.searchParams.set("role", "bridge");
   wsUrlObject.searchParams.delete("key");
   return {
     url: wsUrlObject.toString(),
-    options: { headers: { "x-showpilot-bridge-policy": "2", ...(key ? { "x-showpilot-api-key": key } : {}) } },
+    options: { headers: { "x-showpilot-bridge-policy": "3", ...(settingsPublicKey ? { "x-showpilot-settings-key": settingsPublicKey } : {}), ...(key ? { "x-showpilot-api-key": key } : {}) } },
   };
 }
 
@@ -186,6 +194,9 @@ export class Bridge {
   private role: "waiting" | "active" | "standby" = "waiting";
   private activeInstallation: BridgeRoleMessage["activeInstallation"] = null;
   private messageWork: Promise<void> = Promise.resolve();
+  private settingsRecipient: BridgeSettingsRecipient | null = null;
+  private settingsScope: Pick<BridgeRoleMessage, "orgId" | "installationId"> | null = null;
+  private connectionAttempt = 0;
   private pendingConnectionApproval: {
     socket: WebSocket;
     request: ConnectionApprovalRequest;
@@ -249,6 +260,9 @@ export class Bridge {
   }
 
   stop(): void {
+    this.connectionAttempt++;
+    this.settingsRecipient = null;
+    this.settingsScope = null;
     this.reconnect = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -292,7 +306,22 @@ export class Bridge {
   }
 
   private connect(): void {
-    const connection = bridgeWebSocketOptions(this.url, this.key);
+    const attempt = ++this.connectionAttempt;
+    this.settingsRecipient = null;
+    this.settingsScope = null;
+    void createBridgeSettingsRecipient().then(recipient => {
+      if (this.connectionAttempt !== attempt) return;
+      this.settingsRecipient = recipient;
+      this.openConnection(recipient.publicKey);
+    }).catch(() => {
+      if (this.connectionAttempt !== attempt) return;
+      console.error("[bridge] Unable to initialize protected device settings.");
+      if (this.reconnect) this.reconnectTimer = setTimeout(() => this.connect(), 5000);
+    });
+  }
+
+  private openConnection(settingsPublicKey: string): void {
+    const connection = bridgeWebSocketOptions(this.url, this.key, settingsPublicKey);
     console.log(`[bridge] Connecting to ${connection.url}...`);
 
     this.ws = new WebSocket(connection.url, connection.options);
@@ -342,6 +371,8 @@ export class Bridge {
 
     this.ws.on("close", (code, reason) => {
       if (this.ws !== socket) return;
+      this.settingsRecipient = null;
+      this.settingsScope = null;
       this.role = "waiting";
       void this.disconnectDevices().catch(() => console.error("[bridge] Device shutdown failed"));
       const detail = reason.toString().trim();
@@ -397,6 +428,7 @@ export class Bridge {
       const changed = this.role !== msg.role;
       await this.applyTargetPolicy(msg.approvedTargets);
       this.role = msg.role;
+      this.settingsScope = { orgId: msg.orgId, installationId: msg.installationId };
       this.activeInstallation = msg.activeInstallation;
       if (msg.role === "standby") {
         await this.disconnectDevices();
@@ -436,7 +468,7 @@ export class Bridge {
     }
   }
 
-  private async authorizeDestination(msg: CommandMessage | ConnectDeviceMessage): Promise<void> {
+  private async authorizeDestination(msg: CommandMessage | DeviceConnectionInput): Promise<void> {
     const endpoints = resolveBridgeEndpoints(msg);
     const connected = this.connectionEndpoints.get(msg.target);
     const effective = msg.type === "command" && connected ? [...endpoints, ...connected] : endpoints;
@@ -515,8 +547,13 @@ export class Bridge {
     const key = msg.target;
 
     try {
-      await this.authorizeDestination(msg);
-      const [endpoint] = resolveBridgeEndpoints(msg);
+      const socket = this.ws;
+      if (!this.settingsRecipient || !this.settingsScope) throw new Error("Protected Bridge settings are unavailable.");
+      const settings = await this.settingsRecipient.open(msg.protectedSettings, { ...this.settingsScope, protocol: msg.protocol, target: msg.target });
+      if (this.ws !== socket || socket?.readyState !== WebSocket.OPEN || this.role !== "active") throw new Error("Bridge disconnected before device configuration.");
+      const configured: DeviceConnectionInput = { type: "connect-device", protocol: msg.protocol, target: msg.target, settings };
+      await this.authorizeDestination(configured);
+      const [endpoint] = resolveBridgeEndpoints(configured);
       const host = endpoint.host.replace(/^\[|\]$/g, "");
       const port = endpoint.port;
       if (!isSupportedConnectProtocol(msg.protocol)) {
@@ -524,35 +561,35 @@ export class Bridge {
       }
 
       if (msg.protocol === "propresenter") {
-        await this.connectProPresenter(key, msg.settings);
+        await this.connectProPresenter(key, settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
       }
 
       if (msg.protocol === "http-command") {
-        this.httpDeviceSettings.set(key, msg.settings ?? {});
+        this.httpDeviceSettings.set(key, settings ?? {});
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
       }
 
       if (msg.protocol === "atem") {
-        await this.connectAtem(key, msg.settings);
+        await this.connectAtem(key, settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
       }
 
       if (msg.protocol === "obs") {
-        await this.connectObs(key, msg.settings);
+        await this.connectObs(key, settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
       }
 
       if (msg.protocol === "dmx-artnet" || msg.protocol === "dmx-sacn") {
-        await this.connectDmx(msg.protocol, key, host, port, msg.settings);
+        await this.connectDmx(msg.protocol, key, host, port, settings);
         this.send({ type: "device-status", target: key, connected: true });
         this.sendStatus();
         return;
@@ -566,7 +603,7 @@ export class Bridge {
         }
         if (!this.pjlinkConnections.has(key)) {
           const conn = new PjlinkConnection();
-          const password = typeof msg.settings.password === "string" ? msg.settings.password : undefined;
+          const password = typeof settings.password === "string" ? settings.password : undefined;
           await conn.connect(host, port, password);
           this.pjlinkConnections.set(key, conn);
         }
@@ -588,7 +625,7 @@ export class Bridge {
           await conn.connect(host, port);
           this.udpConnections.set(key, conn);
         }
-        await this.configureOscMixerFeedback(key, conn, msg.settings);
+        await this.configureOscMixerFeedback(key, conn, settings);
       } else if (msg.protocol === "udp") {
         if (!this.udpConnections.has(key)) {
           const conn = new UdpConnection();
@@ -602,7 +639,7 @@ export class Bridge {
           await conn.connect(host, port);
           this.udpConnections.set(key, conn);
         }
-        const mode: ViscaUdpMode = msg.settings.viscaMode === "raw" ? "raw" : "sony-ip";
+        const mode: ViscaUdpMode = settings.viscaMode === "raw" ? "raw" : "sony-ip";
         const sequence = this.nextViscaSequence(key);
         const inquiry = Buffer.from("81090400ff", "hex");
         await conn.sendAndReceiveUntil(

@@ -1,3 +1,4 @@
+import { createBridgeSettingsRecipient } from "../../../packages/shared/src/bridge-settings.mjs";
 // Real browser/API/socket/D1 credential rehearsal. Uses only disposable local data.
 // Run after the web build: node apps/web/scripts/smoke-bridge-credentials.mjs
 import assert from "node:assert/strict";
@@ -7,13 +8,14 @@ import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 
 // Exercise the same WebSocket implementation as the standalone Bridge.
 const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
+const recipient = await createBridgeSettingsRecipient();
 await withLocalSmokeFixture(async ({ origin, orgId, browser, queryFixture, operatorEmail, operatorPassword }) => {
   const click = (name) => browser("find", "role", "button", "click", "--name", name, "--exact");
   const keyFromPage = async () => (await browser("eval", "[...document.querySelectorAll('code')].map(el => el.textContent).find(text => /^sp_[a-f0-9]{64}$/.test(text))")).result;
-  const status = async (key, path) => fetch(`${origin}${path}`, { redirect: "manual", headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" } });
+  const status = async (key, path) => fetch(`${origin}${path}`, { redirect: "manual", headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "3", "x-showpilot-settings-key": recipient.publicKey } });
   const sockets = [];
   const probeKey = (key) => new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" } });
+    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "3", "x-showpilot-settings-key": recipient.publicKey } });
     sockets.push(socket);
     const timeout = setTimeout(() => { reject(new Error("Bridge upgrade timed out")); socket.terminate(); }, 10_000);
     socket.once("open", () => { clearTimeout(timeout); resolve({ status: 101, socket }); });

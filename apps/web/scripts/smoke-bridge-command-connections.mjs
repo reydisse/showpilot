@@ -5,9 +5,11 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { once } from "node:events";
 import net from "node:net";
+import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
-const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
+const { WebSocket, WebSocketServer } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
 const executable = process.argv[2];
 if (!executable) throw new Error("Pass the compiled native Bridge executable path.");
 function next(socket, type, matches = () => true) {
@@ -25,6 +27,17 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const tcp = net.createServer();
   const deviceSockets = [];
   const received = [];
+  const deviceSecret = randomUUID();
+  const authorizations = [];
+  const httpDevice = http.createServer((request, response) => {
+    authorizations.push(request.headers.authorization);
+    response.statusCode = request.headers.authorization === `Bearer ${deviceSecret}` ? 200 : 401;
+    response.end("fixture");
+  });
+  let proxy;
+  let nativeSocket;
+  const upstreamSockets = [];
+  const wireMessages = [];
   let child;
   let operator;
   try {
@@ -58,10 +71,29 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     await browser("wait", `text=${target} · TCP`);
     operator = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=client`, { headers: { Cookie: operatorCookie, Origin: origin } });
     await next(operator, "bridge-status");
+    proxy = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await once(proxy, "listening");
+    proxy.on("connection", (socket, request) => {
+      nativeSocket = socket;
+      const upstream = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, {
+        headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": request.headers["x-showpilot-bridge-policy"], "x-showpilot-settings-key": request.headers["x-showpilot-settings-key"] },
+      });
+      upstreamSockets.push(upstream);
+      const queued = [];
+      socket.on("message", data => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(String(data));
+        else queued.push(String(data));
+      });
+      upstream.on("open", () => { for (const data of queued.splice(0)) upstream.send(data); });
+      upstream.on("message", data => { wireMessages.push(JSON.parse(String(data))); socket.send(String(data)); });
+      upstream.on("error", () => socket.close(1011, "Fixture proxy failed"));
+      upstream.on("close", () => socket.close());
+      socket.on("close", () => upstream.terminate());
+    });
     const online = next(operator, "bridge-status", message => message.online === true && typeof message.version === "string");
     let diagnostics = "";
     child = spawn(resolve(executable), ["--desktop", "--no-open"], {
-      env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, SHOWPILOT_BRIDGE_URL: `${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws`, SHOWPILOT_BRIDGE_KEY: key, SHOWPILOT_PARENT_PID: String(process.pid) },
+      env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, SHOWPILOT_BRIDGE_URL: `ws://127.0.0.1:${proxy.address().port}`, SHOWPILOT_BRIDGE_KEY: key, SHOWPILOT_PARENT_PID: String(process.pid) },
       stdio: ["pipe", "ignore", "pipe"],
     });
     child.stderr.on("data", data => { diagnostics = (diagnostics + String(data).replaceAll(key, "[redacted]")).slice(-2000); });
@@ -92,10 +124,39 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     assert.equal(deviceSockets.length, 2);
     assert.deepEqual(received, ["fixture\r", "fixture\r", "fixture\r"]);
     assert.deepEqual(await attempts(), [expected, expected]);
-    console.log(JSON.stringify({ builtWorker: "passed", compiledBridge: "passed", attributedTcpOpen: "passed", existingConnectionReuse: "passed", droppedSocketReopen: "passed", postRevocationCommand: "blocked" }, null, 2));
+    httpDevice.listen(0, "127.0.0.1");
+    await once(httpDevice, "listening");
+    const httpPort = httpDevice.address().port;
+    const httpTarget = `http://127.0.0.1:${httpPort}`;
+    await browser("find", "label", "Destination name", "fill", "Fixture HTTP");
+    await browser("find", "label", "Host or IP address", "fill", "127.0.0.1");
+    await browser("find", "label", "Port", "fill", String(httpPort));
+    await browser("select", 'label:has-text("Protocol") select', "http-command");
+    await click("Approve destination");
+    await browser("wait", `text=127.0.0.1:${httpPort} · HTTP`);
+    const connected = next(operator, "device-status", message => message.target === httpTarget);
+    operator.send(JSON.stringify({ type: "connect-device", protocol: "http-command", target: httpTarget, settings: { authToken: deviceSecret } }));
+    assert.equal((await connected).connected, true);
+    const httpReply = next(operator, "command-response", message => message.id === "protected-http");
+    operator.send(JSON.stringify({ type: "command", id: "protected-http", protocol: "http-command", target: httpTarget, command: "GET /fixture" }));
+    assert.equal((await httpReply).success, true);
+    assert.deepEqual(authorizations, [`Bearer ${deviceSecret}`]);
+    const envelope = wireMessages.find(message => message.type === "connect-device" && message.target === httpTarget);
+    assert.ok(envelope?.protectedSettings?.ciphertext);
+    assert.equal("settings" in envelope, false);
+    assert.equal(JSON.stringify(wireMessages).includes(deviceSecret), false);
+    const replay = next(operator, "device-status", message => message.target === httpTarget);
+    nativeSocket.send(JSON.stringify(envelope));
+    assert.equal((await replay).connected, false, "Native Bridge accepted a replayed settings envelope");
+    assert.equal(authorizations.length, 1);
+    console.log(JSON.stringify({ builtWorker: "passed", compiledBridge: "passed", attributedTcpOpen: "passed", existingConnectionReuse: "passed", droppedSocketReopen: "passed", postRevocationCommand: "blocked", encryptedNativeSettings: "passed", nativeHttpAuthorization: "passed", replayedSettings: "rejected" }, null, 2));
   } finally {
     operator?.terminate();
     if (child?.pid && child.exitCode === null && child.signalCode === null) { const stopped = once(child, "exit"); child.kill("SIGTERM"); await stopped; }
+    for (const socket of upstreamSockets) socket.terminate();
+    if (proxy) { for (const socket of proxy.clients) socket.terminate(); await new Promise(resolve => proxy.close(resolve)); }
+    httpDevice.closeAllConnections();
+    await new Promise(resolve => httpDevice.close(resolve));
     for (const socket of deviceSockets) socket.destroy();
     await new Promise(resolve => tcp.close(resolve));
   }

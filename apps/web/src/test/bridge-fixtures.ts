@@ -1,9 +1,10 @@
+import { createBridgeSettingsRecipient } from "@showpilot/shared/bridge-settings";
 import { approveBridgeTarget } from "@/lib/bridge-targets.server";
 import { resolveBridgeEndpoints } from "@showpilot/shared/bridge-target";
 import { env } from "cloudflare:workers";
 import { issueBridgeInstallation } from "@/lib/bridge-credentials.server";
 
-const internalHeaders = { Upgrade: "websocket", "x-showpilot-bridge-policy": "2", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" };
+const internalHeaders = { Upgrade: "websocket", "x-showpilot-bridge-policy": "3", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" };
 
 export async function ensureBridgeTestOrg(orgId: string) {
   await env.DB.prepare("INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
@@ -13,9 +14,10 @@ export async function ensureBridgeTestOrg(orgId: string) {
 export async function openTestBridge(orgId: string, existing?: Awaited<ReturnType<typeof issueBridgeInstallation>>) {
   await ensureBridgeTestOrg(orgId);
   const credential = existing ?? await issueBridgeInstallation(env.DB, { orgId, label: "Test Bridge", actorUserId: "test-owner" });
+  const recipient = await createBridgeSettingsRecipient();
   const stub = env.BRIDGE_RELAY.getByName(orgId);
   const query = new URLSearchParams({ orgId, role: "bridge", authCredentialId: credential.credentialId });
-  const response = await stub.fetch(new Request(`https://bridge.test/ws?${query}`, { headers: internalHeaders }));
+  const response = await stub.fetch(new Request(`https://bridge.test/ws?${query}`, { headers: { ...internalHeaders, "x-showpilot-settings-key": recipient.publicKey } }));
   if (response.status !== 101 || !response.webSocket) throw new Error(`Bridge upgrade failed (${response.status})`);
   const socket = response.webSocket;
   let acknowledgeRoles = true;
@@ -27,7 +29,7 @@ export async function openTestBridge(orgId: string, existing?: Awaited<ReturnTyp
   }));
   socket.accept();
   await ready;
-  return { stub, socket: response.webSocket, credential, setRoleAcknowledgment: (enabled: boolean) => { acknowledgeRoles = enabled; } };
+  return { stub, socket: response.webSocket, credential, recipient, setRoleAcknowledgment: (enabled: boolean) => { acknowledgeRoles = enabled; } };
 }
 
 export async function bridgeClientTestRequest(orgId: string): Promise<Request> {
