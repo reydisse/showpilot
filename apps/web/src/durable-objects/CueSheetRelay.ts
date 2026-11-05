@@ -66,19 +66,20 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
     }
 
     if (url.pathname === "/ws") {
+      const authClaim = this.readAuthorityClaim(url);
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
-        scopes: this.readScopes(url),
-        authClaim: this.readAuthorityClaim(url),
+        scopes: authClaim ? this.readScopes(url) : [],
+        authClaim,
       });
       return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/broadcast" && request.method === "POST") {
       const event = (await request.json()) as CueSheetEvent;
-      if (!this.scopeAllows(this.readScopes(url), event)) {
+      if (!(await this.canPublish(this.readAuthorityClaim(url), this.readScopes(url), event))) {
         return new Response("Unauthorized", { status: 401 });
       }
       this.broadcast(JSON.stringify(event));
@@ -100,19 +101,7 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
       const parsed = JSON.parse(data as string) as CueSheetEvent;
-      if (!attachment?.scopes || !this.scopeAllows(attachment.scopes, parsed)) return;
-      if (
-        attachment.authClaim
-        && !(await hasLivePermissionAuthority(
-          this.env.DB,
-          attachment.authClaim,
-          parsed.type === "columns"
-            ? "cuesheet:edit"
-            : parsed.type === "note"
-              ? ["cuesheet:edit", "cuesheet:add_notes"]
-              : ["incidents:report", "incidents:access"],
-        ))
-      ) {
+      if (!(await this.canPublish(attachment?.authClaim ?? null, attachment?.scopes ?? [], parsed))) {
         sender.close(4403, "Cue sheet access changed");
         return;
       }
@@ -146,6 +135,15 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
     if (event.type === "note") return scopes.includes("notes");
     if (event.type === "incident") return scopes.includes("incidents");
     return false;
+  }
+
+  private async canPublish(claim: LiveSessionAuthorityClaim | null, scopes: readonly CueRelayScope[], event: CueSheetEvent): Promise<boolean> {
+    if (!claim || !this.scopeAllows(scopes, event)) return false;
+    return hasLivePermissionAuthority(this.env.DB, claim, event.type === "columns"
+      ? "cuesheet:edit"
+      : event.type === "note"
+        ? ["cuesheet:edit", "cuesheet:add_notes"]
+        : ["incidents:report", "incidents:access"]);
   }
 
   private broadcast(data: string, except?: WebSocket) {

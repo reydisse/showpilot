@@ -27,6 +27,7 @@ export default defineConfig(async () => {
             RUNDOWN_RELAY: "TestRundownRelay",
             TIMECODE_RELAY: "TestTimecodeRelay",
             LOWER_THIRDS_RELAY: "TestLowerThirdsRelay",
+            CUE_SHEET_RELAY: "CueSheetRelay",
           },
           bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only", BETTER_AUTH_URL: "https://app.showpilot.tech" },
         },

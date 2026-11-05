@@ -1,4 +1,5 @@
 import { timecodeFixture } from "@/test/timecode-fixtures";
+import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,9 +46,10 @@ describe("display socket expiry", () => {
       : kind === "rundown" ? { action: "stage-message", payload: { message: "Protected stage message" } }
       : { line1: "Protected lower third" };
     query.set("access", kind === "rundown" ? "control" : "write"); query.delete("authDisplayExpiresAt");
-    if (clock) {
-      query.set("authUserId", clock.authority.userId);
-      query.set("authSessionId", clock.authority.sessionId);
+    const authority = clock?.authority ?? await seedRelayMember(orgId);
+    if (kind !== "rundown") {
+      query.set("authUserId", authority.userId);
+      query.set("authSessionId", authority.sessionId);
     }
     const command = await stub.fetch(new Request(`https://relay.test/${kind === "lowerthirds" ? "trigger" : "command"}?${query}`, { method: "POST", body: JSON.stringify(body) }));
     expect(command.status).toBe(200); await command.arrayBuffer();

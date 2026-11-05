@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 
 await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass, operatorCookie }) => {
+  const operatorHeaders = { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" };
   for (const relay of ["rundown", "timecode", "bridge", "chat", "cue-sheet", "lowerthirds"]) {
     const response = await fetch(`${origin}/api/${relay}/${orgId}/internal/purge-org`, {
       method: "POST", headers: { Cookie: operatorCookie, Origin: origin, "x-showpilot-internal-secret": "forged" },
@@ -45,5 +46,32 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass, operato
   const cookieRead = await browser("eval", `(async () => { const response = await fetch('/api/overlay/${orgId}'); return { status: response.status, rows: await response.json() }; })()`);
   assert.equal(cookieRead.result.status, 200);
   assert.equal(cookieRead.result.rows[0].title, "Fixture overlay title");
-  console.log(JSON.stringify({ maintenanceRoutes: "not public", anonymousReads: "denied", timerLink: "passed", privateStageMessage: "gated", httpOnlyCookieAndReload: "passed", wrongOrgAndSurface: "denied", expiredLink: "denied", overlayLink: "passed", wildcardCors: "absent" }, null, 2));
+  for (const path of ["trigger", "queue"]) {
+    const response = await fetch(`${origin}/api/lowerthirds/${orgId}/${path}`, {
+      method: "POST", headers: operatorHeaders, body: JSON.stringify({ line1: `Fixture ${path}` }),
+    });
+    assert.equal(response.status, 200, `Authorized graphics ${path}`);
+    await response.arrayBuffer();
+  }
+  const viewerGraphic = await fetch(`${origin}/api/lowerthirds/${orgId}/current`, { headers: { "x-showpilot-display-pass": pass("overlay") } });
+  assert.equal(viewerGraphic.status, 200);
+  const projectedGraphic = await viewerGraphic.json();
+  assert.equal(projectedGraphic.current.line1, "Fixture trigger");
+  assert.equal(projectedGraphic.queue, null, "Displays must not receive queued graphics");
+  const liveGraphic = await browser("eval", `new Promise((resolve, reject) => {
+    const ws = new WebSocket(location.origin.replace(/^http/, 'ws') + '/api/lowerthirds/${orgId}/ws');
+    const timeout = setTimeout(() => { ws.close(); reject(new Error('Graphics hydrate timed out')); }, 10000);
+    ws.onmessage = event => { clearTimeout(timeout); ws.close(); resolve(JSON.parse(event.data)); };
+    ws.onerror = () => { clearTimeout(timeout); reject(new Error('Graphics socket failed')); };
+  })`);
+  assert.equal(liveGraphic.result.payload.line1, "Fixture trigger");
+  const publicInternal = await fetch(`${origin}/api/lowerthirds/${orgId}/internal/trigger`, { method: "POST", headers: operatorHeaders });
+  assert.equal(publicInternal.status, 404);
+  await publicInternal.arrayBuffer();
+  const cueNotification = await fetch(`${origin}/api/cue-sheet/${orgId}/broadcast`, {
+    method: "POST", headers: operatorHeaders, body: JSON.stringify({ type: "columns", at: Date.now() }),
+  });
+  assert.equal(cueNotification.status, 200, "Authorized cue-sheet notification");
+  await cueNotification.arrayBuffer();
+  console.log(JSON.stringify({ maintenanceRoutes: "not public", anonymousReads: "denied", timerLink: "passed", privateStageMessage: "gated", httpOnlyCookieAndReload: "passed", wrongOrgAndSurface: "denied", expiredLink: "denied", overlayLink: "passed", graphicsWriteAndDisplayProjection: "passed", graphicsSocket: "passed", cueSheetNotification: "passed", wildcardCors: "absent" }, null, 2));
 });

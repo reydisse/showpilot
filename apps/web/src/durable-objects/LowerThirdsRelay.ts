@@ -67,13 +67,24 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     }
     await this.hydrateFromStorage();
 
+    const internalCommand = url.pathname === "/internal/trigger" || url.pathname === "/internal/clear";
+    if (internalCommand && (request.method !== "POST" || !this.env.BETTER_AUTH_SECRET
+      || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const authClaim = this.readAuthorityClaim(url);
+    const canWrite = internalCommand || (url.searchParams.get("access") === "write"
+      && authClaim !== null
+      && await hasLivePermissionAuthority(this.env.DB, authClaim, "lowerthird:trigger"));
+    const path = internalCommand ? url.pathname.slice("/internal".length) : url.pathname;
+
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
-        canWrite: url.searchParams.get("access") === "write",
-        authClaim: this.readAuthorityClaim(url),
+        canWrite,
+        authClaim,
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
@@ -87,8 +98,8 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    if (url.pathname === "/trigger" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
+    if (path === "/trigger" && request.method === "POST") {
+      if (!canWrite) return new Response("Unauthorized", { status: 401 });
       const body = (await request.json()) as Partial<LowerThirdPayload>;
       const payload: LowerThirdPayload = {
         id: body.id ?? crypto.randomUUID(),
@@ -111,8 +122,8 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
       return Response.json({ ok: true, payload });
     }
 
-    if (url.pathname === "/clear" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
+    if (path === "/clear" && request.method === "POST") {
+      if (!canWrite) return new Response("Unauthorized", { status: 401 });
       if (this.current) {
         this.current.state = "clearing";
         this.broadcast(
@@ -125,7 +136,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     }
 
     if (url.pathname === "/queue" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") return new Response("Unauthorized", { status: 401 });
+      if (!canWrite) return new Response("Unauthorized", { status: 401 });
       const body = (await request.json()) as Partial<LowerThirdPayload>;
       this.queue = {
         id: body.id ?? crypto.randomUUID(),
@@ -147,7 +158,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     if (url.pathname === "/current") {
       return Response.json({
         current: this.current,
-        queue: this.queue,
+        queue: canWrite ? this.queue : null,
       });
     }
 
@@ -161,10 +172,10 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
         canWrite?: boolean;
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
-      if (!attachment?.canWrite) return;
+      if (!attachment?.canWrite) { ws.close(4403, "Graphics write access required"); return; }
       if (
-        attachment.authClaim
-        && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "lowerthird:trigger"))
+        !attachment.authClaim
+        || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "lowerthird:trigger"))
       ) {
         ws.close(4403, "Graphics access changed");
         return;
