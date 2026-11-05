@@ -23,6 +23,7 @@ import {
   type LiveSessionAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
+import { z } from "zod";
 
 interface Env {
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
@@ -54,6 +55,31 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "custom-webhook",
 ]);
 
+// Server-owned acknowledgement and retry fields cannot be patched by clients.
+const eventUpdateSchema = z.object({
+  action: z.enum([...SUPPORTED_ACTIONS]).optional(),
+  label: z.string().max(200).optional(),
+  enabled: z.boolean().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+  triggerTimecode: z.object({
+    hours: z.number().int().min(0).max(23), minutes: z.number().int().min(0).max(59),
+    seconds: z.number().int().min(0).max(59), frames: z.number().int().min(0).max(29),
+  }).optional(),
+  toleranceFrames: z.number().int().min(0).max(9000).optional(),
+  targetDeviceId: z.string().max(200).optional(),
+  targetActionId: z.string().max(200).optional(),
+  rundownItemId: z.string().max(200).optional(),
+  category: z.string().max(200).optional(),
+});
+
+class AutomationRejection extends Error {
+  readonly retryable: boolean;
+  constructor(action: string, status: number) {
+    super(`${action} failed with ${status}`);
+    this.retryable = status === 429 || status === 503;
+  }
+}
+
 export class TimecodeRelay extends DurableObject {
   private state: TimecodeState = {
     timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
@@ -61,6 +87,7 @@ export class TimecodeRelay extends DurableObject {
     source: "internal-freerun",
     format: { frameRate: 30, dropFrame: "ndf" },
     running: false,
+    triggersEnabled: true,
     serverTime: Date.now(),
     totalFrames: 0,
     lyrics: null,
@@ -78,11 +105,22 @@ export class TimecodeRelay extends DurableObject {
       if (stored) {
         this.state = {
           ...stored.state,
+          triggersEnabled: stored.state.triggersEnabled ?? true,
           running: false,
           serverTime: Date.now(),
           lyrics: stored.state.lyrics ?? null,
         };
-        this.events = stored.events ?? [];
+        this.events = (stored.events ?? []).map((event) => ({
+          ...event,
+          enabled: event.enabled ?? true,
+          // A process restart cannot prove that an in-flight device command
+          // did not execute. Require the operator to decide whether to retry.
+          ...(event.executionStatus === "dispatching" ? {
+            fired: false, executionStatus: "failed" as const,
+            executionError: "Acknowledgement interrupted. Check the output before retrying.",
+            executionAttempts: 3,
+          } : {}),
+        }));
       }
     });
   }
@@ -134,6 +172,7 @@ export class TimecodeRelay extends DurableObject {
         source: "internal-freerun",
         format: { frameRate: 30, dropFrame: "ndf" },
         running: false,
+        triggersEnabled: true,
         serverTime: Date.now(),
         totalFrames: 0,
         lyrics: null,
@@ -302,8 +341,9 @@ export class TimecodeRelay extends DurableObject {
         this.state.serverTime = Date.now();
 
         // Evaluate automation events
-        const eventFired = await this.evaluateEvents(this.previousFeedFrame, totalFrames);
+        const previousFrame = this.previousFeedFrame;
         this.previousFeedFrame = totalFrames;
+        const eventFired = await this.evaluateEvents(previousFrame, totalFrames);
 
         // Persist automation results immediately; otherwise snapshot the
         // running clock at a modest cadence instead of writing at 10 Hz.
@@ -377,7 +417,14 @@ export class TimecodeRelay extends DurableObject {
           !event.payload || typeof event.payload !== "object"
         ) break;
         event.id = event.id || crypto.randomUUID();
+        if (this.events.some((existing) => existing.id === event.id)) break;
+        event.enabled = event.enabled !== false;
         event.fired = false;
+        event.executionAttempts = 0;
+        delete event.executionId;
+        delete event.executionStartedAt;
+        delete event.executionDurationMs;
+        delete event.executionRetryable;
         event.executionStatus = "scheduled";
         delete event.executionError;
         delete event.executedAt;
@@ -423,6 +470,12 @@ export class TimecodeRelay extends DurableObject {
             ...(candidate as AutomationEvent),
             id: candidate.id || crypto.randomUUID(),
             fired: false,
+            enabled: candidate.enabled !== false,
+            executionAttempts: 0,
+            executionId: undefined,
+            executionStartedAt: undefined,
+            executionDurationMs: undefined,
+            executionRetryable: undefined,
             executionStatus: "scheduled",
             executionError: undefined,
             executedAt: undefined,
@@ -444,12 +497,14 @@ export class TimecodeRelay extends DurableObject {
           (e) => e.id === (payload.id as string)
         );
         if (idx >= 0) {
-          const updates = (payload.updates ?? {}) as Partial<AutomationEvent>;
-          if (updates.action && !SUPPORTED_ACTIONS.has(updates.action)) break;
+          if (this.events[idx].executionStatus === "dispatching") break;
+          const parsed = eventUpdateSchema.safeParse(payload.updates ?? {});
+          if (!parsed.success) break;
+          const updates = parsed.data;
           if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
-          Object.assign(this.events[idx], payload.updates ?? payload);
+          Object.assign(this.events[idx], updates);
           // Recalculate triggerFrame if timecode changed
-          if ((payload.updates as Record<string, unknown>)?.triggerTimecode || payload.triggerTimecode) {
+          if (updates.triggerTimecode) {
             this.events[idx].triggerFrame = timecodeToFrames(
               this.events[idx].triggerTimecode,
               this.state.format
@@ -472,10 +527,47 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
+      case "set-triggers-enabled":
+        if (typeof payload?.enabled !== "boolean") break;
+        this.state.triggersEnabled = payload.enabled;
+        await this.persist();
+        await this.broadcastState();
+        break;
+
+      case "set-event-enabled": {
+        if (typeof payload?.id !== "string" || typeof payload.enabled !== "boolean") break;
+        const event = this.events.find((candidate) => candidate.id === payload.id);
+        if (!event) break;
+        event.enabled = payload.enabled;
+        await this.persist();
+        await this.broadcastEvents();
+        break;
+      }
+
+      case "retry-event": {
+        if (!this.state.triggersEnabled || typeof payload?.id !== "string") break;
+        const event = this.events.find((candidate) => candidate.id === payload.id);
+        if (!event?.enabled || event.executionStatus === "dispatching") break;
+        event.fired = false;
+        event.executionAttempts = 0;
+        event.executionStatus = "scheduled";
+        delete event.executionId;
+        delete event.executionStartedAt;
+        await this.runEvent(event);
+        await this.persist();
+        await this.broadcastState();
+        break;
+      }
+
       case "reset-events":
+        if (this.events.some((event) => event.executionStatus === "dispatching")) break;
         for (const event of this.events) {
           event.fired = false;
           event.executionStatus = "scheduled";
+          event.executionAttempts = 0;
+          delete event.executionId;
+          delete event.executionStartedAt;
+          delete event.executionDurationMs;
           delete event.executionError;
           delete event.executedAt;
         }
@@ -515,52 +607,64 @@ export class TimecodeRelay extends DurableObject {
   // ─── Automation Engine ──────────────────────────────────
 
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
-    if (previousFrame !== null && totalFrames < previousFrame) {
-      let reset = false;
-      for (const event of this.events) {
-        if (event.fired && event.triggerFrame > totalFrames) {
-          event.fired = false;
-          event.executionStatus = "scheduled";
-          delete event.executionError;
-          delete event.executedAt;
-          reset = true;
-        }
-      }
-      if (reset) await this.broadcastEvents();
-    }
-    let fired = false;
+    if (!this.state.triggersEnabled) return false;
+    let changed = false;
     for (const event of this.events) {
-      if (event.fired) continue;
-
-      if (crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames)) {
-        event.fired = true;
-        event.executionStatus = "dispatching";
-        delete event.executionError;
-        await this.broadcastEvents();
-        fired = true;
-        try {
-          await this.executeEventAction(event);
-          event.executionStatus = "acknowledged";
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Automation action failed.";
-          event.executionStatus = "failed";
-          event.executionError = message;
-          this.logWebhookEvent({
-            source: "timecode-relay",
-            type: event.action,
-            direction: "outgoing",
-            status: "error",
-            details: message,
-            payloadSummary: sanitizePayloadSummary({ action: event.action, label: event.label }),
-          });
-          console.error(`[TimecodeRelay] Failed to execute event "${event.label}":`, error);
-        }
-        event.executedAt = Date.now();
-        await this.broadcastEventFired(event);
-        await this.broadcastEvents();
-      }
+      if (!event.enabled || event.fired || event.executionStatus === "dispatching") continue;
+      const attempts = event.executionAttempts ?? 0;
+      const withinRetryWindow = event.executionStartedAt !== undefined
+        && Date.now() - event.executionStartedAt <= event.toleranceFrames * 1000 / this.state.format.frameRate
+        && totalFrames >= event.triggerFrame
+        && totalFrames <= event.triggerFrame + event.toleranceFrames;
+      const shouldRun = event.executionStatus === "failed"
+        ? event.executionRetryable === true && attempts < 3 && withinRetryWindow
+        : crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames);
+      if (!shouldRun) continue;
+      changed = true;
+      await this.runEvent(event);
     }
-    return fired;
+    return changed;
+  }
+
+  private async runEvent(event: AutomationEvent): Promise<void> {
+    // Reserve before yielding, so concurrent feed messages cannot dispatch twice.
+    event.executionStatus = "dispatching";
+    event.executionAttempts = (event.executionAttempts ?? 0) + 1;
+    event.executionStartedAt ??= Date.now();
+    event.executionId ??= crypto.randomUUID();
+    const startedAt = Date.now();
+    delete event.executionError;
+    try {
+      // Persist the reservation before any external effect. After a restart,
+      // an interrupted acknowledgement needs an operator's decision.
+      await this.persist();
+      await this.broadcastEvents();
+      if (!this.state.triggersEnabled || !event.enabled) {
+        event.executionStatus = "scheduled";
+        await this.broadcastEvents();
+        return;
+      }
+      await this.executeEventAction(event);
+      event.fired = true;
+      event.executionStatus = "acknowledged";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Automation action failed.";
+      event.fired = false;
+      event.executionStatus = "failed";
+      event.executionError = message;
+      // A timeout or connection loss cannot prove the remote action did not
+      // run. Leave uncertain outcomes for an explicit operator retry.
+      event.executionRetryable = error instanceof AutomationRejection && error.retryable;
+      this.logWebhookEvent({
+        source: "timecode-relay", type: event.action, direction: "outgoing", status: "error",
+        details: message,
+        payloadSummary: sanitizePayloadSummary({ action: event.action, label: event.label }),
+      });
+    }
+    event.executedAt = Date.now();
+    event.executionDurationMs = event.executedAt - startedAt;
+    await this.broadcastEventFired(event);
+    await this.broadcastEvents();
   }
 
   private async executeEventAction(event: AutomationEvent): Promise<void> {
@@ -596,10 +700,10 @@ export class TimecodeRelay extends DurableObject {
       const response = await rdStub.fetch(
         new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
           method: "POST",
-          body: JSON.stringify({ action, ...(payload ? { payload } : {}) }),
+          body: JSON.stringify({ id: event.executionId, action, ...(payload ? { payload } : {}) }),
         }),
       );
-      if (!response.ok) throw new Error(`${type} failed with ${response.status}`);
+      if (!response.ok) throw new AutomationRejection(type, response.status);
       logResult(type, "success", `${type} action executed.`);
     };
 
@@ -614,7 +718,7 @@ export class TimecodeRelay extends DurableObject {
       if (!target) throw new Error("ProPresenter is not connected through Venue Bridge.");
       const result = await relay.dispatchBridgeMessage({
         type: "command",
-        id: crypto.randomUUID(),
+        id: event.executionId ?? crypto.randomUUID(),
         protocol: "propresenter",
         target,
         command: JSON.stringify({ action: command, ...event.payload }),
@@ -640,7 +744,7 @@ export class TimecodeRelay extends DurableObject {
       }
       const result = await relay.dispatchBridgeMessage({
         type: "command",
-        id: `timecode-${event.id}-${crypto.randomUUID()}`,
+        id: event.executionId ?? crypto.randomUUID(),
         protocol: resolved.protocol,
         target: resolved.target,
         command: resolved.command,
@@ -649,265 +753,114 @@ export class TimecodeRelay extends DurableObject {
       logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);
     };
 
-    try {
-      switch (event.action) {
-        case "lower-third-show": {
-          const ltId = env.LOWER_THIRDS_RELAY.idFromName(this.orgId);
-          const ltStub = env.LOWER_THIRDS_RELAY.get(ltId);
-          try {
-            const response = await ltStub.fetch(
-              new Request("https://internal/trigger", {
-                method: "POST",
-                body: JSON.stringify(event.payload),
-              })
-            );
-            if (!response.ok) {
-              logResult(
-                "lower-third-show",
-                "error",
-                `Lower-third show failed with ${response.status}`
-              );
-            } else {
-              logResult(
-                "lower-third-show",
-                "success",
-                "Lower-third show action executed."
-              );
-            }
-          } catch {
-            logResult(
-              "lower-third-show",
-              "error",
-              "Lower-third show action failed."
-            );
-          }
-          break;
-        }
-
-        case "lower-third-clear": {
-          const ltId = env.LOWER_THIRDS_RELAY.idFromName(this.orgId);
-          const ltStub = env.LOWER_THIRDS_RELAY.get(ltId);
-          try {
-            const response = await ltStub.fetch(
-              new Request("https://internal/clear", { method: "POST" })
-            );
-            if (!response.ok) {
-              logResult(
-                "lower-third-clear",
-                "error",
-                `Lower-third clear failed with ${response.status}`
-              );
-            } else {
-              logResult(
-                "lower-third-clear",
-                "success",
-                "Lower-third clear action executed."
-              );
-            }
-          } catch {
-            logResult(
-              "lower-third-clear",
-              "error",
-              "Lower-third clear action failed."
-            );
-          }
-          break;
-        }
-
-        case "rundown-advance": {
-          const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
-          const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
-          const rdStub = env.RUNDOWN_RELAY.get(rdId);
-          try {
-            const response = await rdStub.fetch(
-              new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
-                method: "POST",
-                body: JSON.stringify({ action: "timer-next" }),
-              })
-            );
-            if (!response.ok) {
-              logResult(
-                "rundown-advance",
-                "error",
-                `Rundown advance failed with ${response.status}`
-              );
-            } else {
-              logResult(
-                "rundown-advance",
-                "success",
-                "Rundown advance action executed."
-              );
-            }
-          } catch {
-            logResult(
-              "rundown-advance",
-              "error",
-              "Rundown advance action failed."
-            );
-          }
-          break;
-        }
-
-        case "rundown-start-item": {
-          const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
-          const rdId = env.RUNDOWN_RELAY.idFromName(target.key);
-          const rdStub = env.RUNDOWN_RELAY.get(rdId);
-          try {
-            const response = await rdStub.fetch(
-              new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
-                method: "POST",
-                body: JSON.stringify({
-                  action: "timer-start",
-                  payload: event.payload,
-                }),
-              })
-            );
-            if (!response.ok) {
-              logResult(
-                "rundown-start-item",
-                "error",
-                `Rundown start-item failed with ${response.status}`
-              );
-            } else {
-              logResult(
-                "rundown-start-item",
-                "success",
-                "Rundown start-item action executed."
-              );
-            }
-          } catch {
-            logResult(
-              "rundown-start-item",
-              "error",
-              "Rundown start-item action failed."
-            );
-          }
-          break;
-        }
-
-        case "rundown-previous":
-        case "rundown-pause":
-        case "rundown-resume":
-        case "rundown-stop":
-        case "rundown-adjust":
-        case "stage-message":
-        case "stage-clear": {
-          const action = {
-            "rundown-previous": "timer-prev",
-            "rundown-pause": "timer-pause",
-            "rundown-resume": "timer-resume",
-            "rundown-stop": "timer-stop",
-            "rundown-adjust": "timer-adjust",
-            "stage-message": "stage-message",
-            "stage-clear": "stage-clear",
-          }[event.action] as "timer-prev" | "timer-pause" | "timer-resume" | "timer-stop" | "timer-adjust" | "stage-message" | "stage-clear";
-          try {
-            await executeRundownCommand(action, event.action, event.payload);
-          } catch (error) {
-            logResult(event.action, "error", error instanceof Error ? error.message : `${event.action} failed.`);
-          }
-          break;
-        }
-
-        case "device-action":
-        case "lighting-scene":
-          await executeDeviceCommand();
-          break;
-
-        case "lyrics-goto": {
-          const required = ["songId", "songTitle", "sectionId", "sectionLabel", "lyrics"] as const;
-          if (!required.every((key) => typeof event.payload[key] === "string")) {
-            throw new Error("Lyrics cue is missing its song or section content.");
-          }
-          this.state.lyrics = {
-            songId: event.payload.songId as string,
-            songTitle: event.payload.songTitle as string,
-            sectionId: event.payload.sectionId as string,
-            sectionLabel: event.payload.sectionLabel as string,
-            lyrics: event.payload.lyrics as string,
-            nextLabel: typeof event.payload.nextLabel === "string" ? event.payload.nextLabel : "",
-            updatedAt: Date.now(),
-            manual: event.payload.manual === true,
-            generationKey: event.sourceKey,
-          } satisfies LyricsDisplayState;
-          this.broadcastLyrics(this.state.lyrics);
-          break;
-        }
-
-        case "lyrics-clear": {
-          const generationKey = typeof event.payload.generationKey === "string"
-            ? event.payload.generationKey
-            : null;
-          if (generationKey && this.state.lyrics?.generationKey !== generationKey) break;
-          this.state.lyrics = null;
-          this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
-          break;
-        }
-
-        case "pp-trigger-slide":
-          await executeProPresenterCommand("trigger-slide");
-          break;
-
-        case "pp-trigger-next":
-          await executeProPresenterCommand("next");
-          break;
-
-        case "pp-trigger-clear":
-          await executeProPresenterCommand("clear");
-          break;
-
-        case "custom-webhook": {
-          const url = event.payload.url;
-          if (!isSafeAutomationWebhookUrl(url)) {
-            logResult(
-              "custom-webhook",
-              "warning",
-              `Custom webhook skipped for event "${event.label}": target must be a public HTTPS URL.`
-            );
-            break;
-          }
-
-          try {
-            const response = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                event: event.label,
-                timecode: this.state.display,
-                payload: event.payload,
-                firedAt: Date.now(),
-              }),
-            });
-
-              if (!response.ok) {
-                logResult(
-                  "custom-webhook",
-                  "error",
-                  `Custom webhook for "${event.label}" failed with ${response.status}`
-                );
-                break;
-              }
-
-              logResult(
-                "custom-webhook",
-                "success",
-                `Custom webhook for "${event.label}" dispatched successfully.`
-              );
-          } catch (err) {
-            logResult(
-              "custom-webhook",
-              "error",
-              err instanceof Error
-                ? `Custom webhook for "${event.label}" failed: ${err.message}`
-                : "Custom webhook dispatch failed."
-            );
-          }
-
-          break;
-        }
+    switch (event.action) {
+      case "lower-third-show":
+      case "lower-third-clear": {
+        const ltStub = env.LOWER_THIRDS_RELAY.get(env.LOWER_THIRDS_RELAY.idFromName(this.orgId));
+        const show = event.action === "lower-third-show";
+        const response = await ltStub.fetch(new Request(`https://internal/${show ? "trigger" : "clear"}`, {
+          method: "POST",
+          ...(show ? { body: JSON.stringify(event.payload) } : {}),
+        }));
+        if (!response.ok) throw new AutomationRejection(event.action, response.status);
+        logResult(event.action, "success", `${event.action} action acknowledged.`);
+        break;
       }
-    } catch (err) {
-      throw err;
+
+      case "rundown-advance":
+      case "rundown-start-item":
+      case "rundown-previous":
+      case "rundown-pause":
+      case "rundown-resume":
+      case "rundown-stop":
+      case "rundown-adjust":
+      case "stage-message":
+      case "stage-clear": {
+        const actions = {
+          "rundown-advance": "timer-next",
+          "rundown-start-item": "timer-start",
+          "rundown-previous": "timer-prev",
+          "rundown-pause": "timer-pause",
+          "rundown-resume": "timer-resume",
+          "rundown-stop": "timer-stop",
+          "rundown-adjust": "timer-adjust",
+          "stage-message": "stage-message",
+          "stage-clear": "stage-clear",
+        } as const;
+        await executeRundownCommand(actions[event.action], event.action, event.payload);
+        break;
+      }
+
+      case "device-action":
+      case "lighting-scene":
+        await executeDeviceCommand();
+        break;
+
+      case "lyrics-goto": {
+        const required = ["songId", "songTitle", "sectionId", "sectionLabel", "lyrics"] as const;
+        if (!required.every((key) => typeof event.payload[key] === "string")) {
+          throw new Error("Lyrics cue is missing its song or section content.");
+        }
+        this.state.lyrics = {
+          songId: event.payload.songId as string,
+          songTitle: event.payload.songTitle as string,
+          sectionId: event.payload.sectionId as string,
+          sectionLabel: event.payload.sectionLabel as string,
+          lyrics: event.payload.lyrics as string,
+          nextLabel: typeof event.payload.nextLabel === "string" ? event.payload.nextLabel : "",
+          updatedAt: Date.now(),
+          manual: event.payload.manual === true,
+          generationKey: event.sourceKey,
+        } satisfies LyricsDisplayState;
+        this.broadcastLyrics(this.state.lyrics);
+        break;
+      }
+
+      case "lyrics-clear": {
+        const generationKey = typeof event.payload.generationKey === "string"
+          ? event.payload.generationKey
+          : null;
+        if (generationKey && this.state.lyrics?.generationKey !== generationKey) break;
+        this.state.lyrics = null;
+        this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
+        break;
+      }
+
+      case "pp-trigger-slide":
+        await executeProPresenterCommand("trigger-slide");
+        break;
+
+      case "pp-trigger-next":
+        await executeProPresenterCommand("next");
+        break;
+
+      case "pp-trigger-clear":
+        await executeProPresenterCommand("clear");
+        break;
+
+      case "custom-webhook": {
+        const url = event.payload.url;
+        if (!isSafeAutomationWebhookUrl(url)) {
+          throw new Error("Custom webhook target must be a public HTTPS URL.");
+        }
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event: event.label,
+            timecode: this.state.display,
+            payload: event.payload,
+            firedAt: Date.now(),
+          }),
+        });
+        if (!response.ok) throw new AutomationRejection("Custom webhook", response.status);
+        logResult(event.action, "success", "Custom webhook acknowledged.");
+        break;
+      }
+      default: {
+        const unsupported: never = event.action;
+        throw new Error(`Unsupported automation action: ${unsupported}`);
+      }
     }
   }
 
@@ -989,6 +942,6 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private getDisplayState(): TimecodeDisplayState {
-    return projectTimecodeDisplayState(this.state);
+    return projectTimecodeDisplayState(this.state, Date.now(), this.events);
   }
 }

@@ -45,6 +45,9 @@ function TimecodePage() {
     replaceEventGroup,
     removeEvent,
     resetEvents,
+    retryEvent,
+    setEventEnabled,
+    setTriggersEnabled,
     mtcSupported,
   } = useOrgTimecode();
 
@@ -71,15 +74,6 @@ function TimecodePage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {events.length === 0 && !demoLoaded && (
-              <button
-                onClick={loadDemo}
-                className="flex items-center gap-1.5 rounded-lg border border-fire-500/20 bg-fire-500/10 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
-              >
-                <FileDown className="w-3 h-3" />
-                Load Demo Show
-              </button>
-            )}
             <button onClick={() => setSongLoaderOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5" />Load song cues</button>
             <TimecodeDisplay state={state} connected={connected} size="compact" />
           </div>
@@ -87,6 +81,17 @@ function TimecodePage() {
       </div>
 
       <div className="p-6 max-w-4xl mx-auto space-y-6">
+        {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
+        <button
+          type="button"
+          disabled={!connected || !state}
+          aria-pressed={state?.triggersEnabled ?? true}
+          onClick={() => setTriggersEnabled(!state?.triggersEnabled)}
+          className="min-h-11 rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50"
+        >
+          {state?.triggersEnabled === false ? "Enable automation" : "Disable automation"}
+        </button>
+        {state?.triggersEnabled === false && <p role="status" className="text-sm text-amber-200">Automation disabled. The clock and displays keep running. Missed cues will not replay automatically.</p>}
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />
@@ -110,8 +115,17 @@ function TimecodePage() {
           state={state}
           onRemoveEvent={removeEvent}
           onResetEvents={resetEvents}
+          onRetryEvent={retryEvent}
+          onSetEventEnabled={setEventEnabled}
+          connected={connected}
         />
 
+        {events.length === 0 && !demoLoaded && !state?.running && connected && (
+          <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">
+            <p>Try a sample automation timeline in this empty workspace.</p>
+            <button type="button" onClick={loadDemo} className="mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 text-board-text"><FileDown className="h-4 w-4" />Load Demo Show</button>
+          </section>
+        )}
         {/* Add event */}
         <AutomationEventEditor
           onAdd={addEvent}

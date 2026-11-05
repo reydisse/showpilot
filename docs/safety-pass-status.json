@@ -78,56 +78,91 @@
       "phase": "0",
       "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
       "line": 33,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "fda44398ee9bd175",
       "phase": "0",
       "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
       "line": 34,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "26cfce8f6e51786b",
       "phase": "0",
       "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
       "line": 35,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "3021da39d2093097",
       "phase": "0",
       "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
       "line": 36,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "f3f373901812d1fe",
       "phase": "0",
       "section": "0.2 Honest failure reporting (audit C8)",
       "line": 40,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "0ac9f82bf42ee36e",
       "phase": "0",
       "section": "0.2 Honest failure reporting (audit C8)",
       "line": 41,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "0451b117f2523b5b",
       "phase": "0",
       "section": "0.2 Honest failure reporting (audit C8)",
       "line": 42,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "eb7dcd4e35ecd28c",
@@ -307,24 +342,39 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 88,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "89b76d093fd12b65",
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 89,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "4ffe310c9c6440c4",
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 90,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-execution.worker.test.ts: 12 actual Worker/DO tests cover kill-switch clock continuity, per-event disable, single-event retry, bounded transient retries, real rundown rejection, injected graphics rejection, redacted display failure count, acknowledgement integrity and restart recovery.",
+        "apps/web/src/components/timecode/AutomationTimeline.test.tsx: four rendered React tests cover confirmation, failed/missed/disabled distinctions, single-cue Retry and offline controls.",
+        "2026-11-04: full web test command passed migration and client boundaries, 1166 unit tests and 84 Worker tests; web tsc --noEmit passed. Final strengthened clock-continuity assertion passed in the 12-test Worker rerun.",
+        "Implementation: TimecodeRelay reserves and persists dispatch before external effects, counts fired only on acknowledgement, permits at most three attempts within frame and wall-clock tolerance, and requires explicit retry after uncertain outcomes. useTimecode preserves the server event result."
+      ]
     },
     {
       "id": "6da7a68cfa09363f",

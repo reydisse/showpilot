@@ -38,6 +38,7 @@ export interface TimecodeSource {
 // ─── Timecode State (broadcast via WebSocket) ───────────────
 
 export interface TimecodeState {
+  triggersEnabled: TimecodeSettings["triggersEnabled"];
   timecode: TimecodeValue;
   display: string;
   source: TimecodeSourceType;
@@ -48,11 +49,13 @@ export interface TimecodeState {
   lyrics: LyricsDisplayState | null;
 }
 
-/** Fields approved for the intentionally public confidence display. */
+/** Display clients receive output and a failure count, never event payloads. */
 export type TimecodeDisplayState = Pick<
   TimecodeState,
   "display" | "running" | "serverTime" | "lyrics"
->;
+> & {
+  automation: { status: "ok" | "failed"; failedCueCount: number };
+};
 
 export interface LyricsDisplayState {
   songId: string;
@@ -103,6 +106,7 @@ export interface AutomationEvent {
   payload: Record<string, unknown>;
   label: string;
   fired: boolean;
+  enabled: boolean;
   /** Frames of tolerance for matching (default: 2) */
   toleranceFrames: number;
   /** Associated rundown item ID */
@@ -115,6 +119,12 @@ export interface AutomationEvent {
   executionStatus?: "scheduled" | "dispatching" | "acknowledged" | "failed";
   executionError?: string;
   executedAt?: number;
+  executionAttempts?: number;
+  executionStartedAt?: number;
+  executionDurationMs?: number;
+  /** Automatic retry is allowed only after an explicit transient rejection. */
+  executionRetryable?: boolean;
+  executionId?: string;
 }
 
 export interface AutomationTimeline {
@@ -163,6 +173,9 @@ export type TimecodeCommand =
   | "update-event"
   | "remove-event"
   | "reset-events"
+  | "retry-event"
+  | "set-event-enabled"
+  | "set-triggers-enabled"
   | "set-lyrics"
   | "clear-lyrics"
   | "bridge-disconnected";

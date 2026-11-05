@@ -39,6 +39,9 @@ export interface UseTimecodeReturn {
   updateEvent: (id: string, updates: Partial<AutomationEvent>) => void;
   removeEvent: (id: string) => void;
   resetEvents: () => void;
+  retryEvent: (id: string) => void;
+  setEventEnabled: (id: string, enabled: boolean) => void;
+  setTriggersEnabled: (enabled: boolean) => void;
   setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
   clearLyrics: () => void;
 
@@ -140,10 +143,10 @@ export function useTimecode({
             setEvents(msg.events);
             break;
           case "event-fired":
-            // Mark event as fired locally
+            // The relay owns the result, including failed acknowledgements.
             setEvents((prev) =>
               prev.map((e) =>
-                e.id === msg.event.id ? { ...e, fired: true } : e
+                e.id === msg.event.id ? msg.event : e
               )
             );
             break;
@@ -350,6 +353,18 @@ export function useTimecode({
     sendCommand("reset-events");
   }, [sendCommand]);
 
+  const retryEvent = useCallback((id: string) => {
+    sendCommand("retry-event", { id });
+  }, [sendCommand]);
+
+  const setEventEnabled = useCallback((id: string, enabled: boolean) => {
+    sendCommand("set-event-enabled", { id, enabled });
+  }, [sendCommand]);
+
+  const setTriggersEnabled = useCallback((enabled: boolean) => {
+    sendCommand("set-triggers-enabled", { enabled });
+  }, [sendCommand]);
+
   const setLyrics = useCallback((lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => {
     sendCommand("set-lyrics", lyrics);
   }, [sendCommand]);
@@ -385,6 +400,9 @@ export function useTimecode({
     updateEvent,
     removeEvent,
     resetEvents,
+    retryEvent,
+    setEventEnabled,
+    setTriggersEnabled,
     setLyrics,
     clearLyrics,
     mtcSupported,

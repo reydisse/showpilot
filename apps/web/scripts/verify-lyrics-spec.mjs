@@ -5,7 +5,9 @@ const root = resolve(import.meta.dirname, "..");
 const requirements = [
   ["prisma/schema.prisma", ["model Song {", "model SongSection {", "model SongCueMap {", "model SongCue {"]],
   ["src/types/timecode.ts", ["lyrics-goto", "lyrics-clear", "pp-trigger-slide", "pp-trigger-next", "pp-trigger-clear"]],
-  ["src/durable-objects/TimecodeRelay.ts", ["broadcastLyrics", "totalFrames < previousFrame", "BRIDGE_RELAY"]],
+  // Backward jumps must not re-arm already acknowledged actions. Behavioral
+  // coverage lives in timecode-execution.worker.test.ts, not a reset marker.
+  ["src/durable-objects/TimecodeRelay.ts", ["broadcastLyrics", "BRIDGE_RELAY"]],
   ["src/routes/$slug/songs.tsx", ["Import from ProPresenter", "Create manually"]],
   ["src/routes/$slug/songs.$songId.tsx", ["Tap-to-mark", "Native display", "ProPresenter", "Show now"]],
   ["src/routes/timer/$orgSlug.tsx", ["LyricsKiosk", "lyrics-update", "{lyrics.lyrics}", "observer.observe(area)"]],

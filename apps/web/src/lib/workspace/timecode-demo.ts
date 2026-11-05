@@ -17,6 +17,7 @@ type EventSeed = Omit<AutomationEvent, "id" | "fired" | "triggerFrame">;
 export const DEMO_EVENTS: EventSeed[] = [
   // ── Pre-Show (00:00) ──────────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 0, 0, 0),
     action: "lighting-scene",
     label: "House Lights — Pre-Show",
@@ -27,6 +28,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Welcome (00:05) ───────────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 5, 0, 0),
     action: "lower-third-show",
     label: 'Push "Welcome to Grace Community"',
@@ -40,6 +42,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lower Thirds",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 5, 5, 0),
     action: "lower-third-clear",
     label: "Clear welcome lower third",
@@ -50,6 +53,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Worship Set (00:05:10) ────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 5, 10, 0),
     action: "lighting-scene",
     label: "Lighting — Worship Set",
@@ -58,6 +62,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lighting",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 5, 10, 0),
     action: "device-action",
     label: "ATEM → Camera 1 Wide",
@@ -70,6 +75,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Song 2 Scripture (00:12:30) ───────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 12, 30, 0),
     action: "lower-third-show",
     label: 'Push Scripture "Psalm 95:1"',
@@ -84,6 +90,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lower Thirds",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 12, 35, 0),
     action: "lower-third-clear",
     label: "Clear scripture",
@@ -94,6 +101,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Speaker Transition (00:20) ────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 20, 0, 0),
     action: "lighting-scene",
     label: "Lighting — Speaker Look",
@@ -102,6 +110,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lighting",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 20, 0, 0),
     action: "device-action",
     label: "ATEM → Camera 3 Podium",
@@ -112,6 +121,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Video",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 20, 2, 0),
     action: "lower-third-show",
     label: "Push Pastor Name",
@@ -125,6 +135,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lower Thirds",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 20, 7, 0),
     action: "lower-third-clear",
     label: "Clear pastor name",
@@ -135,6 +146,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Offering (00:35) ──────────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 35, 0, 0),
     action: "rundown-advance",
     label: "Advance Rundown → Offering",
@@ -143,6 +155,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Rundown",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 35, 0, 0),
     action: "lighting-scene",
     label: "Lighting — Offering",
@@ -153,6 +166,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Closing (00:45) ───────────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 45, 0, 0),
     action: "rundown-advance",
     label: "Advance Rundown → Closing",
@@ -161,6 +175,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Rundown",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 45, 0, 0),
     action: "lighting-scene",
     label: "Lighting — Worship Reprise",
@@ -171,6 +186,7 @@ export const DEMO_EVENTS: EventSeed[] = [
 
   // ── Post-Show (00:55) ─────────────────────────────────
   {
+    enabled: true,
     triggerTimecode: tc(0, 55, 0, 0),
     action: "lighting-scene",
     label: "Lighting — Post-Show / House Lights",
@@ -179,6 +195,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     category: "Lighting",
   },
   {
+    enabled: true,
     triggerTimecode: tc(0, 55, 0, 0),
     action: "lower-third-show",
     label: "Push outro graphic",

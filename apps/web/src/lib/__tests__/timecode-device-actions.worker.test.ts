@@ -147,7 +147,7 @@ describe("TimecodeRelay device automation", () => {
     await expect(events(orgId)).resolves.toEqual([
       expect.objectContaining({
         id: "event-offline",
-        fired: true,
+        fired: false,
         executionStatus: "failed",
         executionError: "Venue Bridge is offline.",
       }),

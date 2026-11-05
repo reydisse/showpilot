@@ -66,6 +66,7 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
     }
 
     onAdd({
+      enabled: true,
       triggerTimecode: tc,
       action,
       payload,
