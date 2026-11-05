@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { DurableObject } from "cloudflare:workers";
 import { displaySocketMayReceive } from "@/lib/display-access.server";
 import { getPrisma } from "@/lib/db";
@@ -860,7 +861,7 @@ export class TimecodeRelay extends DurableObject {
       assertCanDispatch();
       const rdStub = env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(target.key));
       const response = await rdStub.fetch(
-        new Request(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
+        rundownInternalRequest(`https://internal/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, env.BETTER_AUTH_SECRET, {
           method: "POST",
           signal,
           body: JSON.stringify({ id: event.executionId, action, ...(payload ? { payload } : {}) }),

@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import {
   resolveWorkspaceProfile,
   legacyTerminologyProfile,
@@ -130,6 +131,7 @@ export interface MobileApiDatabase extends ChecklistWriteDatabase {
 }
 
 export interface MobileApiEnvironment {
+  BETTER_AUTH_SECRET?: string;
   DB: MobileApiDatabase;
   BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
   RUNDOWN_RELAY?: DurableObjectNamespace;
@@ -1200,7 +1202,7 @@ async function postMobileRundownRelayCommand(input: {
     access: "edit",
   }).toString();
   return relay.fetch(
-    new Request(relayUrl, {
+    rundownInternalRequest(relayUrl, input.env.BETTER_AUTH_SECRET, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

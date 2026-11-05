@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { parseRelayPPSlide } from "@/lib/rundown-relay-payload";
 import { createServerFn } from "@tanstack/react-start";
@@ -63,6 +64,7 @@ const timerStateSchema = z.object({
 const proPresenterTargetSchema = z.object({ orgId: idSchema });
 
 interface RundownRelayEnv {
+  BETTER_AUTH_SECRET?: string;
   RUNDOWN_RELAY?: DurableObjectNamespace;
   BRIDGE_RELAY?: DurableObjectNamespace<
     import("@/durable-objects/BridgeRelay").BridgeRelay
@@ -1318,8 +1320,8 @@ export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
       bindings.RUNDOWN_RELAY.idFromName(target.key),
     );
     const response = await relay.fetch(
-      new Request(
-        `https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=edit`,
+      rundownInternalRequest(
+        `https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=edit`, bindings.BETTER_AUTH_SECRET,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

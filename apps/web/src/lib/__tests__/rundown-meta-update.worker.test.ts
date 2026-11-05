@@ -1,3 +1,4 @@
+import { withRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,7 +54,7 @@ describe("schedule metadata live authority", () => {
 
     const relay = env.RUNDOWN_RELAY.getByName(`${orgId}:show:${showId}`);
     const state = await (await relay.fetch(new Request(
-      `https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`,
+      await withRelayMember(`https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`),
     ))).json<Record<string, unknown>>();
     expect(state).toMatchObject({
       serviceName: "New title",
@@ -69,7 +70,7 @@ describe("schedule metadata live authority", () => {
       timeZone: "America/Toronto",
       referenceTime: String(state.scheduledCallTime),
     });
-    const commandUrl = `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`;
+    const commandUrl = await withRelayMember(`https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`);
     const response = await relay.fetch(new Request(commandUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -96,7 +97,7 @@ describe("schedule metadata live authority", () => {
       payload: { serviceName: "New title", scheduledStartTime: "2026-09-27T13:30:00.000Z", scheduledCallTime: null, location: "Main room" },
     });
     const cleared = await (await relay.fetch(new Request(
-      `https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`,
+      await withRelayMember(`https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&showId=${showId}&access=edit`),
     ))).json<{ scheduledCallTime: string | null }>();
     expect(cleared.scheduledCallTime).toBeNull();
 

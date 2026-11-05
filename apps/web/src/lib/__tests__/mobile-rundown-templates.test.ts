@@ -218,12 +218,14 @@ describe("mobile rundown templates", () => {
     const response = await post(
       "/api/mobile/v1/rundowns/show-1/templates/template-1/load?orgId=org-1",
       { requestId: "template-load-1", expectedRevision: 7 },
-      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay },
+      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay, BETTER_AUTH_SECRET: "mobile-fixture-secret" },
     );
 
     expect(response.status).toBe(200);
     expect(relayRequest).not.toBeNull();
     expect(new URL(relayRequest!.url).searchParams.get("access")).toBe("edit");
+    expect(new URL(relayRequest!.url).pathname).toBe("/internal/command");
+    expect(relayRequest!.headers.get("x-showpilot-internal-secret")).toBe("mobile-fixture-secret");
     const command = (await relayRequest!.json()) as Record<string, unknown>;
     expect(command).toMatchObject({
       action: "seed",
@@ -258,7 +260,7 @@ describe("mobile rundown templates", () => {
     const response = await post(
       "/api/mobile/v1/rundowns/show-1/templates/template-1/load?orgId=org-1",
       { requestId: "template-load-2", expectedRevision: 7 },
-      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay },
+      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay, BETTER_AUTH_SECRET: "mobile-fixture-secret" },
     );
 
     expect(response.status).toBe(409);
@@ -306,7 +308,7 @@ describe("mobile rundown templates", () => {
         startTime: "18:30",
         location: "Chapel",
       },
-      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay },
+      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay, BETTER_AUTH_SECRET: "mobile-fixture-secret" },
     );
 
     expect(response.status).toBe(200);
@@ -333,7 +335,7 @@ describe("mobile rundown templates", () => {
     const response = await post(
       "/api/mobile/v1/rundowns/show-1/previous/show-previous/load?orgId=org-1",
       { requestId: "previous-load-1", expectedRevision: 12 },
-      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay },
+      { DB: fakeDatabase(calls), RUNDOWN_RELAY: relay, BETTER_AUTH_SECRET: "mobile-fixture-secret" },
     );
 
     expect(response.status).toBe(200);
