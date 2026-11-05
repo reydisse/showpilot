@@ -756,7 +756,12 @@
       "section": "1.6 Bridge target allowlist and credential hygiene (audit H7, H8)",
       "line": 135,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "PARTIAL ONLY: migration 0049 adds an org-scoped host/port/protocol approval table and metadata-only audit. bridge-target.ts enumerates effective destinations, including both ProPresenter ports, rejects host/port overrides and credential-bearing URLs, and models HTTP origins and WOL broadcast. bridge-targets.server.ts supplies authoritative approval/rejection/connection-audit operations.",
+        "bridge-target-settings.ts requires settings:api_keys or settings:integrations for every read and mutation, derives the actor from authentication, and requires confirmed removal. BridgeTargetSettings is available in API and Integrations settings. Approvals do not yet enforce live Bridge dispatch; do not mark this requirement complete or deploy this slice on its own.",
+        "2026-11-05 groundwork verification: 36 target boundary tests, 3 server authorization tests, 3 component tests, 5 real Worker/D1 store tests; full web suite 1371 unit + 301 Worker tests, web tsc, and production build passed. Client bundle 560603 raw / 174847 gzip under unchanged budgets. Built smoke-bridge-targets.mjs passed login, canonical storage, both settings views, 320/768/2560px layouts, cancellation, confirmed removal and actor audit.",
+        "Outstanding: enforce at browser WebSocket and every internal/mobile/automation dispatch; preserve authenticated actor or explicit automation attribution; protect native automatic ProPresenter connections and both actual ports; stop output on approval removal; block HTTP redirects to unapproved destinations; redact credentials in relay responses/broadcasts. Coordinate with envelope encryption and masked device/settings reads in the following requirement."
+      ]
     },
     {
       "id": "e095490bc22df118",

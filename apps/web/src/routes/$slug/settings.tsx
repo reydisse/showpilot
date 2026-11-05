@@ -1,3 +1,4 @@
+import { BridgeTargetSettings } from "@/components/settings/BridgeTargetSettings";
 import { BridgeInstallationSettings } from "@/components/settings/BridgeInstallationSettings";
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
@@ -1305,6 +1306,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
         title="Integrations"
         description={"Connect external tools to ShowPilot's shared services"}
       />
+      <div className="mb-8"><BridgeTargetSettings orgId={orgId} /></div>
 
       {/* Invite form */}
       <div className="mb-8">
@@ -2043,7 +2045,7 @@ function NotificationPolicyRow({
 
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
-function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
+function ApiSection({ orgId, role, getSetting, saveSetting }: SectionProps) {
   const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [eventsError, setEventsError] = useState<string | null>(null);
@@ -2085,6 +2087,7 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
       />
       <div className="space-y-5">
         <BridgeInstallationSettings orgId={orgId} />
+        {hasAnyPermission(role, ["settings:api_keys", "settings:integrations"]) && <BridgeTargetSettings orgId={orgId} />}
 
         {/* Webhook URL */}
         <FieldGroup
