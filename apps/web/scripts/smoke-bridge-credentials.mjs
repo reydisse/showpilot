@@ -10,10 +10,10 @@ const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.
 await withLocalSmokeFixture(async ({ origin, orgId, browser, queryFixture, operatorEmail, operatorPassword }) => {
   const click = (name) => browser("find", "role", "button", "click", "--name", name, "--exact");
   const keyFromPage = async () => (await browser("eval", "[...document.querySelectorAll('code')].map(el => el.textContent).find(text => /^sp_[a-f0-9]{64}$/.test(text))")).result;
-  const status = async (key, path) => fetch(`${origin}${path}`, { redirect: "manual", headers: { "x-showpilot-api-key": key } });
+  const status = async (key, path) => fetch(`${origin}${path}`, { redirect: "manual", headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "1" } });
   const sockets = [];
   const probeKey = (key) => new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key } });
+    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "1" } });
     sockets.push(socket);
     const timeout = setTimeout(() => { reject(new Error("Bridge upgrade timed out")); socket.terminate(); }, 10_000);
     socket.once("open", () => { clearTimeout(timeout); resolve({ status: 101, socket }); });

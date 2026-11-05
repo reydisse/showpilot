@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { approveBridgeDestination, getBridgeTargetPolicy, removeBridgeDestination } from "@/lib/bridge-target-settings";
-import { BRIDGE_TARGET_PROTOCOLS } from "@/lib/bridge-target";
+import { BRIDGE_TARGET_PROTOCOLS } from "@showpilot/shared/bridge-target";
 import type { ApprovedBridgeTarget } from "@/lib/bridge-targets.server";
 import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
 
@@ -39,11 +39,12 @@ function Targets({ orgId }: { orgId: string }) {
     if (busy || (action === "remove" && !removal)) return;
     setBusy(true); setError(null);
     try {
-      const items = action === "approve"
+      const result = action === "approve"
         ? await approveBridgeDestination({ data: { orgId, label, host, port, protocol } })
         : await removeBridgeDestination({ data: { orgId, id: removal!.id, confirmed: true } });
       if (!current.current) return;
-      setTargets(items);
+      setTargets(result.targets);
+      setError(result.warning);
       if (action === "approve") { setLabel(""); setHost(""); setPort(""); }
     } catch (cause) { if (current.current) setError(cause instanceof Error ? cause.message : "Could not change destination approval."); }
     finally { if (current.current) { setBusy(false); setRemoval(null); } }
@@ -70,7 +71,7 @@ function Targets({ orgId }: { orgId: string }) {
         <button type="button" aria-label={`Remove approval for ${target.label}`} disabled={busy} onClick={() => setRemoval(target)} className="min-h-11 rounded-lg border border-red-500/30 px-3 text-xs text-red-300 disabled:opacity-40">Remove approval</button>
       </li>)}</ul>}
     <ConfirmDialog open={removal !== null} onOpenChange={open => { if (!open && !busy) setRemoval(null); }} title={`Remove approval for ${removal?.label ?? "this destination"}?`}
-      description="Bridge commands to this destination will be blocked. Confirm that the equipment is no longer needed before removing its approval."
+      description="Bridge commands to this destination will be blocked and its device connection will be stopped, including repeating lighting output. Confirm that the equipment is no longer needed before removing its approval."
       confirmLabel="Remove approval" loading={busy} onConfirm={() => { void change("remove"); }} />
   </section>;
 }

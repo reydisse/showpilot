@@ -1,4 +1,4 @@
-import { BridgeTargetError, parseBridgeEndpoint, resolveBridgeEndpoints, type BridgeEndpoint } from "./bridge-target";
+import { BridgeTargetError, parseBridgeEndpoint, resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 
 export interface ApprovedBridgeTarget extends BridgeEndpoint {
   id: string;

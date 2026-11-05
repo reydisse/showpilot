@@ -10,5 +10,12 @@
   },
   "devDependencies": {
     "typescript": "^5.7.2"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./bridge-target": {
+      "types": "./src/bridge-target.d.mts",
+      "import": "./src/bridge-target.mjs"
+    }
   }
 }

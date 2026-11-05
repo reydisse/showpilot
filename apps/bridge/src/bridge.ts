@@ -1,4 +1,5 @@
 import WebSocket, { type ClientOptions } from "ws";
+import { BridgeTargetError, parseBridgeEndpoint, resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { credentialFreeUrl } from "./transport-url.js";
 import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
@@ -61,6 +62,13 @@ interface BridgeRoleMessage {
   role: "active" | "standby";
   selectionId?: string;
   activeInstallation: { installationId: string; label: string } | null;
+  approvedTargets: BridgeEndpoint[];
+}
+
+interface BridgePolicyMessage {
+  type: "bridge-policy";
+  policyId: string;
+  approvedTargets: BridgeEndpoint[];
 }
 
 interface PingMessage {
@@ -89,7 +97,23 @@ export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] 
   return [...new Set(groups.flatMap((group) => [...group]))].sort();
 }
 
-type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage;
+type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage | BridgePolicyMessage;
+
+function endpointKey(endpoint: BridgeEndpoint): string {
+  return JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port]);
+}
+
+function parseApprovedTargets(value: unknown): BridgeEndpoint[] {
+  if (!Array.isArray(value)) return [];
+  // A malformed policy grants nothing; never retain a stale approval snapshot.
+  try { return value.map(parseBridgeEndpoint); }
+  catch { return []; }
+}
+
+function networkAddress(target: string) {
+  const [endpoint] = resolveBridgeEndpoints({ type: "connect-device", protocol: "tcp-command", target });
+  return { host: endpoint.host.replace(/^\[|\]$/g, ""), port: endpoint.port };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -115,12 +139,16 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
       return typeof value.target === "string" ? { type: value.type, target: value.target } : null;
     case "ping":
       return { type: value.type };
+    case "bridge-policy":
+      return typeof value.policyId === "string"
+        ? { type: value.type, policyId: value.policyId, approvedTargets: parseApprovedTargets(value.approvedTargets) }
+        : null;
     case "bridge-role": {
       if (value.role !== "active" && value.role !== "standby") return null;
       if (value.selectionId !== undefined && typeof value.selectionId !== "string") return null;
       const active = value.activeInstallation;
       if (active !== null && (!isRecord(active) || typeof active.installationId !== "string" || typeof active.label !== "string")) return null;
-      return { type: value.type, role: value.role, selectionId: value.selectionId,
+      return { type: value.type, role: value.role, selectionId: value.selectionId, approvedTargets: parseApprovedTargets(value.approvedTargets),
         activeInstallation: active === null ? null : { installationId: String(active.installationId), label: String(active.label) } };
     }
     default:
@@ -137,7 +165,7 @@ export function bridgeWebSocketOptions(
   wsUrlObject.searchParams.delete("key");
   return {
     url: wsUrlObject.toString(),
-    options: key ? { headers: { "x-showpilot-api-key": key } } : undefined,
+    options: { headers: { "x-showpilot-bridge-policy": "1", ...(key ? { "x-showpilot-api-key": key } : {}) } },
   };
 }
 
@@ -154,6 +182,8 @@ export class Bridge {
   private role: "waiting" | "active" | "standby" = "waiting";
   private activeInstallation: BridgeRoleMessage["activeInstallation"] = null;
   private messageWork: Promise<void> = Promise.resolve();
+  private approvedTargets = new Set<string>();
+  private connectionEndpoints = new Map<string, BridgeEndpoint[]>();
   private url: string;
   private key: string | undefined;
   private reconnect: boolean;
@@ -246,6 +276,7 @@ export class Bridge {
     this.httpDeviceSettings.clear();
     this.viscaModes.clear();
     this.viscaSequences.clear();
+    this.connectionEndpoints.clear();
     await Promise.all(switcherShutdowns);
   }
 
@@ -308,6 +339,11 @@ export class Bridge {
     });
 
     this.ws.on("error", (err) => {
+      if (err.message.includes("Unexpected server response: 426")) {
+        this.reconnect = false;
+        console.error("[bridge] This server requires a newer Bridge device-policy protocol. Update ShowPilot Desktop or Bridge before reconnecting.");
+        return;
+      }
       if (err.message.includes("Unexpected server response: 401")) {
         console.error(
           "[bridge] Authentication failed (HTTP 401). Check the organization slug and Bridge API key.",
@@ -328,8 +364,15 @@ export class Bridge {
   }
 
   private async handleMessage(msg: IncomingMessage): Promise<void> {
+    if (msg.type === "bridge-policy") {
+      await this.applyTargetPolicy(msg.approvedTargets);
+      this.send({ type: "bridge-policy-applied", policyId: msg.policyId });
+      if (this.role === "active") await this.ensureProPresenterConnection();
+      return;
+    }
     if (msg.type === "bridge-role") {
       const changed = this.role !== msg.role;
+      await this.applyTargetPolicy(msg.approvedTargets);
       this.role = msg.role;
       this.activeInstallation = msg.activeInstallation;
       if (msg.role === "standby") {
@@ -353,7 +396,7 @@ export class Bridge {
         await this.handleConnectDevice(msg);
         break;
       case "disconnect-device":
-        this.handleDisconnectDevice(msg);
+        await this.handleDisconnectDevice(msg);
         break;
       case "ping":
         this.send({ type: "pong" });
@@ -361,8 +404,33 @@ export class Bridge {
     }
   }
 
+  private async applyTargetPolicy(endpoints: BridgeEndpoint[]): Promise<void> {
+    this.approvedTargets = new Set(endpoints.map(endpointKey));
+    for (const [target, connected] of this.connectionEndpoints) {
+      if (!connected.every(endpoint => this.approvedTargets.has(endpointKey(endpoint)))) {
+        await this.handleDisconnectDevice({ target });
+      }
+    }
+  }
+
+  private async authorizeDestination(msg: CommandMessage | ConnectDeviceMessage): Promise<void> {
+    const endpoints = resolveBridgeEndpoints(msg);
+    const connected = this.connectionEndpoints.get(msg.target);
+    const effective = msg.type === "command" && connected ? [...endpoints, ...connected] : endpoints;
+    if (!effective.every(endpoint => this.approvedTargets.has(endpointKey(endpoint)))) throw new BridgeTargetError("unapproved-target");
+    if (connected && msg.type === "connect-device"
+      && connected.map(endpointKey).join() !== endpoints.map(endpointKey).join()) {
+      await this.handleDisconnectDevice({ target: msg.target });
+    }
+    // Keep actual connection destinations, including PP's API port. A later
+    // command cannot replace that metadata with its primary port alone.
+    this.connectionEndpoints.set(msg.target, msg.type === "connect-device" ? endpoints
+      : [...new Map(effective.map(endpoint => [endpointKey(endpoint), endpoint])).values()]);
+  }
+
   private async handleCommand(msg: CommandMessage): Promise<void> {
     try {
+      await this.authorizeDestination(msg);
       let response: string | void = undefined;
 
       switch (msg.protocol) {
@@ -422,10 +490,12 @@ export class Bridge {
 
   private async handleConnectDevice(msg: ConnectDeviceMessage): Promise<void> {
     const key = msg.target;
-    const [host, portStr] = key.split(":");
-    const port = parseInt(portStr || "0", 10);
 
     try {
+      await this.authorizeDestination(msg);
+      const [endpoint] = resolveBridgeEndpoints(msg);
+      const host = endpoint.host.replace(/^\[|\]$/g, "");
+      const port = endpoint.port;
       if (!isSupportedConnectProtocol(msg.protocol)) {
         throw new Error(`Unknown protocol: ${msg.protocol}`);
       }
@@ -546,7 +616,7 @@ export class Bridge {
     }
   }
 
-  private handleDisconnectDevice(msg: { target: string }): void {
+  private async handleDisconnectDevice(msg: { target: string }): Promise<void> {
     this.teardownOscMixerFeedback(msg.target);
     const pp = this.ppConnections.get(msg.target);
     if (pp) {
@@ -567,7 +637,7 @@ export class Bridge {
     this.viscaSequences.delete(msg.target);
     const atem = this.atemConnections.get(msg.target);
     if (atem) {
-      void atem.disconnect();
+      await atem.disconnect();
       this.atemConnections.delete(msg.target);
     }
     const dmx = this.dmxConnections.get(msg.target);
@@ -586,6 +656,7 @@ export class Bridge {
       this.pjlinkConnections.delete(msg.target);
     }
     this.httpDeviceSettings.delete(msg.target);
+    this.connectionEndpoints.delete(msg.target);
     this.send({ type: "device-status", target: msg.target, connected: false });
     this.sendStatus();
   }
@@ -607,12 +678,7 @@ export class Bridge {
   ): Promise<void> {
     if (this.atemConnections.has(target)) return;
 
-    const [fallbackHost, fallbackPort] = target.split(":");
-    const host =
-      typeof settings.host === "string" && settings.host.trim()
-        ? settings.host.trim()
-        : fallbackHost;
-    const port = Number(settings.port || fallbackPort || 9910);
+    const { host, port } = networkAddress(target);
     if (!host || !Number.isInteger(port) || port <= 0 || port > 65535) {
       throw new Error("ATEM host and port are required");
     }
@@ -723,9 +789,8 @@ export class Bridge {
   private async connectObs(target: string, settings: Record<string, unknown>): Promise<void> {
     const existing = this.obsConnections.get(target);
     if (existing?.isConnected()) return;
-    const [fallbackHost, fallbackPort] = target.split(":");
-    const host = typeof settings.host === "string" && settings.host.trim() ? settings.host.trim() : fallbackHost;
-    const port = Number(settings.port || fallbackPort || 4455);
+    const [endpoint] = resolveBridgeEndpoints({ type: "connect-device", protocol: "obs", target, settings });
+    const { host, port } = endpoint;
     if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("OBS host and port are required");
     const connection = new ObsConnection();
     this.obsConnections.set(target, connection);
@@ -807,12 +872,23 @@ export class Bridge {
     const target = `propresenter:${this.propresenter.host}:${effectivePort}`;
     if (this.ppConnections.has(target)) return;
 
-    await this.connectProPresenter(target, {
+    const settings = {
       host: this.propresenter.host,
       port: effectivePort,
       apiPort: this.propresenter.apiPort,
       password: this.propresenter.password,
-    });
+    };
+    try {
+      await this.authorizeDestination({ type: "connect-device", protocol: "propresenter", target, settings });
+    } catch (error) {
+      if (!(error instanceof BridgeTargetError)) throw error;
+      console.log("[pp-bridge] Waiting for administrator approval of the configured ProPresenter ports.");
+      return;
+    }
+    // Report local automatic connections without sending their password to
+    // the cloud. The relay derives installation attribution from this socket.
+    this.send({ type: "automatic-connection-requested", target, apiPort: settings.apiPort ?? 1025 });
+    await this.connectProPresenter(target, settings);
   }
 
   private async connectProPresenter(
@@ -825,13 +901,10 @@ export class Bridge {
       return;
     }
 
-    const [fallbackHost, fallbackPort] = target.split(":").slice(-2);
-    const ppHost = typeof settings?.host === "string" && settings.host.trim() ? settings.host.trim() : fallbackHost;
-    const ppPortRaw = settings?.port ?? settings?.apiPort ?? fallbackPort;
-    const ppPort = Number.parseInt(String(ppPortRaw || ""), 10);
-    const apiPortRaw =
-      settings?.apiPort ?? settings?.api_port ?? settings?.["api-port"];
-    const ppApiPort = Number.parseInt(String(apiPortRaw || ""), 10);
+    const endpoints = resolveBridgeEndpoints({ type: "connect-device", protocol: "propresenter", target, settings });
+    const ppHost = endpoints[0].host;
+    const ppPort = endpoints[0].port;
+    const ppApiPort = endpoints[1]?.port ?? ppPort;
     if (!ppHost || !Number.isFinite(ppPort) || ppPort <= 0) {
       throw new Error("ProPresenter host and port are required");
     }
@@ -887,9 +960,9 @@ export class Bridge {
     let conn = this.tcpConnections.get(target);
     if (!conn || !conn.isConnected()) {
       // Auto-connect
-      const [host, portStr] = target.split(":");
+      const { host, port } = networkAddress(target);
       conn = new TcpConnection();
-      await conn.connect(host, parseInt(portStr, 10));
+      await conn.connect(host, port);
       this.tcpConnections.set(target, conn);
     }
     return await conn.sendCommand(command);
@@ -907,9 +980,9 @@ export class Bridge {
   ): Promise<void> {
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
-      const [host, portStr] = target.split(":");
+      const { host, port } = networkAddress(target);
       conn = new UdpConnection();
-      await conn.connect(host, parseInt(portStr, 10));
+      await conn.connect(host, port);
       this.udpConnections.set(target, conn);
     }
 
@@ -1015,9 +1088,9 @@ export class Bridge {
   ): Promise<void> {
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
-      const [host, portStr] = target.split(":");
+      const { host, port } = networkAddress(target);
       conn = new UdpConnection();
-      await conn.connect(host, parseInt(portStr, 10));
+      await conn.connect(host, port);
       this.udpConnections.set(target, conn);
     }
 
@@ -1105,7 +1178,7 @@ export class Bridge {
   // ─── Helpers ────────────────────────────────────────────
 
   private send(data: { type: string; [key: string]: unknown }): void {
-    if (this.role !== "active" && !["bridge-status", "bridge-role-applied", "pong"].includes(data.type)) return;
+    if (this.role !== "active" && !["bridge-status", "bridge-role-applied", "bridge-policy-applied", "pong"].includes(data.type)) return;
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     }

@@ -16,7 +16,8 @@
   "dependencies": {
     "@napi-rs/keyring": "2.1.2",
     "atem-connection": "3.9.0",
-    "ws": "8.21.3"
+    "ws": "8.21.3",
+    "@showpilot/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

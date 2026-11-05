@@ -4,7 +4,7 @@ const api = vi.hoisted(() => ({ list: vi.fn(), approve: vi.fn(), remove: vi.fn()
 vi.mock("@/lib/bridge-target-settings", () => ({ getBridgeTargetPolicy: api.list, approveBridgeDestination: api.approve, removeBridgeDestination: api.remove }));
 import { BridgeTargetSettings } from "../BridgeTargetSettings";
 const target = { id: "target", label: "Venue OBS", host: "venue.local", port: 4455, protocol: "obs", approvedByUserId: "admin", approvedAt: 1 };
-beforeEach(() => { vi.resetAllMocks(); api.list.mockResolvedValue([target]); api.approve.mockResolvedValue([target]); api.remove.mockResolvedValue([]); });
+beforeEach(() => { vi.resetAllMocks(); api.list.mockResolvedValue([target]); api.approve.mockResolvedValue({ targets: [target], warning: null }); api.remove.mockResolvedValue({ targets: [], warning: null }); });
 afterEach(cleanup);
 
 it("shows approved endpoint identity and requires explicit removal confirmation", async () => {
@@ -44,4 +44,14 @@ it("discards an old workspace's late policy after switching away and back", asyn
   await screen.findByText("Venue OBS");
   await act(async () => resolve([{ ...target, label: "Stale destination" }]));
   expect(screen.queryByText("Stale destination")).toBeNull();
+});
+
+it("shows the saved policy and an explicit warning when native output shutdown was not confirmed", async () => {
+  api.remove.mockResolvedValue({ targets: [], warning: "Approval saved. The Bridge did not confirm that it applied the change." });
+  render(<BridgeTargetSettings orgId="org-1" />);
+  await screen.findByText("Venue OBS");
+  fireEvent.click(screen.getByRole("button", { name: "Remove approval for Venue OBS" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove approval" }));
+  await screen.findByText("No Bridge destinations approved yet.");
+  expect((await screen.findByRole("alert")).textContent).toContain("did not confirm");
 });

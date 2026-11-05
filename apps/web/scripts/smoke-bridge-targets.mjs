@@ -35,11 +35,20 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const key = (await browser("eval", "[...document.querySelectorAll('code')].map(el => el.textContent).find(text => /^sp_[a-f0-9]{64}$/.test(text))")).result;
   assert.match(key, /^sp_[a-f0-9]{64}$/);
   await click("Dismiss key");
-  const bridge = await open("bridge", { "x-showpilot-api-key": key });
+  const legacy = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge&targetPolicyVersion=1`, { headers: { "x-showpilot-api-key": key } });
+  sockets.push(legacy);
+  const legacyStatus = await new Promise((resolve, reject) => {
+    legacy.once("unexpected-response", (_request, response) => { response.resume(); resolve(response.statusCode); legacy.terminate(); });
+    legacy.once("open", () => reject(new Error("Legacy Bridge unexpectedly connected")));
+    legacy.on("error", reject);
+  });
+  assert.equal(legacyStatus, 426, "Legacy Bridge was not told to update");
+  const bridge = await open("bridge", { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "1" });
   const operator = await open("client", { Cookie: operatorCookie, Origin: origin });
   let forwarded = 0;
   bridge.on("message", data => {
     const message = JSON.parse(String(data));
+    if (message.type === "bridge-policy") bridge.send(JSON.stringify({ type: "bridge-policy-applied", policyId: message.policyId }));
     if (message.type === "command") {
       forwarded++;
       bridge.send(JSON.stringify({ type: "command-response", id: message.id, success: true, response: "fixture acknowledged" }));
@@ -96,6 +105,6 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   assert.equal(forwarded, 2, "A command reached the Bridge after approval was removed");
   const audit = await queryFixture("SELECT action,actorUserId,host,port,protocol FROM bridge_target_audit WHERE orgId='display-smoke' ORDER BY createdAt");
   assert.deepEqual(audit, ["rejected", "approved", "connection-requested", "removed", "rejected"].map(action => ({ action, actorUserId: "smoke-operator", host: "venue.local", port: 4455, protocol: "obs" })));
-  console.log(JSON.stringify({ login: "passed", canonicalApproval: "passed", crossSettingsVisibility: "passed", responsiveWidths: [320, 768, 2560], cancel: "passed", confirmedRemoval: "passed", actorAudit: "passed", unapprovedCommandBlocked: "passed", approvedDispatch: "passed", postRemovalCommandBlocked: "passed" }, null, 2));
+  console.log(JSON.stringify({ login: "passed", legacyBridgeUpgrade: "rejected", canonicalApproval: "passed", crossSettingsVisibility: "passed", responsiveWidths: [320, 768, 2560], cancel: "passed", confirmedRemoval: "passed", actorAudit: "passed", unapprovedCommandBlocked: "passed", approvedDispatch: "passed", postRemovalCommandBlocked: "passed" }, null, 2));
   } finally { for (const socket of sockets) socket.terminate(); }
 });

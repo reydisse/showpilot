@@ -84,6 +84,7 @@ export class ProPresenterBridge {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private destroyed = false;
+  private shutdown = new AbortController();
   private wsConnected = false;
   private pollingActive = false;
   private lastPollText = "";
@@ -185,6 +186,7 @@ export class ProPresenterBridge {
 
   disconnect(): void {
     this.destroyed = true;
+    this.shutdown.abort();
     this.lastSlideSignature = "";
     this.lastSlideEvent = null;
     this.lastForwardAt = 0;
@@ -281,7 +283,7 @@ export class ProPresenterBridge {
           const res = await fetch(`${base}${path}`, {
             method,
             redirect: "error",
-            signal: AbortSignal.timeout(3000),
+            signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(3000)]),
           });
           if (res.ok) return;
         } catch {
@@ -301,7 +303,7 @@ export class ProPresenterBridge {
   private async requestJson(path: string): Promise<unknown> {
     for (const port of this.getApiPorts()) {
       try {
-        const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.timeout(4_000), redirect: "error" });
+        const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(4_000)]), redirect: "error" });
         if (response.ok) return response.json();
       } catch {}
     }
@@ -473,6 +475,7 @@ export class ProPresenterBridge {
       this.pollInFlight = true;
       try {
         const result = await this.pollSlide();
+        if (this.destroyed) return;
         this.setPollingActive(result.reachable);
         if (!result.reachable || result.slide === undefined) {
           // Connection failures and partial/unsupported responses say nothing
@@ -601,7 +604,7 @@ export class ProPresenterBridge {
         try {
           const res = await fetch(`${base}${endpoint}`, {
             redirect: "error",
-            signal: AbortSignal.timeout(timeout),
+            signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(timeout)]),
           });
           if (!res.ok) continue;
           reachable = true;
@@ -620,7 +623,7 @@ export class ProPresenterBridge {
                 try {
                   const layers = await fetch(`${base}/v1/status/layers`, {
                     redirect: "error",
-                    signal: AbortSignal.timeout(timeout),
+                    signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(timeout)]),
                   });
                   if (!layers.ok) return { reachable: true, slide: undefined };
                   const status: unknown = await layers.json();

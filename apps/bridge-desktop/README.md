@@ -28,6 +28,27 @@ Rotation keeps the existing connection valid for the overlap window; stop that
 connection before reconnecting with the replacement key. A duplicate connection
 is rejected with code 4410 and does not disconnect the original computer.
 
+## Approved device destinations
+
+An administrator with API-key or integration settings access must approve each
+device's host, port and protocol in Settings before it can connect. ProPresenter
+needs approval for both its stage-display port and API port, including when its
+connection is configured locally in the Bridge. Prepare these approvals before
+switching a venue to the updated Bridge.
+
+Deploy the server and updated native apps during a maintenance window. The server
+refuses old Bridges without device-policy support, including existing sockets
+restored after deployment. The updated Bridge also refuses device traffic when
+an older server supplies no approval policy. There is no permissive fallback.
+
+Removing approval blocks further commands and closes affected native connections.
+This stops repeating lighting output and ProPresenter polling. The settings page
+waits for the active Bridge to acknowledge that it applied the policy. If an older
+or unresponsive Bridge cannot acknowledge it, the saved policy remains in force,
+its cloud connection closes, and the page tells the operator to check the equipment
+and update or restart the Bridge. A saved policy alone does not prove that physical
+equipment has stopped. This changes connections, not the equipment's last state.
+
 ## Development
 
 From the repository root:

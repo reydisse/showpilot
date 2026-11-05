@@ -1,5 +1,5 @@
-import { authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
-import { BridgeTargetError } from "@/lib/bridge-target";
+import { approveBridgeTarget, removeBridgeTarget, listBridgeTargets, authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
+import { BridgeTargetError, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
@@ -58,6 +58,7 @@ interface SocketAttachment {
   credentialId?: string;
   installationId?: string;
   installationLabel?: string;
+  targetPolicyVersion?: 1;
   timecodeTarget?: TimecodeTarget;
   authClaim?: LiveSessionAuthorityClaim;
 }
@@ -154,6 +155,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     bridgeInfo: bridgeInfo ?? undefined,
     installationId: typeof value.installationId === "string" ? value.installationId : undefined,
     installationLabel: typeof value.installationLabel === "string" ? value.installationLabel : undefined,
+    targetPolicyVersion: value.targetPolicyVersion === 1 ? 1 : undefined,
     credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
     timecodeTarget: isRecord(value.timecodeTarget)
       && value.timecodeTarget.orgId === value.orgId
@@ -175,6 +177,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
 
 function bridgeAuditAction(type: string): BridgeAuditAction | null {
   switch (type) {
+    case "automatic-connection-requested": return "connect-device";
     case "bridge-status": case "command-response": case "device-event":
     case "device-status": case "pong": case "timecode-feed": return type;
     default: return null;
@@ -186,6 +189,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private readonly ownership = new SerialCommandExecutor();
   private activeInstallation: BridgeSelection | null = null;
   private pendingDemotion: { socket: WebSocket; id: string; resolve: () => void; reject: (error: Error) => void } | null = null;
+  private pendingPolicy: { socket: WebSocket; id: string; resolve: () => void } | null = null;
   private readonly bridges = new Map<WebSocket, BridgeSelection & { credentialId: string }>();
   private previewWrite: Promise<void> = Promise.resolve();
   private clientSessions: Set<WebSocket> = new Set();
@@ -213,6 +217,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           if (!authority) {
             ws.serializeAttachment({ role: "bridge", orgId: attachment.orgId });
             ws.close(4403, "Reconnect with installation credentials");
+            continue;
+          }
+          if (attachment.targetPolicyVersion !== 1) {
+            ws.close(4406, "Update the Bridge to support approved device destinations");
             continue;
           }
           const installation = { installationId: authority.installationId, label: authority.label };
@@ -288,6 +296,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const authClaim = this.readAuthorityClaim(url);
         if (role === "bridge") {
           if (!credentialId || !(await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId))) return new Response("Unauthorized", { status: 401 });
+          if (request.headers.get("x-showpilot-bridge-policy") !== "1") return new Response("Update ShowPilot Desktop or Bridge to support approved device destinations.", { status: 426 });
         } else if (role !== "client" || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, "devices:access"))) {
           return new Response("Unauthorized", { status: 401 });
         }
@@ -299,7 +308,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           role: role === "bridge" ? "bridge" : "client",
           orgId: this.orgId,
           ...(role === "bridge"
-            ? { credentialId: credentialId ?? undefined }
+            ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 1 as const }
             : {
                 authClaim: authClaim ?? undefined,
               }),
@@ -329,7 +338,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             this.activeInstallation = installation;
           }
           if (this.activeInstallation.installationId === installation.installationId) await this.activateConnection(server);
-          this.sendBridgeRole(server);
+          await this.sendBridgeRole(server);
           await this.refreshConnections();
           this.broadcastStatus();
         } else {
@@ -377,16 +386,17 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     this.broadcastToClients(JSON.stringify({ type: "bridge-status", online: this.bridgeOnline, ...this.bridgeInfo, ...this.selectionStatus() }));
   }
 
-  private sendBridgeRole(socket: WebSocket, role = socket === this.bridgeWs ? "active" : "standby", selectionId?: string): void {
+  private async sendBridgeRole(socket: WebSocket, role = socket === this.bridgeWs ? "active" : "standby", selectionId?: string): Promise<void> {
     const installation = this.bridges.get(socket);
     if (!installation) return;
-    socket.send(JSON.stringify({ type: "bridge-role", role, selectionId, installationId: installation.installationId, activeInstallation: this.activeInstallation }));
+    const approvedTargets = role === "active" ? await listBridgeTargets(this.env.DB, this.orgId) : [];
+    socket.send(JSON.stringify({ type: "bridge-role", role, selectionId, approvedTargets, installationId: installation.installationId, activeInstallation: this.activeInstallation }));
   }
 
-  private sendBridgeRoles(): void {
+  private async sendBridgeRoles(): Promise<void> {
     for (const socket of this.bridges.keys()) {
-      try { this.sendBridgeRole(socket); }
-      catch { this.disconnectSocket(socket); }
+      try { await this.sendBridgeRole(socket); }
+      catch { socket.close(1011, "Bridge destination approvals unavailable"); this.disconnectSocket(socket); }
     }
   }
 
@@ -397,7 +407,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       await new Promise<void>((resolve, reject) => {
         this.pendingDemotion = { socket, id, resolve, reject };
         timer = setTimeout(() => reject(new Error("The active Bridge did not confirm standby. Update or stop that Bridge before taking control here.")), 5000);
-        this.sendBridgeRole(socket, "standby", id);
+        void this.sendBridgeRole(socket, "standby", id).catch(reject);
       });
     } finally {
       if (timer) clearTimeout(timer);
@@ -454,10 +464,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         } catch (error) {
           // Failed preparation/publication leaves the old selected installation.
           // Restore its role if it already acknowledged standby.
-          this.sendBridgeRoles();
+          await this.sendBridgeRoles();
           throw error;
         }
-        this.sendBridgeRoles();
+        await this.sendBridgeRoles();
         this.broadcastStatus();
       }
       return this.statusSnapshot();
@@ -470,6 +480,48 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   async getBridgeStatus(): Promise<BridgeRelayStatus> {
     return this.ownership.run(async () => { await this.refreshConnections(); return this.statusSnapshot(); });
+  }
+
+  /** Worker-only RPC, after settings permission checks. Serializes policy
+   * publication with takeover and dispatch, including native output shutdown. */
+  async changeTargetApproval(input: { orgId: string; actorUserId: string } & (
+    | { action: "approve"; label: string; endpoint: BridgeEndpoint }
+    | { action: "remove"; id: string }
+  )) {
+    return this.ownership.run(async () => {
+      this.orgId ||= input.orgId;
+      if (this.orgId !== input.orgId) throw new Error("Bridge organization mismatch.");
+      if (input.action === "approve") await approveBridgeTarget(this.env.DB, input);
+      else await removeBridgeTarget(this.env.DB, input);
+      let targets;
+      try { targets = await listBridgeTargets(this.env.DB, this.orgId); }
+      catch {
+        if (this.bridgeWs) {
+          this.bridgeWs.close(1011, "Bridge destination approvals unavailable");
+          this.disconnectSocket(this.bridgeWs);
+        }
+        throw new Error("Approval saved, but the updated list could not be loaded. The Bridge connection was closed. Refresh before continuing.");
+      }
+      const socket = this.bridgeWs;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return { targets, warning: null };
+      const id = crypto.randomUUID();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.pendingPolicy = { socket, id, resolve };
+          timer = setTimeout(() => reject(new Error("Bridge approval acknowledgement timed out")), 5000);
+          socket.send(JSON.stringify({ type: "bridge-policy", policyId: id, approvedTargets: targets }));
+        });
+        return { targets, warning: null };
+      } catch {
+        socket.close(4403, "Reconnect to apply destination approvals");
+        this.disconnectSocket(socket);
+        return { targets, warning: "Approval saved. The Bridge did not confirm that it applied the change, so its cloud connection was closed. Check the equipment and update or restart the Bridge before continuing." };
+      } finally {
+        if (timer) clearTimeout(timer);
+        this.pendingPolicy = null;
+      }
+    });
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
@@ -529,6 +581,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const message: unknown = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
       if (isRecord(message) && message.type === "bridge-role-applied") {
         if (this.pendingDemotion?.socket === ws && message.selectionId === this.pendingDemotion.id && message.role === "standby") this.pendingDemotion.resolve();
+        return Promise.resolve();
+      }
+      if (isRecord(message) && message.type === "bridge-policy-applied") {
+        if (this.pendingPolicy?.socket === ws && message.policyId === this.pendingPolicy.id) this.pendingPolicy.resolve();
         return Promise.resolve();
       }
     } catch { return Promise.resolve(); }
@@ -624,6 +680,18 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   private async handleBridgeMessage(msg: BridgeMessage): Promise<void> {
     switch (msg.type) {
+      case "automatic-connection-requested": {
+        if (typeof msg.target !== "string" || !this.activeInstallation) break;
+        try {
+          await authorizeBridgeTarget(this.env.DB, this.orgId, {
+            type: "connect-device", protocol: "propresenter", target: msg.target,
+            settings: { apiPort: msg.apiPort },
+          }, { source: "automation", actorUserId: null, executionId: `installation:${this.activeInstallation.installationId}:${crypto.randomUUID()}` });
+        } catch {
+          this.bridgeWs?.send(JSON.stringify({ type: "disconnect-device", target: msg.target }));
+        }
+        break;
+      }
       case "bridge-status":
         this.bridgeInfo = {
           version: typeof msg.version === "string" ? msg.version : undefined,
@@ -848,6 +916,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       bridgeInfo: this.bridgeInfo,
       installationId: this.activeInstallation?.installationId,
       installationLabel: this.activeInstallation?.label,
+      targetPolicyVersion: 1,
       timecodeTarget: this.timecodeTarget ?? undefined,
       ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);

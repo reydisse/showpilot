@@ -3,8 +3,8 @@ import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { assertOrgPermission } from "./org-access";
 import { idSchema, parseOrThrow } from "./validation";
-import { parseBridgeEndpoint } from "./bridge-target";
-import { approveBridgeTarget, listBridgeTargets, removeBridgeTarget } from "./bridge-targets.server";
+import { parseBridgeEndpoint } from "@showpilot/shared/bridge-target";
+import { listBridgeTargets } from "./bridge-targets.server";
 
 const permissions = ["settings:api_keys", "settings:integrations"] as const;
 export const getBridgeTargetPolicy = createServerFn({ method: "GET" })
@@ -21,14 +21,14 @@ export const approveBridgeDestination = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { user } = await assertOrgPermission(data.orgId, permissions);
-    await approveBridgeTarget(env.DB, { ...data, actorUserId: user.id });
-    return listBridgeTargets(env.DB, data.orgId);
+    const { targets, warning } = await env.BRIDGE_RELAY.getByName(data.orgId).changeTargetApproval({ ...data, action: "approve", actorUserId: user.id });
+    return { targets, warning };
   });
 
 export const removeBridgeDestination = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema, confirmed: z.literal(true) }), data))
   .handler(async ({ data }) => {
     const { user } = await assertOrgPermission(data.orgId, permissions);
-    await removeBridgeTarget(env.DB, { orgId: data.orgId, id: data.id, actorUserId: user.id });
-    return listBridgeTargets(env.DB, data.orgId);
+    const { targets, warning } = await env.BRIDGE_RELAY.getByName(data.orgId).changeTargetApproval({ orgId: data.orgId, id: data.id, action: "remove", actorUserId: user.id });
+    return { targets, warning };
   });

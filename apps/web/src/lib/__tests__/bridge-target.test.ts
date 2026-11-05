@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBridgeHost, parseBridgeEndpoint, resolveBridgeEndpoints } from "../bridge-target";
+import { normalizeBridgeHost, parseBridgeEndpoint, resolveBridgeEndpoints } from "@showpilot/shared/bridge-target";
 
 describe("Bridge destination boundaries", () => {
   it.each([

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { approveTestBridgeTarget, bridgeClientTestRequest, openTestBridge } from "@/test/bridge-fixtures";
 import { listBridgeTargets, removeBridgeTarget } from "../bridge-targets.server";
@@ -82,4 +82,99 @@ describe("live Bridge target enforcement", () => {
     const audit = await env.DB.prepare("SELECT actorUserId, source, executionId FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested'").bind(orgId).all();
     expect(audit.results).toEqual([{ actorUserId: `${orgId}-operator`, source: "operator", executionId: null }]);
   });
+});
+
+it("publishes approval removal to the active Bridge and waits for its exact acknowledgement", async () => {
+  const orgId = "target-policy-confirmation";
+  const { stub, socket } = await openTestBridge(orgId);
+  await approveTestBridgeTarget(orgId, "obs", command.target);
+  const [approved] = await listBridgeTargets(env.DB, orgId);
+  const browser = await client(orgId);
+  const policy = next(socket, "bridge-policy");
+  let finished = false;
+  const removal = stub.changeTargetApproval({ orgId, action: "remove", id: approved.id, actorUserId: "fixture-admin" }).then(result => { finished = true; return result; });
+  const published = await policy;
+  expect(published.approvedTargets).toEqual([]);
+  expect(await listBridgeTargets(env.DB, orgId)).toEqual([]);
+  browser.send(JSON.stringify({ type: "bridge-policy-applied", policyId: published.policyId }));
+  socket.send(JSON.stringify({ type: "bridge-policy-applied", policyId: "stale" }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(finished).toBe(false);
+  socket.send(JSON.stringify({ type: "bridge-policy-applied", policyId: published.policyId }));
+  expect(await removal).toMatchObject({ targets: [], warning: null });
+  expect(await stub.dispatchBridgeMessage(command, actor)).toMatchObject({ success: false });
+});
+
+it("keeps the saved approval and reports uncertainty when an older Bridge cannot acknowledge policy changes", async () => {
+  const orgId = "target-policy-legacy";
+  const { stub, socket } = await openTestBridge(orgId);
+  const closed = new Promise<number>(resolve => socket.addEventListener("close", event => resolve(event.code)));
+  const result = await stub.changeTargetApproval({ orgId, action: "approve", label: "OBS", endpoint: { host: "venue.local", port: 4455, protocol: "obs" }, actorUserId: "fixture-admin" });
+  expect(result.targets).toHaveLength(1);
+  expect(result.warning).toContain("did not confirm");
+  expect(await closed).toBe(4403);
+  expect((await stub.getBridgeStatus()).bridgeOnline).toBe(false);
+  expect(await listBridgeTargets(env.DB, orgId)).toHaveLength(1);
+}, 10_000);
+
+it("serializes policy edits so an older acknowledgement cannot overwrite a newer approval", async () => {
+  const orgId = "target-policy-ordered";
+  const { stub, socket } = await openTestBridge(orgId);
+  const input = { orgId, action: "approve" as const, label: "First", endpoint: { host: "venue.local", port: 4455, protocol: "obs" as const }, actorUserId: "fixture-admin" };
+  const firstPolicy = next(socket, "bridge-policy");
+  const first = stub.changeTargetApproval(input);
+  const firstMessage = await firstPolicy;
+  const second = stub.changeTargetApproval({ ...input, label: "Second", endpoint: { ...input.endpoint, port: 4456 } });
+  expect(await listBridgeTargets(env.DB, orgId)).toHaveLength(1);
+  const secondPolicy = next(socket, "bridge-policy");
+  socket.send(JSON.stringify({ type: "bridge-policy-applied", policyId: firstMessage.policyId }));
+  expect((await first).targets).toHaveLength(1);
+  const secondMessage = await secondPolicy;
+  expect(secondMessage.approvedTargets).toHaveLength(2);
+  socket.send(JSON.stringify({ type: "bridge-policy-applied", policyId: secondMessage.policyId }));
+  expect((await second).targets).toHaveLength(2);
+});
+
+it("refuses a legacy Bridge upgrade and cannot obtain policy support from URL parameters", async () => {
+  const orgId = "target-policy-legacy-upgrade";
+  const { stub, credential } = await openTestBridge(orgId);
+  const url = `https://bridge.test/ws?${new URLSearchParams({ orgId, role: "bridge", authCredentialId: credential.credentialId, targetPolicyVersion: "1" })}`;
+  const response = await stub.fetch(new Request(url, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } }));
+  expect(response.status).toBe(426);
+  expect(await response.text()).toContain("Update ShowPilot");
+});
+
+it("closes a pre-policy connection restored after a server upgrade", async () => {
+  const { stub, socket } = await openTestBridge("target-policy-legacy-restore");
+  await runInDurableObject(stub, async (_instance, state) => {
+    for (const ws of state.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      delete attachment.targetPolicyVersion;
+      ws.serializeAttachment(attachment);
+    }
+  });
+  const closed = new Promise<number>(resolve => socket.addEventListener("close", event => resolve(event.code)));
+  await evictDurableObject(stub);
+  expect((await stub.getBridgeStatus()).bridgeOnline).toBe(false);
+  expect(await closed).toBe(4406);
+});
+
+it("attributes automatic ProPresenter connections to the authenticated installation without accepting actor or credential fields", async () => {
+  const orgId = "target-policy-local-propresenter";
+  const { socket, credential } = await openTestBridge(orgId);
+  const target = "propresenter:venue.local:50001";
+  await approveTestBridgeTarget(orgId, "propresenter", target);
+  socket.send(JSON.stringify({ type: "automatic-connection-requested", target, apiPort: 1025, actorUserId: "forged", password: "do-not-store-local-secret" }));
+  // A normal status message and its client broadcast establish that the
+  // preceding automatic-connection message has finished in the ownership queue.
+  const browser = await client(orgId);
+  const status = next(browser, "bridge-status");
+  socket.send(JSON.stringify({ type: "bridge-status", targets: [target] }));
+  await status;
+  const audit = await env.DB.prepare("SELECT actorUserId, source, executionId, port FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested' ORDER BY port").bind(orgId).all();
+  expect(audit.results).toEqual([1025, 50001].map(port => ({ actorUserId: null, source: "automation", executionId: expect.stringContaining(`installation:${credential.installationId}:`), port })));
+  expect(JSON.stringify(await env.DB.prepare("SELECT * FROM bridge_target_audit WHERE orgId = ?").bind(orgId).all())).not.toContain("do-not-store-local-secret");
+  const disconnect = next(socket, "disconnect-device");
+  socket.send(JSON.stringify({ type: "automatic-connection-requested", target, apiPort: 9999 }));
+  expect(await disconnect).toEqual({ type: "disconnect-device", target });
 });

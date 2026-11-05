@@ -1,8 +1,10 @@
 import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Bridge } from "../bridge";
+import { resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 
 interface TestableBridge {
+  applyTargetPolicy(endpoints: BridgeEndpoint[]): Promise<void>;
   handleConnectDevice(message: {
     type: "connect-device";
     protocol: string;
@@ -45,6 +47,7 @@ describe("Bridge device lifecycle", () => {
       target: `127.0.0.1:${address.port}`,
       settings: {},
     };
+    await bridge.applyTargetPolicy(resolveBridgeEndpoints(message));
     await bridge.handleConnectDevice(message);
     await new Promise((resolve) => setTimeout(resolve, 15));
     await bridge.handleConnectDevice(message);
