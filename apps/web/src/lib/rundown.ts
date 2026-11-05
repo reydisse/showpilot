@@ -1,5 +1,6 @@
 import { markDatabaseWrite, requestDatabase } from "@/lib/request-database.server";
 import { migrateRundownItemSnapshot, readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageKey, rundownItemStorageStatements } from "@/lib/rundown-item-storage.server";
+import { rundownRelayKey } from "@/lib/rundown-relay-key";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { parseRelayPPSlide } from "@/lib/rundown-relay-payload";
@@ -726,63 +727,32 @@ export const getRundownOpeningDate = createServerFn({ method: "GET" })
 /** appSetting key holding the service the org is currently working on. */
 export const ACTIVE_SERVICE_DATE_KEY = "active-service-date";
 
-/**
- * Remember which service the rundown editor is on.
- *
- * The editor's date was pure React state, which meant nothing else could
- * follow it: open a service from years ago in the rundown and the cue
- * sheet still sat on today, looking empty. Persisting it per org makes
- * the rundown the single thing that decides which service is "current",
- * and every other production page can just read it.
- *
- * Notes and cues stay keyed by their own service date, so moving the
- * active date never rewrites history — step back to last Sunday and last
- * Sunday's notes are exactly where they were left.
- */
+/** Prepare the selected show and publish its venue target as one relay operation. */
 export const setActiveServiceDate = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(orgServiceDateSchema, data))
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    const prisma = getPrisma();
-    if (data.showId) {
-      const show = await prisma.rundown.findFirst({
-        where: {
-          id: data.showId,
-          orgId: data.orgId,
-          serviceDate: data.serviceDate,
-        },
-        select: { id: true },
-      });
-      if (!show) throw new Error("Show not found");
-    }
-    await prisma.$transaction([
-      prisma.appSetting.upsert({
-        where: {
-          orgId_key: { orgId: data.orgId, key: ACTIVE_SERVICE_DATE_KEY },
-        },
-        update: { value: data.serviceDate },
-        create: {
-          orgId: data.orgId,
-          key: ACTIVE_SERVICE_DATE_KEY,
-          value: data.serviceDate,
-        },
-      }),
-      data.showId
-        ? prisma.appSetting.upsert({
-            where: { orgId_key: { orgId: data.orgId, key: "active-show-id" } },
-            update: { value: data.showId },
-            create: {
-              orgId: data.orgId,
-              key: "active-show-id",
-              value: data.showId,
-            },
-          })
-        : prisma.appSetting.deleteMany({
-            where: { orgId: data.orgId, key: "active-show-id" },
-          }),
-    ]);
-    // Each show owns its lyrics. Switching the active show must not clear another room.
-    return { ok: true as const };
+    markDatabaseWrite();
+    const saved = await getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
+    const showId = saved.meta?.showId;
+    if (!showId) throw new Error("Save this show before taking it live.");
+    const bindings = env as unknown as RundownRelayEnv;
+    if (!bindings.RUNDOWN_RELAY) throw new Error("Live show activation is unavailable.");
+    const key = rundownRelayKey(data.orgId, data.serviceDate, data.serviceDate, showId);
+    const relay = bindings.RUNDOWN_RELAY.get(bindings.RUNDOWN_RELAY.idFromName(key));
+    const query = new URLSearchParams({ orgId: data.orgId, serviceDate: data.serviceDate, showId, access: "edit" });
+    const response = await relay.fetch(rundownInternalRequest(`https://rundown.local/activate?${query}`, bindings.BETTER_AUTH_SECRET, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "seed", payload: {
+        items: saved.items, timer: saved.timer, serviceName: saved.meta?.name,
+        scheduledStartTime: saved.meta?.scheduledStartTime, scheduledCallTime: saved.meta?.scheduledCallTime,
+      } }),
+    }));
+    const result: unknown = await response.json();
+    if (!response.ok) throw new Error(isObject(result) && typeof result.error === "string" ? result.error : "Could not take this show live.");
+    const target = z.object({ ok: z.literal(true), showId: idSchema, serviceDate: serviceDateSchema }).parse(result);
+    if (target.showId !== showId || target.serviceDate !== data.serviceDate) throw new Error("Live show activation returned a different target. Refresh before continuing.");
+    return target;
   });
 
 /**

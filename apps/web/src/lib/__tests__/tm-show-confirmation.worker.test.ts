@@ -57,7 +57,7 @@ describe("technical dashboard show confirmation", () => {
     expect((await depsB.relayState(orgId)).timer.playback).toBe("play");
     await expect(depsA.relayCommand("another-org", "timer-stop")).rejects.toThrow("organization mismatch");
     await expect(depsB.relayCommand(orgId, "reset")).rejects.toThrow("Rundown command failed");
-    await expect(runTmControl({ data: { orgId, action: "timer-stop", target: { showId: targetB.showId, serviceDate } } })).resolves.toEqual({ ok: true, action: "timer-stop" });
+    await expect(runTmControl({ data: { orgId, action: "timer-stop", target: { showId: targetB.showId, serviceDate } } })).resolves.toEqual({ ok: true, action: "timer-stop", showId: targetB.showId, serviceDate });
     expect((await depsB.relayState(orgId)).timer.playback).toBe("stop");
   });
 });

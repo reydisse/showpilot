@@ -49,6 +49,33 @@ const cue = {
 };
 
 describe("show-scoped timecode rooms", () => {
+  it("identifies the resolved show on automation responses and broadcasts after the active pointer changes", async () => {
+    const [a, b] = await shows();
+    const morning = await room(a);
+    const response = await morning.stub.fetch(morning.url("/ws"), { headers: { Upgrade: "websocket" } });
+    const socket = response.webSocket;
+    if (!socket) throw new Error("Missing observer socket");
+    const messages: Array<{ type: string; showId: string; serviceDate: string }> = [];
+    socket.addEventListener("message", event => { messages.push(JSON.parse(String(event.data))); });
+    socket.accept();
+    await expect.poll(() => messages.some(message => message.type === "hydrate")).toBe(true);
+    await morning.command("add-event", cue);
+    await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key='active-show-id'").bind(b.showId, a.orgId).run();
+    await morning.command("feed-tc", { timecode: cue.triggerTimecode, format: { frameRate: 30, dropFrame: "ndf" } });
+    await expect.poll(() => messages.some(message => message.type === "event-fired")).toBe(true);
+    for (const message of messages) expect(message).toMatchObject({ showId: a.showId, serviceDate: a.serviceDate });
+    const events = await morning.stub.fetch(morning.url("/events"));
+    expect(events.headers.get("X-ShowPilot-Show-Id")).toBe(a.showId);
+    expect(events.headers.get("X-ShowPilot-Service-Date")).toBe(a.serviceDate);
+    expect(await events.json()).toEqual([expect.objectContaining({ fired: true })]);
+    const command = await morning.stub.fetch(morning.url("/command"), { method: "POST", body: JSON.stringify({ action: "set-source", payload: { source: "network" } }) });
+    expect(command.status).toBe(400);
+    expect(await command.json()).toMatchObject({ ok: false, showId: a.showId, serviceDate: a.serviceDate });
+    // Finish the fixture clock before teardown; leave no watchdog racing later evictions.
+    await morning.command("stop");
+    socket.close();
+  });
+
   it("keeps a rescheduled show's clock and prevents an old Bridge date from reverting its metadata", async () => {
     const [a] = await shows();
     const morning = await room(a);

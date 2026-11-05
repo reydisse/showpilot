@@ -46,8 +46,8 @@ export function companionJson(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: BASE_HEADERS });
 }
 
-export function companionError(code: string, message: string, status: number): Response {
-  return companionJson({ ok: false, error: code, message }, status);
+export function companionError(code: string, message: string, status: number, target?: { showId: string | null; serviceDate: string }): Response {
+  return companionJson({ ok: false, error: code, message, showId: target?.showId ?? null, serviceDate: target?.serviceDate ?? null }, status);
 }
 
 // ─── Auth ────────────────────────────────────────────────────
@@ -287,6 +287,10 @@ export async function runCompanion<S extends z.ZodType>(opts: RunOptions<S>): Pr
     return companionError("rate_limited", "Too many requests", 429);
   }
 
+  let target: RundownTarget;
+  try { target = await getActiveRundownRelayTarget(env.DB, auth.orgId); }
+  catch { return companionError("target_unavailable", "Could not resolve the active show", 503); }
+
   let body: unknown = undefined;
   if (opts.schema) {
     let raw: unknown = {};
@@ -294,22 +298,26 @@ export async function runCompanion<S extends z.ZodType>(opts: RunOptions<S>): Pr
       const text = await opts.request.text();
       raw = text ? JSON.parse(text) : {};
     } catch {
-      return companionError("bad_request", "Body must be valid JSON", 400);
+      return companionError("bad_request", "Body must be valid JSON", 400, target);
     }
     try {
       body = parseOrThrow(opts.schema, raw);
     } catch (err) {
       const message = err instanceof ValidationError ? err.message : "Invalid request body";
-      return companionError("bad_request", message, 400);
+      return companionError("bad_request", message, 400, target);
     }
   }
 
-  const deps = buildCompanionDeps();
-  const result = await opts.handler({
-    orgId: auth.orgId,
-    orgSlug: auth.orgSlug,
-    body: body as never,
-    deps,
-  });
-  return companionJson(result.body, result.status);
+  const deps = buildCompanionDeps({ orgId: auth.orgId, target });
+  try {
+    const result = await opts.handler({
+      orgId: auth.orgId,
+      orgSlug: auth.orgSlug,
+      body: body as never,
+      deps,
+    });
+    return companionJson({ ...result.body, showId: target.showId, serviceDate: target.serviceDate }, result.status);
+  } catch {
+    return companionError("control_failed", "Control was not confirmed. Refresh the show state before retrying.", 503, target);
+  }
 }

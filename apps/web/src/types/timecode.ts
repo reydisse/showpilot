@@ -175,7 +175,7 @@ export interface TimecodeSettings {
 
 export type TimecodeControlStatus = "available" | "yours" | "other";
 
-export type TimecodeWsMessage =
+export type TimecodeWsMessage = (
   | { type: "sync"; lastSeenSequence: number | null }
   | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus }
   | { type: "hydrate"; state: TimecodeDisplayState }
@@ -187,7 +187,8 @@ export type TimecodeWsMessage =
   | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
   | { type: "command-rejected"; action: TimecodeCommand; error: string }
   | { type: "master-status"; granted: boolean }
-  | { type: "control-status"; control: TimecodeControlStatus };
+  | { type: "control-status"; control: TimecodeControlStatus }
+) & { showId?: string | null; serviceDate?: string | null };
 
 export const TIMECODE_COMMANDS = [
   "claim-control",

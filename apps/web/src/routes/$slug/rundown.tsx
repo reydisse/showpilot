@@ -361,10 +361,10 @@ function RundownPage() {
       activePublishInFlightRef.current = true;
       setActivePublishPending(true);
       try {
-        await setActiveServiceDate({
+        const activated = await setActiveServiceDate({
           data: { orgId, serviceDate: date, showId: targetShowId },
         });
-        setLiveTarget({ serviceDate: date, showId: targetShowId ?? null });
+        setLiveTarget(activated);
         window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT));
       } finally {
         activePublishInFlightRef.current = false;

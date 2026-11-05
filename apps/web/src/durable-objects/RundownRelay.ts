@@ -219,7 +219,7 @@ export class RundownRelay extends DurableObject {
   /** Persist in the same serialized order in which relay commands are accepted. */
   private async persistAuthoritativeSnapshot(action: string, previousState: RundownState): Promise<void> {
     if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
-    const persistsFullItems = action === "seed"
+    const persistsFullItems = action === "activate" || action === "seed"
       || action === "add-item"
       || action === "update-item"
       || action === "remove-item"
@@ -265,7 +265,7 @@ export class RundownRelay extends DurableObject {
 
     if (persistsTimer) {
       const scope = { orgId: this.orgId, showId: this.state.showId, serviceDate: this.state.serviceDate ?? "" };
-      const baseline = action === "seed" ? await readStoredRundownItems(env.DB, scope) : previousState.items;
+      const baseline = action === "seed" || action === "activate" ? await readStoredRundownItems(env.DB, scope) : previousState.items;
       statements.push(...rundownItemDiffStatements(env.DB, scope, baseline, this.state.items));
       if (persistsFullItems) statements.push(...rundownItemStorageStatements(env.DB, scope));
     }
@@ -340,37 +340,27 @@ export class RundownRelay extends DurableObject {
       ));
     }
 
+    if (action === "activate") {
+      // Both pointer values and the prepared room's rows/timer commit together.
+      // The scalar subquery fails the entire batch via NOT NULL if the show was
+      // removed or rescheduled while activation waited for storage.
+      statements.push(env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, 'active-show-id', (SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)))
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      ).bind(crypto.randomUUID(), this.orgId, this.state.showId, this.orgId, this.state.serviceDate));
+      statements.push(env.DB.prepare(
+        `INSERT INTO app_setting (id, orgId, key, value)
+         VALUES (?, ?, 'active-service-date', ?)
+         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
+      ).bind(crypto.randomUUID(), this.orgId, this.state.serviceDate));
+    }
+
     // A metadata command can be valid yet make no durable change (for
     // example, saving an unchanged show title). Avoid depending on whether a
     // runtime accepts an empty D1 batch.
     if (statements.length === 0) return;
     await env.DB.batch(statements);
-  }
-
-  private persistActiveShow(): void {
-    if (!this.orgId || !this.state.serviceDate) return;
-    const env = this.env as unknown as Env;
-    const writes = [
-      env.DB.prepare(
-        `INSERT INTO app_setting (id, orgId, key, value)
-         VALUES (?, ?, 'active-service-date', ?)
-         ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
-      ).bind(crypto.randomUUID(), this.orgId, this.state.serviceDate).run(),
-    ];
-    if (this.state.showId) {
-      writes.push(
-        env.DB.prepare(
-          `INSERT INTO app_setting (id, orgId, key, value)
-           VALUES (?, ?, 'active-show-id', ?)
-           ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
-        ).bind(crypto.randomUUID(), this.orgId, this.state.showId).run(),
-      );
-    }
-    this.ctx.waitUntil(
-      Promise.all(writes).catch((error) =>
-        console.error("[RundownRelay] active show persistence failed", error),
-      ),
-    );
   }
 
   private async readProPresenterStageDisplaySetting(): Promise<boolean> {
@@ -397,6 +387,14 @@ export class RundownRelay extends DurableObject {
       ? { ...this.state.ppPreviewSlide, updatedAt: Date.now() }
       : null;
     await this.persistState();
+  }
+
+  private resolvedTarget() {
+    return { showId: this.state.showId ?? null, serviceDate: this.state.serviceDate ?? null };
+  }
+
+  private targetJson(data: object, init?: ResponseInit): Response {
+    return Response.json({ ...data, ...this.resolvedTarget() }, init);
   }
 
   fetch(request: Request): Promise<Response> {
@@ -431,7 +429,7 @@ export class RundownRelay extends DurableObject {
       };
       this.hydrated = true;
       this.hydrationPromise = null;
-      return Response.json({ ok: true });
+      return this.targetJson({ ok: true });
     }
     if (url.pathname === "/internal/purge-show" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
@@ -444,7 +442,7 @@ export class RundownRelay extends DurableObject {
       const belongsToTarget = force
         || (targetShowId !== null && this.state.showId === targetShowId)
         || (!this.state.showId && targetServiceDate !== null && this.state.serviceDate === targetServiceDate);
-      if (!belongsToTarget) return Response.json({ ok: true, skipped: true });
+      if (!belongsToTarget) return this.targetJson({ ok: true, skipped: true });
 
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Show deleted");
       await this.ctx.storage.deleteAll();
@@ -464,12 +462,12 @@ export class RundownRelay extends DurableObject {
       };
       this.hydrated = true;
       this.hydrationPromise = null;
-      return Response.json({ ok: true });
+      return this.targetJson({ ok: true });
     }
-    const internal = url.pathname === "/internal/command" || url.pathname === "/internal/state";
+    const internal = ["/internal/command", "/internal/state", "/internal/activate"].includes(url.pathname);
     if (internal && (!this.env.BETTER_AUTH_SECRET
       || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET
-      || request.method !== (url.pathname === "/internal/command" ? "POST" : "GET"))) {
+      || request.method !== (url.pathname === "/internal/state" ? "GET" : "POST"))) {
       return new Response("Unauthorized", { status: 401 });
     }
     const path = internal ? url.pathname.slice("/internal".length) : url.pathname;
@@ -511,6 +509,36 @@ export class RundownRelay extends DurableObject {
       await this.persistState();
     }
 
+    if (internal && path === "/activate") {
+      if (!showId || !serviceDate || !canWrite) {
+        return this.targetJson({ ok: false, error: "Choose a saved show before taking it live." }, { status: 400 });
+      }
+      try {
+        const body = parseRundownRelayHttpCommand(await request.json());
+        if (!body || body.action !== "seed" || body.payload?.force === true) {
+          return this.targetJson({ ok: false, error: "Invalid show preparation." }, { status: 400 });
+        }
+        const available = await this.env.DB.prepare(
+          "SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)",
+        ).bind(showId, this.orgId, serviceDate).first();
+        if (!available) return this.targetJson({ ok: false, error: "This show is unavailable or its date changed. Refresh before taking it live." }, { status: 409 });
+        // A stable show can be rescheduled without replacing its live cue state.
+        this.state.serviceDate = serviceDate;
+        // Loader data may be older than the live room. Ordinary seed is ignored
+        // once initialized, including an intentional empty rundown.
+        if (!await this.handleCommand("seed", body.payload)) throw new Error("Show preparation was not saved.");
+        // Durable Object storage and D1 have no shared transaction. Prepare the
+        // room durably first; publishing the pointer is the final commit. A
+        // failed publication leaves this room available for retry, never active.
+        await this.persistState();
+        await this.persistAuthoritativeSnapshot("activate", this.cloneState());
+        return this.targetJson({ ok: true, showId: this.state.showId, serviceDate: this.state.serviceDate, revision: this.state.revision });
+      } catch (error) {
+        console.error("[RundownRelay] show activation failed", error);
+        return this.targetJson({ ok: false, error: "Could not confirm this show is live. Refresh the active show before retrying.", showId: this.state.showId, serviceDate: this.state.serviceDate }, { status: 503 });
+      }
+    }
+
     if (url.pathname === "/ws") {
       if (authClaim && !canWrite && !canObserve) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
@@ -533,7 +561,7 @@ export class RundownRelay extends DurableObject {
       server.send(
         JSON.stringify({
           type: "hydrate",
-          state: canWrite || canObserve
+          ...this.resolvedTarget(),          state: canWrite || canObserve
             ? this.getPublicState()
             : this.getDisplayState(),
         })
@@ -543,7 +571,7 @@ export class RundownRelay extends DurableObject {
     }
 
     if (path === "/state") {
-      return Response.json(
+      return this.targetJson(
         canWrite || canObserve ? this.getPublicState() : this.getDisplayState(),
       );
     }
@@ -556,11 +584,11 @@ export class RundownRelay extends DurableObject {
       try {
         rawBody = await request.json();
       } catch {
-        return Response.json({ ok: false, reason: "invalid-command" }, { status: 400 });
+        return this.targetJson({ ok: false, reason: "invalid-command" }, { status: 400 });
       }
       const body = parseRundownRelayHttpCommand(rawBody);
       if (!body || !canApplyRundownRelayAction(writeAccess, body.action)) {
-        return Response.json({ ok: false, reason: "invalid-command" }, { status: 400 });
+        return this.targetJson({ ok: false, reason: "invalid-command" }, { status: 400 });
       }
       if (!internal && !(await this.socketCanWrite(authority))) return new Response("Unauthorized", { status: 401 });
       const decision = classifyRelayCommand(
@@ -571,10 +599,10 @@ export class RundownRelay extends DurableObject {
         body.expiresAt,
       );
       if (decision === "duplicate") {
-        return Response.json({ ok: true, duplicate: true, revision: this.state.revision });
+        return this.targetJson({ ok: true, duplicate: true, revision: this.state.revision });
       }
       if (decision === "revision-conflict" || decision === "expired") {
-        return Response.json({
+        return this.targetJson({
           ok: false,
           reason: decision,
           revision: this.state.revision,
@@ -582,7 +610,7 @@ export class RundownRelay extends DurableObject {
         }, { status: 409 });
       }
       const accepted = await this.handleCommand(body.action, body.payload, body.id);
-      return Response.json(
+      return this.targetJson(
         {
           ok: accepted,
           reason: accepted ? undefined : "invalid-command",
@@ -624,6 +652,7 @@ export class RundownRelay extends DurableObject {
         if (!parsed) {
           ws.send(JSON.stringify({
             type: "command-result",
+            ...this.resolvedTarget(),
             accepted: false,
             reason: "invalid-command",
             revision: this.state.revision,
@@ -634,6 +663,7 @@ export class RundownRelay extends DurableObject {
         if (!canApplyRundownRelayAction(attachment.writeAccess, parsed.action)) {
           ws.send(JSON.stringify({
             type: "command-result",
+            ...this.resolvedTarget(),
             id: parsed.id,
             accepted: false,
             reason: "invalid-command",
@@ -645,6 +675,7 @@ export class RundownRelay extends DurableObject {
         if (!(await this.socketCanWrite(attachment))) {
           ws.send(JSON.stringify({
             type: "command-result",
+            ...this.resolvedTarget(),
             id: parsed.id,
             accepted: false,
             reason: "forbidden",
@@ -664,6 +695,7 @@ export class RundownRelay extends DurableObject {
         if (decision === "duplicate") {
           ws.send(JSON.stringify({
             type: "command-result",
+            ...this.resolvedTarget(),
             id: parsed.id,
             accepted: true,
             duplicate: true,
@@ -676,6 +708,7 @@ export class RundownRelay extends DurableObject {
           this.sendStateToSocket(ws);
           ws.send(JSON.stringify({
             type: "command-result",
+            ...this.resolvedTarget(),
             id: parsed.id,
             accepted: false,
             reason: decision,
@@ -688,6 +721,7 @@ export class RundownRelay extends DurableObject {
         if (!accepted) this.sendStateToSocket(ws);
         ws.send(JSON.stringify({
           type: "command-result",
+          ...this.resolvedTarget(),
           id: parsed.id,
           accepted,
           reason: accepted ? undefined : "invalid-command",
@@ -744,7 +778,6 @@ export class RundownRelay extends DurableObject {
     commandId?: string,
   ): Promise<boolean> {
     const previousState = this.cloneState();
-    const previousPlayback = this.state.timer.playback;
 
     switch (action) {
       case "seed": {
@@ -1182,19 +1215,13 @@ export class RundownRelay extends DurableObject {
     await this.persistState();
     this.broadcastState();
 
-    if (previousPlayback === "stop" && this.state.timer.playback === "play") {
-      this.persistActiveShow();
-    }
-
     return true;
   }
 
   private getPublicState() {
     return {
-      // Which service these items belong to. The room is per org, not
-      // per date, so anything reading it without also driving it — the
-      // cue sheet — has to be able to tell whether the state on the wire
-      // is even about the service on screen.
+      // Each saved show owns its room. Readers use this identity to check
+      // that the state on the wire belongs to the show on screen.
       serviceDate: this.state.serviceDate ?? null,
       showId: this.state.showId ?? null,
       ...(this.state.serviceName === undefined ? {} : { serviceName: this.state.serviceName }),
@@ -1243,7 +1270,7 @@ export class RundownRelay extends DurableObject {
     if (!socketReadLeaseAllows(ws, Boolean(attachment?.writeAccess || attachment?.canObserve))) return;
     ws.send(JSON.stringify({
       type: "state",
-      state: attachment?.writeAccess || attachment?.canObserve
+      ...this.resolvedTarget(),      state: attachment?.writeAccess || attachment?.canObserve
         ? this.getPublicState()
         : this.getDisplayState(),
     }));
