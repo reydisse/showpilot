@@ -257,8 +257,12 @@
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 62,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Load Demo Show is in the empty timeline body, hidden once any event exists or the clock is running, and disabled while its load is pending. The demo is submitted as one atomic replacement group with requireEmpty/requireStopped/expectedFormat preconditions.",
+        "Real Worker test proves no demo is inserted into a running empty timeline or a populated timeline, and the same request succeeds after the clock is stopped and the timeline is empty. Server preconditions prevent a cross-operator race from injecting demo cues into a real timeline.",
+        "Validation: full web suite passed (1202 unit tests, 94 Worker tests, migration/client boundaries); typecheck and production build passed (174502 gzip bytes). All tests used local fixtures; physical MIDI hardware and the full show rehearsal remain part of later overall verification."
+      ]
     },
     {
       "id": "9f9656a51c6e6c92",
@@ -340,24 +344,37 @@
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 81,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "useTimecode reports sent/failed command transport, exposes errors, waits for matching write-session hydration, and starts local sources only after master-status grant plus running-state echo. Disconnect stops sources and pending starts; reconnect does not replay a start. MIDI permission completion after disconnect cannot activate a source.",
+        "Event and group saves remain pending until matching IDs arrive in events-update. Timeout/disconnect rejects without clearing the form. Event editor retains a stable retry ID; relay duplicates echo the canonical timeline instead of creating another event. Controls, editor and loader are disabled offline.",
+        "New regressions first failed against the original hook (offline local start, pre-grant start, immediate save completion), then passed. Hook/component tests cover grant denial, timeout, disconnection, late MIDI permission, matching group echoes, editor draft retention/retry and exact confirmation.",
+        "Validation: full web suite passed (1202 unit tests, 94 Worker tests, migration/client boundaries); typecheck and production build passed (174502 gzip bytes). All tests used local fixtures; physical MIDI hardware and the full show rehearsal remain part of later overall verification."
+      ]
     },
     {
       "id": "16d44cf526dfc43d",
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 82,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "SongCueLoader disables loads while disconnected, starting or running; waits for echoed group confirmation before closing; retains selection on failure. Invalid or mismatched map formats are shown explicitly and blocked. Offset must be a finite, nonnegative whole frame count; buildSongAutomationEvents enforces the same boundary.",
+        "Hook includes requireStopped and expectedFormat preconditions. Real Worker tests prove that a load arriving after the clock starts or the format changes leaves the existing cue group intact. Component tests cover invalid/mismatched formats, negative offsets, failed saves, pending confirmation and running/offline guards.",
+        "Validation: full web suite passed (1202 unit tests, 94 Worker tests, migration/client boundaries); typecheck and production build passed (174502 gzip bytes). All tests used local fixtures; physical MIDI hardware and the full show rehearsal remain part of later overall verification."
+      ]
     },
     {
       "id": "125cf3708508fdb7",
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 83,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Both clock displays and source controls derive running state from the same authoritative relay snapshot; local generator activation waits for a grant and running-state echo. TimecodeDisplay exposes matching accessible running/stopped/disconnected status.",
+        "A test renders the real useTimecode hook with both TimecodeDisplay sizes and TimecodeSourceSelector, and verifies stopped/Starting before confirmation, both clocks running plus Stop Generator after confirmation, and both disconnected with disabled transport after socket close.",
+        "Validation: full web suite passed (1202 unit tests, 94 Worker tests, migration/client boundaries); typecheck and production build passed (174502 gzip bytes). All tests used local fixtures; physical MIDI hardware and the full show rehearsal remain part of later overall verification."
+      ]
     },
     {
       "id": "200c411aae89aa01",

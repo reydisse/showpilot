@@ -423,7 +423,11 @@ export class TimecodeRelay extends DurableObject {
           !event.payload || typeof event.payload !== "object"
         ) break;
         event.id = event.id || crypto.randomUUID();
-        if (this.events.some((existing) => existing.id === event.id)) break;
+        if (this.events.some((existing) => existing.id === event.id)) {
+          // A save retry may follow a lost echo. Return the canonical timeline.
+          await this.broadcastEvents();
+          break;
+        }
         event.enabled = event.enabled !== false;
         event.fired = false;
         event.executionAttempts = 0;
@@ -447,6 +451,13 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "replace-event-group": {
+        if (payload?.requireStopped === true && this.state.running) break;
+        if (payload?.requireEmpty === true && this.events.length > 0) break;
+        if (payload?.expectedFormat !== undefined && (
+          !isValidTimecodeFormat(payload.expectedFormat)
+          || payload.expectedFormat.frameRate !== this.state.format.frameRate
+          || payload.expectedFormat.dropFrame !== this.state.format.dropFrame
+        )) break;
         const sourceKey = typeof payload?.sourceKey === "string" ? payload.sourceKey.trim() : "";
         const rawEvents = Array.isArray(payload?.events) ? payload.events : [];
         if (!sourceKey || sourceKey.length > 240 || rawEvents.length > 1_000) break;

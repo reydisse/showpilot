@@ -5,6 +5,8 @@ import type { TimecodeFormat, FrameRate, DropFrameMode } from "@/types/timecode"
 
 interface TimecodeSourceSelectorProps {
   isMaster: boolean;
+  connected: boolean;
+  pending: "starting" | "stopping" | null;
   running: boolean;
   format: TimecodeFormat;
   mtcSupported: boolean;
@@ -16,6 +18,8 @@ interface TimecodeSourceSelectorProps {
 
 export function TimecodeSourceSelector({
   isMaster,
+  connected,
+  pending,
   running,
   format,
   mtcSupported,
@@ -55,7 +59,7 @@ export function TimecodeSourceSelector({
   }
 
   return (
-    <div className="rounded-xl border border-board-border bg-board-card p-4 space-y-4">
+    <fieldset disabled={!connected || pending !== null} className="min-w-0 rounded-xl border border-board-border bg-board-card p-4 space-y-4 disabled:opacity-60">
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
@@ -91,7 +95,7 @@ export function TimecodeSourceSelector({
             className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2.5 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
           >
             <Play className="w-4 h-4" />
-            Start Internal Generator
+            {pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : "Start Internal Generator"}
           </button>
         ) : (
           <button
@@ -99,7 +103,7 @@ export function TimecodeSourceSelector({
             className="flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-colors"
           >
             <Square className="w-4 h-4" />
-            Stop Generator
+            {pending === "stopping" ? "Stopping…" : "Stop Generator"}
           </button>
         )}
 
@@ -176,6 +180,6 @@ export function TimecodeSourceSelector({
           This client is the timecode master
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }

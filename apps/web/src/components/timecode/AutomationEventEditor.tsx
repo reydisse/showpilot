@@ -1,15 +1,17 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { createBrowserId } from "@/lib/browser-id";
+import type { NewAutomationEvent } from "@/hooks/useTimecode";
 import { Plus } from "lucide-react";
 import type {
-  AutomationEvent,
   AutomationActionType,
 } from "@/types/timecode";
 import { isValidTimecode, parseTimecodeString } from "@/lib/timecode";
 
 interface AutomationEventEditorProps {
-  onAdd: (event: Omit<AutomationEvent, "id" | "fired" | "triggerFrame">) => void;
+  onAdd: (event: NewAutomationEvent) => Promise<void>;
+  connected: boolean;
   format: import("@/types/timecode").TimecodeFormat;
 }
 
@@ -39,16 +41,19 @@ const ACTION_OPTIONS: {
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format, connected }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const attemptRef = useRef<{ signature: string; id: string } | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!connected || saving) return;
     setError("");
 
     const tc = parseTimecodeString(tcString);
@@ -59,13 +64,15 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
 
     let payload: Record<string, unknown>;
     try {
-      payload = JSON.parse(payloadJson);
+      const parsed: unknown = JSON.parse(payloadJson);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
+      payload = Object.fromEntries(Object.entries(parsed));
     } catch {
       setError("Invalid payload JSON.");
       return;
     }
 
-    onAdd({
+    const draft: NewAutomationEvent = {
       enabled: true,
       triggerTimecode: tc,
       action,
@@ -73,12 +80,16 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
       label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames: 5,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
-    });
-
-    // Reset
-    setTcString("");
-    setLabel("");
-    setPayloadJson("{}");
+    };
+    const signature = JSON.stringify(draft);
+    if (attemptRef.current?.signature !== signature) attemptRef.current = { signature, id: createBrowserId() };
+    setSaving(true);
+    try {
+      await onAdd({ ...draft, id: attemptRef.current.id });
+      setTcString(""); setLabel(""); setPayloadJson("{}"); attemptRef.current = null;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
+    } finally { setSaving(false); }
   }
 
   const INPUT_CLASS =
@@ -89,6 +100,7 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
       onSubmit={handleSubmit}
       className="rounded-xl border border-board-border bg-board-card p-4 space-y-3"
     >
+      <fieldset disabled={!connected || saving} className="min-w-0 space-y-3 disabled:opacity-60">
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Add Automation Event
       </h3>
@@ -163,8 +175,10 @@ export function AutomationEventEditor({ onAdd, format }: AutomationEventEditorPr
         className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
-        Add Event
+        {saving ? "Waiting for relay…" : "Add Event"}
       </button>
+      </fieldset>
+      {!connected && <p role="status" className="text-xs text-amber-200">Reconnect to add this event. Your draft is kept here.</p>}
     </form>
   );
 }

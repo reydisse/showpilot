@@ -1,18 +1,17 @@
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { FileDown, Music2, X } from "lucide-react";
+import { FileDown, Music2 } from "lucide-react";
 import { useOrgTimecode } from "@/components/timecode/TimecodeContext";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
 import { AutomationEventEditor } from "@/components/timecode/AutomationEventEditor";
+import { createBrowserId } from "@/lib/browser-id";
+import { timecodeToFrames } from "@/lib/timecode";
+import { SongCueLoader } from "@/components/timecode/SongCueLoader";
 import { demoEventsForWorkspace } from "@/lib/seed-timecode-demo";
-import { getSong, listSongs } from "@/lib/songs";
-import { buildSongAutomationEvents } from "@/lib/song-cues";
-import type { TimecodeFormat } from "@/types/timecode";
 import { getOrgSettings } from "@/lib/settings";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/$slug/timecode")({
   beforeLoad: async ({ context, params }) => {
@@ -37,6 +36,8 @@ function TimecodePage() {
     connected,
     events,
     isMaster,
+    generatorPending,
+    lastError,
     startFreerun,
     stopGenerator,
     startMtc,
@@ -52,13 +53,24 @@ function TimecodePage() {
   } = useOrgTimecode();
 
   const [demoLoaded, setDemoLoaded] = useState(false);
+  const [demoPending, setDemoPending] = useState(false);
   const [songLoaderOpen, setSongLoaderOpen] = useState(false);
 
-  function loadDemo() {
-    for (const event of demoEventsForWorkspace(workspace.type)) {
-      addEvent(event);
+  async function loadDemo() {
+    if (!connected || state?.running || events.length > 0 || demoPending) return;
+    setDemoPending(true);
+    try {
+      const sourceKey = `demo:${workspace.type}`;
+      const format = state?.format ?? { frameRate: 30, dropFrame: "ndf" as const };
+      const demo = demoEventsForWorkspace(workspace.type).map((event) => ({
+        ...event, id: createBrowserId(), sourceKey, fired: false,
+        triggerFrame: timecodeToFrames(event.triggerTimecode, format),
+      }));
+      await replaceEventGroup(sourceKey, demo, { onlyIfEmpty: true });
+      setDemoLoaded(true);
     }
-    setDemoLoaded(true);
+    catch { /* The hook exposes the relay confirmation error below. */ }
+    finally { setDemoPending(false); }
   }
 
   return (
@@ -74,7 +86,7 @@ function TimecodePage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setSongLoaderOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5" />Load song cues</button>
+            <button disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5" />Load song cues</button>
             <TimecodeDisplay state={state} connected={connected} size="compact" />
           </div>
         </div>
@@ -82,6 +94,7 @@ function TimecodePage() {
 
       <div className="p-6 max-w-4xl mx-auto space-y-6">
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
+        {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
         <button
           type="button"
           disabled={!connected || !state}
@@ -100,6 +113,8 @@ function TimecodePage() {
         {/* Large TC display */}
         <TimecodeSourceSelector
           isMaster={isMaster}
+          connected={connected}
+          pending={generatorPending}
           running={state?.running ?? false}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
           mtcSupported={mtcSupported}
@@ -123,12 +138,13 @@ function TimecodePage() {
         {events.length === 0 && !demoLoaded && !state?.running && connected && (
           <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">
             <p>Try a sample automation timeline in this empty workspace.</p>
-            <button type="button" onClick={loadDemo} className="mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 text-board-text"><FileDown className="h-4 w-4" />Load Demo Show</button>
+            <button type="button" disabled={demoPending} onClick={() => { void loadDemo(); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 text-board-text"><FileDown className="h-4 w-4" />Load Demo Show</button>
           </section>
         )}
         {/* Add event */}
         <AutomationEventEditor
           onAdd={addEvent}
+          connected={connected}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
         />
 
@@ -137,59 +153,8 @@ function TimecodePage() {
         ) : null}
       </div>
       {songLoaderOpen ? (
-        <SongCueLoader orgId={orgId} defaultTarget={lyricsTarget(settings["lyrics-output"])} format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }} onClose={() => setSongLoaderOpen(false)} onLoad={(loaded) => { const sourceKey = loaded[0]?.sourceKey; if (sourceKey) replaceEventGroup(sourceKey, loaded); setSongLoaderOpen(false); }} />
+        <SongCueLoader orgId={orgId} connected={connected} running={Boolean(state?.running) || generatorPending !== null} defaultTarget={lyricsTarget(settings["lyrics-output"])} format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }} onClose={() => setSongLoaderOpen(false)} onLoad={async (loaded) => { const sourceKey = loaded[0]?.sourceKey; if (!sourceKey) throw new Error("No mapped song cues to load."); await replaceEventGroup(sourceKey, loaded); }} />
       ) : null}
     </div>
-  );
-}
-
-function SongCueLoader({ orgId, format, defaultTarget, onClose, onLoad }: {
-  orgId: string;
-  format: TimecodeFormat;
-  defaultTarget: "native" | "propresenter" | "both";
-  onClose: () => void;
-  onLoad: (events: ReturnType<typeof buildSongAutomationEvents>) => void;
-}) {
-  const [songs, setSongs] = useState<Awaited<ReturnType<typeof listSongs>>>([]);
-  const [song, setSong] = useState<Awaited<ReturnType<typeof getSong>> | null>(null);
-  const [mapId, setMapId] = useState("");
-  const [target, setTarget] = useState<"native" | "propresenter" | "both">(defaultTarget);
-  const [offsetFrames, setOffsetFrames] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  useEffect(() => { void listSongs({ data: { orgId } }).then(setSongs).catch((cause) => setError(cause instanceof Error ? cause.message : "Songs could not load.")).finally(() => setLoading(false)); }, [orgId]);
-  const map = song?.cueMaps.find((candidate) => candidate.id === mapId);
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent showCloseButton={false} className="max-w-lg border-board-border bg-board-card p-5 text-board-text">
-        <div className="flex items-start justify-between"><div><DialogTitle className="font-semibold text-board-text">Load song cues</DialogTitle><DialogDescription className="mt-1 text-xs text-board-muted">Load one cue map into the timeline. Loading the same map again replaces its existing events.</DialogDescription></div><DialogClose asChild><button aria-label="Close song cue loader" className="p-2 text-board-muted"><X className="h-4 w-4" /></button></DialogClose></div>
-        {error ? <p className="mt-4 text-sm text-red-300">{error}</p> : null}
-        <div className="mt-5 grid gap-4">
-          <label className="text-xs text-board-muted">
-            Song
-            <select autoFocus disabled={loading} value={song?.id ?? ""} onChange={(event) => { const id = event.target.value; if (!id) return setSong(null); void getSong({ data: { orgId, songId: id } }).then((next) => { setSong(next); setMapId(next.cueMaps[0]?.id ?? ""); }); }} className="mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text">
-              <option value="">{loading ? "Loading…" : "Choose a song"}</option>
-              {songs.map((item) => (
-                <option key={item.id} value={item.id}>{item.title}{item.artist ? ` · ${item.artist}` : ""}</option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-board-muted">
-            Cue map
-            <select disabled={!song} value={mapId} onChange={(event) => setMapId(event.target.value)} className="mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text">
-              <option value="">Choose a cue map</option>
-              {song?.cueMaps.map((item) => (
-                <option key={item.id} value={item.id}>{item.name} · {item.cues.length} cues</option>
-              ))}
-            </select>
-          </label>
-          <div className="grid grid-cols-2 gap-3"><label className="text-xs text-board-muted">Output<select value={target} onChange={(event) => setTarget(event.target.value as typeof target)} className="mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text"><option value="native">Native display</option><option value="propresenter">ProPresenter</option><option value="both">Both</option></select></label><label className="text-xs text-board-muted">Offset frames<input type="number" value={offsetFrames} onChange={(event) => setOffsetFrames(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text" /></label></div>
-          {target !== "native" && song && !song.ppPresentationUuid ? (
-            <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">This manual song has no ProPresenter presentation mapping. Choose Native display or import its presentation first.</p>
-          ) : null}
-          <button disabled={!song || !map || (target !== "native" && !song.ppPresentationUuid)} onClick={() => { if (!song || !map) return; let mapFormat = format; try { mapFormat = JSON.parse(map.format) as TimecodeFormat; } catch {} onLoad(buildSongAutomationEvents({ song, cues: map.cues, format: mapFormat, target, offsetFrames, ppPresentationUuid: song.ppPresentationUuid, cueMapId: map.id })); }} className="rounded-xl bg-fire-500 p-3 text-sm font-bold text-black disabled:opacity-40">Load {map?.cues.length ?? 0} mapped cues</button>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

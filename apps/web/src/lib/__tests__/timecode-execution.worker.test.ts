@@ -34,6 +34,60 @@ const atZero = { hours: 0, minutes: 0, seconds: 0, frames: 0 };
 const tick = { timecode: atZero, format: { frameRate: 30, dropFrame: "ndf" } };
 
 describe("automation acknowledgement", () => {
+  it("loads demo cues atomically only into an empty stopped timeline", async () => {
+    const test = timeline();
+    const demo = { id: "demo-1", sourceKey: "demo", action: "stage-clear", label: "Demo", triggerTimecode: atZero, payload: {} };
+    const payload = { sourceKey: "demo", events: [demo], requireStopped: true, requireEmpty: true, expectedFormat: tick.format };
+    await test.command("start");
+    await test.command("replace-event-group", payload);
+    expect(await test.events()).toEqual([]);
+    await test.command("stop");
+    await test.command("add-event", { ...demo, id: "real-cue", sourceKey: "real-show" });
+    await test.command("replace-event-group", payload);
+    expect((await test.events()).map((event) => event.id)).toEqual(["real-cue"]);
+    await test.command("remove-event", { id: "real-cue" });
+    await test.command("replace-event-group", payload);
+    expect((await test.events()).map((event) => event.id)).toEqual(["demo-1"]);
+  });
+
+  it("does not replace a song group if the clock started or its format changed before delivery", async () => {
+    const test = timeline();
+    const original = { id: "original", sourceKey: "song-map", action: "stage-clear", label: "Original", triggerTimecode: atZero, payload: {} };
+    const replacement = { ...original, id: "replacement", label: "Replacement" };
+    await test.command("replace-event-group", { sourceKey: "song-map", events: [original] });
+    await test.command("start");
+    await test.command("replace-event-group", { sourceKey: "song-map", events: [replacement], requireStopped: true, expectedFormat: tick.format });
+    expect((await test.events()).map((event) => event.id)).toEqual(["original"]);
+    await test.command("stop");
+    await test.command("replace-event-group", { sourceKey: "song-map", events: [replacement], requireStopped: true, expectedFormat: { frameRate: 25, dropFrame: "ndf" } });
+    expect((await test.events()).map((event) => event.id)).toEqual(["original"]);
+    await test.command("replace-event-group", { sourceKey: "song-map", events: [replacement], requireStopped: true, expectedFormat: tick.format });
+    expect((await test.events()).map((event) => event.id)).toEqual(["replacement"]);
+  });
+
+  it("echoes the canonical event after a lost-ack save retry without duplicating it", async () => {
+    const test = timeline();
+    const event = { id: "retry-save", action: "stage-clear", label: "Original", triggerTimecode: atZero, payload: {} };
+    await test.command("add-event", event);
+    const response = await test.stub.fetch(new Request(`https://test/ws?orgId=${test.orgId}&access=write`, { headers: { Upgrade: "websocket" } }));
+    if (!response.webSocket) throw new Error("Missing timecode socket");
+    const socket = response.webSocket;
+    const next = (type: string) => new Promise<Record<string, unknown>>((resolve) => {
+      const handler = (message: MessageEvent) => {
+        const data = JSON.parse(String(message.data));
+        if (data.type !== type) return;
+        socket.removeEventListener("message", handler); resolve(data);
+      };
+      socket.addEventListener("message", handler);
+    });
+    const hydration = next("hydrate"); socket.accept(); await hydration;
+    const echo = next("events-update");
+    socket.send(JSON.stringify({ type: "command", action: "add-event", payload: { ...event, label: "Retry must not replace existing event" } }));
+    expect(await echo).toMatchObject({ events: [{ id: "retry-save", label: "Original" }] });
+    expect(await test.events()).toHaveLength(1);
+    socket.close();
+  });
+
   it("keeps same-output show and clear cues in timeline order", async () => {
     const test = timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
