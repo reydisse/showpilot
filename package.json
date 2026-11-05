@@ -12,7 +12,7 @@
     "db:generate": "pnpm --filter @showpilot/web db:generate",
     "db:migrate": "pnpm --filter @showpilot/web db:migrate",
     "native:verify": "node scripts/native-release-readiness.mjs",
-    "native:verify:test": "node --test scripts/native-release-readiness.test.mjs"
+    "native:verify:test": "node --test scripts/native-release-readiness.test.mjs scripts/linux-bridge-sidecar.test.mjs"
   },
   "pnpm": {
     "overrides": {
