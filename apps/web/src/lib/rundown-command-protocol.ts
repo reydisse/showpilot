@@ -14,6 +14,7 @@ const EDIT_ACTIONS = new Set([
   "add-item",
   "update-item",
   "remove-item",
+  "restore-item",
   "reorder",
   "timer-mode",
   "pp-slide",

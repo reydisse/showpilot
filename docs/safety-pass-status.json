@@ -233,16 +233,24 @@
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 60,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "ResetRundownDialog and route handler require confirmation, disable reset while playing, and recheck playback at confirmation. RundownRelay rejects reset while playing without changing revision or timer state.",
+        "RundownSafetyDialogs.test.tsx covers playback changing while the dialog is open; rundown-relay.worker.test.ts verifies rejection while live and successful reset after pause against the real relay.",
+        "2026-11-04: full web tests passed (1178 unit, 89 Worker), web typecheck and production build passed."
+      ]
     },
     {
       "id": "6efa0d1818d1406d",
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 61,
-      "status": "pending",
-      "evidence": []
+      "status": "implemented",
+      "evidence": [
+        "Timeline reset/delete, rundown item deletion, and saved-template deletion now use ConfirmDialog. Template failure feedback and reset guards have rendered tests; complete page browser verification remains pending.",
+        "The Undo toast uses restore-item, which restores the server-owned deleted row within 30s. Actual Worker tests prove atomic current-item deletion, persistence through eviction, D1 restoration, preservation of later edits, no automatic playback restart, no client-forged restore fields, and invalidation after clear-all.",
+        "Shared restoreRundownItem tests cover insertion relative to surviving rows, concurrent edits and duplicate prevention."
+      ]
     },
     {
       "id": "998321492918a3cc",
@@ -265,16 +273,24 @@
       "phase": "0",
       "section": "0.6 Tame global keyboard shortcuts (audit H1)",
       "line": 67,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/rundown-shortcuts.ts and routes/$slug/rundown.tsx: global start/pause, next and previous require Shift; bare Space/N/P do not dispatch. Form controls, contenteditable, modals, repeat and browser modifiers are excluded.",
+        "rundown-shortcuts.test.ts exercises real DOM keyboard events; RundownShortcutHelp.test.tsx verifies first-use display, visible shortcut list and remembered dismissal. The banner is mounted above the rundown page body and the rail reuses the same shortcut definitions.",
+        "2026-11-04: full web tests passed (1178 unit, 89 Worker, migration/client boundaries), tsc --noEmit passed; production web build passed."
+      ]
     },
     {
       "id": "a06bbc443d6c73c5",
       "phase": "0",
       "section": "0.6 Tame global keyboard shortcuts (audit H1)",
       "line": 68,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/rundown-shortcuts.ts and routes/$slug/rundown.tsx: global start/pause, next and previous require Shift; bare Space/N/P do not dispatch. Form controls, contenteditable, modals, repeat and browser modifiers are excluded.",
+        "rundown-shortcuts.test.ts exercises real DOM keyboard events; RundownShortcutHelp.test.tsx verifies first-use display, visible shortcut list and remembered dismissal. The banner is mounted above the rundown page body and the rail reuses the same shortcut definitions.",
+        "2026-11-04: full web tests passed (1178 unit, 89 Worker, migration/client boundaries), tsc --noEmit passed; production web build passed."
+      ]
     },
     {
       "id": "66e870ebbe5f5dbf",
@@ -402,8 +418,12 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 93,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/rundown-shortcuts.ts and routes/$slug/rundown.tsx: global start/pause, next and previous require Shift; bare Space/N/P do not dispatch. Form controls, contenteditable, modals, repeat and browser modifiers are excluded.",
+        "rundown-shortcuts.test.ts exercises real DOM keyboard events; RundownShortcutHelp.test.tsx verifies first-use display, visible shortcut list and remembered dismissal. The banner is mounted above the rundown page body and the rail reuses the same shortcut definitions.",
+        "2026-11-04: full web tests passed (1178 unit, 89 Worker, migration/client boundaries), tsc --noEmit passed; production web build passed."
+      ]
     },
     {
       "id": "47ca7147bcefa2a7",

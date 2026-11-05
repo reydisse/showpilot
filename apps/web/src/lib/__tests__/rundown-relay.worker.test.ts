@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RundownItem } from "@/types/rundown";
 import { nextPlayableItem } from "../rundown-transport";
@@ -51,7 +51,7 @@ async function command(
   payload: Record<string, unknown>,
   access: "edit" | "control" = "edit",
 ) {
-  return relayFor(orgId).fetch(new Request(
+  const response = await relayFor(orgId).fetch(new Request(
     `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=${access}`,
     {
       method: "POST",
@@ -59,6 +59,8 @@ async function command(
       body: JSON.stringify({ action, payload }),
     },
   ));
+  await response.arrayBuffer();
+  return response;
 }
 
 async function state(orgId: string): Promise<Record<string, unknown>> {
@@ -278,6 +280,46 @@ describe("RundownRelay live authority", () => {
 });
 
 describe("RundownRelay running order matches confidence displays", () => {
+  it("rejects reset while playing and allows it after a pause", async () => {
+    const orgId = "relay-reset-playing-guard";
+    await createOrg(orgId);
+    const item = { id: "segment", title: "Live", type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false };
+    await command(orgId, "seed", { items: [item] });
+    await command(orgId, "timer-start", { itemId: item.id }, "control");
+    const before = await state(orgId);
+    expect((await command(orgId, "reset", {})).status).toBe(400);
+    expect(await state(orgId)).toMatchObject({ revision: before.revision, timer: { playback: "play", currentItemId: item.id } });
+    await command(orgId, "timer-pause", {}, "control");
+    expect((await command(orgId, "reset", {})).status).toBe(200);
+    expect(await state(orgId)).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [{ status: "upcoming", actualStart: null, actualEnd: null }] });
+  });
+
+  it("deletes the current item atomically and undo restores it without restarting or losing later edits", async () => {
+    const orgId = "relay-delete-undo";
+    await createOrg(orgId);
+    const item = (id: string) => ({ id, title: id, type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false });
+    await command(orgId, "seed", { items: [item("first"), item("second")] });
+    await command(orgId, "timer-start", { itemId: "first" }, "control");
+    expect((await command(orgId, "remove-item", { id: "first" })).status).toBe(200);
+    expect(await state(orgId)).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [{ id: "second" }] });
+    await command(orgId, "update-item", { id: "second", updates: { title: "Edited by another operator" } });
+    await evictDurableObject(relayFor(orgId));
+    expect((await command(orgId, "restore-item", { id: "first", item: { title: "Forged undo" } })).status).toBe(200);
+    const restored = await state(orgId);
+    expect(restored).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [
+      { id: "first", title: "first", status: "complete", actualStart: expect.any(String), actualEnd: expect.any(String) },
+      { id: "second", title: "Edited by another operator" },
+    ] });
+    expect(restored).not.toHaveProperty("removedItems");
+    const persisted = await env.DB.prepare("SELECT title, status FROM rundown_item WHERE orgId = ? AND serviceDate = ? AND itemId = ?")
+      .bind(orgId, serviceDate, "first").first();
+    expect(persisted).toMatchObject({ title: "first", status: "complete" });
+    expect((await command(orgId, "restore-item", { id: "first" })).status).toBe(400);
+    await command(orgId, "remove-item", { id: "first" });
+    await command(orgId, "clear-all", {});
+    expect((await command(orgId, "restore-item", { id: "first" })).status).toBe(400);
+  });
+
   it("skips headings and completed rows, then stops at the end", async () => {
     const orgId = "relay-next-display-contract";
     await createOrg(orgId);

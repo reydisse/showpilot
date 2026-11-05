@@ -26,6 +26,7 @@ import {
   type LiveRundownAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 import { getPresentedRundownPin } from "@/lib/rundown-pin.server";
+import { restoreRundownItem } from "@/lib/rundown-undo";
 
 interface D1BoundStatement {
   first<T>(): Promise<T | null>;
@@ -103,6 +104,7 @@ interface RundownState {
   location?: string;
   revision: number;
   recentCommandIds: string[];
+  removedItems: Array<{ item: RundownItem; index: number; nextId: string | null; expiresAt: number }>;
 }
 
 const DEFAULT_TIMER: TimerState = {
@@ -125,6 +127,7 @@ export class RundownRelay extends DurableObject {
     stageMessage: "",
     revision: 0,
     recentCommandIds: [],
+    removedItems: [],
   };
   private hydrated = false;
   private hydrationPromise: Promise<void> | null = null;
@@ -159,6 +162,7 @@ export class RundownRelay extends DurableObject {
             recentCommandIds: Array.isArray(stored.recentCommandIds)
               ? stored.recentCommandIds.slice(-100)
               : [],
+            removedItems: (stored.removedItems ?? []).filter((removed) => removed.expiresAt > Date.now()),
           };
         } else {
           this.state.ppOutputEnabled = ppOutputEnabled;
@@ -194,6 +198,7 @@ export class RundownRelay extends DurableObject {
       || action === "add-item"
       || action === "update-item"
       || action === "remove-item"
+      || action === "restore-item"
       || action === "reorder"
       || action === "reset"
       || action === "clear-all";
@@ -481,6 +486,7 @@ export class RundownRelay extends DurableObject {
         stageMessage: "",
         revision: 0,
         recentCommandIds: [],
+        removedItems: [],
       };
       this.hydrated = true;
       this.hydrationPromise = null;
@@ -511,6 +517,7 @@ export class RundownRelay extends DurableObject {
         stageMessage: "",
         revision: 0,
         recentCommandIds: [],
+        removedItems: [],
       };
       this.hydrated = true;
       this.hydrationPromise = null;
@@ -542,6 +549,7 @@ export class RundownRelay extends DurableObject {
       this.state.ppPreviewSlide = null;
       this.state.revision += 1;
       this.state.recentCommandIds = [];
+      this.state.removedItems = [];
       await this.persistState();
     }
 
@@ -797,6 +805,7 @@ export class RundownRelay extends DurableObject {
         // that has never been initialized may accept an ordinary loader seed.
         if (!shouldAcceptRundownSeed(this.state.initialized, force)) return true;
         this.state.items = items;
+        this.state.removedItems = [];
         this.state.initialized = true;
         if (timer) this.state.timer = timer;
         if (serviceName !== undefined) this.state.serviceName = serviceName;
@@ -837,8 +846,27 @@ export class RundownRelay extends DurableObject {
 
       case "remove-item": {
         const id = typeof payload?.id === "string" ? payload.id : "";
-        if (!this.state.items.some((item) => item.id === id)) return false;
+        const index = this.state.items.findIndex((item) => item.id === id);
+        if (index < 0) return false;
+        const item = { ...this.state.items[index] };
+        if (this.state.timer.currentItemId === id) {
+          item.status = "complete";
+          item.actualEnd ??= new Date().toISOString();
+          this.state.timer = { ...DEFAULT_TIMER, mode: this.state.timer.mode };
+        }
+        this.state.removedItems = [
+          ...this.state.removedItems.filter((removed) => removed.expiresAt > Date.now()).slice(-19),
+          { item, index, nextId: this.state.items[index + 1]?.id ?? null, expiresAt: Date.now() + 30000 },
+        ];
         this.state.items = this.state.items.filter((i) => i.id !== id);
+        break;
+      }
+
+      case "restore-item": {
+        const removed = this.state.removedItems.find((entry) => entry.item.id === payload?.id && entry.expiresAt > Date.now());
+        if (!removed || this.state.items.some((item) => item.id === removed.item.id)) return false;
+        this.state.items = restoreRundownItem(this.state.items, removed).map((item, sortOrder) => ({ ...item, sortOrder }));
+        this.state.removedItems = this.state.removedItems.filter((entry) => entry !== removed);
         break;
       }
 
@@ -1084,6 +1112,8 @@ export class RundownRelay extends DurableObject {
       }
 
       case "reset": {
+        if (this.state.timer.playback === "play") return false;
+        this.state.removedItems = [];
         this.state.items.forEach((item) => {
           item.status = "upcoming";
           item.actualStart = null;
@@ -1101,6 +1131,7 @@ export class RundownRelay extends DurableObject {
       }
 
       case "clear-all": {
+        this.state.removedItems = [];
         this.state.initialized = true;
         this.state.items = [];
         this.state.timer = {

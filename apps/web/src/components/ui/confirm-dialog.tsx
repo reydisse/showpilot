@@ -19,6 +19,7 @@ interface ConfirmDialogProps {
   variant?: "danger" | "warning";
   onConfirm: () => void;
   loading?: boolean;
+  confirmDisabled?: boolean;
 }
 
 export function ConfirmDialog({
@@ -31,6 +32,7 @@ export function ConfirmDialog({
   variant = "danger",
   onConfirm,
   loading = false,
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -76,7 +78,7 @@ export function ConfirmDialog({
               onConfirm();
               onOpenChange(false);
             }}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
               variant === "danger"
                 ? "bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/25"

@@ -1,3 +1,8 @@
+import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
+import { DeleteSavedTemplateButton } from "@/components/rundown/DeleteSavedTemplateButton";
+import { restoreRundownItem } from "@/lib/rundown-undo";
+import { rundownShortcut } from "@/lib/rundown-shortcuts";
+import { RundownShortcutBanner, RundownShortcutList } from "@/components/rundown/RundownShortcutHelp";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
@@ -1342,8 +1347,14 @@ function RundownPage() {
     sendRundownCommand,
   ]);
 
+  const rundownScope = `${orgId}:${showId ?? serviceDate}`;
+  const [resetScope, setResetScope] = useState<string | null>(null);
   const handleReset = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canEditRundown || timer.playback === "play") return;
+    setResetScope(rundownScope);
+  }, [canEditRundown, timer.playback, rundownScope]);
+  const resetConfirmed = useCallback(() => {
+    if (!canEditRundown || timer.playback === "play" || resetScope !== rundownScope) return;
     setItems((prev) =>
       prev.map((i) => ({
         ...i,
@@ -1360,7 +1371,7 @@ function RundownPage() {
       mode: timer.mode,
     });
     sendRundownCommand("reset");
-  }, [canEditRundown, sendRundownCommand, timer.mode]);
+  }, [canEditRundown, sendRundownCommand, timer.mode, timer.playback, resetScope, rundownScope]);
 
   const [showClearConfirmation, setShowClearConfirmation] = useState(false);
 
@@ -1449,15 +1460,38 @@ function RundownPage() {
     setShowAddForm(false);
   };
 
+  const [deleteItem, setDeleteItem] = useState<{ id: string; scope: string } | null>(null);
+  const [removedItem, setRemovedItem] = useState<{ item: RundownItem; index: number; nextId: string | null; scope: string } | null>(null);
+  useEffect(() => {
+    if (!removedItem) return;
+    const timeout = window.setTimeout(() => setRemovedItem(null), 30000);
+    return () => window.clearTimeout(timeout);
+  }, [removedItem]);
   const handleRemoveItem = (id: string) => {
-    if (!canEditRundown) return;
-    const remove = () => {
-      if (timer.currentItemId === id) stopConfirmed();
-      sendRundownCommand("remove-item", { id });
-      setItems((prev) => prev.filter((i) => i.id !== id));
-    };
-    if (timer.currentItemId === id) requestEndShow(remove);
-    else remove();
+    if (canEditRundown) setDeleteItem({ id, scope: rundownScope });
+  };
+  const confirmRemoveItem = () => {
+    if (!canEditRundown || !deleteItem || deleteItem.scope !== rundownScope) return;
+    const index = items.findIndex((item) => item.id === deleteItem.id);
+    const item = items[index];
+    if (!item) return;
+    const wasCurrent = timer.currentItemId === item.id;
+    if (wasCurrent) setTimer({ playback: "stop", currentItemId: null, elapsed: 0, startedAt: null, mode: timer.mode });
+    sendRundownCommand("remove-item", { id: item.id });
+    setItems((current) => current.filter((row) => row.id !== item.id));
+    setRemovedItem({
+      item: wasCurrent ? { ...item, status: "complete", actualEnd: new Date().toISOString() } : item,
+      index, nextId: items[index + 1]?.id ?? null, scope: rundownScope,
+    });
+  };
+  const undoRemoveItem = () => {
+    if (!canEditRundown || !removedItem || removedItem.scope !== rundownScope) return;
+    if (!items.some((item) => item.id === removedItem.item.id)) {
+      const restored = restoreRundownItem(items, removedItem).map((item, sortOrder) => ({ ...item, sortOrder }));
+      sendRundownCommand("restore-item", { id: removedItem.item.id });
+      setItems(restored);
+    }
+    setRemovedItem(null);
   };
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
@@ -1667,11 +1701,10 @@ function RundownPage() {
   useEffect(() => {
     if (!canControlRundown) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('[role="dialog"][aria-modal="true"], [role="alertdialog"]')) return;
-      const target = e.target;
-      if (!(target instanceof HTMLElement) || target.isContentEditable || target.closest('input, textarea, select, button, a, [role="button"]')) return;
-      if (e.key === " ") {
-        e.preventDefault();
+      const shortcut = rundownShortcut(e);
+      if (!shortcut) return;
+      e.preventDefault();
+      if (shortcut === "toggle-playback") {
         if (timer.playback === "play") handlePause();
         else if (timer.playback === "pause") handleResume();
         else if (items.length > 0) {
@@ -1681,11 +1714,11 @@ function RundownPage() {
           if (first) handleStart(first.id);
         }
       }
-      if (e.key === "n" || e.key === "N") handleNext();
-      if (e.key === "p" || e.key === "P") handlePrev();
-      if (e.key === "s" || e.key === "S") handleStop();
-      if (e.key === "+" || e.key === "=") handleAdjustTime(60_000);
-      if (e.key === "-" || e.key === "_") handleAdjustTime(-60_000);
+      if (shortcut === "next") handleNext();
+      if (shortcut === "previous") handlePrev();
+      if (shortcut === "end-show") handleStop();
+      if (shortcut === "add-minute") handleAdjustTime(60_000);
+      if (shortcut === "subtract-minute") handleAdjustTime(-60_000);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -1878,7 +1911,7 @@ function RundownPage() {
 
                     <DropdownMenuSeparator />
 
-                    <DropdownMenuItem onSelect={handleReset}>
+                    <DropdownMenuItem onSelect={handleReset} disabled={timer.playback === "play"}>
                       <RotateCcw className="w-3.5 h-3.5" />
                       Reset timer
                     </DropdownMenuItem>
@@ -1945,6 +1978,7 @@ function RundownPage() {
         </div>
       )}
 
+      {canControlRundown && <RundownShortcutBanner />}
       {/* Page body — flex-col container, never scrolls itself */}
       <div
         className="rundown-page-body flex-1 overflow-hidden flex flex-col"
@@ -2508,49 +2542,12 @@ function RundownPage() {
               )}
 
               {/* Shortcuts */}
-              {canEditRundown && (
+              {canControlRundown && (
                 <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
                   <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
                     Shortcuts
                   </p>
-                  <div className="space-y-1 text-xs text-board-muted">
-                    <div className="flex justify-between">
-                      <span>Play / Pause</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        Space
-                      </kbd>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Next item</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        N
-                      </kbd>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Previous item</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        P
-                      </kbd>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Stop</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        S
-                      </kbd>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Add 1 minute</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        +
-                      </kbd>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Subtract 1 minute</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-board-bg border border-board-border text-[10px] font-mono">
-                        -
-                      </kbd>
-                    </div>
-                  </div>
+                  <RundownShortcutList />
                 </div>
               )}
             </div>
@@ -3006,6 +3003,22 @@ function RundownPage() {
             onClose={() => setShowCreateModal(false)}
           />
         ) : null}
+        <ResetRundownDialog open={resetScope === rundownScope} onOpenChange={(open) => setResetScope(open ? rundownScope : null)} playing={timer.playback === "play"} onReset={resetConfirmed} />
+        <ConfirmDialog
+          open={deleteItem?.scope === rundownScope}
+          onOpenChange={(open) => { if (!open) setDeleteItem(null); }}
+          title="Delete this rundown item?"
+          description={deleteItem?.id === timer.currentItemId ? "This deletes the current item and ends the running timer for all operators. Undo restores the item without restarting playback." : "This removes the item from this rundown. You can undo the deletion for 30 seconds."}
+          confirmLabel="Delete item"
+          onConfirm={confirmRemoveItem}
+        />
+        {removedItem?.scope === rundownScope && (
+          <div role="status" className="fixed bottom-5 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-board-border bg-board-card px-4 py-2 shadow-xl">
+            <span className="min-w-0 truncate text-sm text-board-text">Removed {removedItem.item.title}</span>
+            <button type="button" disabled={!canEditRundown} onClick={undoRemoveItem} className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-fire-500">Undo</button>
+            <button type="button" onClick={() => setRemovedItem(null)} aria-label="Dismiss item deletion" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted"><X className="h-4 w-4" /></button>
+          </div>
+        )}
         {endShowDialog}
         <ConfirmDialog
           open={showTakeLiveConfirmation}
@@ -3536,13 +3549,7 @@ function LoadRundownModal({
                       · saved {new Date(s.createdAt).toLocaleDateString()}
                     </p>
                   </button>
-                  <button
-                    onClick={() => handleDeleteSaved(s.id)}
-                    className="p-1.5 rounded text-board-muted hover:text-red-400 transition-colors shrink-0"
-                    title="Delete template"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <DeleteSavedTemplateButton name={s.name} onDelete={() => handleDeleteSaved(s.id)} />
                 </div>
               ))}
             </div>
