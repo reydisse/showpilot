@@ -44,7 +44,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev dbus-x11 gnome-keyring
 
       - name: Prepare Windows baseline Bun runtime
         if: runner.os == 'Windows'
@@ -64,9 +64,30 @@ jobs:
         id: install
         run: pnpm install --frozen-lockfile
 
+      - name: Build standalone Bridge for credential verification
+        run: pnpm --filter @showpilot/bridge build
+
+      - name: Verify Windows and macOS native credential storage
+        if: runner.os != 'Linux'
+        run: cargo test --locked --manifest-path packages/native-credentials/Cargo.toml -- --include-ignored
+
+      - name: Verify Windows and macOS standalone credential storage
+        if: runner.os != 'Linux'
+        run: node apps/bridge/scripts/check-credential-store.mjs
+
+      - name: Verify Linux credential storage in an unlocked Secret Service session
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            printf "%s" "showpilot-disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets
+            cargo test --locked --manifest-path packages/native-credentials/Cargo.toml -- --include-ignored
+            node apps/bridge/scripts/check-credential-store.mjs
+          '
+
       # Default app configs omit updater archives and use ad-hoc Mac signing.
       # Do not load the signing-enabled ci-release.conf.json overrides.
       - name: Build Desktop unsigned
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         uses: tauri-apps/tauri-action@v0
         env:
           NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}

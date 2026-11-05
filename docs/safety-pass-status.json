@@ -174,7 +174,8 @@
         "D1 migration 0048 and bridge-credentials.server.ts store SHA-256 hashes with per-installation labels, last-use timestamps, rotation versions, and revocation. Legacy conversion is atomic and idempotent; a bounded scheduled backfill includes offline installations.",
         "BridgeInstallationSettings rendered tests verify one-time display, rotation overlap copy, single-click revoke, and removal of late secrets after workspace changes. bridge-installations.test.ts verifies permission checks before every operation.",
         "Commit 31e32e6 moves Desktop, Bridge Desktop, and standalone Bridge keys into OS credential stores and removes plaintext from JSON, native log output, setup HTML, and setup status. Six shared Rust vault tests and 71 standalone Bridge tests pass using isolated fixture stores.",
-        "Remaining: real OS credential-store round trips and native bundles on every supported platform; deployment migration verification; operator migration of legacy shared keys to separate installation keys. No production data has been changed."
+        "Remaining: real OS credential-store round trips and native bundles on every supported platform; deployment migration verification; operator migration of legacy shared keys to separate installation keys. No production data has been changed.",
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling."
       ]
     },
     {
@@ -458,7 +459,8 @@
       "evidence": [
         "2026-11-04: full web suite passed migration/client-boundary checks, 1228 unit tests, and 106 Worker tests; two subsequently added hibernation cases passed in a 13-test BridgeRelay rerun. Web typecheck and production build passed. Main bundle: 560172 raw bytes, 174833 gzip bytes, within existing limits.",
         "Native and standalone credential storage tests pass; ARM64 sidecars built with Bun 1.4.0, passed signature validation, and started from isolated temporary directories. Native tests used fixture vaults rather than the user keychain.",
-        "Gate remains open for real OS vault and cross-platform runtime checks, complete legacy-installation migration, and deployment verification. Nothing from this safety pass is deployed."
+        "Gate remains open for real OS vault and cross-platform runtime checks, complete legacy-installation migration, and deployment verification. Nothing from this safety pass is deployed.",
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling."
       ]
     },
     {
