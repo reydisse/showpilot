@@ -30,8 +30,16 @@ export function redactCredentialText(text: string): string {
   const value = text.trim();
   if (value.startsWith("spenc:")) return CREDENTIAL_MASK;
   if (!value.startsWith("{") && !value.startsWith("[")) return text;
-  try { return JSON.stringify(redactCredentialPayload(JSON.parse(value))); }
-  catch { return "[Unreadable structured device response]"; }
+  return redactStructuredText(text, 0);
+}
+
+function redactStructuredText(text: string, depth: number): string {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const redacted = JSON.stringify(redactCredentialPayload(parsed, depth));
+    // Preserve exact formatting and numeric spelling when nothing was removed.
+    return redacted === JSON.stringify(parsed) ? text : redacted;
+  } catch { return "[Unreadable structured device response]"; }
 }
 
 export function redactCredentialPayload(value: unknown, depth = 0): unknown {
@@ -40,8 +48,7 @@ export function redactCredentialPayload(value: unknown, depth = 0): unknown {
     const trimmed = value.trim();
     if (trimmed.startsWith("spenc:")) return CREDENTIAL_MASK;
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try { return JSON.stringify(redactCredentialPayload(JSON.parse(trimmed), depth + 1)); }
-      catch { return "[Unreadable structured device response]"; }
+      return redactStructuredText(value, depth + 1);
     }
     return value;
   }

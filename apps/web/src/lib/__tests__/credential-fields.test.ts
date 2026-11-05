@@ -13,6 +13,9 @@ describe("device response credential redaction", () => {
   it("preserves ordinary replies, lyric contents, empty credentials and numeric feedback", () => {
     const lyric = "Amazing grace\nHow sweet the sound";
     expect(redactCredentialText(lyric)).toBe(lyric);
+    const structuredFeedback = ' { "counter": 9007199254740993, "volume": 0.50 }\n';
+    expect(redactCredentialText(structuredFeedback)).toBe(structuredFeedback);
+    expect(redactCredentialPayload({ data: structuredFeedback })).toEqual({ data: structuredFeedback });
     expect(redactCredentialText("%1POWR=1\r")).toBe("%1POWR=1\r");
     expect(redactCredentialPayload({ text: lyric, password: "", authToken: null, count: 3, muted: false })).toEqual({ text: lyric, password: "", authToken: null, count: 3, muted: false });
   });
