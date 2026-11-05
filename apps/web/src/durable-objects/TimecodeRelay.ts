@@ -29,7 +29,7 @@ import {
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { z } from "zod";
-import { TIMECODE_COMMANDS } from "@/types/timecode";
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 
 interface Env {
@@ -63,6 +63,7 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
 ]);
 
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
+const toleranceFramesSchema = z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES);
 const eventUpdateSchema = z.object({
   action: z.enum([...SUPPORTED_ACTIONS]).optional(),
   label: z.string().max(200).optional(),
@@ -72,7 +73,7 @@ const eventUpdateSchema = z.object({
     hours: z.number().int().min(0).max(23), minutes: z.number().int().min(0).max(59),
     seconds: z.number().int().min(0).max(59), frames: z.number().int().min(0).max(29),
   }).optional(),
-  toleranceFrames: z.number().int().min(0).max(9000).optional(),
+  toleranceFrames: toleranceFramesSchema.optional(),
   targetDeviceId: z.string().max(200).optional(),
   targetActionId: z.string().max(200).optional(),
   rundownItemId: z.string().max(200).optional(),
@@ -89,6 +90,12 @@ class AutomationRejection extends Error {
 
 class AutomationCancelled extends Error {}
 class TimecodeCommandRejection extends Error {}
+
+function parseTolerance(value: unknown): number {
+  const parsed = toleranceFramesSchema.default(DEFAULT_TIMECODE_TOLERANCE_FRAMES).safeParse(value);
+  if (!parsed.success) throw new TimecodeCommandRejection(`Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`);
+  return parsed.data;
+}
 
 interface TimecodeSocketAttachment {
   canWrite?: boolean;
@@ -120,6 +127,7 @@ interface ClockSnapshot {
 
 function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] {
   return events.map(event => ({ ...event, enabled: event.enabled ?? true,
+    toleranceFrames: event.toleranceFrames ?? DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     ...(event.executionStatus === "dispatching" ? {
       fired: false, executionStatus: "failed" as const,
       executionError: "Acknowledgement interrupted. Check the output before retrying.", executionAttempts: 3,
@@ -837,7 +845,7 @@ export class TimecodeRelay extends DurableObject {
         event.executionStatus = "scheduled";
         delete event.executionError;
         delete event.executedAt;
-        event.toleranceFrames = event.toleranceFrames ?? 5;
+        event.toleranceFrames = parseTolerance(event.toleranceFrames);
         event.triggerFrame = timecodeToFrames(
           event.triggerTimecode,
           this.state.format
@@ -895,7 +903,7 @@ export class TimecodeRelay extends DurableObject {
             executionStatus: "scheduled",
             executionError: undefined,
             executedAt: undefined,
-            toleranceFrames: candidate.toleranceFrames ?? 5,
+            toleranceFrames: parseTolerance(candidate.toleranceFrames),
             triggerFrame: timecodeToFrames(candidate.triggerTimecode, this.state.format),
             sourceKey,
           });
@@ -915,7 +923,7 @@ export class TimecodeRelay extends DurableObject {
         if (idx >= 0) {
           if (this.events[idx].executionStatus === "dispatching") break;
           const parsed = eventUpdateSchema.safeParse(payload.updates ?? {});
-          if (!parsed.success) break;
+          if (!parsed.success) throw new TimecodeCommandRejection("Invalid cue changes. Check the timecode, tolerance and action fields.");
           const updates = parsed.data;
           if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
           Object.assign(this.events[idx], updates);
@@ -1040,6 +1048,8 @@ export class TimecodeRelay extends DurableObject {
     for (const event of this.events) {
       if (!event.enabled || event.fired || event.executionStatus === "dispatching") continue;
       const attempts = event.executionAttempts ?? 0;
+      // Retries retain Phase 0's time/frame cap. Matching tolerance never
+      // expands the crossing window during continuous forward playback.
       const withinRetryWindow = event.executionStartedAt !== undefined
         && Date.now() - event.executionStartedAt <= event.toleranceFrames * 1000 / this.state.format.frameRate
         && totalFrames >= event.triggerFrame

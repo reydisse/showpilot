@@ -154,6 +154,15 @@ describe("isValidTimecodeFormat", () => {
 });
 
 describe("crossedTriggerFrame", () => {
+  it("uses five frames only for startup/resync matching, never early forward firing", () => {
+    expect(crossedTriggerFrame(null, 104, 100)).toBe(true);
+    expect(crossedTriggerFrame(null, 106, 100)).toBe(false);
+    expect(crossedTriggerFrame(null, 104, 100, 0)).toBe(false);
+    expect(crossedTriggerFrame(94, 96, 100, 5)).toBe(false);
+    expect(crossedTriggerFrame(98, 103, 100, 0)).toBe(true);
+    expect(crossedTriggerFrame(110, 104, 100, 5)).toBe(true);
+  });
+
   it("fires when sparse relay samples cross a trigger", () => {
     expect(crossedTriggerFrame(98, 101, 100, 2)).toBe(true);
   });

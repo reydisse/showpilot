@@ -735,8 +735,12 @@
       "phase": "1",
       "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
       "line": 131,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Shared DEFAULT_TIMECODE_TOLERANCE_FRAMES=5 now drives the event type documentation, crossing helper, relay add/group replacement/recovery, song cues, demo cues and editor. Explicit stored values including zero are preserved. Integer bounds 0..9000 are validated before add, atomic group replacement and update; invalid submissions retain existing state.",
+        "AutomationEventEditor exposes a labeled per-cue tolerance input with startup/resync explanation, forward-crossing semantics and the existing Phase 0 bounded retry rule. Invalid input prevents submit; failed saves preserve the chosen tolerance, and confirmed saves restore the default for the next cue.",
+        "Full web suite passed: 1323 unit tests and 257 Worker tests; tsc and production build passed. Real Worker coverage verifies default migration through eviction, explicit zero/custom persistence, invalid add/update/atomic replacements, startup matching and sparse forward crossing. Built smoke-timecode-tolerance.mjs passed real login, invalid input, saved zero/custom values, reset-after-acknowledgement, zero-tolerance sparse crossing and no early firing during continuous forward playback. All data was disposable local fixture data."
+      ]
     },
     {
       "id": "d9806d929e2efeda",
