@@ -55,6 +55,17 @@ function commandResponse(socket: WebSocket, id: string): Promise<unknown> {
 }
 
 describe("BridgeRelay device dispatch", () => {
+  it("completes a Bridge-initiated close and clears its live targets", async () => {
+    const { stub, socket } = await openBridge("bridge-peer-close");
+    socket.send(JSON.stringify({ type: "bridge-status", targets: ["venue-device"] }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toEqual(["venue-device"]);
+    const closed = nextClose(socket);
+    socket.close(1000, "Operator stopped Bridge");
+    await expect(closed).resolves.toMatchObject({ code: 1000, reason: "Operator stopped Bridge", wasClean: true });
+    await expect.poll(async () => (await stub.getBridgeStatus()).bridgeOnline).toBe(false);
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject({ connectedTargets: [] });
+  });
+
   it("restores credential identity across hibernation and still honors revocation", async () => {
     const orgId = "bridge-hibernated-identity";
     const { stub, socket, credential } = await openBridge(orgId);
