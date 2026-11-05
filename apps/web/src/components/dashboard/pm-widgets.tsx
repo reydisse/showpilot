@@ -77,7 +77,7 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
   showId: string | null;
   initialState: RundownState;
 }) {
-  const { items, timer, hydrated, stateServiceDate, stateShowId, stateInitialized, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
+  const { items, timer, hydrated, connected, stateServiceDate, stateShowId, stateInitialized, sendCommand, seedState } = useRundownSync(orgId, serviceDate, showId ?? undefined);
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -98,10 +98,14 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
   const playable = activeItems.filter((item) => !isHeaderItem(item));
   const current = playable.find((item) => item.id === activeTimer.currentItemId) ?? null;
   const first = playable.find((item) => item.status !== "complete") ?? playable[0];
-  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${showId ?? serviceDate}:${activeTimer.currentItemId}:${activeTimer.playback === "stop"}`);
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(
+    { orgId, showId, serviceDate }, () => sendCommand("timer-stop"),
+    !connected ? "Reconnect to live state before ending this show." : activeTimer.playback === "stop" ? "This show is already stopped." : undefined,
+  );
   const command = (action: string, payload?: Record<string, unknown>) => {
+    if (!connected) return;
     if (action === "timer-stop" || (action === "timer-next" && !nextPlayableItem(activeItems, activeTimer.currentItemId))) {
-      requestEndShow(() => sendCommand(action, payload));
+      requestEndShow();
       return;
     }
     sendCommand(action, payload);
@@ -133,19 +137,20 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
         <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>
         <span className={`ml-auto text-[10px] uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
       </header>
+      {!connected && <p role="status" className="px-4 py-2 text-xs text-amber-300">Offline. Reconnect to control this show.</p>}
       <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 lg:grid-cols-7">
           {timer.playback === "play" ? (
-            <ControlButton icon={Pause} label="Pause" detail="Hold timer" onClick={pause} active />
+            <ControlButton icon={Pause} label="Pause" detail="Hold timer" onClick={pause} disabled={!connected} active />
           ) : timer.playback === "pause" ? (
-            <ControlButton icon={Play} label="Resume" detail="Continue timer" onClick={resume} active />
+            <ControlButton icon={Play} label="Resume" detail="Continue timer" onClick={resume} disabled={!connected} active />
           ) : (
-            <ControlButton icon={Play} label="Start" detail="First playable item" onClick={start} disabled={!first} />
+            <ControlButton icon={Play} label="Start" detail="First playable item" onClick={start} disabled={!connected || !first} />
           )}
-          <ControlButton icon={CircleStop} label="Stop" detail="Stop transport" onClick={stop} disabled={timer.playback === "stop"} />
-          <ControlButton icon={ChevronLeft} label="Previous" detail="Previous item" onClick={() => command("timer-prev")} disabled={timer.playback === "stop"} />
-          <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={timer.playback === "stop"} />
-          <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={timer.playback === "stop"} />
-          <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={timer.playback === "stop"} />
+          <ControlButton icon={CircleStop} label="Stop" detail="Stop transport" onClick={stop} disabled={!connected || timer.playback === "stop"} />
+          <ControlButton icon={ChevronLeft} label="Previous" detail="Previous item" onClick={() => command("timer-prev")} disabled={!connected || timer.playback === "stop"} />
+          <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={!connected || timer.playback === "stop"} />
+          <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={!connected || timer.playback === "stop"} />
+          <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={!connected || timer.playback === "stop"} />
           <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{displayedTime}</span><span className="mt-0.5 block text-[9px] text-board-muted">{displayedTimeLabel}</span></span></div>
       </div>
     </section>

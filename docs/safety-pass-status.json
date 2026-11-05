@@ -265,8 +265,12 @@
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 63,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "useShowEndConfirmation takes an organization/show target and a current callback. Item advances and same-show date edits preserve the dialog; a different show cancels it with visible feedback. All four callers migrated (rundown, production dashboard, technical dashboard, live bar); next-at-end confirmation always sends stop, never a stale Next.",
+        "React tests verify confirmation/cancellation, latest callback after an item advance, disabled confirmation during disconnect, and scope-change feedback. Real Worker test tm-show-confirmation.worker.test.ts verifies changed-show rejection, same-room pinned dispatch despite active pointer changes, organization mismatch rejection, failure propagation, and a valid confirmed stop.",
+        "Full web tests passed: 1185 unit and 91 Worker, plus migration/client boundaries. Typecheck and production build passed (174495 gzip bytes). No live organization data was modified."
+      ]
     },
     {
       "id": "2a9e8a514ac646a6",
@@ -327,7 +331,8 @@
       "evidence": [
         "Rundown renders a persistent offline/pending count banner and disables transport until matching relay hydration. useRundownSync expires transport after 5 seconds on dispatch and navigation; relay HTTP/WS expiry preserves duplicate acknowledgement and revision arbitration.",
         "Regression tests reproduced the previous eager-connected and stale handoff behavior. Hook and real Worker tests cover stale reconnect, durable edit retention, fresh handoff IDs/deadlines with clock skew, expired HTTP/WS rejection, and applied retry deduplication.",
-        "Full web tests passed: 1183 unit and 90 Worker, plus migration/client boundaries. Typecheck and production build passed (174372 gzip bytes). Browser disconnect rehearsal remains pending."
+        "Full web tests passed: 1183 unit and 90 Worker, plus migration/client boundaries. Typecheck and production build passed (174372 gzip bytes). Browser disconnect rehearsal remains pending.",
+        "Follow-up: expired transport notices survive successful queued-edit acknowledgements. Production dashboard transport is also disabled offline, and open end-show confirmations remain visible but disabled during a disconnect. Latest validation: 1185 unit / 91 Worker tests, typecheck and production build passed; browser rehearsal remains pending."
       ]
     },
     {

@@ -1236,8 +1236,6 @@ function RundownPage() {
     }
   }, [transportAvailable, timer, sendRundownCommand]);
 
-  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${showId ?? serviceDate}:${timer.currentItemId}:${timer.playback === "stop"}`);
-
   const stopConfirmed = useCallback(() => {
     if (!transportAvailable) return;
     setItems((prev) =>
@@ -1257,15 +1255,21 @@ function RundownPage() {
     sendRundownCommand("timer-stop");
   }, [transportAvailable, timer.currentItemId, timer.mode, sendRundownCommand]);
 
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(
+    { orgId, showId, serviceDate }, stopConfirmed,
+    !transportAvailable ? "Reconnect to live state before ending this show."
+      : timer.playback === "stop" ? "This show is already stopped." : undefined,
+  );
+
   const handleStop = useCallback(() => {
     if (!transportAvailable || timer.playback === "stop") return;
-    requestEndShow(stopConfirmed);
+    requestEndShow();
   }, [transportAvailable, timer.playback, requestEndShow, stopConfirmed]);
 
   const handleNext = useCallback(() => {
     if (!transportAvailable) return;
     if (timer.playback !== "stop" && !nextPlayableItem(items, timer.currentItemId)) {
-      requestEndShow(stopConfirmed);
+      requestEndShow();
       return;
     }
     // Local optimistic update

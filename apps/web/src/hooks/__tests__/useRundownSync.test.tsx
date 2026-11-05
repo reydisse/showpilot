@@ -108,6 +108,10 @@ describe("useRundownSync command confirmation", () => {
     expect(replacement.sent.map((entry) => JSON.parse(entry).action)).toEqual(["update-meta"]);
     expect(result.current.unconfirmedCount).toBe(1);
     expect(result.current.lastError).toContain("expired");
+    const edit = JSON.parse(replacement.sent[0]);
+    act(() => replacement.receive({ type: "command-result", id: edit.id, accepted: true, revision: 5 }));
+    expect(result.current.unconfirmedCount).toBe(0);
+    expect(result.current.lastError).toContain("expired");
     unmount();
   });
 

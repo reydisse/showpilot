@@ -113,27 +113,30 @@ interface CompanionEnv {
   DB: D1Database;
 }
 
+type RundownTarget = Awaited<ReturnType<typeof getActiveRundownRelayTarget>>;
+
 async function rundownRelayCommand(
   orgId: string,
+  target: RundownTarget,
   action: string,
   payload?: Record<string, unknown>,
 ): Promise<void> {
   const bindings = env as unknown as CompanionEnv;
-  const target = await getActiveRundownRelayTarget(bindings.DB, orgId);
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
-  await stub.fetch(
+  const response = await stub.fetch(
     new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, payload }),
     }),
   );
+  await response.arrayBuffer();
+  if (!response.ok) throw new Error(`Rundown command failed (${response.status}). Refresh live state before trying again.`);
 }
 
-async function rundownRelayState(orgId: string): Promise<RelayState> {
+async function rundownRelayState(orgId: string, target: RundownTarget): Promise<RelayState> {
   const bindings = env as unknown as CompanionEnv;
-  const target = await getActiveRundownRelayTarget(bindings.DB, orgId);
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   const res = await stub.fetch(
@@ -185,11 +188,27 @@ async function isCloudEnabled(orgId: string): Promise<boolean> {
 
 // ─── Real deps ───────────────────────────────────────────────
 
-export function buildCompanionDeps(): CompanionDeps {
+export function buildCompanionDeps(pinned?: { orgId: string; target: RundownTarget }): CompanionDeps {
+  // One request must read and command the same room even if the active pointer changes.
+  const targets = new Map<string, Promise<RundownTarget>>();
+  const resolveTarget = (orgId: string): Promise<RundownTarget> => {
+    if (pinned) {
+      if (pinned.orgId !== orgId) throw new Error("Rundown target organization mismatch");
+      return Promise.resolve(pinned.target);
+    }
+    let target = targets.get(orgId);
+    if (!target) {
+      target = getActiveRundownRelayTarget(env.DB, orgId);
+      targets.set(orgId, target);
+    }
+    return target;
+  };
+  const relayCommand: CompanionDeps["relayCommand"] = async (orgId, action, payload) =>
+    rundownRelayCommand(orgId, await resolveTarget(orgId), action, payload);
   return {
-    relayCommand: rundownRelayCommand,
-    relayState: rundownRelayState,
-    setLyrics: (orgId, enabled) => rundownRelayCommand(
+    relayCommand,
+    relayState: async (orgId) => rundownRelayState(orgId, await resolveTarget(orgId)),
+    setLyrics: (orgId, enabled) => relayCommand(
       orgId,
       "pp-output-enabled",
       { enabled },

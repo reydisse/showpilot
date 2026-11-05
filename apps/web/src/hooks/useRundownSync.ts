@@ -240,6 +240,7 @@ export function useRundownSync(
   const [ppOutputEnabled, setPpOutputEnabled] = useState(false);
   const [stageMessage, setStageMessage] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [transportError, setTransportError] = useState<string | null>(null);
   const [unconfirmedCount, setUnconfirmedCount] = useState(0);
   const serverClockOffsetRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -277,7 +278,7 @@ export function useRundownSync(
     let entry = commandQueue.current.shift();
     while (entry && isExpired(entry)) {
       confirmCommand(entry.id);
-      setLastError("An unconfirmed transport command expired and will not be retried. Review live state before trying again.");
+      setTransportError("An unconfirmed transport command expired and will not be retried. Review live state before trying again.");
       entry = commandQueue.current.shift();
     }
     if (!entry) return;
@@ -329,6 +330,7 @@ export function useRundownSync(
     setUnconfirmedCount(0);
     clearPendingTimer();
     setLastError(null);
+    setTransportError(null);
     setStateServiceDate(null);
     setStateShowId(null);
     setServiceName(null);
@@ -413,7 +415,7 @@ export function useRundownSync(
               if (msg.accepted === false && msg.reason === "revision-conflict") {
                 setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
               } else if (msg.accepted === false && msg.reason === "expired") {
-                setLastError("That transport command expired before it could apply. Live state was restored.");
+                setTransportError("That transport command expired before it could apply. Live state was restored.");
               } else if (msg.accepted === false) {
                 setLastError("That rundown change was rejected. Live state was restored.");
               } else {
@@ -564,6 +566,7 @@ export function useRundownSync(
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
+      if (isLiveTransport(action)) setTransportError(null);
       const id = createBrowserId();
       unconfirmedCommandIdsRef.current.add(id);
       setUnconfirmedCount(unconfirmedCommandIdsRef.current.size);
@@ -614,7 +617,7 @@ export function useRundownSync(
     ppPreviewSlide,
     ppOutputEnabled,
     stageMessage,
-    lastError,
+    lastError: transportError ?? lastError,
     saving: unconfirmedCount > 0,
     unconfirmedCount,
     hasPendingCommands,

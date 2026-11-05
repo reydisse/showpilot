@@ -3,7 +3,12 @@ import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { assertOrgPermission } from "@/lib/org-access";
-import { idSchema, parseOrThrow } from "@/lib/validation";
+import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+
+import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+import { env } from "cloudflare:workers";
+
+const showTargetSchema = z.object({ showId: idSchema.nullable(), serviceDate: serviceDateSchema });
 
 const actionSchema = z.enum([
   "timer-start", "timer-stop", "timer-add", "timer-subtract",
@@ -13,6 +18,7 @@ const actionSchema = z.enum([
 ]);
 export type TmControlAction = z.infer<typeof actionSchema>;
 export interface TmControlState {
+  target: z.infer<typeof showTargetSchema>;
   timer: { playback: string; elapsed: number };
   currentItem: { id: string; title: string } | null;
   nextItem: { title: string } | null;
@@ -41,10 +47,11 @@ export const getTmControlState = createServerFn({ method: "GET" })
     const [{ buildCompanionDeps }, { getState }] = await Promise.all([
       import("@/lib/companion-api"), import("@/lib/companion-control"),
     ]);
-    const result = await getState(buildCompanionDeps(), data.orgId);
-    if (result.status !== 200) throw new Error(String(result.body.error ?? "Controls unavailable"));
-    const body = result.body as Record<string, any>;
+    const target = await getActiveRundownRelayTarget(env.DB, data.orgId);
+    const result = await getState(buildCompanionDeps({ orgId: data.orgId, target }), data.orgId);
+    const body = result.body;
     return {
+      target: { showId: target.showId, serviceDate: target.serviceDate },
       timer: { playback: String(body.timer?.playback ?? "stop"), elapsed: Number(body.timer?.elapsed ?? 0) },
       currentItem: body.currentItem ? { id: String(body.currentItem.id ?? ""), title: String(body.currentItem.title ?? "") } : null,
       nextItem: body.nextItem ? { title: String(body.nextItem.title ?? "") } : null,
@@ -55,11 +62,18 @@ export const getTmControlState = createServerFn({ method: "GET" })
   });
 
 export const runTmControl = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, action: actionSchema }), data))
+  .inputValidator((data: unknown) => parseOrThrow(z.discriminatedUnion("action", [
+    z.object({ orgId: idSchema, action: z.literal("timer-stop"), target: showTargetSchema }),
+    z.object({ orgId: idSchema, action: actionSchema.exclude(["timer-stop"]) }),
+  ]), data))
   .handler(async ({ data }) => {
     const viewer = await assertControlAccess(data.orgId, data.action);
     const [api, control] = await Promise.all([import("@/lib/companion-api"), import("@/lib/companion-control")]);
-    const deps = api.buildCompanionDeps();
+    const target = data.action === "timer-stop" ? await getActiveRundownRelayTarget(env.DB, data.orgId) : null;
+    if (data.action === "timer-stop" && target && (
+      target.showId !== data.target.showId || target.serviceDate !== data.target.serviceDate
+    )) throw new Error("Active show changed, confirmation cancelled. Review the current show before ending it.");
+    const deps = api.buildCompanionDeps(target ? { orgId: data.orgId, target } : undefined);
     const handlers: Record<TmControlAction, () => Promise<{ status: number; body: Record<string, unknown> }>> = {
       "timer-start": () => control.timerStart(deps, data.orgId),
       "timer-stop": () => control.timerStop(deps, data.orgId),

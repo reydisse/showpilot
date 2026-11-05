@@ -238,7 +238,7 @@ export async function streamStop(deps: CompanionDeps, orgId: string): Promise<Co
 
 // ─── State (button feedback) ─────────────────────────────────
 
-export async function getState(deps: CompanionDeps, orgId: string): Promise<CompanionResult> {
+export async function getState(deps: CompanionDeps, orgId: string) {
   const [state, lyricsEnabled, lowerThird, kioskBlanked, stream] = await Promise.all([
     deps.relayState(orgId),
     deps.getLyrics(orgId),
