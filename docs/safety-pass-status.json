@@ -1,0 +1,1693 @@
+{
+  "source": "codex-mega-prompt.md",
+  "requirements": [
+    {
+      "id": "7e9af22eb8c1930b",
+      "phase": "global",
+      "section": "How to work",
+      "line": 17,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a41fbde1046806aa",
+      "phase": "global",
+      "section": "How to work",
+      "line": 18,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e60bd8d887720948",
+      "phase": "global",
+      "section": "How to work",
+      "line": 19,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "cdd38c547766eb40",
+      "phase": "global",
+      "section": "How to work",
+      "line": 20,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7fed22f96a73c135",
+      "phase": "global",
+      "section": "How to work",
+      "line": 21,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a1f9dd51e6722000",
+      "phase": "global",
+      "section": "How to work",
+      "line": 22,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "273d3ebe1878374e",
+      "phase": "global",
+      "section": "How to work",
+      "line": 23,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7397e55d1d020386",
+      "phase": "global",
+      "section": "How to work",
+      "line": 24,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8693a84e03229907",
+      "phase": "global",
+      "section": "How to work",
+      "line": 25,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "accbd9454acf01cc",
+      "phase": "0",
+      "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
+      "line": 33,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "fda44398ee9bd175",
+      "phase": "0",
+      "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
+      "line": 34,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "26cfce8f6e51786b",
+      "phase": "0",
+      "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
+      "line": 35,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "3021da39d2093097",
+      "phase": "0",
+      "section": "0.1 Automation kill switch, per event disable, per event retry (audit C7, TC/L2)",
+      "line": 36,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f3f373901812d1fe",
+      "phase": "0",
+      "section": "0.2 Honest failure reporting (audit C8)",
+      "line": 40,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0ac9f82bf42ee36e",
+      "phase": "0",
+      "section": "0.2 Honest failure reporting (audit C8)",
+      "line": 41,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0451b117f2523b5b",
+      "phase": "0",
+      "section": "0.2 Honest failure reporting (audit C8)",
+      "line": 42,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "eb7dcd4e35ecd28c",
+      "phase": "0",
+      "section": "0.3 Kill the Bridge god credential (audit C1)",
+      "line": 46,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8756712f5bcfe5cd",
+      "phase": "0",
+      "section": "0.3 Kill the Bridge god credential (audit C1)",
+      "line": 47,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0ede8f2153f4fd8d",
+      "phase": "0",
+      "section": "0.3 Kill the Bridge god credential (audit C1)",
+      "line": 48,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "56d85cb25581658e",
+      "phase": "0",
+      "section": "0.3 Kill the Bridge god credential (audit C1)",
+      "line": 49,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "86517293561f3645",
+      "phase": "0",
+      "section": "0.3 Kill the Bridge god credential (audit C1)",
+      "line": 50,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7fdc93392190474b",
+      "phase": "0",
+      "section": "0.4 Gate public show state behind a display pass (audit H6)",
+      "line": 54,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "497b0a51d43f44f9",
+      "phase": "0",
+      "section": "0.4 Gate public show state behind a display pass (audit H6)",
+      "line": 55,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ddba66694cf9df2d",
+      "phase": "0",
+      "section": "0.4 Gate public show state behind a display pass (audit H6)",
+      "line": 56,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0acfbdbf81bac69e",
+      "phase": "0",
+      "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
+      "line": 60,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6efa0d1818d1406d",
+      "phase": "0",
+      "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
+      "line": 61,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "998321492918a3cc",
+      "phase": "0",
+      "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
+      "line": 62,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "9f9656a51c6e6c92",
+      "phase": "0",
+      "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
+      "line": 63,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2a9e8a514ac646a6",
+      "phase": "0",
+      "section": "0.6 Tame global keyboard shortcuts (audit H1)",
+      "line": 67,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a06bbc443d6c73c5",
+      "phase": "0",
+      "section": "0.6 Tame global keyboard shortcuts (audit H1)",
+      "line": 68,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "66e870ebbe5f5dbf",
+      "phase": "0",
+      "section": "0.7 Bridge MTC decoder (audit C9)",
+      "line": 72,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "26589fd7c283c235",
+      "phase": "0",
+      "section": "0.8 Timeouts and parallel execution (audit C11)",
+      "line": 76,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5782016414228f30",
+      "phase": "0",
+      "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
+      "line": 80,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c07ebd6f61a69843",
+      "phase": "0",
+      "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
+      "line": 81,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "16d44cf526dfc43d",
+      "phase": "0",
+      "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
+      "line": 82,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "125cf3708508fdb7",
+      "phase": "0",
+      "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
+      "line": 83,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "200c411aae89aa01",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 87,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "9dce8e29fb47ee06",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 88,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "89b76d093fd12b65",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 89,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4ffe310c9c6440c4",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 90,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6da7a68cfa09363f",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 91,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d37305a7010232bf",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 92,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6099a3e607860c71",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 93,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "47ca7147bcefa2a7",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 94,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "01812594fe344d96",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 95,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "092369f71bc16a53",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 96,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d62a431a51e7dd48",
+      "phase": "0",
+      "section": "Phase 0 gate (all must pass before Phase 1)",
+      "line": 97,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "196451f9ffcb6b0e",
+      "phase": "1",
+      "section": "1.1 Scope relays per show and per venue (audit C4, C3)",
+      "line": 105,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f86aba8c7721934e",
+      "phase": "1",
+      "section": "1.1 Scope relays per show and per venue (audit C4, C3)",
+      "line": 106,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2f5514f91b02e920",
+      "phase": "1",
+      "section": "1.2 No claim means read only (audit C2)",
+      "line": 110,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6e8935ea414ff97f",
+      "phase": "1",
+      "section": "1.2 No claim means read only (audit C2)",
+      "line": 111,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f5e403df7badf18b",
+      "phase": "1",
+      "section": "1.2 No claim means read only (audit C2)",
+      "line": 112,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "734d44357d50a014",
+      "phase": "1",
+      "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
+      "line": 116,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "44b728a9107f7db2",
+      "phase": "1",
+      "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
+      "line": 117,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d73ecb45955135b4",
+      "phase": "1",
+      "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
+      "line": 121,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "506bd091ac75572a",
+      "phase": "1",
+      "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
+      "line": 122,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d4fc5392267a3904",
+      "phase": "1",
+      "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
+      "line": 123,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "3ae7e85bb21eb1a5",
+      "phase": "1",
+      "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
+      "line": 124,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "690df802557649d6",
+      "phase": "1",
+      "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
+      "line": 128,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c6f314add708b790",
+      "phase": "1",
+      "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
+      "line": 129,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f1e8e688dd4d8aee",
+      "phase": "1",
+      "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
+      "line": 130,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d06ad9f57e04e822",
+      "phase": "1",
+      "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
+      "line": 131,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d9806d929e2efeda",
+      "phase": "1",
+      "section": "1.6 Bridge target allowlist and credential hygiene (audit H7, H8)",
+      "line": 135,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e095490bc22df118",
+      "phase": "1",
+      "section": "1.6 Bridge target allowlist and credential hygiene (audit H7, H8)",
+      "line": 136,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1311a10f91af6113",
+      "phase": "1",
+      "section": "1.7 Rundown persistence and active show pointer (audit H11, H14)",
+      "line": 140,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "47be6f2522a57b0e",
+      "phase": "1",
+      "section": "1.7 Rundown persistence and active show pointer (audit H11, H14)",
+      "line": 141,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d6b8358682c376fb",
+      "phase": "1",
+      "section": "1.8 Release pipeline honesty without secrets (audit C10, constrained)",
+      "line": 145,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "16d0a6c151073104",
+      "phase": "1",
+      "section": "1.9 Delete or quarantine the dead gateway (audit H16)",
+      "line": 149,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ed2e1d8d3766d0de",
+      "phase": "1",
+      "section": "1.10 Onboarding: signup dead end and second org creation (live findings 1 and 2)",
+      "line": 153,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6b207e85ae915db0",
+      "phase": "1",
+      "section": "1.10 Onboarding: signup dead end and second org creation (live findings 1 and 2)",
+      "line": 154,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "695c938d7f4089bd",
+      "phase": "1",
+      "section": "1.11 Clock semantics: resume versus restart (live finding)",
+      "line": 158,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2d2725943d2077a9",
+      "phase": "1",
+      "section": "1.12 Web MTC decoder hardening (audit TC/M1, TC/M3 validation half)",
+      "line": 162,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2dfb667e7bbd3409",
+      "phase": "1",
+      "section": "1.12 Web MTC decoder hardening (audit TC/M1, TC/M3 validation half)",
+      "line": 163,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e1ac50eb64328458",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 167,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7f3337ab23bdf26b",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 168,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d3908f71e7d395f5",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 169,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "08075d24c7d50999",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 170,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ee3e5d8b92b5667b",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 171,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1959973710f77b0b",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 172,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a4380d9c75169389",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 173,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "db5143676c20e424",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 174,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5a458d4e0212b9d4",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 175,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "12ba8a8451b41f72",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 176,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "69e8ceb371dd77b0",
+      "phase": "1",
+      "section": "Phase 1 gate (all must pass before Phase 2)",
+      "line": 177,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "70e2973f8b44a37b",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 185,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c012be63e0ade5f0",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 186,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c8c6c71467842b5f",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 187,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7022902a11231afb",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 188,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "28d3921718dcd50b",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 189,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "97bee8d1f8775ad1",
+      "phase": "2",
+      "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
+      "line": 190,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "66a2bbfc8c69ec2c",
+      "phase": "2",
+      "section": "2.2 Real LTC input (audit TC/M3, Phase 2 item 14)",
+      "line": 194,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1a9c238b7fce50a1",
+      "phase": "2",
+      "section": "2.3 Local show mode, minimum viable first (audit C5)",
+      "line": 198,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "bddfdd87fdf233ea",
+      "phase": "2",
+      "section": "2.3 Local show mode, minimum viable first (audit C5)",
+      "line": 199,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "be09e5c91f568e51",
+      "phase": "2",
+      "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
+      "line": 203,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ee73b9245260f50a",
+      "phase": "2",
+      "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
+      "line": 204,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "b6ff05ee0c94909f",
+      "phase": "2",
+      "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
+      "line": 205,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6949ddb4d7300f07",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 211,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "adee1ff82ac4b72a",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 212,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "39df5e5f388ce2e4",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 213,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1cd93b1d08336eb5",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 214,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "fb2ebef6877b4b2c",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 215,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "b3d37b204d4fe3ad",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 216,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "cacb9179894c7290",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 217,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "18273c36500931da",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 218,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "13097934ed9ae315",
+      "phase": "2",
+      "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
+      "line": 219,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ea35d876d293859f",
+      "phase": "2",
+      "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
+      "line": 223,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "47a6929ff245073b",
+      "phase": "2",
+      "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
+      "line": 224,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8b03200cdb8161cd",
+      "phase": "2",
+      "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
+      "line": 225,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4b10ddc0c5cd39ba",
+      "phase": "2",
+      "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
+      "line": 226,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "72abbfcca8a1ce0f",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 230,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d5b79b9d09777dcd",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 231,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1283cc80a4754024",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 232,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "776578ceddc0c2cf",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 233,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "73308e1b9c8f0297",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 234,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a6cf92a2ef2366ae",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 235,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "7f9c61a0bfafbe23",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 236,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f766b74e7422ded3",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 237,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e17aa5259080e863",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 238,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c24354934db31ecd",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 239,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d3787384b959a853",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 240,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "27d4285beb3e5489",
+      "phase": "2",
+      "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
+      "line": 241,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5d13cce444e15bda",
+      "phase": "2",
+      "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
+      "line": 245,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "01938da22bad50e9",
+      "phase": "2",
+      "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
+      "line": 246,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "3d5c7f8decaf2534",
+      "phase": "2",
+      "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
+      "line": 247,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "b9551c2b15107646",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 251,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "dea246478d6ef5c5",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 252,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "723f3481eb2e180a",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 253,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d6a003d798ec9482",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 254,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2a54975ad0b9ecc1",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 255,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c199f70e6d42cad8",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 256,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "83b1dd9489650e62",
+      "phase": "2",
+      "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
+      "line": 257,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8637515169e00d6f",
+      "phase": "2",
+      "section": "2.10 Connection state consistency (live finding)",
+      "line": 261,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ac5dfbfca0adb1f3",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 267,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "9a197d9687fde3ba",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 268,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "19ab826391d68d1f",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 269,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "b4ee5ed6e65805a2",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 270,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "01f85ef846408c26",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 271,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c6f73a41301a6641",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 272,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0a1f89cd52023114",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 273,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d80964d9eac6d11f",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 274,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8fb2f980425e345c",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 275,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "aaf7dad038a26724",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 276,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "477ebbd1ac7b50a1",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 277,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2b52d3e59504e11c",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 278,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0b156873567042e0",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 279,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "42c93f2251778337",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 280,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1302c503732c65e1",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 281,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8f3621e43ab9786d",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 282,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5d30364193f8508f",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 283,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "409d9865b4141229",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 284,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4e2cdcca026fe871",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 285,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "36fbbe0b66ff1b12",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 286,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5daebc8cbee52744",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 290,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "55182c9ecbc58295",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 291,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "02774d6317504603",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 292,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "bbc36d7d1b7e4a53",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 293,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a86597deb078fa67",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 294,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ac6b75dcf79f56ab",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 295,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4e122bfdc6ce7f18",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 296,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "942a570e4a1a7db5",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 297,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "3277f632c1aea066",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 298,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "2533590ebd67b0d8",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 299,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "eb3b89162acf053d",
+      "phase": "2",
+      "section": "Phase 2 gate (all must pass before Phase 3)",
+      "line": 300,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "84219ae02728c669",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 308,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "173e83f978d5f5f7",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 309,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d3d3bc52191fb45d",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 310,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4c2425f3c45207aa",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 311,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a5bc52cc92687bf4",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 312,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6f4a8e5e54e2beba",
+      "phase": "3",
+      "section": "3.1 Billing completion (live finding 3; pricing context below)",
+      "line": 313,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6951aee7b1668a50",
+      "phase": "3",
+      "section": "3.2 Webhook and update hardening (audit H10, remainder)",
+      "line": 317,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "27f985e9faedf79f",
+      "phase": "3",
+      "section": "3.2 Webhook and update hardening (audit H10, remainder)",
+      "line": 318,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "73a78966b1c11ca2",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 322,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5ae835748463a719",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 323,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d2d7ba51d85e03b9",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 324,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "34578e3f829ffc21",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 325,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "b7b1acf21f00af46",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 326,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "56d20ede8dc26816",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 327,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4fa9d31819993c86",
+      "phase": "3",
+      "section": "3.3 Check-in and token hygiene (audit H9, SEC/M1, SEC/M2, SEC/M3, SEC/M4, SEC/M5, SEC/M6)",
+      "line": 328,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "175a3ae4e3471ace",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 332,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5ef20fa258bb5b09",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 333,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "8c760b570030b4b5",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 334,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f5c68b99182bd6bf",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 335,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "0a600b9ffb2beffa",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 336,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e020640319bf917a",
+      "phase": "3",
+      "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
+      "line": 337,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "40f424b939e29dab",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 341,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "d5ffee82f6ed9174",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 342,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a6fe3d882e44100b",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 343,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "428963704699f00b",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 344,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "04543f6834589263",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 345,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6cce13817a63df6b",
+      "phase": "3",
+      "section": "3.5 Remaining UI polish (audit UI/M6, UI/M7, UI/M8, UI/L1, UI/L2, UI/L4)",
+      "line": 346,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1981261ccd15e3fe",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 350,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "093c4c8b4ddbdfdb",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 351,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "e9ddb550f843df99",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 352,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "4acaad0d38a10dd9",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 353,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "61c726ec427f4a9b",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 354,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "5e71cd312bd6f6ad",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 355,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "646ff04058e2627b",
+      "phase": "3",
+      "section": "3.6 Release and dependency hygiene (audit ARCH/L1 to L4, QO/L1, QO/M5, QO/M6)",
+      "line": 356,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "dd1d04d8865e31e8",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 360,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "1036150e09dfc7f9",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 361,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "27cdc32bf552abf1",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 362,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "06eea448b9fc3c26",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 363,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "06abe2ebc5b2979c",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 364,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "17d94b3857d502a4",
+      "phase": "3",
+      "section": "Phase 3 gate (all must pass before the final report)",
+      "line": 365,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "972f33155d7873de",
+      "phase": "final",
+      "section": "Final gate: full suite verification and report",
+      "line": 371,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "cffc19c3e6de5a28",
+      "phase": "final",
+      "section": "Final gate: full suite verification and report",
+      "line": 372,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "a82f20d49e194791",
+      "phase": "final",
+      "section": "Final gate: full suite verification and report",
+      "line": 373,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "c0f148f6abb65527",
+      "phase": "final",
+      "section": "Constraints restated (do not negotiate these away)",
+      "line": 377,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "6eaf7a8e4c663b1c",
+      "phase": "final",
+      "section": "Constraints restated (do not negotiate these away)",
+      "line": 378,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "3aa13996eeeaca67",
+      "phase": "final",
+      "section": "Constraints restated (do not negotiate these away)",
+      "line": 379,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "93ac87b2d3e79c22",
+      "phase": "final",
+      "section": "Constraints restated (do not negotiate these away)",
+      "line": 380,
+      "status": "pending",
+      "evidence": []
+    },
+    {
+      "id": "f25cdee668bf2a3f",
+      "phase": "final",
+      "section": "Constraints restated (do not negotiate these away)",
+      "line": 381,
+      "status": "pending",
+      "evidence": []
+    }
+  ]
+}
