@@ -17,6 +17,14 @@ test("the repository satisfies every native release contract", () => {
   assert.deepEqual(findNativeReleaseIssues(snapshot()), []);
 });
 
+test("rejects platform jobs that bypass the signing preflight", () => {
+  for (const product of ["desktop", "bridge"]) {
+    const current = snapshot();
+    current.products[product].workflow = current.products[product].workflow.replace("needs: signing-preflight", "needs: []");
+    assert.ok(findNativeReleaseIssues(current).some(issue => issue.includes("must wait for the shared signing preflight")));
+  }
+});
+
 test("rejects drift between installer, Cargo, lockfile, and engine versions", () => {
   const current = snapshot();
   current.products.bridge.tauri.version = "9.9.9";

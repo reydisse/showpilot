@@ -12,7 +12,8 @@
     "db:generate": "pnpm --filter @showpilot/web db:generate",
     "db:migrate": "pnpm --filter @showpilot/web db:migrate",
     "native:verify": "node scripts/native-release-readiness.mjs",
-    "native:verify:test": "node --test scripts/native-release-readiness.test.mjs"
+    "native:verify:test": "node --test scripts/native-release-readiness.test.mjs scripts/native-release-secrets.test.mjs",
+    "native:secrets": "node scripts/native-release-secrets.mjs"
   },
   "pnpm": {
     "overrides": {

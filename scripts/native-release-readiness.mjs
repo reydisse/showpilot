@@ -235,6 +235,11 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       missingWorkflowFragments.length === 0,
       `${contract.productName} release workflow is missing: ${missingWorkflowFragments.join(", ")}.`,
     );
+    add(
+      /^  release:\n    needs: signing-preflight\n/m.test(current.workflow)
+        && /^  signing-preflight:\n    uses: \.\/\.github\/workflows\/native-release-preflight\.yml\n    secrets: inherit\n/m.test(current.workflow),
+      `${contract.productName} platform builds must wait for the shared signing preflight.`,
+    );
 
     for (const id of contract.landingIds) {
       add(

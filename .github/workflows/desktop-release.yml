@@ -13,7 +13,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  signing-preflight:
+    uses: ./.github/workflows/native-release-preflight.yml
+    secrets: inherit
+
   release:
+    needs: signing-preflight
     strategy:
       fail-fast: false
       matrix:
