@@ -20,7 +20,8 @@ export function withSecurityHeaders(request: Request, response: Response): Respo
   const headers = new Headers(response.headers);
   headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  const url = new URL(request.url);
+  headers.set("Referrer-Policy", /^\/(timer|overlay|api\/overlay)\//.test(url.pathname) ? "no-referrer" : "strict-origin-when-cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "SAMEORIGIN");
   headers.set("X-Permitted-Cross-Domain-Policies", "none");

@@ -1,5 +1,6 @@
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
+import { displaySocketMayReceive } from "@/lib/display-access.server";
 import {
   canApplyRundownRelayAction,
   classifyRelayCommand,
@@ -564,6 +565,7 @@ export class RundownRelay extends DurableObject {
         serviceDate: serviceDate ?? null,
         showId: showId ?? null,
         authClaim: this.readAuthorityClaim(url, request),
+        displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
       // Hydrate with current state
@@ -1250,7 +1252,7 @@ export class RundownRelay extends DurableObject {
     };
   }
 
-  /** Minimum state needed by the intentionally public confidence timer. */
+  /** Minimum state needed by an authorized confidence timer. */
   private getDisplayState() {
     return projectRundownDisplayState({
       serviceDate: this.state.serviceDate ?? null,
@@ -1265,6 +1267,7 @@ export class RundownRelay extends DurableObject {
   }
 
   private async sendStateToSocket(ws: WebSocket): Promise<void> {
+    if (!displaySocketMayReceive(ws)) return;
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
       canObserve?: boolean;

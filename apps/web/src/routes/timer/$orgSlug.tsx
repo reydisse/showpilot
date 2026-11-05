@@ -1,76 +1,37 @@
+import { getRundownStateBySlug } from "@/lib/display-data";
 import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confidence-output";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
 import { ConfidenceSlide, ConfidenceScreen } from "@/components/confidence/ConfidenceSlide";
 import { DEFAULT_CONFIDENCE_LAYOUT } from "@/lib/confidence-layout";
 import { createFileRoute } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
+import { DisplayAccessGate } from "@/components/display/DisplayAccessGate";
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
-import { getPrisma } from "@/lib/db";
 import { getDisplaySettingsBySlug, type DisplaySettingsBySlug } from "@/lib/settings";
 import { formatClockFull, getTodayDateString, type ClockFormat } from "@/lib/utils";
 import type { NativeTimerState } from "@/types/rundown";
 import type { PPSlidePayload } from "@/lib/rundown";
-import { getRundownStateForOrg } from "@/lib/rundown";
 import { elapsedAt, nextPlayableItem } from "@/lib/rundown-transport";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
 import { decodeStageMessage } from "@/lib/stage-message";
 import {
-  projectRundownDisplayState,
   type RundownDisplayItem as KioskRundownItem,
   type RundownDisplayState as KioskRundownState,
 } from "@/lib/rundown-display";
 
 // ─── Server Functions ────────────────────────────────────────
 
-const getRundownStateBySlug = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgSlug: string; serviceDate: string; showId?: string }) => data)
-  .handler(async ({ data }): Promise<{ state: KioskRundownState; message: string; ppSlide: PPSlidePayload | null } | null> => {
-    const prisma = getPrisma();
-
-    const org = await prisma.organization.findUnique({
-      where: { slug: data.orgSlug },
-    });
-    if (!org) return null;
-
-    const [state, messageSetting, ppSlideSetting, ppStageDisplaySetting] = await Promise.all([
-      getRundownStateForOrg({ orgId: org.id, serviceDate: data.serviceDate, showId: data.showId }),
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: { orgId: org.id, key: `rundown-message:${data.showId ?? data.serviceDate}` },
-        },
-      }),
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: { orgId: org.id, key: `rundown-ppslide:${data.showId ?? data.serviceDate}` },
-        },
-      }),
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: { orgId: org.id, key: "propresenter-stage-display" },
-        },
-      }),
-    ]);
-
-    const ppSlideEnabled = ppStageDisplaySetting?.value === "true";
-    const ppSlide: PPSlidePayload | null =
-      ppSlideEnabled && ppSlideSetting && ppSlideSetting.value !== "null"
-        ? JSON.parse(ppSlideSetting.value)
-        : null;
-
-    return {
-      state: projectRundownDisplayState(state),
-      message: messageSetting?.value ?? "",
-      ppSlide,
-    };
-  });
-
 // ─── Route ───────────────────────────────────────────────────
 
 export const Route = createFileRoute("/timer/$orgSlug")({
-  component: TimerKioskPage,
+  component: AuthorizedTimerPage,
 });
+
+function AuthorizedTimerPage() {
+  const { orgSlug } = Route.useParams();
+  return <DisplayAccessGate orgSlug={orgSlug} surface="timer"><TimerKioskPage /></DisplayAccessGate>;
+}
 
 // ─── Types ───────────────────────────────────────────────────
 

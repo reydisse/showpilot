@@ -226,24 +226,33 @@
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 54,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Timer and overlay pages exchange an eight-hour org/surface-scoped signed pass for an HttpOnly cookie before mounting any display data requests. Existing active kiosk tokens are accepted for their exact view. Member display windows establish and renew their own session; explicit invalid links never fall back to another scope.",
+        "display-access.worker, display-session, display-gateway-security, DisplayAccessGate, and display-relay-expiry.worker tests verify signature, scope, expiry, revocation checks at entry, limited read projections, and no post-expiry broadcasts after Durable Object hibernation.",
+        "2026-11-04: smoke-display-access.mjs ran the production build in local Wrangler with disposable D1 and real Chromium. Signed timer and overlay links rendered, URL passes were removed, HttpOnly cookie access survived reload, and unsigned/wrong-org/wrong-surface/expired links were denied. Full web checks passed: 1248 unit and 115 Worker tests, typecheck, production build."
+      ]
     },
     {
       "id": "497b0a51d43f44f9",
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 55,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Overlay responses omit wildcard CORS and use no-store. display-data-security.test.ts covers authenticated and rejected responses; smoke-display-access.mjs verified actual built Worker headers. Display page/API referrer policy is no-referrer."
+      ]
     },
     {
       "id": "ddba66694cf9df2d",
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 56,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "The timer fallback server function and display settings require the same timer pass as rundown/timecode display reads. Stage messages remain in the authorized minimal display projection; private notes/scripts and automation timelines are excluded.",
+        "display-data-security and gateway tests prove anonymous requests stop before querying protected show data. The real-browser smoke seeded a live stage message through an authenticated operator API and verified it appears only after a valid display pass."
+      ]
     },
     {
       "id": "0acfbdbf81bac69e",

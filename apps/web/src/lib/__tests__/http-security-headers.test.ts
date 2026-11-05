@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { withSecurityHeaders } from "../http-security-headers";
 
 describe("HTTP security headers", () => {
+  it.each(["/timer/venue", "/overlay/venue", "/api/overlay/venue"])("keeps a display pass out of referrers on %s", (path) => {
+    const response = withSecurityHeaders(new Request(`https://app.example${path}?displayPass=fixture`), new Response("ok"));
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
   it("hardens HTTPS responses without changing their body or status", async () => {
     const response = withSecurityHeaders(
       new Request("https://showpilot.tech/login"),

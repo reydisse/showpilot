@@ -1753,11 +1753,6 @@ function RundownPage() {
   const selectionBusy =
     loading || metaSavePending || syncSaving || activePublishPending;
 
-  const timerUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/timer/${slug}`
-      : `/timer/${slug}`;
-
   const rundownMeta = scheduledStartIso
     ? {
         serviceDate,
@@ -1873,13 +1868,19 @@ function RundownPage() {
                   <DropdownMenuContent align="end" className="min-w-[190px]">
                     <DropdownMenuItem
                       onSelect={() => {
-                        navigator.clipboard.writeText(timerUrl);
-                        setCopiedUrl(true);
-                        setTimeout(() => setCopiedUrl(false), 2000);
+                        void (async () => {
+                          try {
+                            const { createDisplayLink } = await import("@/lib/display-access");
+                            const link = await createDisplayLink({ data: { orgSlug: slug, surface: "timer" } });
+                            await navigator.clipboard.writeText(new URL(link.path, window.location.origin).href);
+                            setCopiedUrl(true);
+                            setTimeout(() => setCopiedUrl(false), 2000);
+                          } catch { setSelectionError("Could not copy the display link. Check your connection and try again."); }
+                        })();
                       }}
                     >
                       <Monitor className="w-3.5 h-3.5" />
-                      {copiedUrl ? "Kiosk link copied" : "Copy kiosk link"}
+                      {copiedUrl ? "8-hour display link copied" : "Copy 8-hour display link"}
                       {copiedUrl ? (
                         <Check className="ml-auto w-3.5 h-3.5 text-green-400" />
                       ) : (

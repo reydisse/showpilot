@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { displaySocketMayReceive } from "@/lib/display-access.server";
 import {
   hasLivePermissionAuthority,
   type LiveSessionAuthorityClaim,
@@ -73,6 +74,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
       server.serializeAttachment?.({
         canWrite: url.searchParams.get("access") === "write",
         authClaim: this.readAuthorityClaim(url),
+        displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
       // Hydrate late connectors
@@ -222,6 +224,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     // Cloudflare retains accepted sockets across Durable Object hibernation;
     // an instance Set would lose every connected display on wake.
     for (const ws of this.ctx.getWebSockets()) {
+      if (!displaySocketMayReceive(ws)) continue;
       try {
         ws.send(data);
       } catch {

@@ -43,7 +43,7 @@ import { IntegrationCard } from "@/components/settings/IntegrationCard";
 import { useSettingAutosave } from "@/components/settings/useSettingAutosave";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
-import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
+import { useDisplayLink } from "@/hooks/useDisplayLink";
 import { CsvImportSection } from "@/components/settings/CsvImportSection";
 import {
   getManageableOrgSettings,
@@ -1856,7 +1856,7 @@ function CloudLowerThirdsToggle({
 
 function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const overlayUrl = useAbsoluteUrl(`/overlay/${slug}`);
+  const overlayLink = useDisplayLink(slug, "overlay");
 
   return (
     <div>
@@ -1926,14 +1926,15 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg break-all sm:truncate overflow-x-auto">
-              {overlayUrl}
+              {overlayLink.url || "Creating display link…"}
             </code>
             <button
               type="button"
+              disabled={!overlayLink.url}
               onClick={() => {
-                navigator.clipboard.writeText(overlayUrl);
-                setCopiedUrl(true);
-                setTimeout(() => setCopiedUrl(false), 2000);
+                void overlayLink.copy().then((copied) => {
+                  if (copied) { setCopiedUrl(true); setTimeout(() => setCopiedUrl(false), 2000); }
+                });
               }}
               aria-label={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
               title={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
@@ -1950,9 +1951,12 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
           {/* QR Code */}
           <div className="flex flex-col sm:flex-row items-start gap-4">
             <div className="p-2 bg-white rounded-lg">
-              <QRCodeSVG value={overlayUrl} size={96} />
+              {overlayLink.url && <QRCodeSVG value={overlayLink.url} size={96} />}
             </div>
             <div className="text-xs text-board-muted space-y-2">
+              <p>This link expires in 8 hours.</p>
+              {overlayLink.error && <p role="alert" className="text-red-300">{overlayLink.error}</p>}
+              <button type="button" onClick={overlayLink.refresh} className="min-h-11 underline">Create a fresh link</button>
               <p className="font-medium text-board-text">Setup Instructions</p>
               <details className="group">
                 <summary className="cursor-pointer hover:text-board-text flex items-center gap-1">

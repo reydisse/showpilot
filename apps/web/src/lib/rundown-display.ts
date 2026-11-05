@@ -32,7 +32,7 @@ interface DisplaySource {
   stageMessage?: string;
 }
 
-/** The only rundown fields approved for an intentionally public display. */
+/** The only rundown fields approved for an authorized read-only display. */
 export function projectRundownDisplayState(source: DisplaySource): RundownDisplayState {
   return {
     ...(source.serviceDate === undefined ? {} : { serviceDate: source.serviceDate }),
