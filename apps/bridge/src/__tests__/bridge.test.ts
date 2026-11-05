@@ -18,7 +18,7 @@ describe("bridge WebSocket authentication", () => {
     );
     expect(connection.options?.headers).toEqual({
       "x-showpilot-api-key": "sp_test_secret",
-      "x-showpilot-bridge-policy": "1",
+      "x-showpilot-bridge-policy": "2",
     });
     expect(connection.url).not.toContain("sp_test_secret");
   });
@@ -31,7 +31,7 @@ describe("bridge WebSocket authentication", () => {
     expect(connection.url).toBe(
       "wss://showpilot.tech/api/bridge/org/ws?role=bridge",
     );
-    expect(connection.options?.headers).toEqual({ "x-showpilot-bridge-policy": "1" });
+    expect(connection.options?.headers).toEqual({ "x-showpilot-bridge-policy": "2" });
   });
 
   it("rejects device protocols the Bridge cannot connect", () => {

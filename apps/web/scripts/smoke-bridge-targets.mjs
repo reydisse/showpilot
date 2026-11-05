@@ -43,7 +43,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     legacy.on("error", reject);
   });
   assert.equal(legacyStatus, 426, "Legacy Bridge was not told to update");
-  const bridge = await open("bridge", { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "1" });
+  const bridge = await open("bridge", { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" });
   const operator = await open("client", { Cookie: operatorCookie, Origin: origin });
   let forwarded = 0;
   bridge.on("message", data => {

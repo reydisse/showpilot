@@ -164,7 +164,7 @@ it("attributes automatic ProPresenter connections to the authenticated installat
   const { socket, credential } = await openTestBridge(orgId);
   const target = "propresenter:venue.local:50001";
   await approveTestBridgeTarget(orgId, "propresenter", target);
-  socket.send(JSON.stringify({ type: "automatic-connection-requested", target, apiPort: 1025, actorUserId: "forged", password: "do-not-store-local-secret" }));
+  socket.send(JSON.stringify({ type: "automatic-connection-requested", requestId: "local-pp", target, apiPort: 1025, actorUserId: "forged", password: "do-not-store-local-secret" }));
   // A normal status message and its client broadcast establish that the
   // preceding automatic-connection message has finished in the ownership queue.
   const browser = await client(orgId);
@@ -174,7 +174,92 @@ it("attributes automatic ProPresenter connections to the authenticated installat
   const audit = await env.DB.prepare("SELECT actorUserId, source, executionId, port FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested' ORDER BY port").bind(orgId).all();
   expect(audit.results).toEqual([1025, 50001].map(port => ({ actorUserId: null, source: "automation", executionId: expect.stringContaining(`installation:${credential.installationId}:`), port })));
   expect(JSON.stringify(await env.DB.prepare("SELECT * FROM bridge_target_audit WHERE orgId = ?").bind(orgId).all())).not.toContain("do-not-store-local-secret");
-  const disconnect = next(socket, "disconnect-device");
-  socket.send(JSON.stringify({ type: "automatic-connection-requested", target, apiPort: 9999 }));
-  expect(await disconnect).toEqual({ type: "disconnect-device", target });
+  const denied = next(socket, "automatic-connection-approved");
+  socket.send(JSON.stringify({ type: "automatic-connection-requested", requestId: "denied-pp", target, apiPort: 9999 }));
+  expect(await denied).toEqual({ type: "automatic-connection-approved", requestId: "denied-pp", approved: false });
+});
+
+async function connectionReceipt(socket: WebSocket, id: unknown, extra: Record<string, unknown> = {}) {
+  const reply = next(socket, "command-connection-approved");
+  socket.send(JSON.stringify({ type: "command-connection-requested", id, requestId: crypto.randomUUID(), ...extra }));
+  return reply;
+}
+
+it.each(["tcp-command", "osc", "udp", "http-command", "wol"] as const)("records implicit %s connection attribution before returning approval and rejects replay", async protocol => {
+  const orgId = `target-implicit-${protocol}`;
+  const { stub, socket } = await openTestBridge(orgId);
+  const input = { ...command, protocol, target: protocol === "wol" ? "wol" : command.target, command: protocol === "http-command" ? "GET /private-command-body" : "private-command-body" };
+  const automation = { source: "automation" as const, actorUserId: "cue-author", executionId: "execution-fixture" };
+  await approveTestBridgeTarget(orgId, protocol, input.target);
+  const forwarded = next(socket, "command");
+  const result = stub.dispatchBridgeMessage(input, automation);
+  await forwarded;
+  expect(await connectionReceipt(socket, input.id, { target: "forged.local:1", actorUserId: "forged", settings: { password: "do-not-store" } })).toMatchObject({ approved: true });
+  const audit = await env.DB.prepare("SELECT actorUserId, source, executionId, host, port, protocol FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested'").bind(orgId).all();
+  expect(audit.results).toEqual([{ ...automation, host: protocol === "wol" ? "255.255.255.255" : "venue.local", port: protocol === "wol" ? 9 : 4455, protocol }]);
+  expect(await connectionReceipt(socket, input.id)).toMatchObject({ approved: false });
+  socket.send(JSON.stringify({ type: "command-response", id: input.id, success: false, error: "Device refused connection" }));
+  expect(await result).toMatchObject({ success: false });
+  expect(await connectionReceipt(socket, input.id)).toMatchObject({ approved: false });
+  const all = await env.DB.prepare("SELECT * FROM bridge_target_audit WHERE orgId = ?").bind(orgId).all();
+  expect(all.results.filter(row => row.action === "connection-requested")).toHaveLength(1);
+  expect(JSON.stringify(all)).not.toMatch(/forged|private-command-body|do-not-store/);
+});
+
+it("uses the authenticated browser actor for implicit connections and rechecks permission before granting one", async () => {
+  const orgId = "target-implicit-browser";
+  const { socket } = await openTestBridge(orgId);
+  const browser = await client(orgId);
+  await approveTestBridgeTarget(orgId, "udp", command.target);
+  const forwarded = next(socket, "command");
+  browser.send(JSON.stringify({ ...command, protocol: "udp", actorUserId: "forged" }));
+  const operation = await forwarded;
+  expect(await connectionReceipt(socket, operation.id)).toMatchObject({ approved: true });
+  const result = next(browser, "command-response");
+  socket.send(JSON.stringify({ type: "command-response", id: operation.id, success: true }));
+  expect(await result).toMatchObject({ id: command.id, success: true });
+  const audit = await env.DB.prepare("SELECT actorUserId, source FROM bridge_target_audit WHERE orgId = ? AND action = 'connection-requested'").bind(orgId).all();
+  expect(audit.results).toEqual([{ actorUserId: `${orgId}-operator`, source: "operator" }]);
+  const second = next(socket, "command");
+  browser.send(JSON.stringify({ ...command, protocol: "udp" }));
+  const revoked = await second;
+  await env.DB.prepare("DELETE FROM member WHERE organizationId = ?").bind(orgId).run();
+  expect(await connectionReceipt(socket, revoked.id)).toMatchObject({ approved: false });
+});
+
+it("does not approve an unknown operation, a removed destination, or an unauditable connection", async () => {
+  const orgId = "target-implicit-fail-closed";
+  const { stub, socket } = await openTestBridge(orgId);
+  expect(await connectionReceipt(socket, "unknown")).toMatchObject({ approved: false });
+  await approveTestBridgeTarget(orgId, "udp", command.target);
+  const [approved] = await listBridgeTargets(env.DB, orgId);
+  const forwarded = next(socket, "command");
+  const result = stub.dispatchBridgeMessage({ ...command, protocol: "udp" }, actor);
+  await forwarded;
+  await removeBridgeTarget(env.DB, { orgId, id: approved.id, actorUserId: "admin" });
+  expect(await connectionReceipt(socket, command.id)).toMatchObject({ approved: false });
+  socket.send(JSON.stringify({ type: "command-response", id: command.id, success: false }));
+  await result;
+  await approveTestBridgeTarget(orgId, "udp", command.target);
+  await approveTestBridgeTarget(orgId, "propresenter", "propresenter:venue.local:50001");
+  await env.DB.exec("CREATE TRIGGER fail_implicit_audit BEFORE INSERT ON bridge_target_audit WHEN NEW.orgId = 'target-implicit-fail-closed' AND NEW.action = 'connection-requested' BEGIN SELECT RAISE(ABORT, 'fixture audit failure'); END");
+  try {
+    const forwardedAgain = next(socket, "command");
+    const failed = stub.dispatchBridgeMessage({ ...command, id: "audit-failure", protocol: "udp" }, actor);
+    await forwardedAgain;
+    expect(await connectionReceipt(socket, "audit-failure")).toMatchObject({ approved: false });
+    socket.send(JSON.stringify({ type: "command-response", id: "audit-failure", success: false }));
+    expect(await failed).toMatchObject({ success: false });
+    const automatic = next(socket, "automatic-connection-approved");
+    socket.send(JSON.stringify({ type: "automatic-connection-requested", requestId: "audit-failure-pp", target: "propresenter:venue.local:50001", apiPort: 1025 }));
+    expect(await automatic).toMatchObject({ requestId: "audit-failure-pp", approved: false });
+  } finally { await env.DB.exec("DROP TRIGGER fail_implicit_audit"); }
+});
+
+it("rejects policy-v1 native Bridges that cannot audit command-created connections", async () => {
+  const orgId = "target-policy-v1-upgrade";
+  const { stub, credential } = await openTestBridge(orgId);
+  const url = `https://bridge.test/ws?${new URLSearchParams({ orgId, role: "bridge", authCredentialId: credential.credentialId })}`;
+  const response = await stub.fetch(new Request(url, { headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": "1", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } }));
+  expect(response.status).toBe(426);
 });

@@ -3,7 +3,7 @@ import { resolveBridgeEndpoints } from "@showpilot/shared/bridge-target";
 import { env } from "cloudflare:workers";
 import { issueBridgeInstallation } from "@/lib/bridge-credentials.server";
 
-const internalHeaders = { Upgrade: "websocket", "x-showpilot-bridge-policy": "1", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" };
+const internalHeaders = { Upgrade: "websocket", "x-showpilot-bridge-policy": "2", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" };
 
 export async function ensureBridgeTestOrg(orgId: string) {
   await env.DB.prepare("INSERT OR IGNORE INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")

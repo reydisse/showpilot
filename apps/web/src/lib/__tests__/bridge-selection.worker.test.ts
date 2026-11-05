@@ -61,7 +61,7 @@ describe("Bridge installation ownership", () => {
     const orgId = "bridge-selection-duplicate";
     const active = await openTestBridge(orgId);
     const response = await active.stub.fetch(new Request(`https://bridge.test/ws?${new URLSearchParams({ orgId, role: "bridge", authCredentialId: active.credential.credentialId })}`, {
-      headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": "1", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
+      headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": "2", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
     }));
     expect(response.status).toBe(101);
     const socket = response.webSocket!;
