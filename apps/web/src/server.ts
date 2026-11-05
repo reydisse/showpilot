@@ -1,3 +1,4 @@
+import { backfillDeviceCredentials } from "./lib/device-settings.server";
 import { backfillCredentialSettings, readSettingValuesForUse } from "./lib/credential-settings.server";
 import { backfillScopedTokenDigests } from "./lib/scoped-token-store.server";
 import handler from "@tanstack/react-start/server-entry";
@@ -700,6 +701,9 @@ const appServer = {
       createDueDutyReminders(e.DB),
       backfillScopedTokenDigests(e.DB),
       backfillCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS),
+      backfillDeviceCredentials(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS).then(result => {
+        if (result.invalid) throw new Error(`Device credential migration found ${result.invalid} invalid settings rows.`);
+      }),
       backfillLegacyBridgeInstallations(e.DB).then((result) => {
         if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`);
       }),

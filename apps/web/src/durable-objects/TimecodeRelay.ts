@@ -33,6 +33,7 @@ import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMEC
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 
 interface Env {
+  CREDENTIAL_ENCRYPTION_KEYS?: string;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   RUNDOWN_RELAY: DurableObjectNamespace;
   BRIDGE_RELAY: DurableObjectNamespace<import("@/durable-objects/BridgeRelay").BridgeRelay>;
@@ -1208,7 +1209,7 @@ export class TimecodeRelay extends DurableObject {
     };
 
     const executeDeviceCommand = async () => {
-      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId, event);
+      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId, event, env.CREDENTIAL_ENCRYPTION_KEYS);
       assertCanDispatch();
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
       const status = await relay.getBridgeStatus();

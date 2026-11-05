@@ -1,3 +1,5 @@
+import { CREDENTIAL_MASK } from "@/lib/credential-fields";
+import { StoredDeviceModule } from "@/lib/stored-device-module";
 import { useState, useEffect, useRef, useCallback } from "react";
 import "@/lib/device-modules/register-all";
 import { moduleRegistry } from "@/lib/device-modules/registry";
@@ -37,6 +39,8 @@ export function useDeviceModule(
   const [module, setModule] = useState<DeviceModule | null>(null);
   const moduleDeviceIdRef = useRef<string | null>(null);
   const definition = device ? moduleRegistry.get(device.adapterType) : undefined;
+  const storedCredential = Boolean(device?.settings.includes(CREDENTIAL_MASK));
+  const requiresBridge = storedCredential || definition?.connectivity === "bridge-required";
 
   useEffect(() => {
     setError(null);
@@ -47,7 +51,7 @@ export function useDeviceModule(
   // Track bridge status for bridge-required devices
   useEffect(() => {
     if (!orgId || !definition) return;
-    if (definition.connectivity !== "bridge-required") return;
+    if (!requiresBridge) return;
 
     const proxy = getSharedBridgeProxy(orgId);
     setBridgeOnline(proxy.isBridgeOnline());
@@ -64,7 +68,7 @@ export function useDeviceModule(
     });
 
     return unsub;
-  }, [definition, orgId]);
+  }, [definition, orgId, requiresBridge]);
 
   // Create module instance and manage lifecycle
   useEffect(() => {
@@ -78,7 +82,7 @@ export function useDeviceModule(
 
     // Bridge-required and no bridge → show banner
     if (
-      definition.connectivity === "bridge-required" &&
+      requiresBridge &&
       !bridgeOnline
     ) {
       setStatus("bridge-required");
@@ -95,7 +99,14 @@ export function useDeviceModule(
       settings = {};
     }
 
-    const mod = definition.createInstance({ ...settings, orgId });
+    if (storedCredential && (!orgId || !definition.remoteControl)) {
+      setStatus("error");
+      setError("This device needs a supported venue Bridge control configuration.");
+      return;
+    }
+    const mod = storedCredential && orgId && definition.remoteControl
+      ? new StoredDeviceModule(orgId, device.id, definition.remoteControl, settings)
+      : definition.createInstance({ ...settings, orgId });
     moduleRef.current = mod;
     setModule(mod);
     moduleDeviceIdRef.current = device.id;
@@ -133,12 +144,12 @@ export function useDeviceModule(
       moduleDeviceIdRef.current = null;
       setStatus("disconnected");
     };
-  }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId]);
+  }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId, requiresBridge, storedCredential]);
 
   const connect = useCallback(async () => {
     const mod = moduleRef.current;
     if (!mod) {
-      const bridgeRequired = definition?.connectivity === "bridge-required";
+      const bridgeRequired = requiresBridge;
       const message = bridgeRequired && !bridgeOnline
         ? "Venue Bridge is offline. Start it on the venue network before connecting this device."
         : "Device controls are still starting. Try Connect again in a moment.";
@@ -155,10 +166,17 @@ export function useDeviceModule(
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Connection failed");
     }
-  }, [bridgeOnline, definition?.connectivity]);
+  }, [bridgeOnline, requiresBridge]);
 
   const disconnect = useCallback(() => {
-    moduleRef.current?.disconnect();
+    const mod = moduleRef.current;
+    if (mod instanceof StoredDeviceModule) {
+      void mod.disconnectDevice().catch(cause => {
+        if (moduleRef.current !== mod) return;
+        setStatus("error");
+        setError(cause instanceof Error ? cause.message : "Could not disconnect device.");
+      });
+    } else mod?.disconnect();
   }, []);
 
   return {

@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers";
+import { maskDeviceSettings, writeDeviceSettings } from "./device-settings.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
@@ -953,24 +955,26 @@ export const deleteEquipment = createServerFn({ method: "POST" })
 // ─── Devices ───────────────────────────────────────────────
 
 export const getDevice = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; id: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    return await prisma.device.findFirst({
+    const device = await prisma.device.findFirst({
       where: { id: data.id, orgId: data.orgId },
     });
+    return device ? { ...device, settings: maskDeviceSettings(device) } : null;
   });
 
 export const getDevices = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    return await prisma.device.findMany({
+    const devices = await prisma.device.findMany({
       where: { orgId: data.orgId },
       orderBy: { name: "asc" },
     });
+    return devices.map(device => ({ ...device, settings: maskDeviceSettings(device) }));
   });
 
 export const addDevice = createServerFn({ method: "POST" })
@@ -997,16 +1001,20 @@ export const addDevice = createServerFn({ method: "POST" })
     });
     await checkPlanLimit(data.orgId, "devices", deviceCount);
 
-    return await prisma.device.create({
+    const identity = { id: crypto.randomUUID(), orgId: data.orgId, adapterType: data.adapterType ?? "" };
+    const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS, identity, data.settings ?? "{}");
+    const device = await prisma.device.create({
       data: {
+        id: identity.id,
         orgId: data.orgId,
         name: data.name,
         category: data.category,
         adapterType: data.adapterType ?? "",
-        settings: data.settings ?? "{}",
+        settings,
         enabled: data.enabled ?? true,
       },
     });
+    return { ...device, settings: maskDeviceSettings(device) };
   });
 
 export const updateDevice = createServerFn({ method: "POST" })
@@ -1015,6 +1023,7 @@ export const updateDevice = createServerFn({ method: "POST" })
       z.object({
         orgId: idSchema,
         id: idSchema,
+        clearCredentials: z.array(z.array(z.string().min(1).max(200)).min(1).max(16)).max(100).optional(),
         updates: z
           .object({
             name: nameSchema,
@@ -1031,10 +1040,18 @@ export const updateDevice = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "devices:access");
     const prisma = getPrisma();
-    return await prisma.device.updateMany({
-      where: { id: data.id, orgId: data.orgId },
-      data: data.updates,
+    const existing = await prisma.device.findFirst({ where: { id: data.id, orgId: data.orgId } });
+    if (!existing) throw new Error("Device not found.");
+    const adapterType = data.updates.adapterType ?? existing.adapterType;
+    const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS,
+      { ...existing, adapterType }, data.updates.settings ?? "{}",
+      adapterType === existing.adapterType ? existing.settings : "{}", data.clearCredentials);
+    const result = await prisma.device.updateMany({
+      where: { id: data.id, orgId: data.orgId, settings: existing.settings, adapterType: existing.adapterType, updatedAt: existing.updatedAt },
+      data: { ...data.updates, settings },
     });
+    if (result.count !== 1) throw new Error("Device changed elsewhere. Refresh and try again.");
+    return result;
   });
 
 export const deleteDevice = createServerFn({ method: "POST" })
