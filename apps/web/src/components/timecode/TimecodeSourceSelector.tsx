@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Play, Square, Radio, Usb, AlertTriangle } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { sameTimecodeFormat, timecodeFormatLabel } from "@/lib/timecode";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { TimecodeFormat, FrameRate, DropFrameMode, TimecodeState } from "@/types/timecode";
 
@@ -12,11 +14,12 @@ interface TimecodeSourceSelectorProps {
   signal?: TimecodeState["signal"];
   source?: TimecodeState["source"];
   format: TimecodeFormat;
+  incomingFormat?: TimecodeState["incomingFormat"];
   mtcSupported: boolean;
   onStartFreerun: (offsetMs?: number) => void;
   onStopGenerator: () => void;
   onStartMtc: (inputId: string) => Promise<void>;
-  onSetFormat: (format: TimecodeFormat) => void;
+  onSetFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 }
 
 export function TimecodeSourceSelector({
@@ -28,12 +31,15 @@ export function TimecodeSourceSelector({
   signal,
   source,
   format,
+  incomingFormat,
   mtcSupported,
   onStartFreerun,
   onStopGenerator,
   onStartMtc,
   onSetFormat,
 }: TimecodeSourceSelectorProps) {
+  const [reformat, setReformat] = useState<{ from: TimecodeFormat; to: TimecodeFormat; incomingId?: string } | null>(null);
+  const reviewChanged = reformat && (!sameTimecodeFormat(reformat.from, format) || reformat.incomingId !== incomingFormat?.id);
   const [midiInputs, setMidiInputs] = useState<MIDIInput[]>([]);
   const [selectedMidi, setSelectedMidi] = useState("");
   const [loadingMidi, setLoadingMidi] = useState(false);
@@ -76,28 +82,40 @@ export function TimecodeSourceSelector({
         </p>
       )}
 
+      {incomingFormat && <div className="space-y-2 rounded-lg border border-amber-500/40 p-3">
+        <p role="alert" className="text-sm text-amber-200">Input reports {timecodeFormatLabel(incomingFormat.format)} for five consecutive readings. Clock held; confirm the timeline format before continuing.</p>
+        <button type="button" className="min-h-11 rounded-lg border border-amber-500/40 px-3 text-sm text-amber-200"
+          onClick={() => setReformat({ from: format, to: incomingFormat.format, incomingId: incomingFormat.id })}>Reformat timeline to {timecodeFormatLabel(incomingFormat.format)}</button>
+      </div>}
+      {signal?.status === "format-mismatch" && !incomingFormat && <p role="status" className="text-sm text-amber-200">Clock held while the input format stabilizes.</p>}
       {/* Frame rate selector */}
       <div className="flex items-center gap-2">
-        <label className="text-xs text-board-muted w-20">Frame Rate</label>
+        <label htmlFor="timecode-frame-rate" className="text-xs text-board-muted w-20">Frame Rate</label>
         <select
+          id="timecode-frame-rate"
+          disabled={running || Boolean(incomingFormat)}
           value={`${format.frameRate}-${format.dropFrame}`}
           onChange={(e) => {
             const [fr, df] = e.target.value.split("-");
-            onSetFormat({
-              frameRate: parseFloat(fr) as FrameRate,
-              dropFrame: df as DropFrameMode,
-            });
+            setReformat({ from: format, to: { frameRate: parseFloat(fr) as FrameRate, dropFrame: df as DropFrameMode } });
           }}
           className="rounded-lg border border-board-border bg-board-bg px-3 py-1.5 text-sm text-board-text"
         >
-          <option value="24-ndf">24 fps</option>
-          <option value="25-ndf">25 fps</option>
+          <option value="24-ndf">24 fps NDF</option>
+          <option value="25-ndf">25 fps NDF</option>
           <option value="29.97-df">29.97 fps DF</option>
           <option value="29.97-ndf">29.97 fps NDF</option>
-          <option value="30-ndf">30 fps</option>
+          <option value="30-ndf">30 fps NDF</option>
         </select>
       </div>
 
+      {running && <p className="text-xs text-board-muted">Stop the clock before reformatting the timeline.</p>}
+      <ConfirmDialog open={reformat !== null} onOpenChange={open => { if (!open) setReformat(null); }}
+        title="Reformat timeline?" confirmLabel="Reformat timeline" variant="warning"
+        description={reviewChanged ? "The input or timeline format changed. Close this dialog and review the latest format."
+          : `Change ${reformat ? timecodeFormatLabel(reformat.from) : ""} to ${reformat ? timecodeFormatLabel(reformat.to) : ""}? Cue timecodes stay unchanged and fired cues stay fired. The held clock frame adjusts if needed. Automation remains disabled until you enable it.`}
+        confirmDisabled={!connected || running || pending !== null || Boolean(reviewChanged)}
+        onConfirm={() => { if (reformat && !running && connected && !reviewChanged) onSetFormat(reformat.to, reformat.from, reformat.incomingId); }} />
       {/* Source controls */}
       <div className="flex flex-col gap-2">
         {/* Internal freerun */}

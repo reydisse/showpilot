@@ -722,8 +722,13 @@
       "phase": "1",
       "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
       "line": 130,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Incoming format changes never rewrite the timeline automatically. Five consecutive valid readings from the same logical producer, with no 500ms gap, create a persisted input-format proposal. Transient/alternating readings are ignored, correct-format input clears the candidate, and changing input invalidates an older proposal. Candidate counts and pending review survive hibernation. Bridge and browser observations are not combined.",
+        "set-format requires confirmed:true, the expected current format, and the exact incoming-proposal ID when one exists. The clock must be stopped/held. The relay validates every cue before mutation; invalid frame labels, including nonexistent DF labels, reject the whole change. A confirmed reformat recalculates trigger frames, minimally normalizes the held clock frame if needed, and never resets fired/execution state or clears a jump hold.",
+        "Stable mismatches hold the clock and disable the existing triggersEnabled gate. Local MTC/source listeners remain alive through format-mismatch and waiting, allowing input to resume after confirmation. Automation stays disabled until a separate operator re-arm. The source panel offers a cancelable Reformat timeline dialog, rejects stale review, and the clock displays Format mismatch rather than a false stopped/healthy state.",
+        "Seven real Worker format tests cover transient, alternating, interrupted and mixed-producer readings, hibernation, stale confirmation, running-clock rejection, invalid cue/DF labels, fired-state preservation and song clear ownership. Full verification: 1316 unit and 250 Worker tests passed; tsc and production build passed. Built smoke-timecode-format.mjs passed real login, five-reading gate, Cancel, explicit reformat, separate re-arm, preserved fired cues and visible invalid-cue rejection. Jump and watchdog browser smokes also passed. All fixtures are disposable local data."
+      ]
     },
     {
       "id": "d06ad9f57e04e822",

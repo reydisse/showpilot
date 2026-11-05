@@ -151,6 +151,20 @@ export function isValidTimecodeFormat(value: unknown): value is TimecodeFormat {
   return format.dropFrame !== "df" || format.frameRate === 29.97;
 }
 
+export function sameTimecodeFormat(a: TimecodeFormat, b: TimecodeFormat): boolean {
+  return a.frameRate === b.frameRate && a.dropFrame === b.dropFrame;
+}
+
+export function timecodeFormatLabel(format: TimecodeFormat): string {
+  return `${format.frameRate} fps ${format.dropFrame.toUpperCase()}`;
+}
+
+/** Used only for a confirmed reformat of the held clock, never for cue labels. */
+export function normalizeTimecodeForFormat(tc: TimecodeValue, format: TimecodeFormat): TimecodeValue {
+  const frames = Math.min(tc.frames, Math.round(format.frameRate) - 1);
+  return { ...tc, frames: format.dropFrame === "df" && tc.minutes % 10 !== 0 && tc.seconds === 0 ? Math.max(2, frames) : frames };
+}
+
 /**
  * Decide whether an event was crossed between relay samples. A 10 Hz relay
  * receives roughly every third frame at 30 fps, so equality/tolerance alone

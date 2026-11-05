@@ -44,7 +44,7 @@ export interface UseTimecodeReturn {
   startMtc: (inputId: string) => Promise<void>;
   stopMtc: () => void;
   setTimecode: (tc: TimecodeValue) => void;
-  setFormat: (format: TimecodeFormat) => void;
+  setFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 
   // Event management
   addEvent: (event: NewAutomationEvent) => Promise<void>;
@@ -262,7 +262,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                 setState(msg.state);
                 if (!msg.state.running && !pendingSourceRef.current
                   && msg.state.signal?.status !== "timecode-stalled"
-                  && msg.state.signal?.status !== "timecode-lost") stopLocalSources();
+                  && msg.state.signal?.status !== "timecode-lost"
+                  && msg.state.signal?.status !== "format-mismatch"
+                  && msg.state.signal?.status !== "waiting") stopLocalSources();
                 startConfirmedSource(msg.state);
               }
               break;
@@ -397,7 +399,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const claimControl = useCallback(() => { sendCommand("claim-control"); }, [sendCommand]);
   const releaseControl = useCallback(() => { sendCommand("release-control"); }, [sendCommand]);
   const setTimecode = useCallback((timecode: TimecodeValue) => { sendCommand("set-timecode", { timecode }); }, [sendCommand]);
-  const setFormat = useCallback((format: TimecodeFormat) => { sendCommand("set-format", { format }); }, [sendCommand]);
+  const setFormat = useCallback((format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => {
+    sendCommand("set-format", { format, expectedFormat, expectedIncomingFormatId, confirmed: true });
+  }, [sendCommand]);
   const updateEvent = useCallback((id: string, updates: Partial<AutomationEvent>) => { sendCommand("update-event", { id, updates }); }, [sendCommand]);
   const removeEvent = useCallback((id: string) => { sendCommand("remove-event", { id }); }, [sendCommand]);
   const resetEvents = useCallback(() => { sendCommand("reset-events"); }, [sendCommand]);

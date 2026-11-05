@@ -17,7 +17,7 @@ export function TimecodeAutomationControl({ state, connected, canControl, onSetE
     {hold && <p role="alert" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
       Timecode jumped from {hold.from} to {hold.to}. Automation paused for review. The clock and displays keep updating.
     </p>}
-    <button type="button" disabled={!connected || !canControl || !state}
+    <button type="button" disabled={!connected || !canControl || !state || Boolean(state.incomingFormat)}
       aria-pressed={state?.triggersEnabled ?? true}
       onClick={() => {
         if (hold && state?.triggersEnabled === false) setReview(hold);
@@ -27,14 +27,15 @@ export function TimecodeAutomationControl({ state, connected, canControl, onSetE
       {state?.triggersEnabled === false ? hold ? "Review and resume automation" : "Enable automation" : "Disable automation"}
     </button>
     {state?.triggersEnabled === false && <p role="status" className="text-sm text-amber-200">
-      Automation disabled. The clock and displays keep running. Missed cues will not replay automatically.
+      Automation disabled. Missed cues will not replay automatically.
+      {state.incomingFormat && " Confirm the input format before enabling automation."}
     </p>}
     <ConfirmDialog open={review !== null} onOpenChange={open => { if (!open) setReview(null); }}
       title="Resume automation at the current timecode?"
       description={reviewChanged ? "Timecode changed again. Close this dialog and review the latest jump before resuming."
         : `The clock jumped from ${review?.from} to ${review?.to}. Resume from its current position. Missed cues stay skipped and previously fired cues stay fired.`}
       confirmLabel="Resume automation" variant="warning"
-      confirmDisabled={!connected || !canControl || reviewChanged}
-      onConfirm={() => { if (review && !reviewChanged && connected && canControl) onSetEnabled(true, review.id); }} />
+      confirmDisabled={!connected || !canControl || reviewChanged || Boolean(state?.incomingFormat)}
+      onConfirm={() => { if (review && !reviewChanged && connected && canControl && !state?.incomingFormat) onSetEnabled(true, review.id); }} />
   </div>;
 }
