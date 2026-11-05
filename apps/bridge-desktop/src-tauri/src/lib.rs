@@ -5,7 +5,7 @@ use midir::{Ignore, MidiInput, MidiInputConnection};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -26,11 +26,14 @@ struct EngineInfo {
     cache_path: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+const CREDENTIAL_SERVICE: &str = "tech.showpilot.bridge.credentials";
+
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BridgeConfig {
     site: String,
     org: String,
+    #[serde(default)]
     key: String,
     #[serde(default)]
     propresenter_host: Option<String>,
@@ -179,20 +182,11 @@ fn bridge_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_bridge_config(app: &tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    let path = bridge_config_path(app)?;
-    if !path.exists() {
-        return Ok(None);
+    let config: Option<BridgeConfig> = showpilot_native_credentials::load(&bridge_config_path(app)?, CREDENTIAL_SERVICE)?;
+    if let Some(config) = &config {
+        validate_bridge_config(config)?;
     }
-    let payload = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .map_err(|error| error.to_string())?;
-    }
-    let config: BridgeConfig = serde_json::from_str(&payload).map_err(|error| error.to_string())?;
-    validate_bridge_config(&config)?;
-    Ok(Some(config))
+    Ok(config)
 }
 
 fn append_log(logs: &Arc<Mutex<VecDeque<String>>>, line: String) {
@@ -208,6 +202,7 @@ fn capture_output<R: Read + Send + 'static>(
     reader: R,
     logs: Arc<Mutex<VecDeque<String>>>,
     connection: Arc<Mutex<BridgeConnection>>,
+    key: String,
 ) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
@@ -216,7 +211,7 @@ fn capture_output<R: Read + Send + 'static>(
                     if let Ok(mut state) = connection.lock() {
                         *state = connection_from_log(*state, &line);
                     }
-                    append_log(&logs, line);
+                    append_log(&logs, showpilot_native_credentials::redact(&line, &key));
                 }
                 Err(error) => {
                     append_log(&logs, format!("Bridge output error: {error}"));
@@ -324,27 +319,23 @@ fn engine_info(app: tauri::AppHandle) -> EngineInfo {
 
 #[tauri::command]
 fn get_bridge_config(app: tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    read_bridge_config(&app)
+    Ok(read_bridge_config(&app)?.map(|mut config| { config.key.clear(); config }))
+}
+
+fn resolve_saved_key(app: &tauri::AppHandle, config: &mut BridgeConfig) -> Result<(), String> {
+    if config.key.is_empty() {
+        let saved = read_bridge_config(app)?;
+        showpilot_native_credentials::reuse_key(&config.site, &config.org, &mut config.key,
+            saved.as_ref().map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
-fn save_bridge_config(app: tauri::AppHandle, config: BridgeConfig) -> Result<(), String> {
+fn save_bridge_config(app: tauri::AppHandle, mut config: BridgeConfig) -> Result<(), String> {
+    resolve_saved_key(&app, &mut config)?;
     validate_bridge_config(&config)?;
-    let path = bridge_config_path(&app)?;
-    let temporary = path.with_extension("json.tmp");
-    let payload = serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?;
-    let mut file = OpenOptions::new();
-    file.create(true).truncate(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        file.mode(0o600);
-    }
-    let mut handle = file.open(&temporary).map_err(|error| error.to_string())?;
-    handle
-        .write_all(&payload)
-        .map_err(|error| error.to_string())?;
-    fs::rename(temporary, path).map_err(|error| error.to_string())
+    showpilot_native_credentials::save(&bridge_config_path(&app)?, CREDENTIAL_SERVICE, &config)
 }
 
 fn spawn_bridge_process(
@@ -363,10 +354,10 @@ fn spawn_bridge_process(
         .spawn()
         .map_err(|error| format!("Unable to start bridge: {error}"))?;
     if let Some(stdout) = child.stdout.take() {
-        capture_output(stdout, Arc::clone(&logs), Arc::clone(&connection));
+        capture_output(stdout, Arc::clone(&logs), Arc::clone(&connection), config.key.clone());
     }
     if let Some(stderr) = child.stderr.take() {
-        capture_output(stderr, Arc::clone(&logs), Arc::clone(&connection));
+        capture_output(stderr, Arc::clone(&logs), Arc::clone(&connection), config.key.clone());
     }
     if let Ok(mut target) = sidecar_stdin.lock() {
         *target = child.stdin.take();
@@ -473,9 +464,10 @@ fn bridge_status(
 #[tauri::command]
 fn start_bridge(
     app: tauri::AppHandle,
-    config: BridgeConfig,
+    mut config: BridgeConfig,
     runtime: tauri::State<'_, BridgeRuntime>,
 ) -> Result<BridgeStatus, String> {
+    resolve_saved_key(&app, &mut config)?;
     save_bridge_config(app.clone(), config.clone())?;
     runtime.auto_restart.store(true, Ordering::Relaxed);
     let mut process = runtime

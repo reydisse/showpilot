@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,12 +11,14 @@ use tauri::Manager;
 
 const MAX_LOG_LINES: usize = 80;
 const LOCAL_DEVICE_CONFIRMATION_VERSION: u8 = 1;
+const CREDENTIAL_SERVICE: &str = "tech.showpilot.desktop.bridge";
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeConfig {
     site: String,
     org: String,
+    #[serde(default)]
     key: String,
     #[serde(default)]
     local_devices_enabled: bool,
@@ -86,6 +88,9 @@ impl BridgeRuntime {
 #[serde(rename_all = "camelCase")]
 pub struct BridgeStatus {
     configured: bool,
+    configured_site: Option<String>,
+    configured_org: Option<String>,
+    secure_credentials: bool,
     local_devices_enabled: bool,
     running: bool,
     connection: BridgeConnection,
@@ -205,34 +210,16 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_config(app: &tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    let path = config_path(app)?;
-    if !path.exists() {
-        return Ok(None);
+    let config: Option<BridgeConfig> = showpilot_native_credentials::load(&config_path(app)?, CREDENTIAL_SERVICE)?;
+    if let Some(config) = &config {
+        validate_config(config)?;
     }
-    let payload = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let config: BridgeConfig = serde_json::from_str(&payload).map_err(|error| error.to_string())?;
-    validate_config(&config)?;
-    Ok(Some(config))
+    Ok(config)
 }
 
 fn save_config(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<(), String> {
     validate_config(config)?;
-    let path = config_path(app)?;
-    let temporary = path.with_extension("json.tmp");
-    let payload = serde_json::to_vec_pretty(config).map_err(|error| error.to_string())?;
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    file.write_all(&payload)
-        .map_err(|error| error.to_string())?;
-    fs::rename(temporary, path).map_err(|error| error.to_string())
+    showpilot_native_credentials::save(&config_path(app)?, CREDENTIAL_SERVICE, config)
 }
 
 fn append_log(observation: &Arc<Mutex<BridgeObservation>>, line: String) {
@@ -241,11 +228,11 @@ fn append_log(observation: &Arc<Mutex<BridgeObservation>>, line: String) {
     }
 }
 
-fn capture_output<R: Read + Send + 'static>(reader: R, observation: Arc<Mutex<BridgeObservation>>) {
+fn capture_output<R: Read + Send + 'static>(reader: R, observation: Arc<Mutex<BridgeObservation>>, key: String) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             match line {
-                Ok(line) => append_log(&observation, line),
+                Ok(line) => append_log(&observation, showpilot_native_credentials::redact(&line, &key)),
                 Err(error) => {
                     append_log(
                         &observation,
@@ -328,10 +315,10 @@ fn spawn_process(config: &BridgeConfig) -> Result<BridgeProcess, String> {
         .spawn()
         .map_err(|error| format!("Unable to start the local device engine: {error}"))?;
     if let Some(stdout) = child.stdout.take() {
-        capture_output(stdout, Arc::clone(&observation));
+        capture_output(stdout, Arc::clone(&observation), config.key.clone());
     }
     if let Some(stderr) = child.stderr.take() {
-        capture_output(stderr, Arc::clone(&observation));
+        capture_output(stderr, Arc::clone(&observation), config.key.clone());
     }
     Ok(BridgeProcess { child, observation })
 }
@@ -423,6 +410,9 @@ pub fn bridge_status(
 
     Ok(BridgeStatus {
         configured,
+        configured_site: saved_config.as_ref().map(|config| config.site.clone()),
+        configured_org: saved_config.as_ref().map(|config| config.org.clone()),
+        secure_credentials: true,
         local_devices_enabled,
         running,
         connection,
@@ -447,7 +437,10 @@ pub fn start_bridge(
     }
     config.local_devices_enabled = true;
     config.local_devices_confirmation_version = LOCAL_DEVICE_CONFIRMATION_VERSION;
-    let unchanged = read_config(&app)?.as_ref() == Some(&config);
+    let saved = read_config(&app)?;
+    showpilot_native_credentials::reuse_key(&config.site, &config.org, &mut config.key,
+        saved.as_ref().map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())))?;
+    let unchanged = saved.as_ref() == Some(&config);
     if unchanged {
         let running = runtime
             .process
@@ -466,6 +459,9 @@ pub fn start_bridge(
     let pid = replace_process(&runtime, &config)?;
     Ok(BridgeStatus {
         configured: true,
+        configured_site: Some(config.site.clone()),
+        configured_org: Some(config.org.clone()),
+        secure_credentials: true,
         local_devices_enabled: true,
         running: true,
         connection: BridgeConnection::Connecting,

@@ -23,11 +23,7 @@ export type BridgeStatus = {
 };
 
 export async function getBridgeConfig(): Promise<BridgeConfig | null> {
-  try {
-    return await invoke<BridgeConfig | null>("get_bridge_config");
-  } catch {
-    return null;
-  }
+  return invoke<BridgeConfig | null>("get_bridge_config");
 }
 
 export async function getBridgeStatus(): Promise<BridgeStatus> {

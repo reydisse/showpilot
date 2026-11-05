@@ -2,6 +2,8 @@ import fs from "fs";
 import http from "http";
 import path from "path";
 import { randomUUID } from "crypto";
+import { deleteCredential, readCredential, writeCredential } from "./credential-store.js";
+import { credentialFreeUrl } from "./transport-url.js";
 
 export interface BridgeConfig {
   site: string;
@@ -63,51 +65,78 @@ export function validateBridgeConfig(config: BridgeConfig): string | null {
 }
 
 export function loadConfigFile(directory = process.cwd()): BridgeConfig | null {
+  let selected: BridgeConfig | null = null;
   for (const file of CONFIG_FILES) {
     const fullPath = path.join(directory, file);
     if (!fs.existsSync(fullPath)) continue;
-    try {
-      const parsed = JSON.parse(fs.readFileSync(fullPath, "utf8")) as Partial<BridgeConfig>;
-      if (parsed.site && parsed.org) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(fs.readFileSync(fullPath, "utf8")); }
+    catch { continue; }
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const value: Record<string, unknown> = { ...parsed };
+      if (typeof value.site === "string" && typeof value.org === "string") {
+        const legacyKey = typeof value.key === "string" ? value.key : undefined;
+        const reference = typeof value.credentialReference === "string" ? value.credentialReference : undefined;
         const config = {
-          site: parsed.site,
-          org: parsed.org,
-          key: parsed.key,
-          url: parsed.url,
-          propresenterHost: parsed.propresenterHost,
-          propresenterPort: parsed.propresenterPort,
-          propresenterPassword: parsed.propresenterPassword,
-          propresenterApiPort: parsed.propresenterApiPort,
+          site: value.site,
+          org: value.org,
+          key: legacyKey || (reference ? readCredential(reference) : undefined),
+          url: typeof value.url === "string" ? credentialFreeUrl(value.url).toString() : undefined,
+          propresenterHost: typeof value.propresenterHost === "string" ? value.propresenterHost : undefined,
+          propresenterPort: typeof value.propresenterPort === "number" ? value.propresenterPort : undefined,
+          propresenterPassword: typeof value.propresenterPassword === "string" ? value.propresenterPassword : undefined,
+          propresenterApiPort: typeof value.propresenterApiPort === "number" ? value.propresenterApiPort : undefined,
         };
         if (!validateBridgeConfig(config)) {
+          if (legacyKey) saveConfigAtPath(config, fullPath);
           if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
-          return config;
+          selected ??= config;
         }
       }
-    } catch {
-      // Ignore malformed config and fall through to setup UI
     }
   }
-
-  return null;
+  return selected;
 }
 
 export function saveConfigFile(config: BridgeConfig, directory = process.cwd()): void {
+  saveConfigAtPath(config, path.join(directory, CONFIG_FILES[0]));
+}
+
+function saveConfigAtPath(config: BridgeConfig, fullPath: string): void {
   const validationError = validateBridgeConfig(config);
   if (validationError) throw new Error(validationError);
-
-  const fullPath = path.join(directory, CONFIG_FILES[0]);
-  const temporaryPath = `${fullPath}.${process.pid}.${randomUUID()}.tmp`;
+  if (!config.key) throw new Error("A Bridge installation key is required");
+  let oldReference: string | undefined;
   try {
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, {
+    const previous: unknown = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+    if (previous && typeof previous === "object" && "credentialReference" in previous && typeof previous.credentialReference === "string") oldReference = previous.credentialReference;
+  } catch { /* A new or malformed config has no credential to retire. */ }
+  const credentialReference = randomUUID();
+  writeCredential(credentialReference, config.key);
+  const { key: _key, ...publicConfig } = config;
+  if (publicConfig.url) publicConfig.url = credentialFreeUrl(publicConfig.url).toString();
+  const temporaryPath = `${fullPath}.${process.pid}.${randomUUID()}.tmp`;
+  let committed = false;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify({ ...publicConfig, credentialReference }, null, 2)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
     fs.renameSync(temporaryPath, fullPath);
+    committed = true;
     if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
+    if (oldReference) deleteCredential(oldReference);
   } finally {
+    if (!committed) deleteCredential(credentialReference);
     if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
   }
+}
+
+export function publicBridgeConfig(config: BridgeConfig | null) {
+  if (!config) return null;
+  const { key: _key, propresenterPassword: _password, ...visible } = config;
+  if (visible.url) visible.url = credentialFreeUrl(visible.url).toString();
+  return visible;
 }
 
 export function isTrustedSetupOrigin(origin: string | undefined, port: number): boolean {
@@ -115,7 +144,7 @@ export function isTrustedSetupOrigin(origin: string | undefined, port: number): 
 }
 
 function toBridgeUrl(siteUrl: string, org: string): string {
-  const url = new URL(siteUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:"));
+  const url = credentialFreeUrl(siteUrl.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:"));
   // Accept either a slug or a path-like value from setup fields. A leading
   // slash otherwise creates `/api/bridge//org/ws`, which Cloudflare rejects
   // before the BridgeRelay can authenticate the socket.
@@ -167,6 +196,13 @@ export function startSetupServer(
         propresenterHost: (form.get("propresenterHost") || "").trim() || undefined,
         propresenterPassword: (form.get("propresenterPassword") || "").trim() || undefined,
       };
+      const saved = getState().config;
+      if (!config.key && saved?.site.replace(/\/+$/, "") === config.site.replace(/\/+$/, "") && saved.org === config.org) {
+        config.key = saved.key;
+      }
+      if (!config.propresenterPassword && saved?.site === config.site && saved.org === config.org && saved.propresenterHost === config.propresenterHost) {
+        config.propresenterPassword = saved.propresenterPassword;
+      }
 
       const propresenterPort = Number.parseInt((form.get("propresenterPort") || "").trim(), 10);
       if (Number.isInteger(propresenterPort) && propresenterPort > 0 && propresenterPort <= 65_535) {
@@ -185,22 +221,29 @@ export function startSetupServer(
         return;
       }
 
-      config.url = await resolveBridgeUrl(config.site, config.org);
-      saveConfigFile(config);
-      await onSave(config);
+      try {
+        config.url = await resolveBridgeUrl(config.site, config.org);
+        saveConfigFile(config);
+        await onSave(config);
+      } catch {
+        res.writeHead(503, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+        res.end("Could not save or start the Bridge. Unlock your system keychain and try again.");
+        return;
+      }
       res.writeHead(303, { Location: "/?saved=1" });
       res.end();
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/status") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(getState()));
+      const state = getState();
+      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ ...state, config: publicBridgeConfig(state.config) }));
       return;
     }
 
     const state = getState();
-    const config = state.config;
+    const config = publicBridgeConfig(state.config);
     const message = url.searchParams.get("saved")
       ? "Saved. The bridge is restarting with your settings."
       : state.bridgeRunning
@@ -248,7 +291,7 @@ export function startSetupServer(
             </div>
           </div>
           <label for="key">API key</label>
-          <input id="key" name="key" type="password" autocomplete="off" placeholder="sp_..." value="${escapeHtml(config?.key ?? "")}" />
+          <input id="key" name="key" type="password" autocomplete="off" placeholder="${config ? "Leave blank to keep the saved key" : "sp_..."}" />
           <div class="muted" style="margin-top:18px">ProPresenter</div>
           <p class="muted">Optional. If set, the bridge connects to ProPresenter automatically.</p>
           <label for="propresenterHost">ProPresenter host</label>
@@ -264,7 +307,7 @@ export function startSetupServer(
             </div>
           </div>
           <label for="propresenterPassword">Stage app password</label>
-          <input id="propresenterPassword" name="propresenterPassword" type="password" autocomplete="off" placeholder="Password from PP" value="${escapeHtml(config?.propresenterPassword ?? "")}" />
+          <input id="propresenterPassword" name="propresenterPassword" type="password" autocomplete="off" placeholder="Leave blank to keep the saved password" />
           <button type="submit">Start Bridge</button>
         </form>
       </div>

@@ -25,7 +25,7 @@ export function App() {
   }
 
   useEffect(() => {
-    void getBridgeConfig().then((saved) => saved && setConfig(saved));
+    void getBridgeConfig().then((saved) => saved && setConfig(saved)).catch((reason) => setError(String(reason)));
     void listMidiInputs().then(setMidiInputs).catch(() => setMidiInputs([]));
     void refresh();
     const timer = window.setInterval(() => void refresh(), 3000);
@@ -40,6 +40,7 @@ export function App() {
     setError("");
     try {
       setStatus(await startBridge(config));
+      setConfig((current) => ({ ...current, key: "" }));
       try {
         await enable();
       } catch {
@@ -131,7 +132,7 @@ export function App() {
         <div className="card-title"><Server /><div><h1>ShowPilot connection</h1><p>Connect this production computer to your ShowPilot organization.</p></div></div>
         <label>ShowPilot site<input value={config.site} onChange={(event) => update({ site: event.target.value })} placeholder="https://showpilot.tech" /></label>
         <label>Organization slug<input value={config.org} onChange={(event) => update({ org: event.target.value })} placeholder="faithfire-production" /></label>
-        <label>Bridge API key<div className="input-with-action"><input type={showKey ? "text" : "password"} value={config.key} onChange={(event) => update({ key: event.target.value })} placeholder="sp_…" /><button type="button" onClick={() => setShowKey((visible) => !visible)} aria-label={showKey ? "Hide API key" : "Show API key"}>{showKey ? <EyeOff /> : <Eye />}</button></div></label>
+        <label>Bridge installation key<div className="input-with-action"><input type={showKey ? "text" : "password"} value={config.key} onChange={(event) => update({ key: event.target.value })} placeholder={status.configured ? "Leave blank to keep the saved key" : "sp_…"} /><button type="button" onClick={() => setShowKey((visible) => !visible)} aria-label={showKey ? "Hide API key" : "Show API key"}>{showKey ? <EyeOff /> : <Eye />}</button></div><small>Stored securely on this computer. Create a separate installation key in ShowPilot Settings for each Bridge.</small></label>
       </section>
 
       <section className="card">
