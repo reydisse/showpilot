@@ -213,6 +213,33 @@ Do not restore a pre-digest Worker after this conversion. The hash cannot be
 converted back to the issued token. Keep a compatible rollback build, and test
 an existing kiosk display and Companion control with the saved device tokens.
 
+### Credential encryption preparation
+
+The credential vault module is groundwork for the settings/device migration.
+It is not yet wired into production writes; do not treat its presence as proof
+that existing settings are encrypted. Complete the consumer migration and
+backfill before deploying the credential-storage change.
+
+The vault accepts `CREDENTIAL_ENCRYPTION_KEYS` from the Worker environment as
+JSON with an `active` key ID and a `keys` map from key IDs to base64-encoded,
+cryptographically random 32-byte keys. No key belongs in a source file, public
+build variable, log or database. The module rejects missing/malformed keys and
+never substitutes the auth, kiosk, Companion or Bridge signing credentials.
+
+Each value has a new random AES-256 data key. AES-GCM encrypts the value and
+wraps its data key separately, using independent 96-bit nonces and 128-bit tags.
+Authenticated data binds both operations to the organization, setting key or
+device ID and nested field path, format version and wrapping-key ID. Stored
+values have an `spenc:v1:` prefix. Copying an envelope between identities fails.
+
+For rotation, retain the prior key in the map, add a newly generated key and
+make it active. New values use the new key; existing values can still be read
+and explicitly re-encrypted. Do not remove the old key until the eventual
+backfill verifies no remaining envelopes use it, including inactive devices,
+and recovery backups no longer depend on it. Keep compatible Worker code and
+keys available together for rollback. The migration and verification command
+are still outstanding; no production key or backfill has been created here.
+
 ### Applying a migration to production
 
 Use a quiet change window and work from the reviewed commit intended for
