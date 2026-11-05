@@ -210,7 +210,8 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_config(app: &tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    let config: Option<BridgeConfig> = showpilot_native_credentials::load(&config_path(app)?, CREDENTIAL_SERVICE)?;
+    let config: Option<BridgeConfig> =
+        showpilot_native_credentials::load(&config_path(app)?, CREDENTIAL_SERVICE)?;
     if let Some(config) = &config {
         validate_config(config)?;
     }
@@ -228,11 +229,18 @@ fn append_log(observation: &Arc<Mutex<BridgeObservation>>, line: String) {
     }
 }
 
-fn capture_output<R: Read + Send + 'static>(reader: R, observation: Arc<Mutex<BridgeObservation>>, key: String) {
+fn capture_output<R: Read + Send + 'static>(
+    reader: R,
+    observation: Arc<Mutex<BridgeObservation>>,
+    key: String,
+) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             match line {
-                Ok(line) => append_log(&observation, showpilot_native_credentials::redact(&line, &key)),
+                Ok(line) => append_log(
+                    &observation,
+                    showpilot_native_credentials::redact(&line, &key),
+                ),
                 Err(error) => {
                     append_log(
                         &observation,
@@ -438,8 +446,14 @@ pub fn start_bridge(
     config.local_devices_enabled = true;
     config.local_devices_confirmation_version = LOCAL_DEVICE_CONFIRMATION_VERSION;
     let saved = read_config(&app)?;
-    showpilot_native_credentials::reuse_key(&config.site, &config.org, &mut config.key,
-        saved.as_ref().map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())))?;
+    showpilot_native_credentials::reuse_key(
+        &config.site,
+        &config.org,
+        &mut config.key,
+        saved
+            .as_ref()
+            .map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())),
+    )?;
     let unchanged = saved.as_ref() == Some(&config);
     if unchanged {
         let running = runtime

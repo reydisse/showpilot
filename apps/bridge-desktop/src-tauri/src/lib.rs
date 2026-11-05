@@ -182,7 +182,8 @@ fn bridge_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_bridge_config(app: &tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    let config: Option<BridgeConfig> = showpilot_native_credentials::load(&bridge_config_path(app)?, CREDENTIAL_SERVICE)?;
+    let config: Option<BridgeConfig> =
+        showpilot_native_credentials::load(&bridge_config_path(app)?, CREDENTIAL_SERVICE)?;
     if let Some(config) = &config {
         validate_bridge_config(config)?;
     }
@@ -319,14 +320,23 @@ fn engine_info(app: tauri::AppHandle) -> EngineInfo {
 
 #[tauri::command]
 fn get_bridge_config(app: tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    Ok(read_bridge_config(&app)?.map(|mut config| { config.key.clear(); config }))
+    Ok(read_bridge_config(&app)?.map(|mut config| {
+        config.key.clear();
+        config
+    }))
 }
 
 fn resolve_saved_key(app: &tauri::AppHandle, config: &mut BridgeConfig) -> Result<(), String> {
     if config.key.is_empty() {
         let saved = read_bridge_config(app)?;
-        showpilot_native_credentials::reuse_key(&config.site, &config.org, &mut config.key,
-            saved.as_ref().map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())))?;
+        showpilot_native_credentials::reuse_key(
+            &config.site,
+            &config.org,
+            &mut config.key,
+            saved
+                .as_ref()
+                .map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())),
+        )?;
     }
     Ok(())
 }
@@ -354,10 +364,20 @@ fn spawn_bridge_process(
         .spawn()
         .map_err(|error| format!("Unable to start bridge: {error}"))?;
     if let Some(stdout) = child.stdout.take() {
-        capture_output(stdout, Arc::clone(&logs), Arc::clone(&connection), config.key.clone());
+        capture_output(
+            stdout,
+            Arc::clone(&logs),
+            Arc::clone(&connection),
+            config.key.clone(),
+        );
     }
     if let Some(stderr) = child.stderr.take() {
-        capture_output(stderr, Arc::clone(&logs), Arc::clone(&connection), config.key.clone());
+        capture_output(
+            stderr,
+            Arc::clone(&logs),
+            Arc::clone(&connection),
+            config.key.clone(),
+        );
     }
     if let Ok(mut target) = sidecar_stdin.lock() {
         *target = child.stdin.take();
