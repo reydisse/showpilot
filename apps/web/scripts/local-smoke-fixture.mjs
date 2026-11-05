@@ -31,12 +31,19 @@ export async function withLocalSmokeFixture(check, { secondShow = false } = {}) 
   async function wrangler(...args) {
     return run("pnpm", ["exec", "wrangler", ...args], { cwd: web, timeout: 60_000, maxBuffer: 2_000_000 });
   }
-  function pass(surface, org = orgId, expired = false) {
-    const iat = Math.floor(Date.now() / 1000) - (expired ? 60 : 0);
+  function signFixtureToken(payload) {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-    const body = Buffer.from(JSON.stringify({ purpose: "showpilot-display-v1", orgId: org, surface, iat, exp: iat + (expired ? 1 : 300), nonce: randomUUID() })).toString("base64url");
+    const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
     const message = `${header}.${body}`;
     return `${message}.${createHmac("sha256", secret).update(message).digest("base64url")}`;
+  }
+  function pass(surface, org = orgId, expired = false) {
+    const iat = Math.floor(Date.now() / 1000) - (expired ? 60 : 0);
+    return signFixtureToken({ purpose: "showpilot-display-v1", orgId: org, surface, iat, exp: iat + (expired ? 1 : 300), nonce: randomUUID() });
+  }
+  function crewChatPass(seconds = 300) {
+    const iat = Math.floor(Date.now() / 1000);
+    return `chat_${signFixtureToken({ scope: "crew-chat", orgId, orgSlug: orgId, iat, exp: iat + seconds })}`;
   }
   async function availablePort() {
     const server = createServer();
@@ -116,7 +123,9 @@ export async function withLocalSmokeFixture(check, { secondShow = false } = {}) 
       const { stdout } = await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--command", sql, "--json");
       return JSON.parse(stdout)[0].results;
     };
-    await check({ origin, orgId, date, browser, pass, stopServer, startServer, queryFixture, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    const revokeFixtureOperator = () => wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
+      "--command", "DELETE FROM member WHERE organizationId='display-smoke' AND userId='smoke-operator'");
+    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]"));

@@ -268,12 +268,12 @@ const appServer = {
       if (event.kind === "ignored" || event.channelId !== channel.value) return Response.json({ ok: true });
 
       const stub = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, "production")));
-      const relayUrl = new URL(request.url);
-      relayUrl.pathname = "/external/import";
+      if (!e.BETTER_AUTH_SECRET) return new Response("Chat authority is not configured", { status: 503 });
+      const relayUrl = new URL("https://chat.internal/internal/external-import");
       relayUrl.search = new URLSearchParams({ orgId, room: "production", access: "external" }).toString();
       const result = await stub.fetch(new Request(relayUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": e.BETTER_AUTH_SECRET },
         body: JSON.stringify({ platform: "slack", message: event.message }),
       }));
       return result.ok ? Response.json({ ok: true }) : new Response("Slack event was not imported", { status: 502 });
@@ -609,6 +609,8 @@ const appServer = {
         }
       }
       if (guestAllowed && guestPass) {
+        if (!e.BETTER_AUTH_SECRET) return new Response("Chat authority is not configured", { status: 503 });
+        doUrl.pathname = "/internal/guest-ws";
         doUrl.searchParams.set("name", (url.searchParams.get("guestName") || "Guest crew").trim().slice(0, 60));
         doUrl.searchParams.set("role", "Guest");
         doUrl.searchParams.set("guestExpiresAt", String(guestPass.exp * 1000));
@@ -640,7 +642,11 @@ const appServer = {
           body: JSON.stringify(body),
         }));
       }
-      return stub.fetch(new Request(doUrl.toString(), request));
+      const relayRequest = new Request(doUrl.toString(), request);
+      if (guestAllowed && guestPass && e.BETTER_AUTH_SECRET) {
+        relayRequest.headers.set("x-showpilot-internal-secret", e.BETTER_AUTH_SECRET);
+      }
+      return stub.fetch(relayRequest);
     }
 
     // Avatar upload — POST /api/user/avatar

@@ -53,20 +53,21 @@ interface GatewayStatusFrame {
 }
 
 type ChatSession = { name: string; orgId: string; roomId: string } & (
-  | { kind: "member"; userId: string; role?: string; authClaim?: LiveSessionAuthorityClaim }
-  | { kind: "guest"; userId?: never; role: "Guest"; expiresAt: number; attachmentOwnerId?: string }
-  | { kind: "integration"; userId?: never; role?: string }
+  | { kind: "member"; userId: string; role?: string; authClaim: LiveSessionAuthorityClaim }
+  | { kind: "guest"; userId?: never; role: "Guest"; workerVerified: true; expiresAt: number; attachmentOwnerId?: string }
+  | { kind: "viewer"; userId?: never; role?: never }
 );
 
 function readChatSession(value: unknown): ChatSession | null {
   if (!isRecord(value) || typeof value.name !== "string" || typeof value.orgId !== "string" || typeof value.roomId !== "string") return null;
   const base = { name: value.name, orgId: value.orgId, roomId: value.roomId };
-  if (value.kind === "guest" && value.userId === undefined && value.role === "Guest"
+  if (value.kind === "guest" && value.workerVerified === true && value.userId === undefined && value.role === "Guest"
     && typeof value.expiresAt === "number" && Number.isFinite(value.expiresAt)) {
     return {
       ...base,
       kind: "guest",
       role: "Guest",
+      workerVerified: true,
       expiresAt: value.expiresAt,
       ...(typeof value.attachmentOwnerId === "string" ? { attachmentOwnerId: value.attachmentOwnerId } : {}),
     };
@@ -83,10 +84,11 @@ function readChatSession(value: unknown): ChatSession | null {
           orgId: value.authClaim.orgId,
         }
       : undefined;
+    if (!authClaim || authClaim.userId !== value.userId || authClaim.orgId !== base.orgId) return null;
     return { ...base, kind: "member", userId: value.userId, role: value.role, authClaim };
   }
-  if (value.kind === "integration" && value.userId === undefined) {
-    return { ...base, kind: "integration", role: value.role };
+  if (value.kind === "viewer" && value.userId === undefined) {
+    return { ...base, kind: "viewer" };
   }
   return null;
 }
@@ -501,8 +503,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return new Response("Chat room mismatch", { status: 403 });
     }
 
-    if (url.pathname === "/external/import" && request.method === "POST") {
-      if (url.searchParams.get("access") !== "external" || this.roomId !== "production") {
+    if (url.pathname === "/internal/external-import" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET || this.roomId !== "production") {
         return new Response("Unauthorized", { status: 401 });
       }
       const parsed = parseExternalImport(await request.json<unknown>().catch(() => null));
@@ -511,34 +513,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return Response.json({ ok: true });
     }
 
-    if (url.pathname === "/ws") {
-      const base = {
-        name: url.searchParams.get("name") ?? "Gateway",
-        orgId: this.orgId,
-        roomId: this.roomId,
-      };
-      const userId = url.searchParams.get("userId");
-      const role = url.searchParams.get("role") ?? undefined;
+    if (url.pathname === "/ws" || url.pathname === "/internal/guest-ws") {
+      const base = { name: url.searchParams.get("name") ?? "Viewer", orgId: this.orgId, roomId: this.roomId };
       let session: ChatSession;
-      if (role === "Guest") {
+      if (url.pathname === "/internal/guest-ws") {
+        if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET || this.roomId !== "production") {
+          return new Response("Unauthorized", { status: 401 });
+        }
         const expiresAt = Number(url.searchParams.get("guestExpiresAt"));
         if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return new Response("Guest pass expired", { status: 401 });
         const attachmentOwnerId = url.searchParams.get("attachmentOwnerId") ?? undefined;
-        session = { ...base, kind: "guest", role: "Guest", expiresAt, attachmentOwnerId };
+        session = { ...base, kind: "guest", role: "Guest", workerVerified: true, expiresAt, attachmentOwnerId };
       } else {
-        const authUserId = url.searchParams.get("authUserId")?.trim();
-        const authSessionId = url.searchParams.get("authSessionId")?.trim();
-        session = userId
-          ? {
-              ...base,
-              kind: "member",
-              userId,
-              role,
-              ...(authUserId && authSessionId
-                ? { authClaim: { userId: authUserId, sessionId: authSessionId, orgId: this.orgId } }
-                : {}),
-            }
-          : { ...base, kind: "integration", role };
+        if (url.searchParams.get("role") === "Guest") return new Response("Guest authority required", { status: 401 });
+        session = await this.readMemberSession(url) ?? { ...base, kind: "viewer" };
       }
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
@@ -565,9 +553,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     }
 
     if (url.pathname === "/send" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") {
-        return new Response("Unauthorized", { status: 401 });
-      }
+      const session = await this.readMemberSession(url);
+      if (!session) return new Response("Unauthorized", { status: 401 });
       const body = (await request.json()) as Partial<ChatMessage>;
       const text = (body.text ?? "").trim().slice(0, 4000);
       if (!text) return new Response("Bad Request", { status: 400 });
@@ -577,9 +564,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       const message: ChatMessage = {
         id: crypto.randomUUID(),
         orgId: this.orgId,
-        senderId: body.senderId,
-        senderName: body.senderName ?? "Unknown",
-        senderRole: body.senderRole,
+        senderId: session.userId,
+        senderName: session.name,
+        senderRole: session.role,
         text,
         type: messageType,
         timestamp: Date.now(),
@@ -681,9 +668,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       const session = this.getSession(ws);
       if (!session) return;
       if (
-        session.kind === "member"
-        && session.authClaim
-        && !(await hasLivePermissionAuthority(this.env.DB, session.authClaim, "chat:access"))
+        session.kind === "viewer"
+        || (session.kind === "member" && !(await hasLivePermissionAuthority(this.env.DB, session.authClaim, "chat:access")))
       ) {
         ws.close(4403, "Chat access changed");
         this.sessions.delete(ws);
@@ -1019,12 +1005,25 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     return { messagesDeleted: scrubbed.deleted.length, filesDeleted };
   }
 
+  private async readMemberSession(url: URL): Promise<Extract<ChatSession, { kind: "member" }> | null> {
+    if (url.searchParams.get("access") !== "write") return null;
+    const userId = url.searchParams.get("authUserId")?.trim();
+    const sessionId = url.searchParams.get("authSessionId")?.trim();
+    if (!userId || !sessionId || url.searchParams.get("userId") !== userId) return null;
+    const authClaim = { userId, sessionId, orgId: this.orgId };
+    if (!(await hasLivePermissionAuthority(this.env.DB, authClaim, "chat:access"))) return null;
+    return {
+      kind: "member", userId, authClaim, orgId: this.orgId, roomId: this.roomId,
+      name: url.searchParams.get("name") ?? "Member", role: url.searchParams.get("role") ?? undefined,
+    };
+  }
+
   private getSession(ws: WebSocket) {
     const session = this.sessions.get(ws) ??
       readChatSession(ws.deserializeAttachment());
     // Older attachments have no authority kind/expiry. Reconnect through the
     // authenticated gateway instead of retaining unverifiable authorization.
-    if (!session || (session.kind === "guest" && session.expiresAt <= Date.now())) {
+    if (!session || session.orgId !== this.orgId || session.roomId !== this.roomId || (session.kind === "guest" && session.expiresAt <= Date.now())) {
       this.sessions.delete(ws);
       try { ws.close(1008, "Chat access expired. Reconnect to continue."); } catch { /* Already closed. */ }
       return null;
