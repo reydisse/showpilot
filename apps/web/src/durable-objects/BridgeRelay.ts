@@ -295,7 +295,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
         return new Response(null, { status: 101, webSocket: client });
       } catch (err) {
-        if (upgradingSocket) { upgradingSocket.close(1011, "Bridge authorization unavailable"); this.webSocketClose(upgradingSocket); }
+        if (upgradingSocket) { upgradingSocket.close(1011, "Bridge authorization unavailable"); this.disconnectSocket(upgradingSocket); }
         console.error("[BridgeRelay] websocket setup failed", err);
         return new Response("Bridge websocket failed", { status: 500 });
       }
@@ -385,7 +385,15 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     }
   }
 
-  webSocketClose(ws: WebSocket) {
+  webSocketClose(ws: WebSocket, code: number, reason: string) {
+    // Our compatibility date predates automatic close replies. Reciprocate
+    // peer-initiated closure before dropping the transport's local state.
+    const replyCode = code === 1005 || code === 1006 || code === 1015 ? 1000 : code;
+    try { ws.close(replyCode, reason); }
+    finally { this.disconnectSocket(ws); }
+  }
+
+  private disconnectSocket(ws: WebSocket) {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
       this.credentialId = null;
@@ -409,7 +417,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   webSocketError(ws: WebSocket) {
-    this.webSocketClose(ws);
+    this.disconnectSocket(ws);
   }
 
   // ─── Message Routing ────────────────────────────────────
@@ -650,7 +658,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     if (socket !== this.bridgeWs || credentialId !== this.credentialId) return;
     if (!authority) {
       socket.close(4403, "Venue Bridge credential expired or revoked");
-      this.webSocketClose(socket);
+      this.disconnectSocket(socket);
       await this.ctx.storage.deleteAlarm();
     } else if (authority.expiresAt !== null) {
       await this.ctx.storage.setAlarm(authority.expiresAt);
@@ -669,13 +677,13 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
       allowed = Boolean(authority && await recordBridgeWrite(this.env.DB, authority, { action, direction, actorUserId }));
     } catch {
-      if (socket === this.bridgeWs) { socket.close(1011, "Bridge authorization unavailable"); this.webSocketClose(socket); }
+      if (socket === this.bridgeWs) { socket.close(1011, "Bridge authorization unavailable"); this.disconnectSocket(socket); }
       return false;
     }
     if (socket !== this.bridgeWs || credentialId !== this.credentialId) return false;
     if (!allowed) {
       socket.close(4403, "Venue Bridge credential expired or revoked");
-      this.webSocketClose(socket);
+      this.disconnectSocket(socket);
       return false;
     }
     return true;
