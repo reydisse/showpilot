@@ -14,7 +14,8 @@ export function TimecodeDisplay({
 }: TimecodeDisplayProps) {
   const display = state?.display ?? "00:00:00:00";
   const running = state?.running ?? false;
-  const statusLabel = !connected ? "Disconnected" : running ? "Running" : "Stopped";
+  const lost = state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
+  const statusLabel = !connected ? "Disconnected" : lost ? "Signal lost" : running ? "Running" : "Stopped";
 
   if (size === "large") {
     return (
@@ -31,7 +32,7 @@ export function TimecodeDisplay({
           <span
             className={`w-2 h-2 rounded-full ${
               connected
-                ? running
+                ? lost ? "bg-amber-500" : running
                   ? "bg-green-500 animate-pulse"
                   : "bg-green-500"
                 : "bg-red-500"
@@ -40,9 +41,9 @@ export function TimecodeDisplay({
           <span>
             {!connected
               ? "Disconnected"
-              : running
+              : lost ? "Signal lost · clock held" : running
                 ? `Running · ${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
-                : "Stopped"}
+                : "Stopped · position held"}
           </span>
           {state?.source && (
             <span className="text-board-muted/50">
@@ -64,7 +65,7 @@ export function TimecodeDisplay({
       <span
         className={`w-1.5 h-1.5 rounded-full ${
           connected
-            ? running
+            ? lost ? "bg-amber-500" : running
               ? "bg-green-500 animate-pulse"
               : "bg-green-500"
             : "bg-board-muted/30"
@@ -77,6 +78,7 @@ export function TimecodeDisplay({
       >
         {display}
       </span>
+      {connected && lost && <span className="text-xs text-amber-400">Signal lost</span>}
     </div>
   );
 }

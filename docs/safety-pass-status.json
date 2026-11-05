@@ -646,16 +646,24 @@
       "phase": "1",
       "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
       "line": 121,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "TimecodeRelay composes 500ms stall and 2s loss deadlines with read-authorization alarms. It marks running=false, broadcasts explicit signal health, and holds the last frame. A small durable clock journal stores every accepted feed timestamp, previousFeedFrame, master socket identity and standby Bridge frame separately from the full event timeline.",
+        "timecode-watchdog.worker.test.ts observes actual alarm broadcasts after eviction, verifies the preserved timestamp/frame, and verifies that a cue crossed after eviction fires using the persisted previous frame. Watchdog alarms perform zero D1 authorization queries while socket leases are fresh.",
+        "2026-11-05: full web suite passed with 1294 unit and 228 Worker tests. Typecheck and production build passed. smoke-timecode-watchdog.mjs signs in to the built app, submits a single MTC feed, observes the visible signal-loss warning and polls the real relay until timecode-lost, running=false and the same frame/timestamp are confirmed."
+      ]
     },
     {
       "id": "506bd091ac75572a",
       "phase": "1",
       "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
       "line": 122,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Valid, trusted show-bound Bridge feeds are retained as standby data while an operator owns the clock. On master close/error, a feed younger than 500ms takes over as MTC without traversing missed cues. Expired/disconnected standby data cannot resume the clock. Socket master and standby metadata survive relay eviction.",
+        "Real Worker regressions cover live promotion after eviction, stale/disconnected standby rejection and continued operator control before takeover. Existing Bridge show-scoping tests verify the standby feed cannot change another show. Full web suite: 1294 unit and 228 Worker tests passed; typecheck and build passed.",
+        "Hardware MTC was not available in this check. The tests exercise the real relay internal Bridge feed endpoint and socket lifecycle, with existing Bridge-to-Timecode integration coverage retained."
+      ]
     },
     {
       "id": "d4fc5392267a3904",
@@ -670,8 +678,12 @@
       "phase": "1",
       "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
       "line": 124,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "After 500ms without a feed the relay broadcasts timecode-stalled, holds running=false, and stops scheduled evaluation/queued dispatch. Resumed input matches only its current position, never catches up cues skipped during signal loss. An intentional Stop is idle, not signal loss.",
+        "useTimecode previously repeated its last source observation every 100ms, hiding MIDI loss. Each actual callback is now sent once. The MTC listener remains open while stalled so fresh input can resume; Stop remains available. TimecodeSourceSelector says MTC signal lost / Clock held; automation paused, and both clock sizes show signal loss.",
+        "Browser-hook tests drive the real MTC decoder through MIDI messages, prove no stale resends, and confirm fresh input after loss. Real Worker tests cover skipped cues and intentional Stop; the built browser smoke confirms the rendered warning and held frame. Full web suite: 1294 unit and 228 Worker tests passed; typecheck and build passed."
+      ]
     },
     {
       "id": "690df802557649d6",
@@ -784,8 +796,13 @@
       "phase": "1",
       "section": "1.11 Clock semantics: resume versus restart (live finding)",
       "line": 158,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Stop holds the current frame; the next internal Start resumes that exact frame from the relay acknowledgement. An explicit offset remains available to callers. InternalTimecodeSource.startAtFrame uses integer frames so resume does not lose a frame at fractional/drop-frame rates.",
+        "The source control says Resume Internal Generator for a nonzero held position, and the clock says Stopped / position held. It no longer sends an implicit zero offset.",
+        "Hook tests cover Stop then Resume at 24, 25, 29.97 DF and 30 fps, checking the exact first feed frame. smoke-timecode-watchdog.mjs signs in to the built app, holds a five-second position after signal loss, clicks Resume, verifies the running relay did not reset/jump, then clicks Stop and verifies the held-position UI.",
+        "2026-11-05: full web suite passed (1294 unit and 228 Worker), typecheck and production build passed, and the built browser watchdog/resume smoke passed. Hardware MTC and the full-show rehearsal remain separate final-gate work."
+      ]
     },
     {
       "id": "2d2725943d2077a9",

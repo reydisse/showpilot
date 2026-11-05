@@ -130,7 +130,9 @@ describe("show-scoped timecode rooms", () => {
     socket.accept();
     socket.send(JSON.stringify({ type: "command", action: "start" }));
     await expect.poll(async () => (await morning.state()).running).toBe(true);
-    expect((await feed("/internal/bridge-feed")).status).toBe(409);
+    // Valid feeds remain standby data while the operator is master.
+    expect((await feed("/internal/bridge-feed")).status).toBe(200);
+    expect(await morning.state()).toMatchObject({ running: true, totalFrames: 0, source: "internal-freerun" });
     expect((await feed("/internal/bridge-disconnected")).status).toBe(200);
     expect(await morning.state()).toMatchObject({ running: true, totalFrames: 0, source: "internal-freerun" });
     socket.close();

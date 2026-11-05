@@ -1,5 +1,5 @@
 import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
-import { msToTimecode, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { framesToTimecode, msToTimecode, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 
 export interface InternalSourceCallback {
   (tc: TimecodeValue, totalFrames: number, display: string): void;
@@ -15,7 +15,7 @@ export class InternalTimecodeSource {
   private running = false;
   private rafId: number | null = null;
   private startTime = 0;
-  private offset = 0; // ms offset for start timecode
+  private offsetFrames = 0;
   private format: TimecodeFormat;
   private onTimecode: InternalSourceCallback;
   private lastEmittedFrame = -1;
@@ -26,7 +26,12 @@ export class InternalTimecodeSource {
   }
 
   start(startOffsetMs = 0): void {
-    this.offset = startOffsetMs;
+    this.startAtFrame(Math.floor(Math.max(0, startOffsetMs) * this.format.frameRate / 1000));
+  }
+
+  /** Resume the relay's exact held frame, including drop-frame boundaries. */
+  startAtFrame(frame: number): void {
+    this.offsetFrames = Math.max(0, Math.floor(frame));
     this.startTime = performance.now();
     this.running = true;
     this.lastEmittedFrame = -1;
@@ -63,9 +68,9 @@ export class InternalTimecodeSource {
   private tick = (): void => {
     if (!this.running) return;
 
-    const elapsed = performance.now() - this.startTime + this.offset;
-    const tc = msToTimecode(elapsed, this.format);
-    const totalFrames = timecodeToFrames(tc, this.format);
+    const elapsedFrames = Math.floor((performance.now() - this.startTime) * this.format.frameRate / 1000);
+    const totalFrames = this.offsetFrames + elapsedFrames;
+    const tc = framesToTimecode(totalFrames, this.format);
 
     // Only emit when frame changes (avoids flooding at 60Hz RAF)
     if (totalFrames !== this.lastEmittedFrame) {
