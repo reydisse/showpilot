@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getShowTimecodeRelay, timecodeTargetUrl } from "@/lib/timecode-target.server";
+import { seedRelayMember } from "./relay-fixtures";
 
 /** Real D1 show plus the production room binding used by Worker tests. */
 export async function timecodeFixture(orgId = `timecode-${crypto.randomUUID()}`, showId = `${orgId}-show`) {
@@ -10,10 +11,13 @@ export async function timecodeFixture(orgId = `timecode-${crypto.randomUUID()}`,
     env.DB.prepare("INSERT OR IGNORE INTO app_setting (id,orgId,key,value) VALUES (?,?,'active-show-id',?)").bind(crypto.randomUUID(), orgId, showId),
   ]);
   const stub = await getShowTimecodeRelay(env, target);
+  const authority = await seedRelayMember(orgId);
   const url = (path: string, access = "write") => {
     const url = timecodeTargetUrl(target, path);
     url.searchParams.set("access", access);
+    url.searchParams.set("authUserId", authority.userId);
+    url.searchParams.set("authSessionId", authority.sessionId);
     return url;
   };
-  return { orgId, target, stub, url };
+  return { orgId, target, stub, url, authority };
 }

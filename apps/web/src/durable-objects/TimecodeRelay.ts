@@ -301,21 +301,26 @@ export class TimecodeRelay extends DurableObject {
       return Response.json({ ok: true, showId: this.target.showId, serviceDate: this.target.serviceDate });
     }
 
+    const authClaim = this.readAuthorityClaim(url);
+    const canWrite = url.searchParams.get("access") === "write"
+      && authClaim !== null
+      && await hasLivePermissionAuthority(this.env.DB, authClaim, "timecode:access");
+
     if (url.pathname === "/ws") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
-        canWrite: url.searchParams.get("access") === "write",
+        canWrite,
         sessionId: crypto.randomUUID(),
         orgId: this.orgId,
         showId: this.target?.showId,
-        authClaim: this.readAuthorityClaim(url),
+        authClaim,
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
       // Hydrate
-      const hydrate: TimecodeWsMessage = url.searchParams.get("access") === "write"
+      const hydrate: TimecodeWsMessage = canWrite
         ? { type: "hydrate", state: this.state, events: this.events }
         : { type: "hydrate", state: this.getDisplayState() };
       server.send(JSON.stringify(hydrate));
@@ -325,19 +330,19 @@ export class TimecodeRelay extends DurableObject {
 
     if (url.pathname === "/state") {
       return Response.json(
-        url.searchParams.get("access") === "write" ? this.state : this.getDisplayState(),
+        canWrite ? this.state : this.getDisplayState(),
       );
     }
 
     if (url.pathname === "/events") {
-      if (url.searchParams.get("access") !== "write") {
+      if (!canWrite) {
         return new Response("Unauthorized", { status: 401 });
       }
       return Response.json(this.events);
     }
 
     if (url.pathname === "/command" && request.method === "POST") {
-      if (url.searchParams.get("access") === "read") {
+      if (!canWrite) {
         return new Response("Unauthorized", { status: 401 });
       }
       const body = (await request.json()) as {
@@ -367,11 +372,11 @@ export class TimecodeRelay extends DurableObject {
           showId?: string;
           authClaim?: LiveSessionAuthorityClaim | null;
         } | null;
-        if (!attachment?.canWrite) return;
+        if (!attachment?.canWrite) { ws.close(4403, "Timecode write access required"); return; }
         if (this.target && (attachment.orgId !== this.target.orgId || attachment.showId !== this.target.showId)) { ws.close(4409, "Timecode show mismatch"); return; }
         if (
-          attachment.authClaim
-          && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"))
+          !attachment.authClaim
+          || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"))
         ) {
           ws.close(4403, "Timecode access changed");
           return;
@@ -1100,8 +1105,8 @@ export class TimecodeRelay extends DurableObject {
     ws: WebSocket,
     attachment: { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null } | null,
   ): Promise<boolean> {
-    if (!attachment?.canWrite || !attachment.authClaim) return true;
-    if (await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access")) return true;
+    if (!attachment?.canWrite) return true;
+    if (attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access")) return true;
     ws.close(4403, "Timecode access changed");
     return false;
   }

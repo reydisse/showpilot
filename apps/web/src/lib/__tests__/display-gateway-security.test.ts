@@ -15,8 +15,10 @@ vi.mock("@/durable-objects/CueSheetRelay", () => ({ CueSheetRelay: class {} }));
 import server from "../../server";
 const namespace = { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }), getByName: mocks.room };
 const bindings = {
-  DB: { prepare: (sql: string) => ({ bind: () => ({ first: async () => sql.includes("FROM organization") ? { id: "org-1" } : null }) }) },
+  DB: { prepare: (sql: string) => ({ bind: () => ({ first: async () => sql.includes("FROM organization") ? { id: "org-1" } : null, run: async () => ({ success: true }) }) }) },
   RUNDOWN_RELAY: namespace, TIMECODE_RELAY: namespace, LOWER_THIRDS_RELAY: namespace,
+  BRIDGE_RELAY: namespace, CHAT_RELAY: namespace, CUE_SHEET_RELAY: namespace,
+  BETTER_AUTH_SECRET: "gateway-internal-fixture-secret",
   KIOSK_SECRET: "display-gateway-fixture-secret",
 };
 beforeEach(() => {
@@ -27,6 +29,47 @@ beforeEach(() => {
 });
 
 describe("public display Worker boundary", () => {
+  function signedInOperator() {
+    mocks.session.mockResolvedValue({ user: { id: "real-operator", name: "Fixture operator" }, session: { id: "real-session" } });
+    mocks.access.mockResolvedValue({ role: "owner", permissions: [
+      "timecode:access", "rundown:control", "rundown:edit", "rundown:view", "show:view",
+      "devices:access", "lowerthird:trigger", "chat:access", "cuesheet:view", "cuesheet:edit", "incidents:access",
+    ] });
+  }
+
+  it.each(["timecode", "rundown", "bridge", "chat", "cue-sheet", "lowerthirds"])("never forwards an operator's %s maintenance request", async relay => {
+    signedInOperator();
+    const response = await server.fetch(new Request(`https://app.example/api/${relay}/org-1/internal/purge-org`, {
+      method: "POST", headers: { "x-showpilot-internal-secret": "forged" },
+    }), bindings, {});
+    expect(response.status).toBe(404);
+    expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
+  it.each(["timecode", "rundown", "chat", "cue-sheet", "lowerthirds"])("rebuilds a member's %s URL without caller-supplied authority or unused query fields", async relay => {
+    signedInOperator();
+    const response = await server.fetch(new Request(`https://app.example/api/${relay}/org-1/ws?authUserId=forged&authSessionId=forged&authExtra=forged&access=forged&role=forged&key=forged&unused=private`), bindings, {});
+    expect(response.status).toBe(200);
+    const forwarded: Request = mocks.relay.mock.calls[0][0];
+    const query = new URL(forwarded.url).searchParams;
+    expect(query.get("authUserId")).toBe("real-operator");
+    expect(query.get("authSessionId")).toBe("real-session");
+    for (const field of ["authExtra", "key", "unused"]) expect(query.has(field)).toBe(false);
+    expect(query.get("role")).toBe(relay === "chat" ? "owner" : null);
+    expect(query.get("access")).not.toBe("forged");
+  });
+
+  it("preserves only the supported chat-history cursor parameters", async () => {
+    signedInOperator();
+    await server.fetch(new Request("https://app.example/api/chat/org-1/history?limit=30&beforeTimestamp=123&beforeId=message-1&key=forged"), bindings, {});
+    const forwarded: Request = mocks.relay.mock.calls[0][0];
+    const query = new URL(forwarded.url).searchParams;
+    expect(query.get("limit")).toBe("30");
+    expect(query.get("beforeTimestamp")).toBe("123");
+    expect(query.get("beforeId")).toBe("message-1");
+    expect(query.has("key")).toBe(false);
+  });
+
   it.each(["rundown", "timecode"])("rejects anonymous %s display reads and forged internal claims", async (relay) => {
     const response = await server.fetch(new Request(`https://app.example/api/${relay}/org-1/state?display=1&authUserId=owner&authSessionId=fake&authDisplayExpiresAt=9999999999999`), bindings, {});
     expect(response.status).toBe(401); expect(mocks.relay).not.toHaveBeenCalled();

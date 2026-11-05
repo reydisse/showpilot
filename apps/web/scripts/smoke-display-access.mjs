@@ -2,7 +2,14 @@
 import assert from "node:assert/strict";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 
-await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass }) => {
+await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass, operatorCookie }) => {
+  for (const relay of ["rundown", "timecode", "bridge", "chat", "cue-sheet", "lowerthirds"]) {
+    const response = await fetch(`${origin}/api/${relay}/${orgId}/internal/purge-org`, {
+      method: "POST", headers: { Cookie: operatorCookie, Origin: origin, "x-showpilot-internal-secret": "forged" },
+    });
+    assert.equal(response.status, 404, `${relay}: maintenance is not a public operator API`);
+    await response.arrayBuffer();
+  }
   for (const path of [`/api/overlay/${orgId}`, `/api/rundown/${orgId}/state?display=1&serviceDate=${date}`, `/api/timecode/${orgId}/state?display=1`]) {
     const response = await fetch(`${origin}${path}`);
     assert.equal(response.status, 401, path);
@@ -38,5 +45,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass }) => {
   const cookieRead = await browser("eval", `(async () => { const response = await fetch('/api/overlay/${orgId}'); return { status: response.status, rows: await response.json() }; })()`);
   assert.equal(cookieRead.result.status, 200);
   assert.equal(cookieRead.result.rows[0].title, "Fixture overlay title");
-  console.log(JSON.stringify({ anonymousReads: "denied", timerLink: "passed", privateStageMessage: "gated", httpOnlyCookieAndReload: "passed", wrongOrgAndSurface: "denied", expiredLink: "denied", overlayLink: "passed", wildcardCors: "absent" }, null, 2));
+  console.log(JSON.stringify({ maintenanceRoutes: "not public", anonymousReads: "denied", timerLink: "passed", privateStageMessage: "gated", httpOnlyCookieAndReload: "passed", wrongOrgAndSurface: "denied", expiredLink: "denied", overlayLink: "passed", wildcardCors: "absent" }, null, 2));
 });

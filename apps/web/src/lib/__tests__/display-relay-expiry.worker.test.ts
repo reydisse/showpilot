@@ -45,6 +45,10 @@ describe("display socket expiry", () => {
       : kind === "rundown" ? { action: "stage-message", payload: { message: "Protected stage message" } }
       : { line1: "Protected lower third" };
     query.set("access", kind === "rundown" ? "control" : "write"); query.delete("authDisplayExpiresAt");
+    if (clock) {
+      query.set("authUserId", clock.authority.userId);
+      query.set("authSessionId", clock.authority.sessionId);
+    }
     const command = await stub.fetch(new Request(`https://relay.test/${kind === "lowerthirds" ? "trigger" : "command"}?${query}`, { method: "POST", body: JSON.stringify(body) }));
     expect(command.status).toBe(200); await command.arrayBuffer();
     await expect(closed).resolves.toMatchObject({ code: 4403, reason: "Display pass expired" });
