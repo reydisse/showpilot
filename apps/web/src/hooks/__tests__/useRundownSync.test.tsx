@@ -70,8 +70,82 @@ describe("useRundownSync command confirmation", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     globalThis.WebSocket = OriginalWebSocket;
     globalThis.fetch = OriginalFetch;
+  });
+
+  it("waits for matching state before reporting connected", async () => {
+    const { result, unmount } = renderHook(() => useRundownSync("org-1", "2026-09-06", "show-1"));
+    const socket = await waitForSocket();
+    act(() => socket.open());
+    expect(result.current.connected).toBe(false);
+    act(() => hydrate(socket));
+    expect(result.current.connected).toBe(true);
+    act(() => socket.close());
+    expect(result.current.connected).toBe(false);
+    unmount();
+  });
+
+  it("discards stale transport on reconnect but keeps queued edits", async () => {
+    let now = 100_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    globalThis.fetch = vi.fn(async () => Response.json({ revision: 5 }));
+    const { result, unmount } = renderHook(() => useRundownSync("org-1", "2026-09-06", "show-1"));
+    const socket = await waitForSocket();
+    act(() => {
+      socket.open();
+      hydrate(socket);
+      result.current.sendCommand("timer-next");
+      socket.close();
+      result.current.sendCommand("update-meta", { serviceName: "Evening" });
+    });
+    expect(result.current.unconfirmedCount).toBe(2);
+    now += 6_000;
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2), { timeout: 2_000 });
+    const replacement = MockWebSocket.instances[1];
+    act(() => { replacement.open(); hydrate(replacement); });
+    expect(replacement.sent.map((entry) => JSON.parse(entry).action)).toEqual(["update-meta"]);
+    expect(result.current.unconfirmedCount).toBe(1);
+    expect(result.current.lastError).toContain("expired");
+    unmount();
+  });
+
+  it("does not hand stale transport to HTTP on navigation", async () => {
+    let now = 100_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetchMock = vi.fn(async () => Response.json({ revision: 5 }));
+    globalThis.fetch = fetchMock;
+    const { result, unmount } = renderHook(() => useRundownSync("org-1", "2026-09-06", "show-1"));
+    await waitForSocket();
+    act(() => result.current.sendCommand("timer-start", { itemId: "item-1" }));
+    now += 6_000;
+    unmount();
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the relay clock for deadlines and preserves the id when handing off fresh transport", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _options?: RequestInit) => Response.json({ revision: 5 }));
+    globalThis.fetch = fetchMock;
+    const { result, unmount } = renderHook(() => useRundownSync("org-1", "2026-09-06", "show-1"));
+    const socket = await waitForSocket();
+    act(() => {
+      socket.open();
+      socket.receive({ type: "hydrate", state: {
+        showId: "show-1", serviceDate: "2026-09-06", revision: 4,
+        timer: { playback: "stop", serverTime: 200_000 },
+      } });
+      result.current.sendCommand("timer-next");
+    });
+    const sent = JSON.parse(socket.sent[0]);
+    expect(sent).toMatchObject({ action: "timer-next", expiresAt: 205_000, expectedRevision: 4 });
+    unmount();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      id: sent.id, expiresAt: 205_000, expectedRevision: 4,
+    });
   });
 
   it("keeps saving true until every queued command is confirmed", async () => {

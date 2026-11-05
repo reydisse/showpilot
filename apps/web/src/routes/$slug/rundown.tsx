@@ -429,10 +429,13 @@ function RundownPage() {
     stageMessage: syncedStageMessage,
     lastError: syncError,
     saving: syncSaving,
+    connected: syncConnected,
+    unconfirmedCount,
     hasPendingCommands,
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
+  const transportAvailable = canControlRundown && syncConnected;
   const relayMatchesTarget =
     syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
 
@@ -1183,7 +1186,7 @@ function RundownPage() {
 
   const handleStart = useCallback(
     (itemId: string) => {
-      if (!canControlRundown) return;
+      if (!transportAvailable) return;
       const target = items.find((item) => item.id === itemId);
       if (!target || target.type === "header") return;
       // Optimistic local update
@@ -1207,11 +1210,11 @@ function RundownPage() {
       // Sync to DO + persist to DB
       sendRundownCommand("timer-start", { itemId });
     },
-    [canControlRundown, items, sendRundownCommand, timer.mode],
+    [transportAvailable, items, sendRundownCommand, timer.mode],
   );
 
   const handlePause = useCallback(() => {
-    if (!canControlRundown) return;
+    if (!transportAvailable) return;
     if (timer.playback === "play" && timer.startedAt) {
       const newElapsed = timer.elapsed + (Date.now() - timer.startedAt);
       setTimer({
@@ -1222,21 +1225,21 @@ function RundownPage() {
       });
       sendRundownCommand("timer-pause");
     }
-  }, [canControlRundown, timer, sendRundownCommand]);
+  }, [transportAvailable, timer, sendRundownCommand]);
 
   const handleResume = useCallback(() => {
-    if (!canControlRundown) return;
+    if (!transportAvailable) return;
     if (timer.playback === "pause") {
       const resumeNow = Date.now();
       setTimer({ ...timer, playback: "play", startedAt: resumeNow });
       sendRundownCommand("timer-resume");
     }
-  }, [canControlRundown, timer, sendRundownCommand]);
+  }, [transportAvailable, timer, sendRundownCommand]);
 
   const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${showId ?? serviceDate}:${timer.currentItemId}:${timer.playback === "stop"}`);
 
   const stopConfirmed = useCallback(() => {
-    if (!canControlRundown) return;
+    if (!transportAvailable) return;
     setItems((prev) =>
       prev.map((i) =>
         i.id === timer.currentItemId
@@ -1252,15 +1255,15 @@ function RundownPage() {
       mode: timer.mode,
     });
     sendRundownCommand("timer-stop");
-  }, [canControlRundown, timer.currentItemId, timer.mode, sendRundownCommand]);
+  }, [transportAvailable, timer.currentItemId, timer.mode, sendRundownCommand]);
 
   const handleStop = useCallback(() => {
-    if (!canControlRundown || timer.playback === "stop") return;
+    if (!transportAvailable || timer.playback === "stop") return;
     requestEndShow(stopConfirmed);
-  }, [canControlRundown, timer.playback, requestEndShow, stopConfirmed]);
+  }, [transportAvailable, timer.playback, requestEndShow, stopConfirmed]);
 
   const handleNext = useCallback(() => {
-    if (!canControlRundown) return;
+    if (!transportAvailable) return;
     if (timer.playback !== "stop" && !nextPlayableItem(items, timer.currentItemId)) {
       requestEndShow(stopConfirmed);
       return;
@@ -1301,7 +1304,7 @@ function RundownPage() {
     // Single DO command — DO handles the advance logic
     sendRundownCommand("timer-next");
   }, [
-    canControlRundown,
+    transportAvailable,
     items,
     timer.currentItemId,
     timer.mode,
@@ -1312,7 +1315,7 @@ function RundownPage() {
   ]);
 
   const handlePrev = useCallback(() => {
-    if (!canControlRundown) return;
+    if (!transportAvailable) return;
     const currentIdx = items.findIndex((i) => i.id === timer.currentItemId);
     if (currentIdx > 0) {
       const prevItem = [...items.slice(0, currentIdx)]
@@ -1340,7 +1343,7 @@ function RundownPage() {
       sendRundownCommand("timer-prev");
     }
   }, [
-    canControlRundown,
+    transportAvailable,
     items,
     timer.currentItemId,
     timer.mode,
@@ -1396,7 +1399,7 @@ function RundownPage() {
   // Negative deltaMs = subtract time (increase elapsed, giving less remaining)
   const handleAdjustTime = useCallback(
     (deltaMs: number) => {
-      if (!canControlRundown) return;
+      if (!transportAvailable) return;
       if (timer.playback === "stop") return;
 
       if (timer.playback === "play" && timer.startedAt) {
@@ -1411,7 +1414,7 @@ function RundownPage() {
       // Sync to DO → broadcasts to all clients and kiosk
       sendRundownCommand("timer-adjust", { deltaMs });
     },
-    [canControlRundown, timer, sendRundownCommand],
+    [transportAvailable, timer, sendRundownCommand],
   );
 
   const handleAddItem = async (
@@ -1979,6 +1982,13 @@ function RundownPage() {
       )}
 
       {canControlRundown && <RundownShortcutBanner />}
+      {(!syncConnected || unconfirmedCount > 0) && (
+        <div role="status" aria-live="polite" className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
+          {syncConnected
+            ? `Syncing ${unconfirmedCount} ${unconfirmedCount === 1 ? "change" : "changes"}…`
+            : `Offline, ${unconfirmedCount} changes queued. Transport is unavailable until live state reconnects.`}
+        </div>
+      )}
       {/* Page body — flex-col container, never scrolls itself */}
       <div
         className="rundown-page-body flex-1 overflow-hidden flex flex-col"
@@ -2115,15 +2125,17 @@ function RundownPage() {
                 <div className="flex gap-2">
                   {timer.playback === "play" ? (
                     <button
+                      disabled={!transportAvailable}
                       onClick={handlePause}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
                     >
                       <Pause className="w-4 h-4" /> Pause
                     </button>
                   ) : timer.playback === "pause" ? (
                     <button
+                      disabled={!transportAvailable}
                       onClick={handleResume}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
                     >
                       <Play className="w-4 h-4" /> Resume
                     </button>
@@ -2135,7 +2147,7 @@ function RundownPage() {
                         );
                         if (first) handleStart(first.id);
                       }}
-                      disabled={items.length === 0}
+                      disabled={!transportAvailable || items.length === 0}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
                     >
                       <Play className="w-4 h-4" /> Start
@@ -2144,7 +2156,7 @@ function RundownPage() {
 
                   <button
                     onClick={handlePrev}
-                    disabled={timer.playback === "stop"}
+                    disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     title="Previous item"
                     aria-label="Previous rundown item"
@@ -2153,7 +2165,7 @@ function RundownPage() {
                   </button>
                   <button
                     onClick={handleNext}
-                    disabled={timer.playback === "stop"}
+                    disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     title="Next item"
                     aria-label="Next rundown item"
@@ -2162,7 +2174,7 @@ function RundownPage() {
                   </button>
                   <button
                     onClick={handleStop}
-                    disabled={timer.playback === "stop"}
+                    disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
                     aria-label="Stop rundown"
                   >
@@ -2181,7 +2193,7 @@ function RundownPage() {
                   <div className="flex gap-1.5 mb-2">
                     <button
                       onClick={() => handleAdjustTime(-60_000)}
-                      disabled={timer.playback === "stop"}
+                      disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 1 minute from current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
@@ -2189,7 +2201,7 @@ function RundownPage() {
                     </button>
                     <button
                       onClick={() => handleAdjustTime(-15_000)}
-                      disabled={timer.playback === "stop"}
+                      disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 15 seconds from current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
@@ -2197,7 +2209,7 @@ function RundownPage() {
                     </button>
                     <button
                       onClick={() => handleAdjustTime(15_000)}
-                      disabled={timer.playback === "stop"}
+                      disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 15 seconds to current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
@@ -2205,7 +2217,7 @@ function RundownPage() {
                     </button>
                     <button
                       onClick={() => handleAdjustTime(60_000)}
-                      disabled={timer.playback === "stop"}
+                      disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 1 minute to current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
@@ -2219,7 +2231,7 @@ function RundownPage() {
                         handleAdjustTime(-parseAdjustInput(customAdjust))
                       }
                       disabled={
-                        timer.playback === "stop" ||
+                        !transportAvailable || timer.playback === "stop" ||
                         parseAdjustInput(customAdjust) === 0
                       }
                       className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40"
@@ -2240,7 +2252,7 @@ function RundownPage() {
                         handleAdjustTime(parseAdjustInput(customAdjust))
                       }
                       disabled={
-                        timer.playback === "stop" ||
+                        !transportAvailable || timer.playback === "stop" ||
                         parseAdjustInput(customAdjust) === 0
                       }
                       className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors disabled:opacity-40"
@@ -2859,6 +2871,7 @@ function RundownPage() {
                                 >
                                   {!isCurrent && item.status !== "complete" && (
                                     <button
+                                      disabled={!transportAvailable}
                                       onClick={() => handleStart(item.id)}
                                       className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors"
                                       title="Start"

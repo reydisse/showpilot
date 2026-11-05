@@ -27,6 +27,17 @@ describe("rundown command arbitration", () => {
     expect(classifyRelayCommand(8, [], undefined, undefined)).toBe("apply");
   });
 
+  it("expires delayed commands but still acknowledges already applied retries", () => {
+    expect(classifyRelayCommand(8, [], "late", 8, 10_000, 10_000)).toBe("expired");
+    expect(classifyRelayCommand(8, [], "fresh", 8, 10_001, 10_000)).toBe("apply");
+    expect(classifyRelayCommand(8, ["late"], "late", 7, 10_000, 10_000)).toBe("duplicate");
+    expect(parseRundownRelayHttpCommand({ action: "timer-next", expiresAt: 10_000 }))
+      .toEqual({ action: "timer-next", expiresAt: 10_000 });
+    for (const expiresAt of ["10000", -1, 1.5, Infinity, null]) {
+      expect(parseRundownRelayHttpCommand({ action: "timer-next", expiresAt })).toBeNull();
+    }
+  });
+
   it("validates HTTP command envelopes at the relay boundary", () => {
     expect(parseRundownRelayHttpCommand({
       action: "update-item",

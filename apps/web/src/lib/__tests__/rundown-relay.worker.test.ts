@@ -280,6 +280,45 @@ describe("RundownRelay live authority", () => {
 });
 
 describe("RundownRelay running order matches confidence displays", () => {
+  it("rejects expired HTTP and socket transport without advancing, and acknowledges applied retries", async () => {
+    const orgId = "relay-transport-deadline";
+    await createOrg(orgId);
+    await command(orgId, "seed", { items: [
+      { id: "first", title: "First", type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false },
+    ] });
+    const before = await state(orgId);
+    const post = async (id: string, expiresAt: number) => {
+      const response = await relayFor(orgId).fetch(new Request(
+        `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+        { method: "POST", body: JSON.stringify({ action: "timer-next", id, expiresAt, expectedRevision: before.revision }) },
+      ));
+      return { status: response.status, body: await response.json() };
+    };
+    expect(await post("http-late", Date.now() - 1)).toMatchObject({ status: 409, body: { reason: "expired", revision: before.revision } });
+    expect(await state(orgId)).toMatchObject({ revision: before.revision, timer: { playback: "stop" } });
+
+    const response = await relayFor(orgId).fetch(new Request(
+      `https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+      { headers: { Upgrade: "websocket" } },
+    ));
+    if (!response.webSocket) throw new Error("Missing rundown socket");
+    const socket = response.webSocket;
+    const hydration = nextFrame(socket, "hydrate");
+    socket.accept();
+    await hydration;
+    const freshState = nextFrame(socket, "state");
+    const rejected = nextFrame(socket, "command-result");
+    socket.send(JSON.stringify({ type: "command", action: "timer-next", id: "ws-late", expiresAt: Date.now() - 1 }));
+    expect(await rejected).toMatchObject({ accepted: false, reason: "expired", revision: before.revision });
+    expect(await freshState).toMatchObject({ state: { timer: { playback: "stop" } } });
+    expect(await post("applied", Date.now() + 5_000)).toMatchObject({ status: 200, body: { ok: true } });
+    const after = await state(orgId);
+    expect(after).toMatchObject({ timer: { playback: "play", currentItemId: "first" } });
+    expect(await post("applied", Date.now() - 1)).toMatchObject({ status: 200, body: { duplicate: true, revision: after.revision } });
+    expect(await state(orgId)).toMatchObject({ revision: after.revision, timer: { currentItemId: "first" } });
+    socket.close();
+  });
+
   it("rejects reset while playing and allows it after a pause", async () => {
     const orgId = "relay-reset-playing-guard";
     await createOrg(orgId);

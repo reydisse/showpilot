@@ -605,14 +605,15 @@ export class RundownRelay extends DurableObject {
           this.state.recentCommandIds,
           body.id,
           body.expectedRevision,
+          body.expiresAt,
         );
         if (decision === "duplicate") {
           return Response.json({ ok: true, duplicate: true, revision: this.state.revision });
         }
-        if (decision === "revision-conflict") {
+        if (decision === "revision-conflict" || decision === "expired") {
           return Response.json({
             ok: false,
-            reason: "revision-conflict",
+            reason: decision,
             revision: this.state.revision,
             state: this.getPublicState(),
           }, { status: 409 });
@@ -693,6 +694,7 @@ export class RundownRelay extends DurableObject {
             this.state.recentCommandIds,
             parsed.id,
             parsed.expectedRevision,
+            parsed.expiresAt,
           );
           if (decision === "duplicate") {
             ws.send(JSON.stringify({
@@ -705,13 +707,13 @@ export class RundownRelay extends DurableObject {
             return;
           }
 
-          if (decision === "revision-conflict") {
+          if (decision === "revision-conflict" || decision === "expired") {
             await this.sendStateToSocket(ws);
             ws.send(JSON.stringify({
               type: "command-result",
               id: parsed.id,
               accepted: false,
-              reason: "revision-conflict",
+              reason: decision,
               revision: this.state.revision,
             }));
             return;

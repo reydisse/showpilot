@@ -323,8 +323,12 @@
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 80,
-      "status": "pending",
-      "evidence": []
+      "status": "implemented",
+      "evidence": [
+        "Rundown renders a persistent offline/pending count banner and disables transport until matching relay hydration. useRundownSync expires transport after 5 seconds on dispatch and navigation; relay HTTP/WS expiry preserves duplicate acknowledgement and revision arbitration.",
+        "Regression tests reproduced the previous eager-connected and stale handoff behavior. Hook and real Worker tests cover stale reconnect, durable edit retention, fresh handoff IDs/deadlines with clock skew, expired HTTP/WS rejection, and applied retry deduplication.",
+        "Full web tests passed: 1183 unit and 90 Worker, plus migration/client boundaries. Typecheck and production build passed (174372 gzip bytes). Browser disconnect rehearsal remains pending."
+      ]
     },
     {
       "id": "c07ebd6f61a69843",
