@@ -54,7 +54,7 @@ export interface UseTimecodeReturn {
   resetEvents: () => void;
   retryEvent: (id: string) => void;
   setEventEnabled: (id: string, enabled: boolean) => void;
-  setTriggersEnabled: (enabled: boolean) => void;
+  setTriggersEnabled: (enabled: boolean, expectedHoldId?: string) => void;
   setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
   clearLyrics: () => void;
 
@@ -403,7 +403,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const resetEvents = useCallback(() => { sendCommand("reset-events"); }, [sendCommand]);
   const retryEvent = useCallback((id: string) => { sendCommand("retry-event", { id }); }, [sendCommand]);
   const setEventEnabled = useCallback((id: string, value: boolean) => { sendCommand("set-event-enabled", { id, enabled: value }); }, [sendCommand]);
-  const setTriggersEnabled = useCallback((value: boolean) => { sendCommand("set-triggers-enabled", { enabled: value }); }, [sendCommand]);
+  const setTriggersEnabled = useCallback((value: boolean, expectedHoldId?: string) => {
+    sendCommand("set-triggers-enabled", { enabled: value, ...(expectedHoldId ? { expectedHoldId, confirmed: true } : {}) });
+  }, [sendCommand]);
   const setLyrics = useCallback((lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => { sendCommand("set-lyrics", lyrics); }, [sendCommand]);
   const clearLyrics = useCallback(() => { sendCommand("clear-lyrics"); }, [sendCommand]);
 

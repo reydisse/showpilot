@@ -26,7 +26,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorCookie, ope
   await browser("wait", "text=Another operator controls timecode. Ask them to release control first.");
   assert.equal((await browser("get", "value", 'input[placeholder^="e.g."]')).value, "Draft kept while another tab controls");
   assert.equal((await state()).triggersEnabled, true);
-  await click("Disable automation");
+  assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(button => button.textContent === 'Disable automation').disabled")).result, true);
   assert.equal((await state()).triggersEnabled, true);
 
   await browser("tab", "0");

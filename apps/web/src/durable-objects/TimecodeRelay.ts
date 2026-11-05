@@ -15,7 +15,7 @@ import type {
   TimecodeDisplayState,
   TimecodeControlStatus,
 } from "@/types/timecode";
-import { crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { isLargeTimecodeJump, framesToTimecode, crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
   appendWebhookEvent,
   sanitizePayloadSummary,
@@ -108,7 +108,7 @@ const FEED_LOST_MS = 2000;
 interface BridgeFeed { timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
 /** Small durable journal; never rewrite the full event timeline at feed rate. */
 interface ClockSnapshot {
-  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal">;
+  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automationHold">;
   previousFeedFrame: number | null;
   masterSessionId: string | null;
   expectedFeedSince: number | null;
@@ -144,6 +144,8 @@ export class TimecodeRelay extends DurableObject {
   private hasSnapshot = false;
   private retired = false;
   private previousFeedFrame: number | null = null;
+  // Invalidates queued scheduled work across Stop, disable, seek and large jumps.
+  private automationGeneration = 0;
   private masterSessionId: string | null = null;
   private expectedFeedSince: number | null = null;
   private bridgeFeed: BridgeFeed | null = null;
@@ -206,8 +208,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private clockSnapshot(): ClockSnapshot {
-    const { timecode, display, totalFrames, format, source, running, serverTime, signal } = this.state;
-    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal },
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold } = this.state;
+    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
       expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed };
   }
@@ -237,6 +239,7 @@ export class TimecodeRelay extends DurableObject {
     if (age < FEED_STALL_MS) return false;
     const status = age >= FEED_LOST_MS ? "timecode-lost" : "timecode-stalled";
     if (signal.status === status) return false;
+    this.automationGeneration++;
     this.state.signal = { ...signal, status };
     this.state.running = false;
     this.state.serverTime = Date.now();
@@ -244,10 +247,22 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private holdClock(): void {
+    this.automationGeneration++;
     this.state.running = false;
     this.state.signal = { status: "idle", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
     this.expectedFeedSince = null;
     this.previousFeedFrame = null;
+  }
+
+  private holdForJump(previousFrame: number | null, currentFrame: number, format = this.state.format): void {
+    if (!isLargeTimecodeJump(previousFrame, currentFrame, format) || previousFrame === null) return;
+    this.automationGeneration++;
+    this.state.triggersEnabled = false;
+    this.state.automationHold = {
+      id: crypto.randomUUID(), reason: "timecode-jump", detectedAt: Date.now(),
+      from: timecodeToString(framesToTimecode(previousFrame, format), format.dropFrame === "df"),
+      to: timecodeToString(framesToTimecode(currentFrame, format), format.dropFrame === "df"),
+    };
   }
 
   /** Internal RPC: one durable room owns one stable show for its lifetime. */
@@ -565,10 +580,14 @@ export class TimecodeRelay extends DurableObject {
       this.broadcastControl();
     }
     if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
+      this.automationGeneration++;
       this.masterSessionId = null;
+      const previousFrame = this.previousFeedFrame;
       this.previousFeedFrame = null;
       const standby = this.bridgeFeed;
       if (standby && Date.now() - standby.receivedAt < FEED_STALL_MS) {
+        this.holdForJump(previousFrame === null ? null : timecodeToFrames(this.state.timecode, standby.format),
+          timecodeToFrames(standby.timecode, standby.format), standby.format);
         this.state.source = "mtc";
         await this.handleCommand("feed-tc", { timecode: standby.timecode, format: standby.format }, undefined, standby.receivedAt);
         return;
@@ -633,6 +652,8 @@ export class TimecodeRelay extends DurableObject {
         this.updateSignalHealth();
         const formatChanged = format.frameRate !== this.state.format.frameRate
           || format.dropFrame !== this.state.format.dropFrame;
+        const previousPosition = this.previousFeedFrame === null ? null
+          : formatChanged ? timecodeToFrames(this.state.timecode, format) : this.previousFeedFrame;
         if (formatChanged) {
           this.state.format = format;
           for (const event of this.events) {
@@ -646,6 +667,7 @@ export class TimecodeRelay extends DurableObject {
         // The relay derives frame position from the accepted format instead of
         // trusting a stale client-side conversion.
         const totalFrames = timecodeToFrames(tc, format);
+        this.holdForJump(previousPosition, totalFrames);
 
         const resuming = this.state.signal?.status === "timecode-stalled" || this.state.signal?.status === "timecode-lost";
         this.state.timecode = tc;
@@ -660,12 +682,16 @@ export class TimecodeRelay extends DurableObject {
 
         // Evaluate automation events
         // A lost feed is a gap, never an instruction to catch up missed cues.
-        const previousFrame = resuming ? null : this.previousFeedFrame;
+        // A resumed but unchanged frame is not a new startup match. This also
+        // prevents a cue at the reviewed position from firing after re-arm.
+        const previousFrame = resuming && totalFrames !== this.previousFeedFrame ? null : this.previousFeedFrame;
         this.previousFeedFrame = totalFrames;
+        const feedGeneration = this.automationGeneration;
         await this.persistClock();
         // Clock delivery cannot wait for device or webhook acknowledgement.
         this.broadcastState();
-        const eventFired = await this.evaluateEvents(previousFrame, totalFrames);
+        const eventFired = feedGeneration === this.automationGeneration
+          && await this.evaluateEvents(previousFrame, totalFrames);
 
         // Persist automation results immediately; otherwise snapshot the
         // running clock at a modest cadence instead of writing at 10 Hz.
@@ -678,6 +704,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "bridge-disconnected":
         if (this.state.source !== "mtc") break;
+        this.automationGeneration++;
         this.masterSessionId = null;
         this.state.running = false;
         this.state.signal = { status: "timecode-stalled", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
@@ -690,8 +717,11 @@ export class TimecodeRelay extends DurableObject {
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
         if (!tc || !isValidTimecode(tc, this.state.format)) break;
+        const totalFrames = timecodeToFrames(tc, this.state.format);
+        this.holdForJump(this.state.totalFrames, totalFrames);
+        this.automationGeneration++;
         this.state.timecode = tc;
-        this.state.totalFrames = timecodeToFrames(tc, this.state.format);
+        this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(
           tc,
           this.state.format.dropFrame === "df"
@@ -863,6 +893,17 @@ export class TimecodeRelay extends DurableObject {
 
       case "set-triggers-enabled":
         if (typeof payload?.enabled !== "boolean") break;
+        if (payload.enabled && this.state.automationHold) {
+          if (payload.confirmed !== true || payload.expectedHoldId !== this.state.automationHold.id) {
+            throw new TimecodeCommandRejection("Review the latest timecode jump before resuming automation.");
+          }
+          this.state.automationHold = null;
+          // Resume from the current frame. Never replay cues crossed while held.
+          this.previousFeedFrame = this.state.totalFrames;
+        } else if (payload.enabled && payload.expectedHoldId) {
+          throw new TimecodeCommandRejection("Automation review changed. Refresh before resuming.");
+        }
+        if (!payload.enabled) this.automationGeneration++;
         this.state.triggersEnabled = payload.enabled;
         await this.persist();
         this.broadcastState();
@@ -967,6 +1008,7 @@ export class TimecodeRelay extends DurableObject {
     event.executionStartedAt ??= Date.now();
     event.executionId ??= crypto.randomUUID();
     const startedAt = Date.now();
+    const generation = this.automationGeneration;
     delete event.executionError;
     try {
       // Reserve output order before the first await. Persist the dispatch
@@ -977,7 +1019,7 @@ export class TimecodeRelay extends DurableObject {
         async (signal) => {
           await this.persist();
           this.broadcastEvents();
-          await this.executeEventAction(event, signal, requiresLiveFeed);
+          await this.executeEventAction(event, signal, requiresLiveFeed, generation);
         },
       );
       event.fired = true;
@@ -1008,10 +1050,13 @@ export class TimecodeRelay extends DurableObject {
     this.broadcastState();
   }
 
-  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean): Promise<void> {
+  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number): Promise<void> {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
+      if (requiresLiveFeed && generation !== this.automationGeneration) {
+        throw new AutomationCancelled("Automation changed after this cue was queued.");
+      }
       const lastFeed = this.state.signal?.lastFeedAt ?? this.expectedFeedSince;
       if (requiresLiveFeed && (!this.state.running || (lastFeed !== null && Date.now() - lastFeed >= FEED_STALL_MS))) {
         throw new AutomationCancelled("Timecode signal lost before dispatch.");

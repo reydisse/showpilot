@@ -3,6 +3,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { FileDown, Music2 } from "lucide-react";
 import { useShowTimecode, TimecodeShowPicker, TimecodeControlNotice } from "@/components/timecode/TimecodeContext";
+import { TimecodeAutomationControl } from "@/components/timecode/TimecodeAutomationControl";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
@@ -34,6 +35,7 @@ function TimecodePage() {
   const {
     state,
     connected,
+    control,
     events,
     isMaster,
     generatorPending,
@@ -97,16 +99,7 @@ function TimecodePage() {
         <TimecodeControlNotice />
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
-        <button
-          type="button"
-          disabled={!connected || !state}
-          aria-pressed={state?.triggersEnabled ?? true}
-          onClick={() => setTriggersEnabled(!state?.triggersEnabled)}
-          className="min-h-11 rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50"
-        >
-          {state?.triggersEnabled === false ? "Enable automation" : "Disable automation"}
-        </button>
-        {state?.triggersEnabled === false && <p role="status" className="text-sm text-amber-200">Automation disabled. The clock and displays keep running. Missed cues will not replay automatically.</p>}
+        <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} />
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />

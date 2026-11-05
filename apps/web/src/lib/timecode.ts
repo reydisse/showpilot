@@ -168,6 +168,16 @@ export function crossedTriggerFrame(
   return triggerFrame > previousFrame && triggerFrame <= currentFrame;
 }
 
+/** A normal midnight rollover is continuous; other jumps over two seconds need review. */
+export function isLargeTimecodeJump(previousFrame: number | null, currentFrame: number, format: TimecodeFormat): boolean {
+  if (previousFrame === null) return false;
+  const threshold = Math.round(format.frameRate) * 2;
+  const delta = currentFrame - previousFrame;
+  const dayFrames = timecodeToFrames({ hours: 24, minutes: 0, seconds: 0, frames: 0 }, format);
+  if (delta < 0 && dayFrames + delta >= 0 && dayFrames + delta <= threshold) return false;
+  return Math.abs(delta) > threshold;
+}
+
 /** Only allow public HTTPS destinations for server-side automation webhooks. */
 export function isSafeAutomationWebhookUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2_048) return false;

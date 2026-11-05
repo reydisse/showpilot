@@ -6,6 +6,7 @@ import {
   parseTimecodeString,
   msToTimecode,
   crossedTriggerFrame,
+  isLargeTimecodeJump,
   isValidTimecode,
   isSafeAutomationWebhookUrl,
   isValidTimecodeFormat,
@@ -159,6 +160,22 @@ describe("crossedTriggerFrame", () => {
   it("does not fire old events on initial hydration or rewind", () => {
     expect(crossedTriggerFrame(null, 500, 100, 2)).toBe(false);
     expect(crossedTriggerFrame(500, 100, 300, 2)).toBe(false);
+  });
+});
+
+describe("timecode discontinuities", () => {
+  it.each([24, 25, 29.97, 30] as const)("requires review only beyond two seconds at %s fps", frameRate => {
+    const format = { frameRate, dropFrame: "ndf" as const };
+    const threshold = Math.round(frameRate) * 2;
+    expect(isLargeTimecodeJump(null, 10000, format)).toBe(false);
+    expect(isLargeTimecodeJump(100, 100 + threshold, format)).toBe(false);
+    expect(isLargeTimecodeJump(100, 101 + threshold, format)).toBe(true);
+    expect(isLargeTimecodeJump(1000, 999 - threshold, format)).toBe(true);
+  });
+  it.each([{ frameRate: 30, dropFrame: "ndf" }, { frameRate: 29.97, dropFrame: "df" }] as const)("recognizes a normal midnight rollover in $dropFrame", format => {
+    const day = timecodeToFrames({ hours: 24, minutes: 0, seconds: 0, frames: 0 }, format);
+    expect(isLargeTimecodeJump(day - 3, 2, format)).toBe(false);
+    expect(isLargeTimecodeJump(day - 200, 2, format)).toBe(true);
   });
 });
 
