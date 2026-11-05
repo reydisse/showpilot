@@ -29,7 +29,12 @@ export default defineConfig(async () => {
             LOWER_THIRDS_RELAY: "TestLowerThirdsRelay",
             CUE_SHEET_RELAY: "CueSheetRelay",
           },
-          bindings: { TEST_MIGRATIONS: migrations, BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only", BETTER_AUTH_URL: "https://app.showpilot.tech" },
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only",
+            BETTER_AUTH_URL: "https://app.showpilot.tech",
+            TEST_SHARE_PRISMA: process.env.SHOWPILOT_PROBE_ISOLATE_PRISMA === "1",
+          },
         },
       }),
     ],

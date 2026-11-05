@@ -629,13 +629,16 @@
       "phase": "1",
       "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
       "line": 117,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
-        "Partial: relay-upgrade-cache.server.ts caches completed session, org-resolution and effective-access values for WebSocket upgrade routes only. Authority/org entries are keyed by authenticated session ID and org; credential lookup keys are SHA-256 digests. Entries expire after 15 seconds or session expiry and are bounded to 500 per map. No request-owned I/O promise crosses requests. Local permission/session changes invalidate caches; generation checks prevent an in-flight lookup from repopulating invalidated entries.",
+        "relay-upgrade-cache.server.ts caches completed session, org-resolution and effective-access values for WebSocket upgrade routes only. Authority/org entries are keyed by authenticated session ID and org; credential lookup keys are SHA-256 digests. Entries expire after 15 seconds or session expiry and are bounded to 500 per map. No request-owned I/O promise crosses requests. Local permission/session changes invalidate caches; generation checks prevent an in-flight lookup from repopulating invalidated entries.",
         "Timecode and rundown now reject invalid claimed member upgrades instead of downgrading them to displays. Every relay still checks live D1 authority on upgrade and on commands, so stale cache entries in another isolate cannot authorize a revoked member.",
         "relay-upgrade-cache.worker.test.ts: seven tests use real D1 to count repeated upgrade reads, verify HTTP bypass even with spoofed Upgrade headers, check expiry, invalidation, session/org isolation, rejected-login behavior and in-flight invalidation. The first upgrade performs D1 queries; five subsequent upgrades perform none in this Worker cache layer. DO admission checks intentionally remain live.",
         "2026-11-05: full web tests passed (1288 unit, 214 Worker), typecheck and production build passed. Built-app smoke-permission-push and smoke-display-access passed on disposable local fixtures.",
-        "Remaining: scope first-primary to post-write loader reads, support steady-state replicas without weakening authentication reads, and verify Prisma reuse across request contexts. This requirement remains pending."
+        "request-database.server.ts scopes D1 sessions and Prisma clients to each Worker request or scheduled task. Steady-state reads use first-unconstrained; a 15-second post-write marker makes subsequent page/server-function loaders use first-primary. Writes, later reads in a writing request, and authentication/membership models use the primary. WebSocket admission remains primary. Existing cookies are preserved.",
+        "The installed Prisma/D1 engine cannot be shared across HTTP requests: both cold and warmed concurrent real SELF requests fail workerd I/O ownership checks. Reuse is therefore once per request/task, satisfying the adapter-compatibility condition without sharing another request's engine. SHOWPILOT_PROBE_ISOLATE_PRISMA=1 reruns the explicit negative compatibility probe; it is off in normal CI.",
+        "database-sessions.worker.test.ts exercises actual Prisma and D1 through concurrent HTTP requests: distinct engines/session ownership, same-request reuse, two-org isolation, primary security reads, post-write navigation, ignored invalid/expired markers, and a lazy GET write followed by a primary read.",
+        "2026-11-05 final verification: 1288 unit plus 220 Worker tests passed; tsc and production build passed. Built smoke-permission-push and smoke-show-day-safety passed, covering sign-out/role/member revocation, edits and offline reconnect preservation. Local D1 tests prove query routing constraints, not remote geographic replica behavior; production deployment remains pending."
       ]
     },
     {

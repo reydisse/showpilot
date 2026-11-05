@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
+import { withDatabaseRequest, withDatabaseTask } from "./lib/request-database.server";
 import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
 import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
@@ -703,9 +704,11 @@ const appServer = {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
-    return withSecurityHeaders(request, await appServer.fetch(request, env, ctx));
+    const bindings = env as Env;
+    return withDatabaseRequest(request, bindings.DB, async () =>
+      withSecurityHeaders(request, await appServer.fetch(request, env, ctx)));
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    await appServer.scheduled(controller, env);
+    await withDatabaseTask(env.DB, () => appServer.scheduled(controller, env));
   },
 };
