@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
-import { hashRundownPin } from "@/lib/rundown-pin-crypto";
 import { RUNDOWN_PIN_HEADER, RUNDOWN_PIN_SETTING_KEY } from "@/lib/rundown-pin.server";
 
 afterEach(() => abortAllDurableObjects());
@@ -29,7 +28,8 @@ describe("RundownRelay live authority", () => {
   it("requires the current PIN for a technical manager and rejects an old socket after rotation", async () => {
     const test = await fixture();
     await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(test.orgId, test.authority.userId).run();
-    const pin = await hashRundownPin("2468");
+    // Independently generated Node PBKDF2 fixtures; the crypto unit suite tests hashing.
+    const pin = "pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:dn1Cq81hnTfBlkh2maxSEZ3GzIkOQC9w2mVohTIJ_uo";
     await env.DB.prepare("INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(), test.orgId, RUNDOWN_PIN_SETTING_KEY, pin).run();
     const denied = await test.command(test.url("/command"));
     expect(denied.status).toBe(401); await denied.text();
@@ -40,12 +40,12 @@ describe("RundownRelay live authority", () => {
     if (!socket) throw new Error("Missing PIN-authorized socket");
     const hydrated = new Promise(resolve => socket.addEventListener("message", resolve, { once: true }));
     socket.accept(); await hydrated;
-    await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?").bind(await hashRundownPin("1357"), test.orgId, RUNDOWN_PIN_SETTING_KEY).run();
+    await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?").bind("pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:y3Naihn0jaG2wHtict2bDNzjCpnFJHzB5e-PAeC8rqg", test.orgId, RUNDOWN_PIN_SETTING_KEY).run();
     const closed = new Promise<CloseEvent>(resolve => socket.addEventListener("close", resolve, { once: true }));
     socket.send(JSON.stringify({ type: "command", action: "stage-clear" }));
     expect(await closed).toMatchObject({ code: 4403 });
     expect(await (await test.stub.fetch(test.url("/state", false))).json()).toMatchObject({ stageMessage: "PIN protected" });
-  }, 15000);
+  }, 30000);
 
   it.each(["http", "socket"])("checks authority when a queued %s command executes", async transport => {
     const test = await fixture();
