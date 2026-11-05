@@ -27,6 +27,10 @@ export type DesktopBridgeConfig = {
 
 export type DesktopBridgeStatus = {
   configured: boolean;
+  /** Present only in native engines that keep installation keys in the OS vault. */
+  secureCredentials?: boolean;
+  configuredSite?: string | null;
+  configuredOrg?: string | null;
   /** Added in Desktop 0.1.2. Older native engines report only `running`. */
   localDevicesEnabled?: boolean;
   running: boolean;

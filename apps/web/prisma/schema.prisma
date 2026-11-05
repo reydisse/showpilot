@@ -144,6 +144,7 @@ model Organization {
   dashboardLayouts       DashboardLayout[]
   kioskTokens            KioskToken[]
   companionTokens        CompanionToken[]
+  bridgeInstallations    BridgeInstallation[]
   showInventory          ShowInventoryItem[]
   memberPermissionGrants MemberPermissionGrant[]
   showReportNotes        ShowReportNote[]
@@ -957,4 +958,52 @@ model OrganizationRole {
   @@index([organizationId])
   @@index([role])
   @@map("organizationRole")
+}
+
+// Bridge installation credentials. Epoch timestamps match relay authority checks.
+model BridgeInstallation {
+  id              String   @id
+  orgId           String
+  label           String
+  createdByUserId String
+  createdAt       BigInt
+  lastUsedAt      BigInt?
+  revokedAt       BigInt?
+  credentials     BridgeCredential[]
+  organization    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([id, orgId])
+  @@index([orgId, createdAt], map: "bridge_installation_org")
+  @@map("bridge_installation")
+}
+
+model BridgeCredential {
+  id             String @id
+  orgId          String
+  installationId String
+  keyHash        String
+  createdAt      BigInt
+  expiresAt      BigInt?
+  installation   BridgeInstallation @relation(fields: [installationId, orgId], references: [id, orgId], onDelete: Cascade)
+  audit          BridgeCredentialAudit[]
+
+  @@unique([id, orgId])
+  @@unique([orgId, keyHash], map: "bridge_credential_org_hash")
+  @@index([orgId, installationId, createdAt], map: "bridge_credential_installation")
+  @@map("bridge_credential")
+}
+
+model BridgeCredentialAudit {
+  id           String @id
+  orgId        String
+  credentialId String
+  action       String
+  direction    String
+  actorUserId  String?
+  createdAt    BigInt
+  credential   BridgeCredential @relation(fields: [credentialId, orgId], references: [id, orgId], onDelete: Cascade)
+
+  @@index([orgId, createdAt], map: "bridge_credential_audit_org_time")
+  @@index([credentialId, createdAt], map: "bridge_credential_audit_key_time")
+  @@map("bridge_credential_audit")
 }

@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
+import { openTestBridge, bridgeClientTestRequest } from "@/test/bridge-fixtures";
+import { rotateBridgeInstallation, revokeBridgeInstallation } from "../bridge-credentials.server";
 import { getActiveRundownRelayTarget } from "../active-rundown-relay";
 
 afterEach(async () => {
@@ -24,24 +26,11 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
-async function openBridge(orgId: string, bridgeKey?: string) {
-  const stub = env.BRIDGE_RELAY.getByName(orgId);
-  const query = new URLSearchParams({ orgId, role: "bridge" });
-  if (bridgeKey) query.set("authBridgeKey", bridgeKey);
-  const response = await stub.fetch(new Request(`https://bridge.test/ws?${query.toString()}`, {
-    headers: { Upgrade: "websocket" },
-  }));
-  expect(response.status).toBe(101);
-  if (!response.webSocket) throw new Error("Bridge upgrade did not return a WebSocket");
-  response.webSocket.accept();
-  return { stub, socket: response.webSocket };
-}
+const openBridge = openTestBridge;
 
 async function openClient(orgId: string) {
   const stub = env.BRIDGE_RELAY.getByName(orgId);
-  const response = await stub.fetch(new Request(`https://bridge.test/ws?orgId=${orgId}&role=client`, {
-    headers: { Upgrade: "websocket" },
-  }));
+  const response = await stub.fetch(await bridgeClientTestRequest(orgId));
   expect(response.status).toBe(101);
   if (!response.webSocket) throw new Error("Client upgrade did not return a WebSocket");
   response.webSocket.accept();
@@ -53,7 +42,88 @@ function nextClose(socket: WebSocket): Promise<CloseEvent> {
   return new Promise((resolve) => socket.addEventListener("close", (event) => resolve(event), { once: true }));
 }
 
+function commandResponse(socket: WebSocket, id: string): Promise<unknown> {
+  return new Promise((resolve) => {
+    const handler = (event: MessageEvent) => {
+      const message: unknown = JSON.parse(String(event.data));
+      if (message && typeof message === "object" && "type" in message && message.type === "command-response" && "id" in message && message.id === id) {
+        socket.removeEventListener("message", handler); resolve(message);
+      }
+    };
+    socket.addEventListener("message", handler);
+  });
+}
+
 describe("BridgeRelay device dispatch", () => {
+  it("restores credential identity across hibernation and still honors revocation", async () => {
+    const orgId = "bridge-hibernated-identity";
+    const { stub, socket, credential } = await openBridge(orgId);
+    await evictDurableObject(stub);
+    socket.send(JSON.stringify({ type: "bridge-status", targets: ["venue-device"] }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toEqual(["venue-device"]);
+    await evictDurableObject(stub);
+    await revokeBridgeInstallation(env.DB, { orgId, installationId: credential.installationId, actorUserId: "owner" });
+    const closed = nextClose(socket);
+    socket.send(JSON.stringify({ type: "bridge-status", targets: ["revoked-device"] }));
+    await expect(closed).resolves.toMatchObject({ code: 4403 });
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false, connectedTargets: [] });
+  });
+
+  it("removes legacy plaintext attachments and requires a new header-authenticated connection", async () => {
+    const orgId = "bridge-legacy-attachment";
+    const { stub, socket, credential } = await openBridge(orgId);
+    await runInDurableObject(stub, async (_instance, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ role: "bridge", orgId, bridgeKey: credential.key });
+    });
+    await evictDurableObject(stub);
+    const closed = nextClose(socket);
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false });
+    await expect(closed).resolves.toMatchObject({ code: 4403 });
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(JSON.stringify(state.getWebSockets().map((ws) => ws.deserializeAttachment()))).not.toContain(credential.key);
+    });
+  });
+
+  it("rejects untrusted upgrades, claimless clients, and another organization's credential", async () => {
+    const { credential } = await openBridge("bridge-boundary-source");
+    const orgId = "bridge-boundary-target";
+    const stub = env.BRIDGE_RELAY.getByName(orgId);
+    const url = `https://bridge.test/ws?orgId=${orgId}&role=bridge&authCredentialId=${credential.credentialId}`;
+    expect((await stub.fetch(new Request(url, { headers: { Upgrade: "websocket" } }))).status).toBe(401);
+    const headers = { Upgrade: "websocket", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" };
+    expect((await stub.fetch(new Request(url, { headers }))).status).toBe(401);
+    expect((await stub.fetch(new Request(`https://bridge.test/ws?orgId=${orgId}&role=client`, { headers }))).status).toBe(401);
+  });
+
+  it("persists only the credential ID in socket attachments and audits the operator's write", async () => {
+    const orgId = "bridge-audit-attachment";
+    const { stub, socket, credential } = await openBridge(orgId);
+    const client = await openClient(orgId);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const attachments = state.getWebSockets().map((ws) => ws.deserializeAttachment());
+      expect(attachments).toContainEqual(expect.objectContaining({ role: "bridge", credentialId: credential.credentialId }));
+      expect(JSON.stringify(attachments)).not.toContain(credential.key);
+      expect(JSON.stringify(attachments)).not.toContain("bridgeKey");
+    });
+    const forwarded = nextMessage(socket);
+    client.send(JSON.stringify({ type: "command", id: "operator-write", protocol: "obs", target: "venue", command: "fixture" }));
+    const operation = await forwarded;
+    expect(operation).toMatchObject({ type: "command", id: expect.stringMatching(/^client_/) });
+    const acknowledged = commandResponse(client, "operator-write");
+    socket.send(JSON.stringify({ type: "command-response", id: operation.id, success: true }));
+    await expect(acknowledged).resolves.toMatchObject({ success: true });
+    const audit = await env.DB.prepare("SELECT credentialId, action, actorUserId FROM bridge_credential_audit WHERE orgId = ? AND direction = 'to-bridge'").bind(orgId).all();
+    expect(audit.results).toEqual([{ credentialId: credential.credentialId, action: "command", actorUserId: `${orgId}-operator` }]);
+    const closed = nextClose(socket);
+    await revokeBridgeInstallation(env.DB, { orgId, installationId: credential.installationId, actorUserId: "owner" });
+    const rejected = commandResponse(client, "revoked-write");
+    client.send(JSON.stringify({ type: "command", id: "revoked-write", protocol: "obs", target: "venue", command: "fixture" }));
+    await expect(closed).resolves.toMatchObject({ code: 4403 });
+    await expect(rejected).resolves.toMatchObject({ success: false });
+    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM bridge_credential_audit WHERE orgId = ? AND direction = 'to-bridge'").bind(orgId).first<{ count: number }>();
+    expect(count?.count).toBe(1);
+  });
+
   it("keeps the displayed lyric through device and bridge outages, replaces it directly, and honors an explicit clear", async () => {
     const orgId = "bridge-lyric-continuity";
     await env.DB.prepare("INSERT INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, ?)")
@@ -119,23 +189,29 @@ describe("BridgeRelay device dispatch", () => {
     });
   });
 
-  it("disconnects an existing venue bridge after its API key is rotated", async () => {
+  it("keeps a connected Bridge during rotation overlap and cuts it off on installation revocation", async () => {
     const orgId = "rotated-bridge-key-org";
-    const now = new Date().toISOString();
-    await env.DB.prepare(
-      "INSERT INTO organization (id, name, slug, createdAt) VALUES (?, ?, ?, ?)",
-    ).bind(orgId, "Rotated Key", orgId, now).run();
-    await env.DB.prepare(
-      "INSERT INTO app_setting (id, orgId, key, value) VALUES (?, ?, 'api-key', ?)",
-    ).bind("rotated-key-setting", orgId, "old-key").run();
-
-    const { stub, socket } = await openBridge(orgId, "old-key");
-    const closed = nextClose(socket);
-    await env.DB.prepare(
-      "UPDATE app_setting SET value = ? WHERE orgId = ? AND key = 'api-key'",
-    ).bind("new-key", orgId).run();
-
+    const { stub, socket, credential } = await openBridge(orgId);
+    const actor = { orgId, installationId: credential.installationId, actorUserId: "test-owner" };
+    await rotateBridgeInstallation(env.DB, actor);
+    await stub.refreshCredentialAuthority();
     socket.send(JSON.stringify({ type: "bridge-status", targets: ["propresenter:venue"] }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toContain("propresenter:venue");
+    const closed = nextClose(socket);
+    await revokeBridgeInstallation(env.DB, actor);
+    await stub.refreshCredentialAuthority();
+    await expect(closed).resolves.toMatchObject({ code: 4403 });
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false });
+  });
+
+  it("expires an idle socket when its rotation overlap ends", async () => {
+    const orgId = "expired-bridge-key-org";
+    const { stub, socket, credential } = await openBridge(orgId);
+    const closed = nextClose(socket);
+    await env.DB.prepare("UPDATE bridge_credential SET expiresAt = ? WHERE orgId = ? AND id = ?")
+      .bind(Date.now() - 1, orgId, credential.credentialId).run();
+    await runInDurableObject(stub, async (_instance, state) => { await state.storage.setAlarm(Date.now() + 60_000); });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
     await expect(closed).resolves.toMatchObject({ code: 4403 });
     await expect(stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false });
   });

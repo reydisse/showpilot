@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry";
+import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
 import { getAuth } from "./lib/auth";
 import { resolveEffectiveAccess } from "./lib/effective-access";
 import type { Permission } from "./lib/permissions";
@@ -41,24 +42,7 @@ interface Env {
   CUE_SHEET_RELAY: DurableObjectNamespace;
   KIOSK_SECRET?: string;
   EXPO_ACCESS_TOKEN?: string;
-}
-
-interface D1Result {
-  success?: boolean;
-  meta?: { changes?: number };
-}
-
-interface D1PreparedStatement {
-  first<T>(): Promise<T | null>;
-  all<T>(): Promise<{ results?: T[] }>;
-  run(): Promise<D1Result>;
-}
-
-interface D1Database {
-  prepare(sql: string): {
-    bind(...params: unknown[]): D1PreparedStatement;
-  };
-  batch(statements: D1PreparedStatement[]): Promise<D1Result[]>;
+  BETTER_AUTH_SECRET?: string;
 }
 
 function withApiCorsHeaders(request: Request, response: Response): Response {
@@ -99,38 +83,6 @@ function withRuntimeCacheHeaders(request: Request, response: Response): Response
 }
 
 
-async function getOrgApiKey(orgId: string, db: Env["DB"]): Promise<string | null> {
-  const row = await db
-    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ?")
-    .bind(orgId, "api-key")
-    .first<{ value: string }>();
-  return row?.value ?? null;
-}
-
-async function validateBridgeKey(request: Request, orgId: string, db: Env["DB"]): Promise<boolean> {
-  // The desktop bridge connects through WebSocket and supplies its key in the
-  // bridge connection URL (`?role=bridge&key=...`). Browser clients continue
-  // to use the header, and query-string keys are only accepted for bridge
-  // connections so they cannot accidentally authorize other API requests.
-  const url = new URL(request.url);
-  const presented =
-    request.headers.get("x-showpilot-api-key") ??
-    (url.searchParams.get("role") === "bridge" ? url.searchParams.get("key") : null);
-  const expected = await getOrgApiKey(orgId, db);
-  if (!presented || !expected) return false;
-
-  const encoder = new TextEncoder();
-  const [presentedHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(presented)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  const left = new Uint8Array(presentedHash);
-  const right = new Uint8Array(expectedHash);
-  let mismatch = left.length ^ right.length;
-  for (let i = 0; i < left.length; i += 1) mismatch |= left[i] ^ right[i];
-  return mismatch === 0;
-}
-
 async function guestAttachmentOwnerId(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   const value = [...new Uint8Array(digest)]
@@ -170,18 +122,13 @@ async function getOrgIdentity(
 }
 
 async function getRelayAccess(request: Request, orgId: string, db: Env["DB"]) {
-  const [hasBridgeKey, identity] = await Promise.all([
-    validateBridgeKey(request, orgId, db),
-    getOrgIdentity(request, orgId, db),
-  ]);
-  return { hasBridgeKey, identity, canWrite: hasBridgeKey || Boolean(identity) };
+  return { identity: await getOrgIdentity(request, orgId, db) };
 }
 
 function canUse(
   access: Awaited<ReturnType<typeof getRelayAccess>>,
   permissions: Permission | Permission[],
 ): boolean {
-  if (access.hasBridgeKey) return true;
   if (!access.identity) return false;
   const required = Array.isArray(permissions) ? permissions : [permissions];
   return required.some((permission) => access.identity?.permissions.includes(permission));
@@ -363,23 +310,35 @@ const appServer = {
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const requestedRole = url.searchParams.get("role") ?? "client";
-      if (requestedRole === "bridge" ? !access.hasBridgeKey : !canUse(access, "devices:access")) {
-        return new Response("Unauthorized", { status: 401 });
+      if (requestedRole !== "bridge" && requestedRole !== "client") return new Response("Invalid Bridge role", { status: 400 });
+      if ([...url.searchParams.keys()].some((name) => /^(key|apikey|api-key|api_key|authbridgekey)$/i.test(name))) {
+        return new Response("Bridge credentials must use the API key header", { status: 401 });
       }
-      const id = e.BRIDGE_RELAY.idFromName(orgId);
-      const stub = e.BRIDGE_RELAY.get(id);
-      const doUrl = new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
-      doUrl.searchParams.set("orgId", orgId);
-      doUrl.searchParams.set("access", "write");
+      let credentialId: string | null = null;
       if (requestedRole === "bridge") {
-        const bridgeKey = request.headers.get("x-showpilot-api-key") ?? url.searchParams.get("key");
-        if (bridgeKey) doUrl.searchParams.set("authBridgeKey", bridgeKey);
-      } else if (access.identity) {
+        if (subpath !== "ws") return new Response("Bridge keys authorize transport only", { status: 403 });
+        await migrateLegacyBridgeInstallation(e.DB, orgId);
+        const authority = await authenticateBridgeRequest(e.DB, request, orgId);
+        if (!authority) return new Response("Unauthorized", { status: 401 });
+        credentialId = authority.credentialId;
+      } else if (!canUse(access, "devices:access")) return new Response("Unauthorized", { status: 401 });
+      if (!e.BETTER_AUTH_SECRET) return new Response("Bridge authorization is unavailable", { status: 503 });
+      const stub = e.BRIDGE_RELAY.get(e.BRIDGE_RELAY.idFromName(orgId));
+      // Only server-derived authority reaches the DO. Never forward keys or caller auth parameters.
+      const doUrl = new URL(`https://bridge.internal/${subpath}`);
+      doUrl.searchParams.set("orgId", orgId);
+      doUrl.searchParams.set("role", requestedRole);
+      if (credentialId) doUrl.searchParams.set("authCredentialId", credentialId);
+      else if (access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);
         if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
       }
-      return stub.fetch(new Request(doUrl.toString(), request));
+      const headers = new Headers(request.headers);
+      headers.delete("x-showpilot-api-key");
+      headers.delete("cookie");
+      headers.delete("authorization");
+      headers.set("x-showpilot-internal-secret", e.BETTER_AUTH_SECRET);
+      return stub.fetch(new Request(doUrl, { method: request.method, headers, body: request.body }));
     }
 
     const rundownMatch = url.pathname.match(/^\/api\/rundown\/([^/]+)\/(.+)$/);
@@ -392,7 +351,7 @@ const appServer = {
         return new Response("Show not found", { status: 404 });
       }
       const access = await getRelayAccess(request, orgId, e.DB);
-      const rundownAccess = access.identity && !access.hasBridgeKey
+      const rundownAccess = access.identity
         ? await resolveRundownAccess(e.DB, orgId, access.identity, getPresentedRundownPin(request, orgId))
         : null;
       if (access.identity && rundownAccess) access.identity.permissions = rundownAccess.permissions;
@@ -749,6 +708,9 @@ const appServer = {
       checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
       createDuePostShowReminders(e.DB),
       createDueDutyReminders(e.DB),
+      backfillLegacyBridgeInstallations(e.DB).then((result) => {
+        if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`);
+      }),
     ]);
   },
 };

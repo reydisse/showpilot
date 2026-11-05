@@ -169,40 +169,57 @@
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 46,
-      "status": "pending",
-      "evidence": []
+      "status": "implemented",
+      "evidence": [
+        "D1 migration 0048 and bridge-credentials.server.ts store SHA-256 hashes with per-installation labels, last-use timestamps, rotation versions, and revocation. Legacy conversion is atomic and idempotent; a bounded scheduled backfill includes offline installations.",
+        "BridgeInstallationSettings rendered tests verify one-time display, rotation overlap copy, single-click revoke, and removal of late secrets after workspace changes. bridge-installations.test.ts verifies permission checks before every operation.",
+        "Commit 31e32e6 moves Desktop, Bridge Desktop, and standalone Bridge keys into OS credential stores and removes plaintext from JSON, native log output, setup HTML, and setup status. Six shared Rust vault tests and 71 standalone Bridge tests pass using isolated fixture stores.",
+        "Remaining: real OS credential-store round trips and native bundles on every supported platform; deployment migration verification; operator migration of legacy shared keys to separate installation keys. No production data has been changed."
+      ]
     },
     {
       "id": "8756712f5bcfe5cd",
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 47,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "bridge-credentials.worker.test.ts verifies correct-org header authentication and rejection of key query aliases, including valid-header plus query cases. bridge-gateway-security.test.ts verifies all five query aliases are rejected before forwarding.",
+        "Standalone Bridge removes legacy key aliases from transport and saved URLs. bridge.test.ts covers each alias; setup-server.test.ts verifies stored URLs and local responses contain no fixture credential."
+      ]
     },
     {
       "id": "0ede8f2153f4fd8d",
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 48,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "server.ts no longer derives any member permissions from a Bridge key. Only role=bridge on the Bridge transport endpoint accepts an installation credential; browser device sockets require a member session.",
+        "bridge-gateway-security.test.ts rejects key-only rundown, timecode, and lower-third commands and client-role Bridge sockets, and verifies forged auth claims are replaced with server-derived identity."
+      ]
     },
     {
       "id": "56d85cb25581658e",
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 49,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "BridgeRelay revalidates and records the credential ID before forwarding accepted incoming messages, member commands, or internal device dispatches. Audits omit payloads and key values, and record a member actor when present.",
+        "Store tests cover per-write audit, monotonic last-used time, stale authority, and org isolation. Real Worker tests verify socket attachments contain only credential identity, operator attribution, rejected writes after revocation, and identity recovery after hibernation."
+      ]
     },
     {
       "id": "86517293561f3645",
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 50,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Rotation keeps old credentials valid for at most ten minutes. Repeated rotations never extend an older overlap. A DO alarm disconnects an idle expired credential; one-click revocation invalidates every version immediately.",
+        "Real D1/DO tests cover connected rotation without interruption, revoke/rotate races, idle alarm expiry, and revocation after hibernation. The final targeted BridgeRelay run passed 13 tests."
+      ]
     },
     {
       "id": "7fdc93392190474b",
@@ -428,8 +445,12 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 91,
-      "status": "pending",
-      "evidence": []
+      "status": "implemented",
+      "evidence": [
+        "2026-11-04: full web suite passed migration/client-boundary checks, 1228 unit tests, and 106 Worker tests; two subsequently added hibernation cases passed in a 13-test BridgeRelay rerun. Web typecheck and production build passed. Main bundle: 560172 raw bytes, 174833 gzip bytes, within existing limits.",
+        "Native and standalone credential storage tests pass; ARM64 sidecars built with Bun 1.4.0, passed signature validation, and started from isolated temporary directories. Native tests used fixture vaults rather than the user keychain.",
+        "Gate remains open for real OS vault and cross-platform runtime checks, complete legacy-installation migration, and deployment verification. Nothing from this safety pass is deployed."
+      ]
     },
     {
       "id": "d37305a7010232bf",
