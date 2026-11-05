@@ -13,6 +13,7 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
 import {
   hasLivePermissionAuthority,
   type LiveSessionAuthorityClaim,
@@ -67,6 +68,7 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
 
     if (url.pathname === "/ws") {
       const authClaim = this.readAuthorityClaim(url);
+      if (authClaim && !(await this.canRead(authClaim))) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
@@ -74,6 +76,8 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
         scopes: authClaim ? this.readScopes(url) : [],
         authClaim,
       });
+      if (authClaim) renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null);
       return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -106,6 +110,7 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
         return;
       }
       if (parsed.type !== "note" && parsed.type !== "columns" && parsed.type !== "incident") return;
+      renewSocketReadLease(sender);
       // Don't echo to the sender: it already applied the change locally,
       // and bouncing it back would fight their cursor mid-word.
       this.broadcast(data as string, sender);
@@ -151,6 +156,7 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
     // does not and silently loses every subscriber after the object wakes.
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === except) continue;
+      if (!socketReadLeaseAllows(ws, socketAuthorityClaim(ws) !== null)) continue;
       try {
         ws.send(data);
       } catch {
@@ -158,4 +164,19 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
       }
     }
   }
+
+  private canRead(claim: LiveSessionAuthorityClaim): Promise<boolean> {
+    return hasLivePermissionAuthority(this.env.DB, claim, ["cuesheet:view", "cuesheet:edit", "cuesheet:add_notes", "incidents:report", "incidents:access"]);
+  }
+
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const claim = socketAuthorityClaim(socket);
+      if (!claim || (userId && claim.userId !== userId)) return null;
+      return this.canRead(claim);
+    });
+    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null);
+  }
+
+  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
 }
