@@ -272,11 +272,12 @@
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 61,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "Timeline reset/delete, rundown item deletion, and saved-template deletion now use ConfirmDialog. Template failure feedback and reset guards have rendered tests; complete page browser verification remains pending.",
         "The Undo toast uses restore-item, which restores the server-owned deleted row within 30s. Actual Worker tests prove atomic current-item deletion, persistence through eviction, D1 restoration, preservation of later edits, no automatic playback restart, no client-forged restore fields, and invalidation after clear-all.",
-        "Shared restoreRundownItem tests cover insertion relative to surviving rows, concurrent edits and duplicate prevention."
+        "Shared restoreRundownItem tests cover insertion relative to surviving rows, concurrent edits and duplicate prevention.",
+        "2026-11-04: smoke-show-day-safety.mjs passed against the built Worker, real D1, real member login, and Chromium. Reset timer opened confirmation and was disabled while playing; item deletion waited for confirmation, Undo restored without playback; saved-template deletion, Reset All, and per-cue deletion all required confirmation."
       ]
     },
     {
@@ -358,12 +359,13 @@
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 80,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "Rundown renders a persistent offline/pending count banner and disables transport until matching relay hydration. useRundownSync expires transport after 5 seconds on dispatch and navigation; relay HTTP/WS expiry preserves duplicate acknowledgement and revision arbitration.",
         "Regression tests reproduced the previous eager-connected and stale handoff behavior. Hook and real Worker tests cover stale reconnect, durable edit retention, fresh handoff IDs/deadlines with clock skew, expired HTTP/WS rejection, and applied retry deduplication.",
         "Full web tests passed: 1183 unit and 90 Worker, plus migration/client boundaries. Typecheck and production build passed (174372 gzip bytes). Browser disconnect rehearsal remains pending.",
-        "Follow-up: expired transport notices survive successful queued-edit acknowledgements. Production dashboard transport is also disabled offline, and open end-show confirmations remain visible but disabled during a disconnect. Latest validation: 1185 unit / 91 Worker tests, typecheck and production build passed; browser rehearsal remains pending."
+        "Follow-up: expired transport notices survive successful queued-edit acknowledgements. Production dashboard transport is also disabled offline, and open end-show confirmations remain visible but disabled during a disconnect. Latest validation: 1185 unit / 91 Worker tests, typecheck and production build passed; browser rehearsal remains pending.",
+        "2026-11-04: real-browser rehearsal stopped the local Worker process while rundown and timecode tabs were open. Rundown displayed Offline, 0 changes queued and disabled Start/Next; a disconnected Shift+Space did not start after the Worker restarted from persisted state."
       ]
     },
     {
@@ -468,8 +470,10 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 92,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04: smoke-show-day-safety.mjs verified all five required confirmations on actual product pages, cancellation without deletion, item deletion Undo, and Reset timer disabled while playing. Bare Space stayed stopped and Shift+Space started the show. Fixtures only."
+      ]
     },
     {
       "id": "6099a3e607860c71",
@@ -514,8 +518,10 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 96,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04: smoke-show-day-safety.mjs terminated and restarted a real local Worker. Rundown and timecode reported disconnection and disabled transport; the timecode editor kept its draft through the outage, saved it after reconnect, and cleared only after the relay returned the new cue. A disconnected rundown shortcut did not replay. Existing hook and actual Worker tests separately cover stale queued-command expiry, retained nontransport edits, and withheld event echoes."
+      ]
     },
     {
       "id": "d62a431a51e7dd48",
