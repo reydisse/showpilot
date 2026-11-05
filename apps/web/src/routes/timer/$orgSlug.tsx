@@ -448,14 +448,17 @@ function TimerKioskPage() {
   }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
   useEffect(() => {
+    setLyrics(null); setLyricsTimecode(null);
+    if (!relayShowId) return;
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | null = null;
     const connect = () => {
       if (disposed) return;
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1`);
+      socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1&showId=${encodeURIComponent(relayShowId)}`);
       socket.onmessage = (event) => {
+        if (disposed) return;
         try {
           const message = JSON.parse(event.data) as TimecodeWsMessage;
           if (message.type === "hydrate" || message.type === "tc-update") {
@@ -473,7 +476,7 @@ function TimerKioskPage() {
     };
     connect();
     return () => { disposed = true; if (reconnect) clearTimeout(reconnect); socket?.close(); };
-  }, [orgSlug]);
+  }, [orgSlug, relayShowId]);
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {

@@ -67,7 +67,6 @@ interface RundownRelayEnv {
   BRIDGE_RELAY?: DurableObjectNamespace<
     import("@/durable-objects/BridgeRelay").BridgeRelay
   >;
-  TIMECODE_RELAY?: DurableObjectNamespace;
 }
 
 const VALID_ITEM_TYPES = new Set<ItemType>([
@@ -1025,19 +1024,6 @@ export const setActiveServiceDate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const currentTarget = await prisma.appSetting.findMany({
-      where: {
-        orgId: data.orgId,
-        key: { in: [ACTIVE_SERVICE_DATE_KEY, "active-show-id"] },
-      },
-      select: { key: true, value: true },
-    });
-    const currentTargetMap = Object.fromEntries(
-      currentTarget.map((setting) => [setting.key, setting.value]),
-    );
-    const targetChanged =
-      currentTargetMap[ACTIVE_SERVICE_DATE_KEY] !== data.serviceDate ||
-      (currentTargetMap["active-show-id"] ?? "") !== (data.showId ?? "");
     if (data.showId) {
       const show = await prisma.rundown.findFirst({
         where: {
@@ -1075,28 +1061,7 @@ export const setActiveServiceDate = createServerFn({ method: "POST" })
             where: { orgId: data.orgId, key: "active-show-id" },
           }),
     ]);
-    if (targetChanged) {
-      const bindings = env as unknown as RundownRelayEnv;
-      if (bindings.TIMECODE_RELAY) {
-        const relay = bindings.TIMECODE_RELAY.get(
-          bindings.TIMECODE_RELAY.idFromName(data.orgId),
-        );
-        const response = await relay.fetch(
-          new Request(
-            `https://timecode.local/command?orgId=${encodeURIComponent(data.orgId)}&access=write`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: "clear-lyrics" }),
-            },
-          ),
-        );
-        if (!response.ok)
-          throw new Error(
-            "The show changed, but stale lyrics could not be cleared",
-          );
-      }
-    }
+    // Each show owns its lyrics. Switching the active show must not clear another room.
     return { ok: true as const };
   });
 

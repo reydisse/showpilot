@@ -15,6 +15,7 @@ import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 
 interface UseTimecodeOptions {
   orgId: string;
+  showId: string | null;
   enabled: boolean;
   /** Base URL for the timecode relay WebSocket */
   relayBaseUrl?: string;
@@ -68,7 +69,10 @@ type PendingEdit = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
-export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions): UseTimecodeReturn {
+export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecodeOptions): UseTimecodeReturn {
+  const requestedScope = useRef({ orgId, showId });
+  requestedScope.current = { orgId, showId };
+  const confirmedScope = useRef<{ orgId: string; showId: string } | null>(null);
   const [state, setState] = useState<TimecodeState | null>(null);
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [connected, setConnected] = useState(false);
@@ -113,7 +117,9 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
 
   const sendCommand = useCallback((action: TimecodeCommand, payload?: Record<string, unknown>): TimecodeSendResult => {
     const ws = wsRef.current;
-    if (!readyRef.current || ws?.readyState !== 1) {
+    if (!readyRef.current || ws?.readyState !== 1
+      || confirmedScope.current?.orgId !== requestedScope.current.orgId
+      || confirmedScope.current?.showId !== requestedScope.current.showId) {
       const error = "Timecode disconnected. Reconnect before sending this command.";
       setLastError(error);
       return { status: "failed", error };
@@ -163,10 +169,10 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
 
   useEffect(() => {
     setState(null); stateRef.current = null; setEvents([]); setLastError(null);
-    setConnected(false); readyRef.current = false;
-    if (!enabled || !orgId) return;
+    setConnected(false); readyRef.current = false; confirmedScope.current = null;
+    if (!enabled || !orgId || !showId) return;
     const base = relayBaseUrl ?? window.location.origin;
-    const url = `${base.startsWith("https") ? "wss" : "ws"}://${base.replace(/^https?:\/\//, "")}/api/timecode/${orgId}/ws`;
+    const url = `${base.startsWith("https") ? "wss" : "ws"}://${base.replace(/^https?:\/\//, "")}/api/timecode/${encodeURIComponent(orgId)}/ws?showId=${encodeURIComponent(showId)}`;
     let disposed = false;
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -183,11 +189,11 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
       let ws: WebSocket;
       try { ws = new WebSocket(url); } catch { scheduleReconnect(); return; }
       wsRef.current = ws;
-      const current = () => !disposed && wsRef.current === ws;
+      const current = () => !disposed && wsRef.current === ws && requestedScope.current.orgId === orgId && requestedScope.current.showId === showId;
       ws.onopen = () => { if (current()) attempts = 0; };
       ws.onclose = () => {
         if (!current()) return;
-        wsRef.current = null; readyRef.current = false; setConnected(false);
+        wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnected(false);
         if (internalSourceRef.current || mtcSourceRef.current || pendingSourceRef.current) {
           setLastError("Timecode disconnected. The local source stopped; reconnect before starting again.");
         }
@@ -203,12 +209,15 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
           switch (msg.type) {
             case "hydrate":
               if ("source" in msg.state && "events" in msg) {
+                if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
+                confirmedScope.current = { orgId, showId };
                 setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
               }
               break;
             case "tc-update":
               if ("source" in msg.state) {
+                if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 internalSourceRef.current?.setFormat(msg.state.format);
                 setState(msg.state);
@@ -246,11 +255,12 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
       disposed = true;
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       readyRef.current = false;
+      confirmedScope.current = null;
       wsRef.current?.close(); wsRef.current = null;
       stopLocalSources();
       failEdits("The timecode workspace changed before the save was confirmed.");
     };
-  }, [orgId, enabled, relayBaseUrl, startConfirmedSource, stopLocalSources]);
+  }, [orgId, showId, enabled, relayBaseUrl, startConfirmedSource, stopLocalSources]);
 
   const awaitGenerator = useCallback(() => {
     clearGeneratorTimeout();
@@ -346,8 +356,10 @@ export function useTimecode({ orgId, enabled, relayBaseUrl }: UseTimecodeOptions
   const setLyrics = useCallback((lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => { sendCommand("set-lyrics", lyrics); }, [sendCommand]);
   const clearLyrics = useCallback(() => { sendCommand("clear-lyrics"); }, [sendCommand]);
 
+  const visibleState = confirmedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
   return {
-    state, display: state?.display ?? "00:00:00:00", connected, events, isMaster, generatorPending, lastError,
+    state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
+    events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
     startFreerun, stopGenerator, startMtc, stopMtc: stopGenerator, setTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, setEventEnabled,
     setTriggersEnabled, setLyrics, clearLyrics, mtcSupported,

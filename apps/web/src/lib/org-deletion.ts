@@ -108,7 +108,7 @@ async function purgeOrganizationExternalState(orgId: string): Promise<void> {
   await Promise.all([
     ...[...chatKeys].map((key) => purgeRelay(bindings.CHAT_RELAY, key, secret)),
     ...[...rundownKeys].map((key) => purgeRelay(bindings.RUNDOWN_RELAY, key, secret)),
-    purgeRelay(bindings.TIMECODE_RELAY, orgId, secret),
+    ...[...rundownKeys].map((key) => purgeRelay(bindings.TIMECODE_RELAY, key, secret)),
     purgeRelay(bindings.BRIDGE_RELAY, orgId, secret),
     purgeRelay(bindings.LOWER_THIRDS_RELAY, orgId, secret),
     purgeRelay(bindings.CUE_SHEET_RELAY, orgId, secret),

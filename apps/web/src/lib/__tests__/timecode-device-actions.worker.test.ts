@@ -1,3 +1,4 @@
+import { timecodeFixture } from "@/test/timecode-fixtures";
 import { openTestBridge } from "@/test/bridge-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
@@ -22,8 +23,9 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
 async function openBridge(orgId: string): Promise<WebSocket> { return (await openTestBridge(orgId)).socket; }
 
 async function command(orgId: string, action: string, payload?: Record<string, unknown>) {
-  return env.TIMECODE_RELAY.getByName(orgId).fetch(new Request(
-    `https://timecode.test/command?orgId=${orgId}&access=write`,
+  const { stub, url } = await timecodeFixture(orgId);
+  return stub.fetch(new Request(
+    url("/command"),
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -33,8 +35,9 @@ async function command(orgId: string, action: string, payload?: Record<string, u
 }
 
 async function events(orgId: string) {
-  const response = await env.TIMECODE_RELAY.getByName(orgId).fetch(
-    new Request(`https://timecode.test/events?orgId=${orgId}&access=write`),
+  const { stub, url } = await timecodeFixture(orgId);
+  const response = await stub.fetch(
+    new Request(url("/events")),
   );
   return response.json<Array<Record<string, unknown>>>();
 }

@@ -17,12 +17,12 @@ test("venue output switching remains an explicit confirmed action", () => {
   assert.match(source, /onConfirm=\{\(\) => void takeSelectedShowLive\(\)\}/);
 });
 
-test("taking a different show live clears the previous show's lyrics", () => {
+test("taking a different show live preserves each show's timecode lyrics", () => {
   const serverSource = readFileSync(new URL("../src/lib/rundown.ts", import.meta.url), "utf8");
   const start = serverSource.indexOf("export const setActiveServiceDate");
   const end = serverSource.indexOf("export const getProPresenterStageDisplay", start);
   const boundary = serverSource.slice(start, end);
-  assert.match(boundary, /targetChanged/);
-  assert.match(boundary, /TIMECODE_RELAY/);
-  assert.match(boundary, /action:\s*"clear-lyrics"/);
+  assert.doesNotMatch(boundary, /action:\s*"clear-lyrics"/);
+  const display = readFileSync(new URL("../src/routes/timer/$orgSlug.tsx", import.meta.url), "utf8");
+  assert.match(display, /showId=\$\{encodeURIComponent\(relayShowId\)\}/);
 });

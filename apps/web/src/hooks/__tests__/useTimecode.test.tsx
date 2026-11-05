@@ -6,6 +6,11 @@ import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
+import { useEffect } from "react";
+import { TimecodeProvider, useShowTimecode } from "@/components/timecode/TimecodeContext";
+import { getTimecodeShows } from "@/lib/timecode-shows";
+
+vi.mock("@/lib/timecode-shows", () => ({ getTimecodeShows: vi.fn() }));
 
 class Socket {
   static instances: Socket[] = [];
@@ -15,13 +20,14 @@ class Socket {
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
-  constructor() { Socket.instances.push(this); }
+  constructor(readonly url: string) { Socket.instances.push(this); }
   open() { this.readyState = 1; this.onopen?.(); }
   close() { this.readyState = 3; this.onclose?.(); }
   send(data: string) { this.sent.push(data); }
   receive(data: unknown) { this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>); }
 }
 const state: TimecodeState = {
+  showId: "test-show", serviceDate: "2026-11-05",
   timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 }, display: "00:00:00:00",
   totalFrames: 0, running: false, source: "internal-freerun", format: { frameRate: 30, dropFrame: "ndf" },
   triggersEnabled: true, serverTime: 1, lyrics: null,
@@ -31,7 +37,7 @@ const event: Omit<AutomationEvent, "id" | "fired" | "triggerFrame"> = {
   triggerTimecode: { hours: 0, minutes: 0, seconds: 10, frames: 0 }, toleranceFrames: 5,
 };
 function hydrate(socket: Socket) { socket.open(); socket.receive({ type: "hydrate", state, events: [] }); }
-function hook() { return renderHook(() => useTimecode({ orgId: "test-org", enabled: true })); }
+function hook() { return renderHook(() => useTimecode({ orgId: "test-org", showId: "test-show", enabled: true })); }
 
 beforeEach(() => {
   Socket.instances = [];
@@ -43,6 +49,89 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("pins the provider selection while show metadata refreshes and keeps routed children mounted", async () => {
+    const shows = ["test-show", "evening"].map(id => ({ id, name: id, serviceDate: "2026-11-05", scheduledStartTime: null }));
+    vi.mocked(getTimecodeShows).mockResolvedValue({ shows, activeShowId: "test-show" });
+    const mounted = vi.fn();
+    function Operator() {
+      const clock = useShowTimecode();
+      useEffect(() => { mounted(); }, []);
+      return <>
+        <output aria-label="Selected timecode show">{clock.showId}</output>
+        <button onClick={() => clock.selectShow("evening")}>Select evening</button>
+        <button onClick={() => clock.selectShow("another-org-show")}>Select unknown show</button>
+        <button onClick={() => clock.startFreerun()}>Start selected clock</button>
+        <button onClick={clock.refreshShows}>Refresh show list</button>
+      </>;
+    }
+    await act(async () => { render(<TimecodeProvider orgId="test-org" enabled><Operator /></TimecodeProvider>); });
+    act(() => hydrate(Socket.instances[0]));
+    expect(screen.getByLabelText("Selected timecode show").textContent).toBe("test-show");
+    await act(async () => {
+      vi.mocked(getTimecodeShows).mockResolvedValue({ shows, activeShowId: "evening" });
+      fireEvent.click(screen.getByRole("button", { name: "Refresh show list" }));
+    });
+    expect(screen.getByLabelText("Selected timecode show").textContent).toBe("test-show");
+    fireEvent.click(screen.getByRole("button", { name: "Select unknown show" }));
+    expect(Socket.instances).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Start selected clock" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select evening" }));
+    expect(Socket.instances).toHaveLength(1);
+    act(() => Socket.instances[0].receive({ type: "master-status", granted: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Select evening" }));
+    expect(Socket.instances).toHaveLength(2);
+    expect(screen.getByLabelText("Selected timecode show").textContent).toBe("evening");
+    expect(mounted).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the old show, rejects pending edits, and ignores late echoes when selecting another show", async () => {
+    const { result, rerender } = renderHook(({ showId }) => useTimecode({ orgId: "test-org", showId, enabled: true }), {
+      initialProps: { showId: "test-show" },
+    });
+    const original = Socket.instances[0];
+    expect(new URL(original.url).searchParams.get("showId")).toBe("test-show");
+    act(() => hydrate(original));
+    let save: Promise<void> = Promise.resolve();
+    act(() => { save = result.current.addEvent(event); });
+    const rejected = expect(save).rejects.toThrow("workspace changed");
+    await act(async () => { rerender({ showId: "evening" }); });
+    await rejected;
+    expect(original.readyState).toBe(3);
+    expect(result.current.state).toBeNull();
+    expect(result.current.events).toEqual([]);
+    act(() => {
+      original.receive({ type: "hydrate", state, events: [{ ...event, id: "old", triggerFrame: 300, fired: false }] });
+      original.receive({ type: "master-status", granted: true });
+    });
+    expect(result.current.state).toBeNull();
+    expect(result.current.isMaster).toBe(false);
+    const selected = Socket.instances[1];
+    expect(new URL(selected.url).searchParams.get("showId")).toBe("evening");
+    act(() => {
+      selected.open();
+      selected.receive({ type: "hydrate", state: { ...state, showId: "evening" }, events: [] });
+    });
+    expect(result.current.connected).toBe(true);
+    act(() => original.receive({ type: "lyrics-update", lyrics: { lyrics: "Wrong show" } }));
+    expect(result.current.state?.lyrics).toBeNull();
+    act(() => result.current.setTriggersEnabled(false));
+    expect(selected.sent).toHaveLength(1);
+    expect(original.sent).toHaveLength(1);
+  });
+
+  it("rejects a room that hydrates with the wrong show identity", () => {
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => {
+      socket.open();
+      socket.receive({ type: "hydrate", state: { ...state, showId: "other-show" }, events: [] });
+    });
+    expect(socket.readyState).toBe(3);
+    expect(result.current.connected).toBe(false);
+    expect(result.current.state).toBeNull();
+    expect(result.current.lastError).toContain("show mismatch");
+  });
+
   it("shows source rejection and cancels the pending local generator", () => {
     const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
     const { result } = hook();
@@ -61,7 +150,7 @@ describe("timecode connection honesty", () => {
 
   it("keeps the large clock, header clock, and generator button consistent", () => {
     function Controls() {
-      const clock = useTimecode({ orgId: "test-org", enabled: true });
+      const clock = useTimecode({ orgId: "test-org", showId: "test-show", enabled: true });
       return <>
         <TimecodeDisplay state={clock.state} connected={clock.connected} size="large" />
         <TimecodeDisplay state={clock.state} connected={clock.connected} />

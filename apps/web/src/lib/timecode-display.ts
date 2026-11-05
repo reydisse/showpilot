@@ -8,6 +8,7 @@ export function projectTimecodeDisplayState(
 ): TimecodeDisplayState {
   const failedCueCount = events.filter((event) => event.executionStatus === "failed").length;
   return {
+    ...(state.showId ? { showId: state.showId, serviceDate: state.serviceDate } : {}),
     display: state.display,
     running: state.running,
     serverTime,

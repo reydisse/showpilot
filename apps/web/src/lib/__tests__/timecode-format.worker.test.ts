@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { timecodeFixture } from "@/test/timecode-fixtures";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -6,8 +6,8 @@ afterEach(async () => {
   await abortAllDurableObjects();
 });
 
-async function command(stub: DurableObjectStub, action: string, payload?: Record<string, unknown>) {
-  const response = await stub.fetch(new Request("https://timecode.test/command?orgId=format-test&access=write", {
+async function command(fixture: Awaited<ReturnType<typeof timecodeFixture>>, action: string, payload?: Record<string, unknown>) {
+  const response = await fixture.stub.fetch(new Request(fixture.url("/command"), {
     method: "POST",
     body: JSON.stringify({ action, payload }),
   }));
@@ -16,8 +16,9 @@ async function command(stub: DurableObjectStub, action: string, payload?: Record
 
 describe("TimecodeRelay incoming format changes", () => {
   it("atomically reframes existing events and ignores a stale client total", async () => {
-    const stub = env.TIMECODE_RELAY.getByName("timecode-format-change");
-    await command(stub, "add-event", {
+    const fixture = await timecodeFixture();
+    const { stub, url } = fixture;
+    await command(fixture, "add-event", {
       triggerTimecode: { hours: 0, minutes: 1, seconds: 0, frames: 0 },
       triggerFrame: 1_800,
       action: "lyrics-goto",
@@ -32,15 +33,15 @@ describe("TimecodeRelay incoming format changes", () => {
       toleranceFrames: 2,
     });
 
-    await command(stub, "feed-tc", {
+    await command(fixture, "feed-tc", {
       timecode: { hours: 0, minutes: 1, seconds: 0, frames: 0 },
       totalFrames: 1_800,
       format: { frameRate: 25, dropFrame: "ndf" },
     });
 
-    const events = await (await stub.fetch(new Request("https://timecode.test/events?orgId=format-test&access=write"))).json<Array<{ triggerFrame: number; fired: boolean }>>();
+    const events = await (await stub.fetch(new Request(url("/events")))).json<Array<{ triggerFrame: number; fired: boolean }>>();
     expect(events).toEqual([expect.objectContaining({ triggerFrame: 1_500, fired: true })]);
-    const state = await (await stub.fetch(new Request("https://timecode.test/state?orgId=format-test&access=write"))).json<{ totalFrames: number; format: unknown; lyrics: unknown }>();
+    const state = await (await stub.fetch(new Request(url("/state")))).json<{ totalFrames: number; format: unknown; lyrics: unknown }>();
     expect(state).toMatchObject({
       totalFrames: 1_500,
       format: { frameRate: 25, dropFrame: "ndf" },
@@ -49,7 +50,8 @@ describe("TimecodeRelay incoming format changes", () => {
   });
 
   it("does not let a delayed clear from one song erase the next song", async () => {
-    const stub = env.TIMECODE_RELAY.getByName("timecode-scoped-lyric-clear");
+    const fixture = await timecodeFixture();
+    const { stub, url } = fixture;
     const lyric = (id: string, frame: number, sourceKey: string, lyrics: string) => ({
       triggerTimecode: { hours: 0, minutes: 0, seconds: 0, frames: frame },
       action: "lyrics-goto",
@@ -58,9 +60,9 @@ describe("TimecodeRelay incoming format changes", () => {
       toleranceFrames: 1,
       sourceKey,
     });
-    await command(stub, "add-event", lyric("song-a", 10, "generation-a", "Song A"));
-    await command(stub, "add-event", lyric("song-b", 20, "generation-b", "Song B"));
-    await command(stub, "add-event", {
+    await command(fixture, "add-event", lyric("song-a", 10, "generation-a", "Song A"));
+    await command(fixture, "add-event", lyric("song-b", 20, "generation-b", "Song B"));
+    await command(fixture, "add-event", {
       triggerTimecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
       action: "lyrics-clear",
       payload: { generationKey: "generation-a" },
@@ -70,13 +72,13 @@ describe("TimecodeRelay incoming format changes", () => {
     });
 
     for (const frames of [10, 20, 30]) {
-      await command(stub, "feed-tc", {
+      await command(fixture, "feed-tc", {
         timecode: { hours: 0, minutes: 0, seconds: frames === 30 ? 1 : 0, frames: frames % 30 },
         format: { frameRate: 30, dropFrame: "ndf" },
       });
     }
 
-    const state = await (await stub.fetch(new Request("https://timecode.test/state?orgId=format-test&access=write"))).json<{ lyrics: { lyrics: string } | null }>();
+    const state = await (await stub.fetch(new Request(url("/state")))).json<{ lyrics: { lyrics: string } | null }>();
     expect(state.lyrics?.lyrics).toBe("Song B");
   });
 });

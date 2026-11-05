@@ -36,7 +36,8 @@ TECH STACK (source of truth: STACK.md)
                the static `auth` export is CLI-only.
 - Realtime:    Durable Objects (`src/durable-objects/`):
                ChatRelay, RundownRelay, LowerThirdsRelay,
-               TimecodeRelay, BridgeRelay — one instance per org,
+               TimecodeRelay, BridgeRelay — org-scoped, with rundown and
+               timecode rooms keyed by stable show ID,
                WebSocket rooms, SQLite persistence.
 - Storage:     R2 bucket via `STORAGE` binding (logos, assets)
 - Email:       Resend REST API (`src/lib/email.ts`)

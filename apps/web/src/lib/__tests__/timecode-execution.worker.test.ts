@@ -1,3 +1,4 @@
+import { timecodeFixture } from "@/test/timecode-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,24 +9,24 @@ afterEach(async () => {
   await abortAllDurableObjects();
 });
 
-function timeline() {
-  const orgId = `automation-test-${crypto.randomUUID()}`;
-  const stub = env.TIMECODE_RELAY.getByName(orgId);
+async function timeline() {
+  const { orgId, stub, url } = await timecodeFixture();
   return {
     orgId,
     stub,
+    url,
     async command(action: TimecodeCommand, payload?: Record<string, unknown>) {
-      const response = await stub.fetch(new Request(`https://test/command?orgId=${orgId}&access=write`, {
+      const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action, payload }),
       }));
       expect(response.status).toBe(200);
       await response.arrayBuffer();
     },
     async events() {
-      return (await stub.fetch(`https://test/events?orgId=${orgId}&access=write`)).json<AutomationEvent[]>();
+      return (await stub.fetch(url("/events"))).json<AutomationEvent[]>();
     },
     async display() {
-      return (await stub.fetch(`https://test/state?orgId=${orgId}&access=read`)).json();
+      return (await stub.fetch(url("/state", "read"))).json();
     },
   };
 }
@@ -35,7 +36,7 @@ const tick = { timecode: atZero, format: { frameRate: 30, dropFrame: "ndf" } };
 
 describe("automation acknowledgement", () => {
   it("loads demo cues atomically only into an empty stopped timeline", async () => {
-    const test = timeline();
+    const test = await timeline();
     const demo = { id: "demo-1", sourceKey: "demo", action: "stage-clear", label: "Demo", triggerTimecode: atZero, payload: {} };
     const payload = { sourceKey: "demo", events: [demo], requireStopped: true, requireEmpty: true, expectedFormat: tick.format };
     await test.command("start");
@@ -51,7 +52,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("does not replace a song group if the clock started or its format changed before delivery", async () => {
-    const test = timeline();
+    const test = await timeline();
     const original = { id: "original", sourceKey: "song-map", action: "stage-clear", label: "Original", triggerTimecode: atZero, payload: {} };
     const replacement = { ...original, id: "replacement", label: "Replacement" };
     await test.command("replace-event-group", { sourceKey: "song-map", events: [original] });
@@ -66,10 +67,10 @@ describe("automation acknowledgement", () => {
   });
 
   it("echoes the canonical event after a lost-ack save retry without duplicating it", async () => {
-    const test = timeline();
+    const test = await timeline();
     const event = { id: "retry-save", action: "stage-clear", label: "Original", triggerTimecode: atZero, payload: {} };
     await test.command("add-event", event);
-    const response = await test.stub.fetch(new Request(`https://test/ws?orgId=${test.orgId}&access=write`, { headers: { Upgrade: "websocket" } }));
+    const response = await test.stub.fetch(new Request(test.url("/ws"), { headers: { Upgrade: "websocket" } }));
     if (!response.webSocket) throw new Error("Missing timecode socket");
     const socket = response.webSocket;
     const next = (type: string) => new Promise<Record<string, unknown>>((resolve) => {
@@ -89,7 +90,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("keeps same-output show and clear cues in timeline order", async () => {
-    const test = timeline();
+    const test = await timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await (await graphics.fetch(new Request("https://test/test/delay", { method: "POST", body: "150" }))).text();
     for (const action of ["lower-third-show", "lower-third-clear"]) {
@@ -107,7 +108,7 @@ describe("automation acknowledgement", () => {
       return Response.json({ ok: true });
     });
     vi.stubGlobal("fetch", requests);
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", { id: "hung", action: "custom-webhook", label: "Hung", triggerTimecode: atZero, payload: { url: "https://hooks.example.com/hung" } });
     await test.command("feed-tc", tick);
     const event = (await test.events())[0];
@@ -125,7 +126,7 @@ describe("automation acknowledgement", () => {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return Response.json({ ok: true });
     }));
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", { id: "slow", action: "custom-webhook", label: "Slow", triggerTimecode: atZero, payload: { url: "https://hooks.example.com/cue" } });
     await test.command("add-event", {
       id: "lyrics", action: "lyrics-goto", label: "Verse", triggerTimecode: atZero,
@@ -142,7 +143,7 @@ describe("automation acknowledgement", () => {
   });
 
   it.each(["lower-third-show", "lower-third-clear"] as const)("does not acknowledge a rejected %s", async (action) => {
-    const test = timeline();
+    const test = await timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await graphics.fetch(new Request("https://test/test/status", { method: "POST", body: "503" }));
     await test.command("add-event", {
@@ -160,7 +161,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("reports the real rundown relay's rejected start instead of a success", async () => {
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", {
       action: "rundown-start-item", label: "Start missing item", triggerTimecode: atZero,
       payload: { itemId: "nonexistent-item" },
@@ -173,7 +174,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("fails an unsafe webhook without dispatching it", async () => {
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", {
       action: "custom-webhook", label: "Blocked webhook", triggerTimecode: atZero,
       payload: { url: "https://127.0.0.1/private" },
@@ -183,7 +184,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("marks a successful graphics command fired only after the relay acknowledges", async () => {
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", {
       action: "lower-third-show", label: "Graphics", triggerTimecode: atZero,
       payload: { line1: "Test graphic" },
@@ -196,7 +197,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("keeps the clock running during the kill switch and skips missed cues on re-enable", async () => {
-    const test = timeline();
+    const test = await timeline();
     for (const frame of [0, 10]) await test.command("add-event", {
       id: `cue-${frame}`, action: "lower-third-show", label: `Cue ${frame}`,
       triggerTimecode: { ...atZero, frames: frame }, payload: { line1: `Cue ${frame}` },
@@ -218,7 +219,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("disables one event without disabling other events", async () => {
-    const test = timeline();
+    const test = await timeline();
     for (const id of ["disabled", "enabled"]) await test.command("add-event", {
       id, action: "lower-third-show", label: id, triggerTimecode: atZero, payload: { line1: id },
     });
@@ -233,7 +234,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("retries only the selected cue, and respects the kill switch", async () => {
-    const test = timeline();
+    const test = await timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await graphics.fetch(new Request("https://test/test/status", { method: "POST", body: "503" }));
     for (const id of ["retry", "leave-failed"]) await test.command("add-event", {
@@ -253,7 +254,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("bounds automatic retries by attempt count and frame tolerance", async () => {
-    const test = timeline();
+    const test = await timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await graphics.fetch(new Request("https://test/test/status", { method: "POST", body: "503" }));
     await test.command("add-event", {
@@ -266,7 +267,7 @@ describe("automation acknowledgement", () => {
     await test.command("feed-tc", tick);
     expect((await test.events())[0].fired).toBe(false);
 
-    const expired = timeline();
+    const expired = await timeline();
     await expired.command("add-event", {
       id: "expired", action: "rundown-start-item", label: "Expired", triggerTimecode: atZero,
       payload: { itemId: "missing" }, toleranceFrames: 2,
@@ -277,7 +278,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("does not let a client forge acknowledgement fields through an edit", async () => {
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", { id: "cue", action: "lower-third-clear", label: "Clear", triggerTimecode: atZero, payload: {} });
     await test.command("update-event", { id: "cue", updates: {
       id: "forged-id", fired: true, executionStatus: "acknowledged", executionAttempts: 100,
@@ -290,7 +291,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("retries a transient rejection on a later feed inside the tolerance window", async () => {
-    const test = timeline();
+    const test = await timeline();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await graphics.fetch(new Request("https://test/test/status", { method: "POST", body: "503" }));
     await test.command("add-event", {
@@ -306,7 +307,7 @@ describe("automation acknowledgement", () => {
   });
 
   it("preserves disabled automation and treats an interrupted acknowledgement as uncertain after restart", async () => {
-    const test = timeline();
+    const test = await timeline();
     await test.command("add-event", { id: "interrupted", action: "lower-third-clear", label: "Clear", triggerTimecode: atZero, payload: {} });
     await test.command("set-triggers-enabled", { enabled: false });
     await runInDurableObject(test.stub, async (_, storageState) => {
@@ -316,7 +317,7 @@ describe("automation acknowledgement", () => {
       await storageState.storage.put("timecode", stored);
     });
     await evictDurableObject(test.stub);
-    const state = await (await test.stub.fetch(`https://test/state?orgId=${test.orgId}&access=write`)).json();
+    const state = await (await test.stub.fetch(test.url("/state"))).json();
     expect(state).toMatchObject({ triggersEnabled: false, running: false });
     expect((await test.events())[0]).toMatchObject({ fired: false, executionStatus: "failed", executionAttempts: 3 });
     await test.command("set-triggers-enabled", { enabled: true });

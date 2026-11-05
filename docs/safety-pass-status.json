@@ -551,12 +551,15 @@
       "phase": "1",
       "section": "1.1 Scope relays per show and per venue (audit C4, C3)",
       "line": 105,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
-        "Architecture investigation, not implementation: server.ts keys TIMECODE_RELAY by orgId; TimecodeProvider supplies no show identity; TimecodeRelay.executeRundownCommand resolves the mutable global active show at dispatch. Together these permit cross-show clock/list collisions and automation retargeting.",
-        "Chosen direction: one timecode DO per immutable org/show target using the existing rundownRelayKey convention. The Worker resolves and validates a target once, the relay persists its identity and rejects mismatches, and automation uses that bound rundown target rather than resolving the active show on every cue. Browser provider, timer display, Bridge feed/disconnect, rundown stop, and org deletion callers all require migration.",
-        "Alternative considered: retain one org DO with separate event arrays. Rejected because the clock, master session, alarms, and persistence would still need full per-show partitioning; a missed branch could couple shows. The existing stable-show room convention (4724c2a, 16645c0) supplies a stronger ownership boundary.",
-        "Before implementation: define show selection for the org-wide timecode provider, preserve explicit show targeting in display URLs, and design an idempotent one-destination transfer of the old org room snapshot. Never copy legacy armed automation into multiple show rooms. These remain pending."
+        "2026-11-05: TimecodeRelay uses rundownRelayKey(orgId, serviceDate, today, showId), persists one stable org/show target, rejects mismatches and unbound writes, and dispatches rundown cues to that target. Rescheduling keeps the same room; an older Bridge connection cannot revert its date. Format changes retain fired/acknowledgement history.",
+        "Legacy migration is serialized and assigned exactly once to the show active at first migration. Concurrent or other-show-first connections cannot clone it. Imported automation is stopped with triggers disabled; interrupted dispatches require explicit review. Deleted rooms retain a durable retired marker and reject re-binding and late feeds.",
+        "apps/web/src/lib/__tests__/timecode-show-scope.worker.test.ts: nine actual Worker/D1 tests cover independent same-day clocks/cue lists, target-specific rundown output, browser-master protection, Bridge target persistence through hibernation and active changes, scoped disconnect, format re-arm prevention, deletion, rescheduling, one-owner migration, and wrong-org/deleting-show rejection.",
+        "apps/web/src/hooks/__tests__/useTimecode.test.tsx verifies explicit local selection, stable mounted children, no retarget on metadata refresh, pending-edit cancellation, and rejection of late/mismatched room messages. display-gateway-security.test.ts checks server-resolved show routing and stripping caller authority parameters.",
+        "2026-11-05: node apps/web/scripts/smoke-timecode-shows.mjs passed against the built Worker with disposable D1 and real browser login. Two same-day shows retain independent clocks, cues, and lyrics. Explicit selection swaps timelines; Take live changes the confidence display without retargeting the other operator tab or clearing either show.",
+        "2026-11-05: pnpm --filter @showpilot/web test passed (1272 unit, 132 Worker, migration/client boundary checks); tsc --noEmit and build passed. Existing smoke-show-day-safety.mjs passed including real Worker outage/restart, preserved drafts, guarded controls and no stale shortcut replay. No production data or deployments changed.",
+        "Bridge currently pins timecode to the active show at connection and requires reconnect to select a different show or bind after first-show creation. Named active/standby or venue assignment remains under the separate pending Phase 1.1 Bridge requirement; this evidence does not claim that requirement or the full Phase 1 gate."
       ]
     },
     {
@@ -781,8 +784,13 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 168,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/timecode-show-scope.worker.test.ts: nine actual Worker/D1 tests cover independent same-day clocks/cue lists, target-specific rundown output, browser-master protection, Bridge target persistence through hibernation and active changes, scoped disconnect, format re-arm prevention, deletion, rescheduling, one-owner migration, and wrong-org/deleting-show rejection.",
+        "apps/web/src/hooks/__tests__/useTimecode.test.tsx verifies explicit local selection, stable mounted children, no retarget on metadata refresh, pending-edit cancellation, and rejection of late/mismatched room messages. display-gateway-security.test.ts checks server-resolved show routing and stripping caller authority parameters.",
+        "2026-11-05: node apps/web/scripts/smoke-timecode-shows.mjs passed against the built Worker with disposable D1 and real browser login. Two same-day shows retain independent clocks, cues, and lyrics. Explicit selection swaps timelines; Take live changes the confidence display without retargeting the other operator tab or clearing either show.",
+        "2026-11-05: pnpm --filter @showpilot/web test passed (1272 unit, 132 Worker, migration/client boundary checks); tsc --noEmit and build passed. Existing smoke-show-day-safety.mjs passed including real Worker outage/restart, preserved drafts, guarded controls and no stale shortcut replay. No production data or deployments changed."
+      ]
     },
     {
       "id": "d3908f71e7d395f5",
