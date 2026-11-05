@@ -16,6 +16,7 @@ export async function withLocalSmokeFixture(check) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
+  const authSecret = randomUUID();
   const orgId = "display-smoke";
   const date = new Date().toLocaleDateString("en-CA");
   let worker;
@@ -62,7 +63,7 @@ export async function withLocalSmokeFixture(check) {
     const config = Object.fromEntries(["name", "compatibility_date", "compatibility_flags", "durable_objects", "migrations", "d1_databases", "r2_buckets", "rules", "no_bundle"].map((key) => [key, built[key]]));
     Object.assign(config, {
       main: join(web, "dist/server/index.js"), assets: { directory: join(web, "dist/client") },
-      vars: { KIOSK_SECRET: secret, BETTER_AUTH_SECRET: randomUUID(), BETTER_AUTH_URL: origin },
+      vars: { KIOSK_SECRET: secret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
     });
     const configPath = join(directory, "wrangler.json");
     const state = join(directory, "state");
@@ -86,7 +87,7 @@ export async function withLocalSmokeFixture(check) {
     await writeFile(sqlPath, `${schema}\n${seed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
-      worker = spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      worker = spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
       worker.stdout.on("data", (chunk) => { workerLog += chunk; });
       worker.stderr.on("data", (chunk) => { workerLog += chunk; });
       let ready = false;
@@ -109,10 +110,15 @@ export async function withLocalSmokeFixture(check) {
     assert.equal(stage.status, 200, "Fixture live stage message");
     assert.equal((await stage.json()).ok, true);
 
-    await check({ origin, orgId, date, browser, pass, stopServer, startServer, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    const queryFixture = async (sql) => {
+      assert.match(sql, /^SELECT\s/i, "Fixture inspection accepts only SELECT queries");
+      const { stdout } = await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--command", sql, "--json");
+      return JSON.parse(stdout)[0].results;
+    };
+    await check({ origin, orgId, date, browser, pass, stopServer, startServer, queryFixture, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
-    console.error(workerLog.replaceAll(secret, "[fixture secret]"));
+    console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]"));
     throw error;
   } finally {
     await browser("close").catch(() => {});

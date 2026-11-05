@@ -169,13 +169,16 @@
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 46,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "D1 migration 0048 and bridge-credentials.server.ts store SHA-256 hashes with per-installation labels, last-use timestamps, rotation versions, and revocation. Legacy conversion is atomic and idempotent; a bounded scheduled backfill includes offline installations.",
         "BridgeInstallationSettings rendered tests verify one-time display, rotation overlap copy, single-click revoke, and removal of late secrets after workspace changes. bridge-installations.test.ts verifies permission checks before every operation.",
         "Commit 31e32e6 moves Desktop, Bridge Desktop, and standalone Bridge keys into OS credential stores and removes plaintext from JSON, native log output, setup HTML, and setup status. Six shared Rust vault tests and 71 standalone Bridge tests pass using isolated fixture stores.",
-        "Remaining: real OS credential-store round trips and native bundles on every supported platform; deployment migration verification; operator migration of legacy shared keys to separate installation keys. No production data has been changed.",
-        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling."
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling.",
+        "2026-11-04: unsigned run 41965318862 completed successfully on Windows, Linux, Intel Mac, and ARM Mac. Each job passed real native and standalone OS credential-store round trips and produced Desktop and Bridge bundles. https://github.com/reydisse/showpilot/actions/runs/41965318862",
+        "2026-11-04: smoke-bridge-credentials.mjs passed against a disposable built Worker, real Chromium settings UI, real D1, and the standalone Bridge WebSocket library. It verifies one-time key creation and SHA-256 storage, attributed writes, live rotation overlap, immediate refusal of revoked socket writes, rejected reconnects with both key versions, transport-only permissions, rejected query keys, independent installations, and secret removal after reload.",
+        "A minimal Worker also reproduces Miniflare delaying the TCP close event after exchanged Close frames. The rehearsal checks immediate write refusal separately and then requires the correct 4403 close event within the standard client close deadline. This is not evidence of instant TCP teardown in production.",
+        "Rollout remains separate: migration 0048 and these app changes have not been deployed. Legacy shared keys become hash-only transport credentials through the migration/backfill path; operators must issue distinct labeled keys for computers that previously shared one key. Phase 0 acceptance is verified against isolated fixtures, not by modifying a real organization."
       ]
     },
     {
@@ -410,8 +413,12 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 87,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04 final Phase 0 web gate: pnpm --filter @showpilot/web test passed migration checks, client-boundary checks, 1248 unit tests across 184 files, and 116 Worker tests across 26 files. pnpm --filter @showpilot/web exec tsc --noEmit and the production build passed. Logs: /tmp/showpilot-phase0-gate-tests.log, /tmp/showpilot-phase0-gate-tsc.log, /tmp/showpilot-phase0-gate-build.log.",
+        "Monorepo CI 41965324691 passed both ci and Native Rust tests: web and Bridge typechecks/tests, native release contracts, macOS packaging tests, Desktop and Bridge Rust tests, Bridge updater tests, mobile verification, and landing verification. The subsequent product change is limited to BridgeRelay close handling and its regression, covered by the final full web run above. https://github.com/reydisse/showpilot/actions/runs/41965324691",
+        "Bridge-initiated close regression fails with the previous cleanup-only handler (5s timeout) and passes with reciprocal close completion. The separate local runtime TCP close delay is documented in the browser credential rehearsal, which still requires immediate write refusal and correct eventual close code."
+      ]
     },
     {
       "id": "9dce8e29fb47ee06",
@@ -457,12 +464,15 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 91,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "2026-11-04: full web suite passed migration/client-boundary checks, 1228 unit tests, and 106 Worker tests; two subsequently added hibernation cases passed in a 13-test BridgeRelay rerun. Web typecheck and production build passed. Main bundle: 560172 raw bytes, 174833 gzip bytes, within existing limits.",
         "Native and standalone credential storage tests pass; ARM64 sidecars built with Bun 1.4.0, passed signature validation, and started from isolated temporary directories. Native tests used fixture vaults rather than the user keychain.",
-        "Gate remains open for real OS vault and cross-platform runtime checks, complete legacy-installation migration, and deployment verification. Nothing from this safety pass is deployed.",
-        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling."
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling.",
+        "2026-11-04: unsigned run 41965318862 completed successfully on Windows, Linux, Intel Mac, and ARM Mac. Each job passed real native and standalone OS credential-store round trips and produced Desktop and Bridge bundles. https://github.com/reydisse/showpilot/actions/runs/41965318862",
+        "2026-11-04: smoke-bridge-credentials.mjs passed against a disposable built Worker, real Chromium settings UI, real D1, and the standalone Bridge WebSocket library. It verifies one-time key creation and SHA-256 storage, attributed writes, live rotation overlap, immediate refusal of revoked socket writes, rejected reconnects with both key versions, transport-only permissions, rejected query keys, independent installations, and secret removal after reload.",
+        "A minimal Worker also reproduces Miniflare delaying the TCP close event after exchanged Close frames. The rehearsal checks immediate write refusal separately and then requires the correct 4403 close event within the standard client close deadline. This is not evidence of instant TCP teardown in production.",
+        "Rollout remains separate: migration 0048 and these app changes have not been deployed. Legacy shared keys become hash-only transport credentials through the migration/backfill path; operators must issue distinct labeled keys for computers that previously shared one key. Phase 0 acceptance is verified against isolated fixtures, not by modifying a real organization."
       ]
     },
     {
@@ -528,8 +538,12 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 97,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04 Phase 0 gate reported to the user: all acceptance checks pass. Full web suite 1248 unit/116 Worker tests, migration and client boundaries, typecheck, production build, and all three real-browser rehearsals passed. Four-platform unsigned Desktop and Bridge builds plus real OS credential-store probes passed in run 41965318862. The review stack is PRs 73, 74, and 75.",
+        "Final browser evidence: /tmp/showpilot-phase0-browser-display.log, /tmp/showpilot-phase0-browser-operator.log, /tmp/showpilot-phase0-browser-credentials.log. All run against the rebuilt app using disposable local fixtures. Harness fixes isolate the Wrangler inspector port and use a CSP-compatible selector for reconnect readiness.",
+        "Scope reported explicitly: no production deployment or real organization data changes; physical-device/full-show rehearsal remains in the overall final gate. Phases 1, 2, and 3 remain outstanding. Passing Phase 0 does not mark the complete objective achieved."
+      ]
     },
     {
       "id": "196451f9ffcb6b0e",

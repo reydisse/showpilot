@@ -119,7 +119,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, stopServer, s
   assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Add Event').matches(':disabled')")).result, true);
   assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Start Internal Generator').matches(':disabled')")).result, true);
   await startServer();
-  await browser("wait", "--fn", "[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Add Event' && !el.matches(':disabled'))");
+  await browser("wait", 'button:has-text("Add Event"):not(:disabled)');
   assert.equal((await state()).timer.playback, "stop", "Disconnected shortcut must not start later on reconnect");
   assert.equal((await browser("eval", "document.querySelector('input[placeholder^=\"e.g.\"]').value")).result, "Preserved offline draft");
   await clickButton("Add Event");
