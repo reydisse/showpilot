@@ -154,7 +154,7 @@ export function AutomationTimeline({
           <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
             Automation Timeline
           </h3>
-          <span className="text-xs text-board-muted/60">
+          <span className="text-xs text-board-muted">
             {events.length} event{events.length !== 1 ? "s" : ""}
           </span>
         </div>
@@ -193,9 +193,9 @@ export function AutomationTimeline({
       {/* Event list */}
       {events.length === 0 ? (
         <div className="p-8 text-center">
-          <Clock className="w-8 h-8 text-board-muted/20 mx-auto mb-2" />
+          <Clock className="w-8 h-8 text-board-muted mx-auto mb-2" />
           <p className="text-sm text-board-muted">No automation events</p>
-          <p className="text-xs text-board-muted/60 mt-1">
+          <p className="text-xs text-board-muted mt-1">
             Add events below to fire actions at specific timecodes
           </p>
         </div>
@@ -218,7 +218,7 @@ export function AutomationTimeline({
                 data-automation-event={event.id}
                 className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-colors ${
                   event.fired && event.executionStatus !== "failed"
-                    ? "opacity-40"
+                    ? "bg-board-bg/30"
                     : isNext
                       ? "bg-fire-500/5"
                       : ""
