@@ -1,3 +1,4 @@
+import { scheduledDispatchFrame } from "@/lib/automation-timing";
 import {
   Clock,
   Trash2,
@@ -12,7 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
-import { timecodeToString } from "@/lib/timecode";
+import { framesToTimecode, timecodeToString } from "@/lib/timecode";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cueReviewState, cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
@@ -91,10 +92,10 @@ export function AutomationTimeline({
   const currentFrame = state?.totalFrames ?? 0;
   const dropFrame = state?.format.dropFrame === "df";
   const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire" | "rearm"; event: AutomationEvent } | { kind: "reset" } | null>(null);
-  const ordered = [...events].sort((a, b) => a.triggerFrame - b.triggerFrame);
+  const ordered = [...events].sort((a, b) => scheduledDispatchFrame(a) - scheduledDispatchFrame(b));
   const missed = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
     && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
-    && event.triggerFrame + event.toleranceFrames < currentFrame;
+    && scheduledDispatchFrame(event) + event.toleranceFrames < currentFrame;
   const needsAttention = ordered.filter((event) => event.executionStatus === "failed" || missed(event));
   const next = nextAutomationEvent(events, currentFrame);
   const nextId = next?.id;
@@ -169,6 +170,10 @@ export function AutomationTimeline({
                 {/* Timecode */}
                 <span className="font-mono text-xs tabular-nums text-board-muted w-24 shrink-0">
                   {timecodeToString(event.triggerTimecode, dropFrame)}
+                  {((event.leadMs ?? 0) + (event.deviceLatencyMs ?? 0)) > 0 && <span className="mt-1 block font-sans text-[11px] text-amber-200">
+                    Lead {event.leadMs ?? 0} ms + device {event.deviceLatencyMs ?? 0} ms
+                    {state && <span className="block font-mono">Send {timecodeToString(framesToTimecode(scheduledDispatchFrame(event), state.format), dropFrame)}</span>}
+                  </span>}
                 </span>
 
                 {/* Status indicator */}

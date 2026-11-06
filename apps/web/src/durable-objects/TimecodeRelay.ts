@@ -28,8 +28,9 @@ import {
   type LiveSessionAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
+import { automationDispatchFrame, deviceTimingForEvent, MAX_AUTOMATION_LEAD_MS, MAX_DEVICE_LATENCY_MS, type DeviceTiming } from "@/lib/automation-timing";
 import { z } from "zod";
-import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS } from "@/types/timecode";
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
 import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
@@ -67,6 +68,7 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
 
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
 const toleranceFramesSchema = z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES);
+const leadMsSchema = z.number().int().min(0).max(MAX_AUTOMATION_LEAD_MS);
 const eventUpdateSchema = z.object({
   action: z.enum([...SUPPORTED_ACTIONS]).optional(),
   label: z.string().max(200).optional(),
@@ -77,6 +79,7 @@ const eventUpdateSchema = z.object({
     seconds: z.number().int().min(0).max(59), frames: z.number().int().min(0).max(29),
   }).optional(),
   toleranceFrames: toleranceFramesSchema.optional(),
+  leadMs: leadMsSchema.optional(),
   targetDeviceId: z.string().max(200).optional(),
   targetActionId: z.string().max(200).optional(),
   rundownItemId: z.string().max(200).optional(),
@@ -117,6 +120,12 @@ function parseTolerance(value: unknown): number {
   return parsed.data;
 }
 
+function parseLeadMs(value: unknown): number {
+  const parsed = leadMsSchema.default(0).safeParse(value);
+  if (!parsed.success) throw new TimecodeCommandRejection(`Cue lead must be a whole number from 0 to ${MAX_AUTOMATION_LEAD_MS} milliseconds.`);
+  return parsed.data;
+}
+
 interface TimecodeSocketAttachment {
   canWrite?: boolean;
   sessionId?: string;
@@ -127,10 +136,9 @@ interface TimecodeSocketAttachment {
 }
 const commandSchema = z.object({ action: z.enum(TIMECODE_COMMANDS), payload: z.record(z.string(), z.unknown()).optional() });
 
-interface TimecodeSnapshot { state: TimecodeState; events: AutomationEvent[]; target?: TimecodeTarget }
+interface TimecodeSnapshot { state: TimecodeState; events: AutomationEvent[]; target?: TimecodeTarget; deviceTimings?: DeviceTiming[] | null }
 interface LegacyTimecodeExport { target: TimecodeTarget; snapshot: TimecodeSnapshot | null }
 
-const FEED_STALL_MS = 500;
 const FEED_LOST_MS = 2000;
 const FORMAT_STABILITY_FEEDS = 5;
 interface FormatCandidate { format: TimecodeFormat; count: number; receivedAt: number; producer: string | null }
@@ -157,6 +165,9 @@ function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] 
 }
 
 export class TimecodeRelay extends DurableObject {
+  private deviceTimings: DeviceTiming[] | null = null;
+  private timingLoad: Promise<boolean> | null = null;
+  private bridgeTimingPrepared = false;
   private bridgeTransport: "stopped" | "waiting" | null = null;
   private state: TimecodeState = {
     timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
@@ -198,6 +209,7 @@ export class TimecodeRelay extends DurableObject {
       this.legacyExport = await ctx.storage.get<LegacyTimecodeExport>("legacy-export") ?? null;
       this.hasSnapshot = Boolean(stored);
       if (stored) {
+        this.deviceTimings = stored.deviceTimings ?? null;
         this.target = stored.target ?? null;
         this.orgId = this.target?.orgId ?? this.legacyExport?.target.orgId ?? "";
         this.state = {
@@ -231,13 +243,14 @@ export class TimecodeRelay extends DurableObject {
           this.broadcastState();
         }
       }
+      if (this.target && !this.retired && !this.legacyExport && this.deviceTimings === null) await this.loadDeviceTiming();
     });
   }
 
   private async persist(): Promise<void> {
     if (this.retired) return;
     await this.ctx.storage.put({
-      timecode: { state: this.state, events: this.events, ...(this.target ? { target: this.target } : {}) } satisfies TimecodeSnapshot,
+      timecode: { state: this.state, events: this.events, deviceTimings: this.deviceTimings, ...(this.target ? { target: this.target } : {}) } satisfies TimecodeSnapshot,
       clock: this.clockSnapshot(),
     });
     await this.scheduleAlarm();
@@ -285,6 +298,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private holdClock(): void {
+    this.bridgeTimingPrepared = false;
     this.formatCandidate = null;
     this.state.incomingFormat = null;
     this.automationGeneration++;
@@ -311,6 +325,12 @@ export class TimecodeRelay extends DurableObject {
       if (this.retired) return "This show's timecode has been retired";
       if (this.target) {
         if (target.orgId !== this.target.orgId || target.showId !== this.target.showId) return "Timecode room belongs to another show";
+        if (this.deviceTimings === null) await this.loadDeviceTiming();
+        // Bridge binds before forwarding each sample. Refresh once before a
+        // stopped native source activates, never during live/stalled playback.
+        if (!refreshMetadata && !this.masterSessionId && !this.bridgeTimingPrepared && !this.state.running && ["idle", "midi-waiting"].includes(this.state.signal?.status ?? "idle")) {
+          if (await this.loadDeviceTiming(true)) this.bridgeTimingPrepared = true;
+        }
         // Only a freshly resolved Worker target may refresh the date. A Bridge
         // connection can hold an older date after the same show is rescheduled.
         if (refreshMetadata && target.serviceDate !== this.target.serviceDate) {
@@ -337,6 +357,7 @@ export class TimecodeRelay extends DurableObject {
       }
       this.state.showId = resolved.showId;
       this.state.serviceDate = resolved.serviceDate;
+      await this.loadDeviceTiming();
       await this.persist();
       return null;
     });
@@ -692,6 +713,44 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Command Handler ────────────────────────────────────
 
+  private applyEventTiming(event: AutomationEvent): void {
+    const device = deviceTimingForEvent(event, this.deviceTimings ?? []);
+    event.deviceLatencyMs = device?.latencyMs ?? 0;
+    event.timingDeviceId = device?.id;
+    event.dispatchFrame = automationDispatchFrame(event, this.state.format);
+  }
+
+  /** Capture device timing at source start/arming, never query D1 per frame. */
+  private async loadDeviceTiming(force = false): Promise<boolean> {
+    if (!force && this.deviceTimings !== null) return true;
+    if (this.timingLoad) return this.timingLoad;
+    const generation = this.automationGeneration;
+    const load = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const rows = await Promise.race([
+          this.env.DB.prepare("SELECT id, category, latencyMs FROM device WHERE orgId = ? AND enabled = 1").bind(this.orgId).all<DeviceTiming>(),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Device timing lookup timed out")), 2_000); }),
+        ]);
+        const devices = z.array(z.object({ id: z.string(), category: z.string(), latencyMs: z.number().int().min(0).max(MAX_DEVICE_LATENCY_MS) })).parse(rows.results);
+        if (this.retired || generation !== this.automationGeneration) return false;
+        this.deviceTimings = devices;
+        for (const event of this.events) {
+          // Keep a dispatched cue's timing/retry history until explicit re-arm.
+          if (!event.fired && (event.executionStatus === undefined || event.executionStatus === "scheduled")) this.applyEventTiming(event);
+        }
+        await this.persist();
+        this.broadcastEvents();
+        return generation === this.automationGeneration && !this.retired;
+      } catch {
+        throw new TimecodeCommandRejection("Device timing could not be loaded. Check the connection and try starting or enabling automation again.");
+      } finally { if (timer !== undefined) clearTimeout(timer); }
+    };
+    this.timingLoad = load();
+    try { return await this.timingLoad; }
+    finally { this.timingLoad = null; }
+  }
+
   private async handleCommand(
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
@@ -712,10 +771,17 @@ export class TimecodeRelay extends DurableObject {
         this.broadcastToWriters({ type: "controller-update", controller: this.controller });
         break;
       }
-      case "start":
+      case "start": {
         if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) {
           this.sendMasterStatus(sessionId, false);
           break;
+        }
+        const generation = this.automationGeneration;
+        if (!this.state.running && (!await this.loadDeviceTiming(true) || generation !== this.automationGeneration)) {
+          throw new TimecodeCommandRejection("Clock start was cancelled while device timing was loading.");
+        }
+        if (sessionId && (this.controlOwner()?.attachment.sessionId !== sessionId || (this.masterSessionId && this.masterSessionId !== sessionId))) {
+          throw new TimecodeCommandRejection("Timecode control changed while starting the source.");
         }
         if (sessionId) this.masterSessionId = sessionId;
         this.sendMasterStatus(sessionId, true);
@@ -725,6 +791,7 @@ export class TimecodeRelay extends DurableObject {
         await this.persist();
         this.broadcastState();
         break;
+      }
 
       case "pause":
         if (!sessionId || this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Pause requires this browser's active clock source.");
@@ -746,6 +813,7 @@ export class TimecodeRelay extends DurableObject {
         if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local MTC source before changing MIDI transport.");
         if (this.state.source !== "mtc" || (payload?.state !== "stopped" && payload?.state !== "waiting")) throw new TimecodeCommandRejection("Invalid MIDI transport state.");
         if (this.state.signal?.status === "paused") break;
+        this.bridgeTimingPrepared = false;
         this.automationGeneration++;
         this.state.running = false;
         this.state.serverTime = Date.now();
@@ -822,8 +890,7 @@ export class TimecodeRelay extends DurableObject {
         const eventFired = feedGeneration === this.automationGeneration
           && await this.evaluateEvents(previousFrame, totalFrames);
 
-        // Persist automation results immediately; otherwise snapshot the
-        // running clock at a modest cadence instead of writing at 10 Hz.
+        // Persist the full timeline when cues change or after five seconds.
         if (eventFired || Date.now() - this.lastPersistedAt >= 5_000) {
           await this.persist();
         }
@@ -899,7 +966,10 @@ export class TimecodeRelay extends DurableObject {
         this.state.serverTime = Date.now();
         this.state.incomingFormat = null;
         this.formatCandidate = null;
-        for (const event of this.events) event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
+        for (const event of this.events) {
+          event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
+          event.dispatchFrame = automationDispatchFrame(event, format);
+        }
         this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
         // Preserve the baseline for jump detection when the newly formatted
         // input resumes. Neither fired cues nor review holds are re-armed here.
@@ -942,11 +1012,13 @@ export class TimecodeRelay extends DurableObject {
         delete event.executionError;
         delete event.executedAt;
         event.toleranceFrames = parseTolerance(event.toleranceFrames);
+        event.leadMs = parseLeadMs(event.leadMs);
         event.triggerFrame = timecodeToFrames(
           event.triggerTimecode,
           this.state.format
         );
         this.events.push(event);
+        this.applyEventTiming(event);
         this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
         await this.persist();
         this.broadcastEvents();
@@ -986,7 +1058,7 @@ export class TimecodeRelay extends DurableObject {
             valid = false;
             break;
           }
-          nextEvents.push({
+          const next: AutomationEvent = {
             ...(candidate as AutomationEvent),
             id: candidate.id || crypto.randomUUID(),
             fired: false,
@@ -1001,9 +1073,12 @@ export class TimecodeRelay extends DurableObject {
             executionError: undefined,
             executedAt: undefined,
             toleranceFrames: parseTolerance(candidate.toleranceFrames),
+            leadMs: parseLeadMs(candidate.leadMs),
             triggerFrame: timecodeToFrames(candidate.triggerTimecode, this.state.format),
             sourceKey,
-          });
+          };
+          this.applyEventTiming(next);
+          nextEvents.push(next);
         }
         if (!valid) break;
         this.events = replaceAutomationEventGroup(this.events, sourceKey, nextEvents);
@@ -1031,6 +1106,7 @@ export class TimecodeRelay extends DurableObject {
               this.state.format
             );
           }
+          this.applyEventTiming(this.events[idx]);
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           await this.persist();
           this.broadcastEvents();
@@ -1048,8 +1124,21 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
-      case "set-triggers-enabled":
+      case "set-triggers-enabled": {
         if (typeof payload?.enabled !== "boolean") break;
+        if (payload.enabled && this.state.incomingFormat) throw new TimecodeCommandRejection("Confirm the input format before enabling automation.");
+        if (payload.enabled && this.state.automationHold && (payload.confirmed !== true || payload.expectedHoldId !== this.state.automationHold.id)) {
+          throw new TimecodeCommandRejection("Review the latest timecode jump before resuming automation.");
+        }
+        if (payload.enabled && !this.state.automationHold && payload.expectedHoldId) {
+          throw new TimecodeCommandRejection("Automation review changed. Refresh before resuming.");
+        }
+        if (payload.enabled && !this.state.triggersEnabled) {
+          const generation = this.automationGeneration;
+          if (!await this.loadDeviceTiming(true) || generation !== this.automationGeneration) {
+            throw new TimecodeCommandRejection("Automation changed while device timing was loading. Review its current state.");
+          }
+        }
         if (payload.enabled && this.state.incomingFormat) throw new TimecodeCommandRejection("Confirm the input format before enabling automation.");
         if (payload.enabled && this.state.automationHold) {
           if (payload.confirmed !== true || payload.expectedHoldId !== this.state.automationHold.id) {
@@ -1066,6 +1155,7 @@ export class TimecodeRelay extends DurableObject {
         await this.persist();
         this.broadcastState();
         break;
+      }
 
       case "set-event-enabled": {
         if (typeof payload?.id !== "string" || typeof payload.enabled !== "boolean") break;
@@ -1106,6 +1196,7 @@ export class TimecodeRelay extends DurableObject {
             throw new TimecodeCommandRejection("The cue changed. Review its current status before re-arming it.");
           }
           resetCueExecution(event);
+          this.applyEventTiming(event);
         }
         await this.persist();
         this.broadcastEvents();
@@ -1127,7 +1218,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "reset-events":
         if (this.events.some((event) => event.executionStatus === "dispatching")) break;
-        for (const event of this.events) resetCueExecution(event);
+        for (const event of this.events) { resetCueExecution(event); this.applyEventTiming(event); }
         this.previousFeedFrame = null;
         await this.persist();
         this.broadcastEvents();
@@ -1165,22 +1256,27 @@ export class TimecodeRelay extends DurableObject {
 
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
     if (!this.state.triggersEnabled || !this.state.running) return false;
-    const executions: Promise<void>[] = [];
+    const due: { event: AutomationEvent; dispatchFrame: number }[] = [];
     for (const event of this.events) {
       if (!event.enabled || event.fired || event.skipped || event.executionStatus === "dispatching") continue;
       const attempts = event.executionAttempts ?? 0;
+      const dispatchFrame = automationDispatchFrame(event, this.state.format);
       // Retries retain Phase 0's time/frame cap. Matching tolerance never
       // expands the crossing window during continuous forward playback.
       const withinRetryWindow = event.executionStartedAt !== undefined
         && Date.now() - event.executionStartedAt <= event.toleranceFrames * 1000 / this.state.format.frameRate
-        && totalFrames >= event.triggerFrame
-        && totalFrames <= event.triggerFrame + event.toleranceFrames;
+        && totalFrames >= dispatchFrame
+        && totalFrames <= dispatchFrame + event.toleranceFrames;
       const shouldRun = event.executionStatus === "failed"
         ? event.executionRetryable === true && attempts < 3 && withinRetryWindow
-        : crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames);
+        : crossedTriggerFrame(previousFrame, totalFrames, dispatchFrame, event.toleranceFrames);
       if (!shouldRun) continue;
-      executions.push(this.runEvent(event, true));
+      due.push({ event, dispatchFrame });
     }
+    // A feed may cross several cues whose lead times reverse nominal order.
+    // Reserve shared outputs in dispatch order, matching Next and the timeline.
+    due.sort((a, b) => a.dispatchFrame - b.dispatchFrame);
+    const executions = due.map(({ event }) => this.runEvent(event, true));
     await Promise.allSettled(executions);
     return executions.length > 0;
   }
@@ -1315,7 +1411,8 @@ export class TimecodeRelay extends DurableObject {
     };
 
     const executeDeviceCommand = async () => {
-      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId, event, env.CREDENTIAL_ENCRYPTION_KEYS);
+      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId,
+        { ...event, targetDeviceId: event.timingDeviceId ?? event.targetDeviceId }, env.CREDENTIAL_ENCRYPTION_KEYS);
       assertCanDispatch();
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
       const status = await relay.getBridgeStatus();

@@ -26,7 +26,7 @@ interface UseTimecodeOptions {
   relayBaseUrl?: string;
 }
 
-export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "triggerFrame"> & { id?: string };
+export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "triggerFrame" | "deviceLatencyMs" | "timingDeviceId" | "dispatchFrame"> & { id?: string };
 export type TimecodeSendResult = { status: "sent" } | { status: "failed"; error: string };
 
 export interface UseTimecodeReturn {

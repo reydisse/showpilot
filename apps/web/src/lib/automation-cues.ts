@@ -1,11 +1,12 @@
 import type { AutomationEvent } from "@/types/timecode";
+import { scheduledDispatchFrame } from "./automation-timing";
 
 /** One definition of Next for the relay, timeline and controller feedback. */
 export function nextAutomationEvent(events: readonly AutomationEvent[], currentFrame: number): AutomationEvent | undefined {
   let next: AutomationEvent | undefined;
   for (const event of events) {
-    if (!event.enabled || event.fired || event.skipped || event.executionStatus === "failed" || event.executionStatus === "dispatching" || event.triggerFrame < currentFrame) continue;
-    if (!next || event.triggerFrame < next.triggerFrame) next = event;
+    if (!event.enabled || event.fired || event.skipped || event.executionStatus === "failed" || event.executionStatus === "dispatching" || scheduledDispatchFrame(event) < currentFrame) continue;
+    if (!next || scheduledDispatchFrame(event) < scheduledDispatchFrame(next)) next = event;
   }
   return next;
 }

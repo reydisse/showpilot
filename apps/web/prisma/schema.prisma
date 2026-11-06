@@ -600,6 +600,7 @@ model Device {
   adapterType  String       @default("")
   settings     String       @default("{}") // JSON string
   enabled      Boolean      @default(true)
+  latencyMs    Int          @default(0)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 

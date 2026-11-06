@@ -94,6 +94,7 @@ export interface LyricsDisplayState {
 // ─── Automation Events ──────────────────────────────────────
 
 export const DEFAULT_TIMECODE_TOLERANCE_FRAMES = 5;
+export const TIMECODE_FEED_STALL_MS = 500;
 export const MAX_TIMECODE_TOLERANCE_FRAMES = 9000;
 
 export type AutomationActionType =
@@ -136,6 +137,14 @@ export interface AutomationEvent {
   /** Startup/resync matching only; normal forward crossings ignore this value.
    * Defaults to DEFAULT_TIMECODE_TOLERANCE_FRAMES. Also bounds transient retries. */
   toleranceFrames: number;
+  /** Additional cue anticipation, in milliseconds. Missing legacy values are zero. */
+  leadMs?: number;
+  /** Server-owned device latency captured for the current source/automation start. */
+  deviceLatencyMs?: number;
+  /** Pins an implicitly selected device to the latency captured for that device. */
+  timingDeviceId?: string;
+  /** Server-owned trigger position after lead and device latency are applied. */
+  dispatchFrame?: number;
   /** Associated rundown item ID */
   rundownItemId?: string;
   /** Category for UI grouping */

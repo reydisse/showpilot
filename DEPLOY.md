@@ -187,6 +187,23 @@ blocks.
 artifacts; the numbered files are the convention. After editing
 `schema.prisma`, run `pnpm db:generate`.)
 
+### Device timing
+
+Apply `0051_device_latency.sql` before deploying the Worker that reads
+`device.latencyMs`, then regenerate the Prisma client during the build. Existing
+devices default to zero latency. The column accepts whole milliseconds from
+0 through 60000; the server and device editor enforce the same range.
+
+Timecode captures enabled devices' latency when a source starts or automation
+is enabled. Native MTC/LTC initially uses the snapshot captured when the show
+room is prepared, before accepting any feeds.
+The snapshot survives relay eviction, and feed evaluation makes no D1 timing
+queries during playback. Device edits apply at the next start/enable boundary.
+Cue lead and captured latency add together; dispatch cannot precede frame zero.
+The timeline keeps the nominal cue time and shows the compensated dispatch time.
+Use `node apps/web/scripts/smoke-timecode-latency.mjs` after building to check the
+device editor, D1 value, relay timing, and narrow layouts with disposable data.
+
 ### Kiosk and Companion token storage
 
 The token digest release keeps the existing `token` columns and stores a

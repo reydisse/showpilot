@@ -1,4 +1,5 @@
 import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
+import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
 import { readProPresenterSettings, proPresenterConnection } from "@/lib/propresenter-settings.server";
 import { redactCredentialText } from "@/lib/credential-fields";
 import { importBridgeSettingsKey, sealBridgeSettings, MAX_BRIDGE_SETTINGS_BYTES, type ProtectedBridgeSettings } from "@showpilot/shared/bridge-settings";
@@ -1305,6 +1306,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private async pushTimecode(message: BridgeMessage): Promise<void> {
+    const receivedAt = Date.now();
     const target = this.timecodeTarget;
     const socket = this.bridgeWs;
     const transport = message.type === "timecode-transport";
@@ -1314,6 +1316,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     const binding = await relay.bindShow(target);
     if (!binding.ok) return;
     if (socket !== this.bridgeWs || target !== this.timecodeTarget) return;
+    // Room preparation must not turn a delayed native sample into fresh input.
+    // Transport Stop/Continue still reaches the relay even when binding is slow.
+    if (!transport && Date.now() - receivedAt >= TIMECODE_FEED_STALL_MS) return;
     const response = await relay.fetch(new Request(timecodeTargetUrl(target, transport ? "/internal/bridge-transport" : "/internal/bridge-feed"), {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },

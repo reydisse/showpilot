@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { nextAutomationEvent } from "@/lib/automation-cues";
+import { scheduledDispatchFrame } from "./automation-timing";
 
 const byte = z.number().int().min(0).max(127);
 export const midiPortSchema = z.object({ id: z.string().max(300), name: z.string().max(300).nullable(), manufacturer: z.string().max(300).nullable() }).strict();
@@ -57,7 +58,7 @@ export function parseControllerMessage(data: Uint8Array | null): { input: MidiBi
   return { input: { kind: status === 0xb0 ? "cc" : "note", channel: data[0] & 15, number: data[1] }, value: status === 0x80 ? 0 : data[2] };
 }
 export function cueBank(events: readonly AutomationEvent[], bank: number): AutomationEvent[] {
-  return [...events].sort((a, b) => a.triggerFrame - b.triggerFrame).slice(bank * 64, (bank + 1) * 64);
+  return [...events].sort((a, b) => scheduledDispatchFrame(a) - scheduledDispatchFrame(b)).slice(bank * 64, (bank + 1) * 64);
 }
 export type PadState = "off" | "armed" | "next" | "fired" | "running" | "failed";
 export function controllerCueView(events: readonly AutomationEvent[], frame: number, bank: number) {
