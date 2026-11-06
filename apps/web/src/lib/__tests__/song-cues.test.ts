@@ -82,3 +82,8 @@ it.each([-1, 1.5, NaN, Infinity])("rejects unsafe cue offset %s instead of pilin
     target: "native", offsetFrames,
   })).toThrow("zero or greater");
 });
+
+it.each([-1, 1.5, 9001, NaN, Infinity])("rejects invalid song tolerance %s instead of silently changing it", toleranceFrames => {
+  expect(() => buildSongAutomationEvents({ song: { id: "song", title: "Song" }, cues: [],
+    format: { frameRate: 30, dropFrame: "ndf" }, target: "native", toleranceFrames })).toThrow("Tolerance must be a whole number");
+});

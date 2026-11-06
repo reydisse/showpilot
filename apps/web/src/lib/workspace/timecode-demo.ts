@@ -6,7 +6,7 @@ import { type WorkspaceType } from "@showpilot/shared";
  * Usage: import { DEMO_EVENTS } from "@/lib/seed-timecode-demo"
  *        then call addEvent() for each one.
  */
-import type { AutomationEvent, TimecodeValue } from "@/types/timecode";
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, type AutomationEvent, type TimecodeValue } from "@/types/timecode";
 
 function tc(h: number, m: number, s: number, f: number): TimecodeValue {
   return { hours: h, minutes: m, seconds: s, frames: f };
@@ -22,7 +22,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "House Lights — Pre-Show",
     payload: { scene: "Pre-Show", intensity: 80 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
 
@@ -38,7 +38,7 @@ export const DEMO_EVENTS: EventSeed[] = [
       line2: "Sunday Morning Service",
       style: "default",
     },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
   {
@@ -47,7 +47,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lower-third-clear",
     label: "Clear welcome lower third",
     payload: {},
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
 
@@ -58,7 +58,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "Lighting — Worship Set",
     payload: { scene: "Worship", intensity: 60 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
   {
@@ -69,7 +69,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     targetDeviceId: "atem-main",
     targetActionId: "set_program_input",
     payload: { input: 1 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Video",
   },
 
@@ -86,7 +86,7 @@ export const DEMO_EVENTS: EventSeed[] = [
       translation: "NIV",
       style: "scripture",
     },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
   {
@@ -95,7 +95,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lower-third-clear",
     label: "Clear scripture",
     payload: {},
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
 
@@ -106,7 +106,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "Lighting — Speaker Look",
     payload: { scene: "Speaker", intensity: 70 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
   {
@@ -117,7 +117,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     targetDeviceId: "atem-main",
     targetActionId: "set_program_input",
     payload: { input: 3 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Video",
   },
   {
@@ -131,7 +131,7 @@ export const DEMO_EVENTS: EventSeed[] = [
       title: "Lead Pastor",
       style: "default",
     },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
   {
@@ -140,7 +140,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lower-third-clear",
     label: "Clear pastor name",
     payload: {},
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
 
@@ -151,7 +151,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "rundown-advance",
     label: "Advance Rundown → Offering",
     payload: {},
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Rundown",
   },
   {
@@ -160,7 +160,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "Lighting — Offering",
     payload: { scene: "Offering", intensity: 50 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
 
@@ -171,7 +171,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "rundown-advance",
     label: "Advance Rundown → Closing",
     payload: {},
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Rundown",
   },
   {
@@ -180,7 +180,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "Lighting — Worship Reprise",
     payload: { scene: "Worship", intensity: 60 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
 
@@ -191,7 +191,7 @@ export const DEMO_EVENTS: EventSeed[] = [
     action: "lighting-scene",
     label: "Lighting — Post-Show / House Lights",
     payload: { scene: "Post-Show", intensity: 100 },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lighting",
   },
   {
@@ -205,7 +205,7 @@ export const DEMO_EVENTS: EventSeed[] = [
       line2: "See you next Sunday",
       style: "default",
     },
-    toleranceFrames: 2,
+    toleranceFrames: DEFAULT_TIMECODE_TOLERANCE_FRAMES,
     category: "Lower Thirds",
   },
 ];

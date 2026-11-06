@@ -1,3 +1,4 @@
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
 import type { AutomationEvent, TimecodeValue, TimecodeFormat } from "@/types/timecode";
 
 export function replaceAutomationEventGroup(
@@ -165,16 +166,21 @@ export function normalizeTimecodeForFormat(tc: TimecodeValue, format: TimecodeFo
   return { ...tc, frames: format.dropFrame === "df" && tc.minutes % 10 !== 0 && tc.seconds === 0 ? Math.max(2, frames) : frames };
 }
 
+export function isValidTimecodeTolerance(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_TIMECODE_TOLERANCE_FRAMES;
+}
+
 /**
  * Decide whether an event was crossed between relay samples. A 10 Hz relay
  * receives roughly every third frame at 30 fps, so equality/tolerance alone
- * is not reliable enough for show automation.
+ * is not reliable enough for show automation. Tolerance applies only to
+ * startup/resync matching; continuous forward playback uses exact crossings.
  */
 export function crossedTriggerFrame(
   previousFrame: number | null,
   currentFrame: number,
   triggerFrame: number,
-  toleranceFrames = 2,
+  toleranceFrames = DEFAULT_TIMECODE_TOLERANCE_FRAMES,
 ): boolean {
   if (previousFrame === null || currentFrame < previousFrame) {
     return Math.abs(currentFrame - triggerFrame) <= toleranceFrames;

@@ -91,6 +91,9 @@ export interface LyricsDisplayState {
 
 // ─── Automation Events ──────────────────────────────────────
 
+export const DEFAULT_TIMECODE_TOLERANCE_FRAMES = 5;
+export const MAX_TIMECODE_TOLERANCE_FRAMES = 9000;
+
 export type AutomationActionType =
   | "device-action"
   | "lower-third-show"
@@ -126,7 +129,8 @@ export interface AutomationEvent {
   label: string;
   fired: boolean;
   enabled: boolean;
-  /** Frames of tolerance for matching (default: 2) */
+  /** Startup/resync matching only; normal forward crossings ignore this value.
+   * Defaults to DEFAULT_TIMECODE_TOLERANCE_FRAMES. Also bounds transient retries. */
   toleranceFrames: number;
   /** Associated rundown item ID */
   rundownItemId?: string;

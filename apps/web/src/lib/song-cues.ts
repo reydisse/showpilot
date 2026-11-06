@@ -1,4 +1,5 @@
-import { framesToTimecode, timecodeToString, isValidTimecodeFormat } from "@/lib/timecode";
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
+import { framesToTimecode, timecodeToString, isValidTimecodeFormat, isValidTimecodeTolerance } from "@/lib/timecode";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
 
 export interface SongCueSource {
@@ -33,7 +34,8 @@ export function buildSongAutomationEvents(input: {
 }): AutomationEvent[] {
   const offset = input.offsetFrames ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Cue offset must be a whole number of frames, zero or greater.");
-  const toleranceFrames = Math.max(0, Math.trunc(input.toleranceFrames ?? 5));
+  const toleranceFrames = input.toleranceFrames ?? DEFAULT_TIMECODE_TOLERANCE_FRAMES;
+  if (!isValidTimecodeTolerance(toleranceFrames)) throw new Error(`Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`);
   const sorted = [...input.cues].sort((a, b) => a.triggerFrame - b.triggerFrame);
   const events: AutomationEvent[] = [];
   const sourceKey = `song:${input.song.id}:map:${input.cueMapId ?? "default"}:target:${input.target}:offset:${offset}`;

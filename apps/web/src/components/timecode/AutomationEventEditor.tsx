@@ -1,13 +1,14 @@
+import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { NewAutomationEvent } from "@/hooks/useTimecode";
 import { Plus } from "lucide-react";
 import type {
   AutomationActionType,
 } from "@/types/timecode";
-import { isValidTimecode, parseTimecodeString } from "@/lib/timecode";
+import { isValidTimecode, isValidTimecodeTolerance, parseTimecodeString } from "@/lib/timecode";
 
 interface AutomationEventEditorProps {
   onAdd: (event: NewAutomationEvent) => Promise<void>;
@@ -47,6 +48,11 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
+  const toleranceId = useId();
+  const [toleranceText, setToleranceText] = useState(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES));
+  const toleranceFrames = Number(toleranceText);
+  const toleranceValid = toleranceText.trim() !== "" && isValidTimecodeTolerance(toleranceFrames);
+  const toleranceError = `Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const attemptRef = useRef<{ signature: string; id: string } | null>(null);
@@ -55,6 +61,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     e.preventDefault();
     if (!connected || saving) return;
     setError("");
+    if (!toleranceValid) { setError(toleranceError); return; }
 
     const tc = parseTimecodeString(tcString);
     if (!tc || !isValidTimecode(tc, format)) {
@@ -78,7 +85,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       action,
       payload,
       label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
-      toleranceFrames: 5,
+      toleranceFrames,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
     };
     const signature = JSON.stringify(draft);
@@ -86,7 +93,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     setSaving(true);
     try {
       await onAdd({ ...draft, id: attemptRef.current.id });
-      setTcString(""); setLabel(""); setPayloadJson("{}"); attemptRef.current = null;
+      setTcString(""); setLabel(""); setPayloadJson("{}"); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
@@ -154,6 +161,18 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       </div>
 
       <div>
+        <label htmlFor={toleranceId} className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">Tolerance (frames)</label>
+        <input id={toleranceId} type="number" min={0} max={MAX_TIMECODE_TOLERANCE_FRAMES} step={1} required
+          value={toleranceText} onChange={event => setToleranceText(event.target.value)}
+          aria-invalid={!toleranceValid} aria-describedby={`${toleranceId}-help`} className={INPUT_CLASS} />
+        <p id={`${toleranceId}-help`} className="mt-1 text-xs leading-relaxed text-board-muted">
+          Used only for startup and resync matching{toleranceValid ? ` (±${toleranceFrames} frames, about ${Math.round(toleranceFrames * 1000 / format.frameRate)} ms)` : ""}.
+          {" "}Forward playback fires when the clock crosses the cue. Failed actions retry only within this cue window.
+        </p>
+        {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
+      </div>
+
+      <div>
         <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
           Action details (JSON)
         </label>
@@ -172,6 +191,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
 
       <button
         type="submit"
+        disabled={!toleranceValid}
         className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
