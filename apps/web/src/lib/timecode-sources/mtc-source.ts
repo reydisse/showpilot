@@ -1,5 +1,6 @@
 import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
 import { isValidTimecode } from "@/lib/timecode";
+import { findMidiInput, observeMidiInputs } from "./midi-inputs";
 
 /**
  * MTC (MIDI Timecode) source via Web MIDI API.
@@ -31,8 +32,10 @@ export interface MtcSourceCallback {
 }
 
 export class MtcSource {
-  private midiAccess: MIDIAccess | null = null;
   private input: MIDIInput | null = null;
+  private releaseInputs: (() => void) | null = null;
+  private startGeneration = 0;
+  private readonly receive = (event: MIDIMessageEvent) => this.handleMidiMessage(event);
   private accumulator = this.emptyAccumulator();
   private onTimecode: MtcSourceCallback;
 
@@ -50,30 +53,43 @@ export class MtcSource {
     // require privileged SysEx access. Asking for SysEx caused browsers and
     // managed devices to reject the entire MIDI permission request.
     const access = await navigator.requestMIDIAccess();
-    return [...access.inputs.values()];
+    return [...access.inputs.values()].filter(input => input.state === "connected");
   }
 
   async start(inputId: string): Promise<void> {
+    this.stop();
+    const generation = this.startGeneration;
     if (!MtcSource.isSupported()) {
       throw new Error("Web MIDI API not supported in this browser");
     }
 
-    this.midiAccess = await navigator.requestMIDIAccess();
-    this.input = this.midiAccess.inputs.get(inputId) ?? null;
-
-    if (!this.input) {
+    const access = await navigator.requestMIDIAccess();
+    if (generation !== this.startGeneration) return;
+    const selected = access.inputs.get(inputId);
+    if (!selected || selected.state !== "connected") {
       throw new Error(`MIDI input "${inputId}" not found`);
     }
-
-    this.input.onmidimessage = this.handleMidiMessage.bind(this);
+    this.releaseInputs = observeMidiInputs(access, inputs => {
+      const next = findMidiInput(inputs, selected);
+      if (next === this.input) return;
+      this.detachInput();
+      this.input = next;
+      // Adding a midimessage listener implicitly opens the port. Never replace
+      // another consumer's handler or close a port that it may still be using.
+      this.input?.addEventListener("midimessage", this.receive);
+    });
   }
 
   stop(): void {
-    if (this.input) {
-      this.input.onmidimessage = null;
-    }
+    this.startGeneration++;
+    this.releaseInputs?.();
+    this.releaseInputs = null;
+    this.detachInput();
+  }
+
+  private detachInput(): void {
+    this.input?.removeEventListener("midimessage", this.receive);
     this.input = null;
-    this.midiAccess = null;
     this.accumulator = this.emptyAccumulator();
   }
 
@@ -82,7 +98,7 @@ export class MtcSource {
     if (!data || data.length === 0) return;
 
     // Quarter-frame: status byte 0xF1
-    if (data[0] === 0xf1 && data.length >= 2) {
+    if (data[0] === 0xf1 && data.length === 2 && data[1] <= 0x7f) {
       this.handleQuarterFrame(data[1]);
       return;
     }
@@ -149,7 +165,8 @@ export class MtcSource {
       const rateCode = (hoursHigh >> 1) & 0x03;
       const format = this.decodeFormat(rateCode);
 
-      this.onTimecode({ hours, minutes, seconds, frames }, format);
+      const timecode = { hours, minutes, seconds, frames };
+      if (isValidTimecode(timecode, format)) this.onTimecode(timecode, format);
       this.accumulator = this.emptyAccumulator();
     }
   }
