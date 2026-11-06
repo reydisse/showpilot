@@ -1,4 +1,7 @@
+mod ltc_audio;
+mod ltc_decoder;
 mod mtc;
+mod sidecar_input;
 use mtc::{MtcEvent, MtcTransportDecoder};
 
 use midir::{Ignore, MidiInput, MidiInputConnection};
@@ -6,10 +9,10 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -47,6 +50,8 @@ struct BridgeConfig {
     clear_propresenter_password: bool,
     #[serde(default)]
     midi_input_name: Option<String>,
+    #[serde(default)]
+    ltc_input: Option<ltc_audio::InputConfig>,
 }
 
 #[derive(Serialize)]
@@ -73,18 +78,20 @@ fn public_bridge_config(mut config: BridgeConfig) -> PublicBridgeConfig {
 
 struct BridgeProcess {
     child: Child,
+    writer: sidecar_input::Writer,
     logs: Arc<Mutex<VecDeque<String>>>,
     connection: Arc<Mutex<BridgeConnection>>,
-    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+    sidecar_stdin: sidecar_input::SharedInput,
 }
 
 impl Drop for BridgeProcess {
     fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
         if let Ok(mut stdin) = self.sidecar_stdin.lock() {
             *stdin = None;
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        self.writer.finish_after_child_exit();
     }
 }
 
@@ -92,15 +99,21 @@ struct BridgeRuntime {
     process: Mutex<Option<BridgeProcess>>,
     auto_restart: AtomicBool,
     last_logs: Mutex<VecDeque<String>>,
-    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+    sidecar_stdin: sidecar_input::SharedInput,
+}
+
+struct TimecodeInputSelection {
+    gate: Mutex<()>,
+    source: Arc<AtomicU8>,
 }
 
 struct MtcRuntime {
+    source: Arc<AtomicU8>,
     decoder: Arc<Mutex<MtcTransportDecoder>>,
     connection: Mutex<Option<MidiInputConnection<()>>>,
     selected_input: Mutex<Option<String>>,
     last_timecode: Arc<Mutex<Option<String>>>,
-    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+    sidecar_stdin: sidecar_input::SharedInput,
 }
 
 #[derive(Serialize)]
@@ -190,6 +203,12 @@ fn validate_bridge_config(config: &BridgeConfig) -> Result<(), String> {
     }
     if !config.key.starts_with("sp_") || config.key.len() > 256 {
         return Err("A valid ShowPilot Bridge API key is required".into());
+    }
+    if let Some(input) = &config.ltc_input {
+        input.validate()?;
+        if config.midi_input_name.is_some() {
+            return Err("Select one timecode input: MTC or LTC.".into());
+        }
     }
     if config.propresenter_port == Some(0) || config.propresenter_api_port == Some(0) {
         return Err("ProPresenter ports must be between 1 and 65535".into());
@@ -379,17 +398,42 @@ fn resolve_saved_credentials(
     Ok(())
 }
 
-#[tauri::command]
-fn save_bridge_config(app: tauri::AppHandle, mut config: BridgeConfig) -> Result<(), String> {
-    resolve_saved_credentials(&mut config, read_bridge_config(&app)?.as_ref())?;
+fn persist_bridge_config(app: &tauri::AppHandle, config: &BridgeConfig) -> Result<(), String> {
     validate_bridge_config(&config)?;
     showpilot_native_credentials::save(&bridge_config_path(&app)?, CREDENTIAL_SERVICE, &config)
+}
+
+// Input commands own these fields. An older connection form cannot switch or
+// erase the selected input when the operator saves connection settings.
+fn prepare_connection_config(
+    config: &mut BridgeConfig,
+    saved: Option<&BridgeConfig>,
+) -> Result<(), String> {
+    resolve_saved_credentials(config, saved)?;
+    config.midi_input_name = saved.and_then(|value| value.midi_input_name.clone());
+    config.ltc_input = saved.and_then(|value| value.ltc_input.clone());
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_bridge_config(app: tauri::AppHandle, mut config: BridgeConfig) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        prepare_connection_config(&mut config, read_bridge_config(&app)?.as_ref())?;
+        persist_bridge_config(&app, &config)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn spawn_bridge_process(
     app: &tauri::AppHandle,
     config: &BridgeConfig,
-    sidecar_stdin: Arc<Mutex<Option<ChildStdin>>>,
+    sidecar_stdin: sidecar_input::SharedInput,
 ) -> Result<BridgeProcess, String> {
     let logs = Arc::new(Mutex::new(VecDeque::new()));
     let connection = Arc::new(Mutex::new(BridgeConnection::Connecting));
@@ -417,11 +461,14 @@ fn spawn_bridge_process(
             config.key.clone(),
         );
     }
+    let (input, writer) =
+        sidecar_input::Writer::new(child.stdin.take().expect("piped Bridge stdin"));
     if let Ok(mut target) = sidecar_stdin.lock() {
-        *target = child.stdin.take();
+        *target = Some(input);
     }
     Ok(BridgeProcess {
         child,
+        writer,
         logs,
         connection,
         sidecar_stdin,
@@ -520,37 +567,46 @@ fn bridge_status(
 }
 
 #[tauri::command]
-fn start_bridge(
+async fn start_bridge(
     app: tauri::AppHandle,
     mut config: BridgeConfig,
-    runtime: tauri::State<'_, BridgeRuntime>,
 ) -> Result<BridgeStatus, String> {
-    resolve_saved_credentials(&mut config, read_bridge_config(&app)?.as_ref())?;
-    save_bridge_config(app.clone(), config.clone())?;
-    runtime.auto_restart.store(true, Ordering::Relaxed);
-    let mut process = runtime
-        .process
-        .lock()
-        .map_err(|_| "Bridge state unavailable".to_string())?;
-    *process = None;
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = app.state::<BridgeRuntime>();
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        prepare_connection_config(&mut config, read_bridge_config(&app)?.as_ref())?;
+        persist_bridge_config(&app, &config)?;
+        runtime.auto_restart.store(true, Ordering::Relaxed);
+        let mut process = runtime
+            .process
+            .lock()
+            .map_err(|_| "Bridge state unavailable".to_string())?;
+        *process = None;
 
-    let active = spawn_bridge_process(&app, &config, Arc::clone(&runtime.sidecar_stdin))?;
-    let pid = active.child.id();
-    let current_logs = active
-        .logs
-        .lock()
-        .map_err(|_| "Bridge logs unavailable".to_string())?
-        .iter()
-        .cloned()
-        .collect();
-    *process = Some(active);
-    Ok(BridgeStatus {
-        configured: true,
-        running: true,
-        connection: BridgeConnection::Connecting,
-        pid: Some(pid),
-        logs: current_logs,
+        let active = spawn_bridge_process(&app, &config, Arc::clone(&runtime.sidecar_stdin))?;
+        let pid = active.child.id();
+        let current_logs = active
+            .logs
+            .lock()
+            .map_err(|_| "Bridge logs unavailable".to_string())?
+            .iter()
+            .cloned()
+            .collect();
+        *process = Some(active);
+        Ok(BridgeStatus {
+            configured: true,
+            running: true,
+            connection: BridgeConnection::Connecting,
+            pid: Some(pid),
+            logs: current_logs,
+        })
     })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -610,6 +666,7 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
             .map_err(|_| "MTC state unavailable".to_string())?
             .take(),
     );
+    let source = Arc::clone(&runtime.source);
     let decoder = Arc::clone(&runtime.decoder);
     let same_input = runtime
         .selected_input
@@ -632,6 +689,9 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
             &port,
             "ShowPilot MTC input",
             move |_stamp, message, _| {
+                if source.load(Ordering::Acquire) != ltc_audio::MTC {
+                    return;
+                }
                 let event = decoder
                     .lock()
                     .ok()
@@ -649,14 +709,10 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
                         };
                         let payload =
                             serde_json::json!({ "type": "timecode-transport", "state": state });
-                        if let Ok(mut writer) = sink.lock() {
-                            if let Some(stdin) = writer.as_mut() {
-                                if let Err(error) =
-                                    writeln!(stdin, "{payload}").and_then(|_| stdin.flush())
-                                {
-                                    eprintln!("[desktop] MTC transport send failed: {error}");
-                                }
-                            }
+                        if let Err(error) =
+                            sidecar_input::send(&sink, &source, ltc_audio::MTC, payload)
+                        {
+                            eprintln!("[desktop] MTC transport send failed: {error}");
                         }
                         return;
                     }
@@ -689,11 +745,8 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
                 if let Ok(mut value) = last_timecode.lock() {
                     *value = Some(display);
                 }
-                if let Ok(mut writer) = sink.lock() {
-                    if let Some(stdin) = writer.as_mut() {
-                        let _ = writeln!(stdin, "{payload}");
-                        let _ = stdin.flush();
-                    }
+                if let Err(error) = sidecar_input::send(&sink, &source, ltc_audio::MTC, payload) {
+                    eprintln!("[desktop] MTC frame send failed: {error}");
                 }
             },
             (),
@@ -710,42 +763,123 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
     Ok(())
 }
 
-#[tauri::command]
-fn start_mtc_input(
-    app: tauri::AppHandle,
-    input_id: String,
-    runtime: tauri::State<'_, MtcRuntime>,
-) -> Result<MtcStatus, String> {
-    connect_mtc_input(&input_id, &runtime)?;
-    if let Some(mut config) = read_bridge_config(&app)? {
-        config.midi_input_name = Some(input_id);
-        save_bridge_config(app, config)?;
-    }
-    mtc_status(runtime)
-}
-
-#[tauri::command]
-fn stop_mtc_input(
-    app: tauri::AppHandle,
-    runtime: tauri::State<'_, MtcRuntime>,
-) -> Result<(), String> {
+fn clear_mtc(runtime: &MtcRuntime) -> Result<(), String> {
     *runtime
         .connection
         .lock()
-        .map_err(|_| "MTC state unavailable".to_string())? = None;
+        .map_err(|_| "MTC state unavailable")? = None;
     *runtime
         .selected_input
         .lock()
-        .map_err(|_| "MTC state unavailable".to_string())? = None;
+        .map_err(|_| "MTC state unavailable")? = None;
     *runtime
         .last_timecode
         .lock()
-        .map_err(|_| "MTC state unavailable".to_string())? = None;
-    if let Some(mut config) = read_bridge_config(&app)? {
-        config.midi_input_name = None;
-        save_bridge_config(app, config)?;
-    }
+        .map_err(|_| "MTC state unavailable")? = None;
     Ok(())
+}
+
+#[tauri::command]
+async fn start_mtc_input(app: tauri::AppHandle, input_id: String) -> Result<MtcStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        let runtime = app.state::<MtcRuntime>();
+        connect_mtc_input(&input_id, &runtime)?;
+        app.state::<ltc_audio::AudioRuntime>().stop()?;
+        selection.source.store(ltc_audio::MTC, Ordering::Release);
+        if let Some(mut config) = read_bridge_config(&app)? {
+            config.midi_input_name = Some(input_id);
+            config.ltc_input = None;
+            persist_bridge_config(&app, &config)?;
+        }
+        mtc_status(runtime)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn stop_mtc_input(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        let _ = selection.source.compare_exchange(
+            ltc_audio::MTC,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        clear_mtc(&app.state::<MtcRuntime>())?;
+        if let Some(mut config) = read_bridge_config(&app)? {
+            config.midi_input_name = None;
+            persist_bridge_config(&app, &config)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_audio_inputs(app: tauri::AppHandle) -> Result<Vec<ltc_audio::AudioInput>, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<ltc_audio::AudioRuntime>().inputs())
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn ltc_status(runtime: tauri::State<'_, ltc_audio::AudioRuntime>) -> ltc_audio::Status {
+    runtime.status()
+}
+#[tauri::command]
+async fn start_ltc_input(
+    app: tauri::AppHandle,
+    config: ltc_audio::InputConfig,
+) -> Result<ltc_audio::Status, String> {
+    config.validate()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        let status = app
+            .state::<ltc_audio::AudioRuntime>()
+            .start(config.clone())?;
+        clear_mtc(&app.state::<MtcRuntime>())?;
+        if let Some(mut saved) = read_bridge_config(&app)? {
+            saved.midi_input_name = None;
+            saved.ltc_input = Some(config);
+            persist_bridge_config(&app, &saved)?;
+        }
+        Ok(status)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn stop_ltc_input(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let selection = app.state::<TimecodeInputSelection>();
+        let _gate = selection
+            .gate
+            .lock()
+            .map_err(|_| "Timecode input state unavailable")?;
+        app.state::<ltc_audio::AudioRuntime>().stop()?;
+        if let Some(mut config) = read_bridge_config(&app)? {
+            config.ltc_input = None;
+            persist_bridge_config(&app, &config)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -775,7 +909,8 @@ fn mtc_status(runtime: tauri::State<'_, MtcRuntime>) -> Result<MtcStatus, String
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let sidecar_stdin = Arc::new(Mutex::new(None));
-    tauri::Builder::default()
+    let source = Arc::new(AtomicU8::new(0));
+    let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("ShowPilot Bridge")
@@ -788,7 +923,16 @@ pub fn run() {
             last_logs: Mutex::new(VecDeque::new()),
             sidecar_stdin: Arc::clone(&sidecar_stdin),
         })
+        .manage(TimecodeInputSelection {
+            gate: Mutex::new(()),
+            source: source.clone(),
+        })
+        .manage(ltc_audio::AudioRuntime::new(
+            sidecar_stdin.clone(),
+            source.clone(),
+        ))
         .manage(MtcRuntime {
+            source: source.clone(),
             decoder: Arc::new(Mutex::new(MtcTransportDecoder::default())),
             connection: Mutex::new(None),
             selected_input: Mutex::new(None),
@@ -854,7 +998,15 @@ pub fn run() {
                     }
                     Err(error) => eprintln!("[desktop] Unable to restore bridge: {error}"),
                 }
-                if let Some(input_name) = config.midi_input_name.as_deref() {
+                if let Some(input) = config.ltc_input {
+                    let audio = app.state::<ltc_audio::AudioRuntime>();
+                    if let Err(error) = audio.restore(input) {
+                        eprintln!("[desktop] LTC restore failed: {error}");
+                    }
+                } else if let Some(input_name) = config.midi_input_name.as_deref() {
+                    app.state::<TimecodeInputSelection>()
+                        .source
+                        .store(ltc_audio::MTC, Ordering::Release);
                     let mtc_runtime = app.state::<MtcRuntime>();
                     if let Ok(mut selected) = mtc_runtime.selected_input.lock() {
                         *selected = Some(input_name.to_string());
@@ -866,38 +1018,48 @@ pub fn run() {
             }
 
             let app_handle = app.handle().clone();
-            thread::spawn(move || loop {
-                thread::sleep(std::time::Duration::from_secs(5));
-                let runtime = app_handle.state::<BridgeRuntime>();
-                let should_restart = runtime.auto_restart.load(Ordering::Relaxed);
-                let mut process = match runtime.process.lock() {
-                    Ok(process) => process,
-                    Err(_) => continue,
-                };
-                let exited = process.as_mut().is_some_and(|active| {
-                    let status = active.child.try_wait();
-                    if let Err(error) = &status {
-                        append_log(&active.logs, format!("Bridge status error: {error}"));
+            thread::spawn(move || {
+                let mut last_restart = std::time::Instant::now() - Duration::from_secs(5);
+                loop {
+                    thread::sleep(Duration::from_millis(100));
+                    let runtime = app_handle.state::<BridgeRuntime>();
+                    let mut process = match runtime.process.lock() {
+                        Ok(process) => process,
+                        Err(_) => continue,
+                    };
+                    let exited = process.as_mut().is_none_or(|active| {
+                        if active.writer.stalled() {
+                            append_log(
+                                &active.logs,
+                                "Bridge input stalled; restarting the sidecar.".into(),
+                            );
+                            let _ = active.child.kill();
+                        }
+                        let status = active.child.try_wait();
+                        if let Err(error) = &status {
+                            append_log(&active.logs, format!("Bridge status error: {error}"));
+                        }
+                        child_has_exited(&status)
+                    });
+                    if !exited
+                        || !runtime.auto_restart.load(Ordering::Relaxed)
+                        || last_restart.elapsed() < Duration::from_secs(5)
+                    {
+                        continue;
                     }
-                    child_has_exited(&status)
-                });
-                if !exited || !should_restart {
-                    continue;
-                }
-                *process = None;
-                drop(process);
-                if let Ok(Some(config)) = read_bridge_config(&app_handle) {
-                    match spawn_bridge_process(
-                        &app_handle,
-                        &config,
-                        Arc::clone(&runtime.sidecar_stdin),
-                    ) {
-                        Ok(active) => {
-                            if let Ok(mut process) = runtime.process.lock() {
+                    *process = None;
+                    last_restart = std::time::Instant::now();
+                    if let Ok(Some(config)) = read_bridge_config(&app_handle) {
+                        match spawn_bridge_process(
+                            &app_handle,
+                            &config,
+                            Arc::clone(&runtime.sidecar_stdin),
+                        ) {
+                            Ok(active) => {
                                 *process = Some(active);
                             }
+                            Err(error) => eprintln!("[desktop] Bridge restart failed: {error}"),
                         }
-                        Err(error) => eprintln!("[desktop] Bridge restart failed: {error}"),
                     }
                 }
             });
@@ -908,6 +1070,13 @@ pub fn run() {
             let mtc_app_handle = app.handle().clone();
             thread::spawn(move || loop {
                 thread::sleep(Duration::from_secs(2));
+                let selection = mtc_app_handle.state::<TimecodeInputSelection>();
+                let Ok(_gate) = selection.gate.lock() else {
+                    continue;
+                };
+                if selection.source.load(Ordering::Acquire) != ltc_audio::MTC {
+                    continue;
+                }
                 let runtime = mtc_app_handle.state::<MtcRuntime>();
                 let desired = runtime
                     .selected_input
@@ -953,10 +1122,24 @@ pub fn run() {
             list_midi_inputs,
             start_mtc_input,
             stop_mtc_input,
-            mtc_status
+            mtc_status,
+            list_audio_inputs,
+            ltc_status,
+            start_ltc_input,
+            stop_ltc_input
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ShowPilot Bridge");
+        .build(tauri::generate_context!())
+        .expect("error while building ShowPilot Bridge");
+    app.run(|app, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            let runtime = app.state::<BridgeRuntime>();
+            runtime.auto_restart.store(false, Ordering::Release);
+            if let Ok(mut process) = runtime.process.lock() {
+                *process = None;
+            }
+            app.state::<ltc_audio::AudioRuntime>().shutdown();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -975,6 +1158,30 @@ mod tests {
         assert_eq!(public["propresenterPasswordConfigured"], true);
         assert!(public.get("propresenterPassword").is_none());
         assert!(!public.to_string().contains("private"));
+    }
+
+    #[test]
+    fn connection_form_cannot_restore_an_old_timecode_input() {
+        let mut saved = config("https://app.example", "venue", "sp_private_key");
+        saved.ltc_input = Some(crate::ltc_audio::InputConfig {
+            device_id: "audio-interface".into(),
+            device_name: "Audio Interface".into(),
+            channel: 2,
+            rate: crate::ltc_decoder::LtcRate::Fps25,
+        });
+        let mut stale = config("https://app.example", "venue", "");
+        stale.midi_input_name = Some("Old MIDI input".into());
+        super::prepare_connection_config(&mut stale, Some(&saved)).unwrap();
+        assert_eq!(stale.ltc_input, saved.ltc_input);
+        assert!(stale.midi_input_name.is_none());
+        saved.ltc_input = None;
+        super::prepare_connection_config(&mut stale, Some(&saved)).unwrap();
+        assert!(stale.ltc_input.is_none());
+        assert!(stale.midi_input_name.is_none());
+        saved.midi_input_name = Some("Selected MIDI input".into());
+        super::prepare_connection_config(&mut stale, Some(&saved)).unwrap();
+        assert_eq!(stale.midi_input_name, saved.midi_input_name);
+        assert!(stale.ltc_input.is_none());
     }
 
     #[test]
@@ -1023,6 +1230,7 @@ mod tests {
             propresenter_password: None,
             clear_propresenter_password: false,
             midi_input_name: None,
+            ltc_input: None,
         }
     }
 

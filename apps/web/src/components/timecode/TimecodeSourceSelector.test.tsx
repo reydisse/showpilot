@@ -100,3 +100,15 @@ it("keeps the age of the last MTC frame visible after the signal stalls", () => 
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("identifies lost LTC audio and keeps its last-frame age advancing", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-06T00:00:00Z"));
+  render(<TimecodeSourceSelector {...props()} source="ltc-bridge" signal={{ status: "timecode-lost", lastFeedAt: Date.now() - 2000 }} />);
+  expect(screen.getByRole("alert").textContent).toContain("LTC signal lost");
+  expect(screen.getByText("Last LTC frame received 2s ago")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("ShowPilot Bridge");
+  act(() => vi.advanceTimersByTime(3000));
+  expect(screen.getByText("Last LTC frame received 5s ago")).toBeTruthy();
+  expect(screen.queryByText(/Last MTC frame/)).toBeNull();
+});
