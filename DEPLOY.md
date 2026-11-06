@@ -620,6 +620,29 @@ Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
 regression. Both use disposable local accounts and data. No migration or native
 build is required; these changes are not deployed by a feature-branch push.
 
+### Device detail and legacy overlay navigation
+
+The Devices parent now renders a route outlet, with its library in an index route.
+Opening a device detail URL mounts only that device's controls. Back and browser
+history restore the library selection from the URL; a removed device shows recovery
+instead of silently selecting another device. Library and detail reads retain
+organization permissions and pass navigation cancellation to their requests.
+
+The old `/:slug/streaming/graphics/overlay` route redirects to `/overlay/:orgSlug`
+before the graphics library loads. The canonical renderer requires a display
+session; the alias grants no new access and does not change live output. Its unused
+single-graphic read RPC is removed. Deploy browser and Worker together and reload
+cached clients. The separate legacy unauthenticated read fix is tracked in #153.
+
+After building, run `node apps/web/scripts/smoke-nested-navigation.mjs`,
+`node apps/web/scripts/smoke-device-connection-errors.mjs`, and
+`node apps/web/scripts/smoke-legacy-display-read.mjs`. They use disposable data to
+check direct routes, same-document navigation, history, permission rejection,
+missing-device recovery, protected overlay access, and Bridge outage/recovery on
+the detail page. Navigation controls are hit-tested at 320, 768 and 1440px. No
+migration or native build is required. The wider navigation audit, Devices mutation
+recovery and mobile search, and canonical overlay polling recovery remain open.
+
 ### Cue-sheet connection recovery
 
 Cue-sheet relay clients now bound socket opening and hydration at five seconds,
@@ -1552,6 +1575,21 @@ the command only applies new migrations. It accepts an optional
 database. Older local databases created with direct `wrangler d1 execute`
 commands have no runner history; continue applying explicit files there or use
 a fresh local state directory.
+
+### Legacy graphics read removal
+
+The unused `getActiveGraphicBySlug` server function bypassed display authorization.
+It is removed from the source and built RPC registry. Public graphics reads use
+`/api/overlay/:orgSlug`, which requires a display pass; signed-in operator reads
+retain their organization permission checks. No migration or native build is
+required. Deploy the Worker to remove the old endpoint; a PR alone does not close
+it in a running deployment.
+
+After building, run `node apps/web/scripts/smoke-legacy-display-read.mjs`. The
+disposable fixture verifies that the old RPC is unavailable, unsigned, expired,
+wrong-surface and wrong-organization display reads are denied, and a valid overlay
+pass still renders the fixture's active graphic. The build boundary check also
+rejects reintroducing the removed function.
 
 ### Current state
 

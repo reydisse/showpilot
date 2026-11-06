@@ -33,8 +33,7 @@ test("screen-bound web polling pauses while hidden and cannot overlap", () => {
   for (const [path, fragments] of contracts) requiresFragments(path, fragments);
 });
 
-test("always-on production feeds prevent overlap without pausing output", () => {
-  requiresFragments("apps/web/src/routes/$slug/streaming/graphics/overlay.tsx", ["let polling = false", "if (polling) return"]);
+test("Bridge and device feedback polling prevent overlap without pausing output", () => {
   requiresFragments("apps/bridge/src/protocols/propresenter.ts", ["private pollInFlight = false", "this.pollInFlight"]);
   requiresFragments("apps/web/src/lib/device-modules/profiles/profile-driven-module.ts", ["pollingFeedbackIds", "finally"]);
 });
