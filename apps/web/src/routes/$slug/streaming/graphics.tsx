@@ -37,9 +37,8 @@ import {
   ACCENT_PRESETS,
   TEMPLATES,
 } from "@/lib/lt-templates";
-import { getProPresenterRuntimeSettings } from "@/lib/settings";
+import { getProPresenterConfiguration } from "@/lib/settings";
 import { useProPresenter } from "@/hooks/useProPresenter";
-import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
 import { useDisplayLink } from "@/hooks/useDisplayLink";
 
 type GraphicType = "lower-third" | "scripture" | "announcement" | "title";
@@ -96,7 +95,7 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
       getGraphicTemplates({ data: { orgId: context.orgId } }),
       getActiveGraphics({ data: { orgId: context.orgId } }),
       canTrigger
-        ? getProPresenterRuntimeSettings({ data: { orgId: context.orgId } })
+        ? getProPresenterConfiguration({ data: { orgId: context.orgId } })
         : Promise.resolve<Record<string, string>>({}),
     ]);
     return {
@@ -110,7 +109,6 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
         host: settings["propresenter-host"] ?? "",
         stagePort: Number.parseInt(settings["propresenter-port"] ?? "50001", 10) || 50001,
         apiPort: Number.parseInt(settings["propresenter-api-port"] ?? "1025", 10) || 1025,
-        password: settings["propresenter-password"] ?? "",
       },
     };
   },
@@ -132,64 +130,18 @@ function GraphicsPage() {
   const [copiedOverlay, setCopiedOverlay] = useState(false);
   const [proPresenterEnabled, setProPresenterEnabled] = useState(false);
   const [proPresenterMessage, setProPresenterMessage] = useState<string | null>(null);
-  const [bridgeSlide, setBridgeSlide] = useState<import("@/lib/propresenter-client").PPSlideData | null>(null);
-  const [bridgeOnline, setBridgeOnline] = useState(false);
 
   const proPresenter = useProPresenter({
     orgId,
     host: proPresenterConfig.host,
     port: proPresenterConfig.stagePort,
-    apiPort: proPresenterConfig.apiPort,
-    password: proPresenterConfig.password,
     enabled: proPresenterEnabled,
   });
 
-  // The Gateway Bridge is the fallback when the operator is not on the same
-  // LAN as ProPresenter. It forwards the same slide payload as the direct
-  // connection, so the generate buttons work in either topology.
-  useEffect(() => {
-    if (!proPresenterEnabled) {
-      setBridgeSlide(null);
-      setBridgeOnline(false);
-      return;
-    }
-    const bridge = getSharedBridgeProxy(orgId);
-    setBridgeOnline(bridge.isBridgeOnline());
-    const unsubscribeStatus = bridge.onBridgeStatus((online) => {
-      setBridgeOnline(online);
-      if (!online) setBridgeSlide(null);
-    });
-    const unsubscribeEvents = bridge.onDeviceEvent((target, eventName, data) => {
-      if (eventName !== "slide" || !target.startsWith("propresenter:")) return;
-      try {
-        const payload = JSON.parse(data) as Record<string, unknown> | null;
-        if (!payload?.text) {
-          setBridgeSlide(null);
-          return;
-        }
-        setBridgeSlide({
-          text: String(payload.text),
-          notes: String(payload.notes ?? ""),
-          presentationName: String(payload.presentationName ?? payload.pn ?? ""),
-          slideIndex: Number(payload.slideIndex ?? payload.si ?? 0),
-          isScripture: Boolean(payload.isScripture ?? payload.scripture),
-          receivedAt: Date.now(),
-          slideId: typeof payload.slideId === "string" ? payload.slideId : undefined,
-        });
-      } catch {
-        // Ignore malformed bridge events; the direct feed can still recover.
-      }
-    });
-    return () => {
-      unsubscribeStatus();
-      unsubscribeEvents();
-    };
-  }, [orgId, proPresenterEnabled]);
-
-  const currentProPresenterSlide = proPresenter.currentSlide ?? bridgeSlide;
-  const proPresenterConnected = proPresenter.status === "connected" || bridgeSlide !== null;
-  const proPresenterConnecting =
-    proPresenter.status === "connecting" || (proPresenterEnabled && bridgeOnline && !bridgeSlide);
+  const currentProPresenterSlide = proPresenter.currentSlide;
+  const proPresenterConnected = proPresenter.status === "connected";
+  const proPresenterConnecting = proPresenter.status === "connecting";
+  const bridgeOnline = proPresenter.debugInfo?.wsConnected ?? false;
 
   // Hide the designer's live-preview "scratch" entries from the library.
   const visibleTemplates = templates.filter((t) => !parseStyle(t.style).scratch);
@@ -346,8 +298,8 @@ function GraphicsPage() {
                   <h2 className="text-sm font-semibold text-board-text">ProPresenter import</h2>
                   <span className="text-[10px] uppercase tracking-wider text-board-muted/60">
                     {proPresenter.status === "connected"
-                      ? "Direct connection"
-                      : bridgeSlide
+                      ? "Connected through venue Bridge"
+                      : currentProPresenterSlide
                         ? "Connected through Bridge"
                         : proPresenterEnabled && bridgeOnline
                           ? "Bridge online · waiting for slide"

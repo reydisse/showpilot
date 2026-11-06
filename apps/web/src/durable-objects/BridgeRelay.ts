@@ -1,3 +1,5 @@
+import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
+import { readProPresenterSettings, proPresenterConnection } from "@/lib/propresenter-settings.server";
 import { redactCredentialText } from "@/lib/credential-fields";
 import { importBridgeSettingsKey, sealBridgeSettings, type ProtectedBridgeSettings } from "@showpilot/shared/bridge-settings";
 import { approveBridgeTarget, removeBridgeTarget, listBridgeTargets, authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
@@ -58,10 +60,10 @@ type NativeDispatchMessage = Exclude<BridgeDispatchMessage, { type: "connect-dev
 };
 
 type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
-type BridgeRelayRuntimeEnv = BridgeRelayEnv & { BETTER_AUTH_SECRET?: string };
+type BridgeRelayRuntimeEnv = BridgeRelayEnv & { BETTER_AUTH_SECRET?: string; CREDENTIAL_ENCRYPTION_KEYS?: string };
 
 interface SocketAttachment {
-  role: "bridge" | "client";
+  role: "bridge" | "client" | "propresenter-viewer";
   orgId: string;
   bridgeInfo?: BridgeRelayStatusInfo;
   credentialId?: string;
@@ -171,7 +173,7 @@ function parseBridgeInfo(value: unknown): BridgeRelayStatusInfo | null {
 }
 
 function parseSocketAttachment(value: unknown): SocketAttachment | null {
-  if (!isRecord(value) || (value.role !== "bridge" && value.role !== "client") || typeof value.orgId !== "string") {
+  if (!isRecord(value) || (value.role !== "bridge" && value.role !== "client" && value.role !== "propresenter-viewer") || typeof value.orgId !== "string") {
     return null;
   }
   const bridgeInfo = value.bridgeInfo === undefined ? undefined : parseBridgeInfo(value.bridgeInfo);
@@ -205,7 +207,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
 
 function bridgeAuditAction(type: string): BridgeAuditAction | null {
   switch (type) {
-    case "automatic-connection-requested": case "command-connection-requested": return "connect-device";
+    case "configured-propresenter-requested": case "automatic-connection-requested": case "command-connection-requested": return "connect-device";
     case "bridge-status": case "command-response": case "device-event":
     case "device-status": case "pong": case "timecode-feed": return type;
     default: return null;
@@ -334,7 +336,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           settingsPublicKey = request.headers.get("x-showpilot-settings-key") ?? undefined;
           try { await importBridgeSettingsKey(settingsPublicKey); }
           catch { return new Response("A valid native device settings key is required.", { status: 426 }); }
-        } else if (role !== "client" || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, "devices:access"))) {
+        } else if ((role !== "client" && role !== "propresenter-viewer") || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, role === "propresenter-viewer" ? ["lowerthird:trigger", "rundown:control"] : "devices:access"))) {
           return new Response("Unauthorized", { status: 401 });
         }
         const pair = new WebSocketPair();
@@ -342,7 +344,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const server = pair[1];
         upgradingSocket = server;
         const attachment: SocketAttachment = {
-          role: role === "bridge" ? "bridge" : "client",
+          role: role === "bridge" ? "bridge" : role === "propresenter-viewer" ? "propresenter-viewer" : "client",
           orgId: this.orgId,
           ...(role === "bridge"
             ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 3 as const, settingsPublicKey }
@@ -388,8 +390,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             JSON.stringify({
               type: "bridge-status",
               online: this.bridgeOnline,
-              ...this.bridgeInfo,
-              ...this.selectionStatus(),
+              ...(role === "propresenter-viewer" ? {} : { ...this.bridgeInfo, ...this.selectionStatus() }),
             })
           );
         }
@@ -672,13 +673,14 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
         if (
           !attachment?.authClaim
-          || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
+          || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, attachment.role === "propresenter-viewer" ? ["lowerthird:trigger", "rundown:control"] : "devices:access"))
         ) {
           ws.close(4403, "Device access changed");
           this.clientSessions.delete(ws);
           return;
         }
         renewSocketReadLease(ws);
+        if (attachment.role === "propresenter-viewer") return;
         // Message from browser client → forward to bridge
         await this.handleClientMessage(msg, ws, attachment.authClaim.userId);
       }
@@ -736,6 +738,26 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   private async handleBridgeMessage(msg: BridgeMessage): Promise<void> {
     switch (msg.type) {
+      case "configured-propresenter-requested": {
+        if (!this.bridgeWs || !this.activeInstallation) break;
+        const socket = this.bridgeWs;
+        try {
+          const settings = await readProPresenterSettings(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
+          if (!settings.host) break;
+          const message = proPresenterConnection(settings);
+          if (this.bridgeInfo.connectedTargets.includes(message.target)) break;
+          await authorizeBridgeTarget(this.env.DB, this.orgId, message, {
+            source: "automation", actorUserId: null,
+            executionId: `installation:${this.activeInstallation.installationId}:${crypto.randomUUID()}`,
+          });
+          const protectedMessage = await this.protectDeviceSettings(socket, message.protocol, message.target, message.settings);
+          if (socket === this.bridgeWs && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(protectedMessage));
+        } catch {
+          // Audit/approval/key failures must not deliver credentials or start network I/O.
+          socket.send(JSON.stringify({ type: "configured-propresenter-unavailable" }));
+        }
+        break;
+      }
       case "command-connection-requested": {
         if (typeof msg.id !== "string" || typeof msg.requestId !== "string" || msg.requestId.length > 128) break;
         const owner = this.pendingClientCommands.get(msg.id);
@@ -993,9 +1015,13 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private broadcastToClients(data: string): void {
+    const slideOnly = proPresenterViewerMessage(data);
     for (const ws of [...this.clientSessions]) {
       if (!socketReadLeaseAllows(ws, true)) { this.clientSessions.delete(ws); continue; }
-      try { ws.send(data); }
+      try {
+        const message = parseSocketAttachment(ws.deserializeAttachment())?.role === "propresenter-viewer" ? slideOnly : data;
+        if (message !== null) ws.send(message);
+      }
       catch { this.clientSessions.delete(ws); }
     }
   }
@@ -1035,15 +1061,15 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         this.disconnectSocket(socket);
       } else if (authority.expiresAt !== null) expiresAt = expiresAt === null ? authority.expiresAt : Math.min(expiresAt, authority.expiresAt);
     }
-    await scheduleSocketReadRefresh(this.ctx, ws => parseSocketAttachment(ws.deserializeAttachment())?.role === "client", expiresAt);
+    await scheduleSocketReadRefresh(this.ctx, ws => { const role = parseSocketAttachment(ws.deserializeAttachment())?.role; return role === "client" || role === "propresenter-viewer"; }, expiresAt);
   }
 
   async refreshReadAuthority(userId?: string): Promise<void> {
     await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
       const attachment = parseSocketAttachment(socket.deserializeAttachment());
-      if (attachment?.role !== "client") return null;
+      if (attachment?.role !== "client" && attachment?.role !== "propresenter-viewer") return null;
       if (userId && attachment.authClaim?.userId !== userId) return null;
-      return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"));
+      return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, attachment.role === "propresenter-viewer" ? ["lowerthird:trigger", "rundown:control"] : "devices:access"));
     });
     await this.refreshCredentialAuthority();
   }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
 import { maskDeviceSettings, readDeviceSettingsForUse, writeDeviceSettings } from "./device-settings.server";
-import { readSettingValuesForUse } from "./credential-settings.server";
+import { readProPresenterSettings } from "./propresenter-settings.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import {
   resolveWorkspaceProfile,
@@ -718,47 +718,6 @@ async function bootstrap(
   });
 }
 
-interface MobileProPresenterSettings {
-  host: string;
-  stagePort: number;
-  apiPort: number;
-  password: string;
-  cuesEnabled: boolean;
-  stageDisplayEnabled: boolean;
-}
-
-async function readMobileProPresenterSettings(
-  db: MobileApiDatabase,
-  orgId: string,
-  encryptionSecret?: string,
-): Promise<MobileProPresenterSettings> {
-  const result = await db
-    .prepare(
-      `SELECT key, value FROM app_setting
-     WHERE orgId = ? AND key IN (
-       'propresenter-host', 'propresenter-port', 'propresenter-api-port',
-       'propresenter-password', 'propresenter-send-cues', 'propresenter-stage-display'
-     )`,
-    )
-    .bind(orgId)
-    .all<{ key: string; value: string }>();
-  const values = await readSettingValuesForUse(encryptionSecret, orgId, result.results ?? []);
-  const port = (value: string | undefined, fallback: number) => {
-    const parsed = Number.parseInt(value ?? "", 10);
-    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65_535
-      ? parsed
-      : fallback;
-  };
-  return {
-    host: values["propresenter-host"]?.trim() ?? "",
-    stagePort: port(values["propresenter-port"], 50_001),
-    apiPort: port(values["propresenter-api-port"], 1_025),
-    password: values["propresenter-password"] ?? "",
-    cuesEnabled: values["propresenter-send-cues"] === "true",
-    stageDisplayEnabled: values["propresenter-stage-display"] === "true",
-  };
-}
-
 async function rundown(
   request: Request,
   url: URL,
@@ -827,7 +786,7 @@ async function rundown(
       )
       .bind(orgId)
       .first<{ value: string }>(),
-    readMobileProPresenterSettings(db, orgId, env.CREDENTIAL_ENCRYPTION_KEYS),
+    readProPresenterSettings(db, orgId, env.CREDENTIAL_ENCRYPTION_KEYS),
     mobileBridgeStatus(env, orgId),
   ]);
   const proPresenterTarget = bridge.connectedTargets.find((target) =>
@@ -874,7 +833,7 @@ async function controlMobileProPresenter(
   if (command !== "next" && command !== "previous" && command !== "clear") {
     return json({ error: "Choose a valid ProPresenter command." }, 400);
   }
-  const settings = await readMobileProPresenterSettings(env.DB, access.orgId, env.CREDENTIAL_ENCRYPTION_KEYS);
+  const settings = await readProPresenterSettings(env.DB, access.orgId, env.CREDENTIAL_ENCRYPTION_KEYS);
   if (!settings.host)
     return json(
       { error: "Configure ProPresenter in ShowPilot settings first." },

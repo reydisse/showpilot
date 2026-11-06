@@ -18,6 +18,7 @@ function requiresFragments(path, fragments) {
 
 test("screen-bound web polling pauses while hidden and cannot overlap", () => {
   const contracts = [
+    ["apps/web/src/hooks/useProPresenter.ts", ["document.visibilityState", "polling", "startingRevision !== revision"]],
     ["apps/web/src/components/dashboard/tm-operations.tsx", ["document.visibilityState", "polling", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/NotificationCenter.tsx", ["document.visibilityState", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/LiveRundownBar.tsx", ["document.visibilityState", "refreshing"]],
@@ -33,7 +34,7 @@ test("screen-bound web polling pauses while hidden and cannot overlap", () => {
 
 test("always-on production feeds prevent overlap without pausing output", () => {
   requiresFragments("apps/web/src/routes/$slug/streaming/graphics/overlay.tsx", ["let polling = false", "if (polling) return"]);
-  requiresFragments("apps/web/src/lib/propresenter-client.ts", ["private pollInFlight = false", "this.pollInFlight"]);
+  requiresFragments("apps/bridge/src/protocols/propresenter.ts", ["private pollInFlight = false", "this.pollInFlight"]);
   requiresFragments("apps/web/src/lib/device-modules/profiles/profile-driven-module.ts", ["pollingFeedbackIds", "finally"]);
 });
 

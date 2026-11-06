@@ -282,7 +282,7 @@ const appServer = {
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const requestedRole = url.searchParams.get("role") ?? "client";
-      if (requestedRole !== "bridge" && requestedRole !== "client") return new Response("Invalid Bridge role", { status: 400 });
+      if (requestedRole !== "bridge" && requestedRole !== "client" && requestedRole !== "propresenter-viewer") return new Response("Invalid Bridge role", { status: 400 });
       if ([...url.searchParams.keys()].some((name) => /^(key|apikey|api-key|api_key|authbridgekey)$/i.test(name))) {
         return new Response("Bridge credentials must use the API key header", { status: 401 });
       }
@@ -293,6 +293,8 @@ const appServer = {
         const authority = await authenticateBridgeRequest(e.DB, request, orgId);
         if (!authority) return new Response("Unauthorized", { status: 401 });
         credentialId = authority.credentialId;
+      } else if (requestedRole === "propresenter-viewer") {
+        if (subpath !== "ws" || !canUse(access, ["lowerthird:trigger", "rundown:control"])) return new Response("Unauthorized", { status: 401 });
       } else if (!canUse(access, "devices:access")) return new Response("Unauthorized", { status: 401 });
       if (!e.BETTER_AUTH_SECRET) return new Response("Bridge authorization is unavailable", { status: 503 });
       const stub = e.BRIDGE_RELAY.get(e.BRIDGE_RELAY.idFromName(orgId));

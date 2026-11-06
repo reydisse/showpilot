@@ -99,7 +99,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProPresenter } from "@/hooks/useProPresenter";
-import { getOrgSettings, getProPresenterRuntimeSettings } from "@/lib/settings";
+import { getOrgSettings, getProPresenterConfiguration } from "@/lib/settings";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { waitForRundownWrites } from "@/lib/rundown-selection";
 import { createBrowserId } from "@/lib/browser-id";
@@ -831,7 +831,6 @@ function RundownPage() {
   const [ppEnabled, setPpEnabled] = useState(false);
   const [ppHost, setPpHost] = useState("");
   const [ppPort, setPpPort] = useState(50001);
-  const [ppPassword, setPpPassword] = useState("");
   const [ppApiPort, setPpApiPort] = useState(0);
   const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
   const [ppOutputPending, setPpOutputPending] = useState(false);
@@ -857,23 +856,21 @@ function RundownPage() {
   // Load PP settings from org config
   useEffect(() => {
     if (!canControlRundown) return;
-    getProPresenterRuntimeSettings({ data: { orgId } })
+    getProPresenterConfiguration({ data: { orgId } })
       .then((settings) => {
         const host = settings["propresenter-host"] || "";
         const port = parseInt(settings["propresenter-port"] || "50001", 10);
-        const pwd = settings["propresenter-password"] || "";
         const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
         const cues = settings["propresenter-send-cues"] === "true";
         setPpHost(host);
         setPpPort(port);
-        setPpPassword(pwd);
         setPpApiPort(apiPort);
         setPpCuesEnabled(cues);
       })
       .catch(() => {});
   }, [canControlRundown, orgId]);
 
-  // PP slide preview — direct ProPresenter connection updates local preview only.
+  // The authenticated venue feed updates the local preview.
   const handlePPSlideChange = useCallback(
     (slide: import("@/lib/propresenter-client").PPSlideData | null) => {
       if (!slide || !slide.text) {
@@ -899,13 +896,11 @@ function RundownPage() {
     [],
   );
 
-  // ProPresenter direct connection (works on local network / dev only)
+  // Observe the venue Bridge feed without exposing device credentials.
   const pp = useProPresenter({
     orgId,
     host: ppHost,
     port: ppPort,
-    apiPort: ppApiPort || undefined,
-    password: ppPassword,
     enabled: ppEnabled,
     onSlideChange: handlePPSlideChange,
   });
@@ -946,25 +941,24 @@ function RundownPage() {
     [orgId, ppCmdPending],
   );
 
-  // Prefer the freshest slide so a stale bridge payload cannot mask a newer
-  // direct update during long-running ProPresenter sessions.
+  // Prefer the freshest confirmed preview from the rundown or the venue feed.
   const bridgeSlideUpdatedAt = syncedPpSlide?.updatedAt ?? 0;
-  const directSlideUpdatedAt = ppCurrentSlide?.updatedAt ?? 0;
+  const feedSlideUpdatedAt = ppCurrentSlide?.updatedAt ?? 0;
   const ppSource =
-    bridgeSlideUpdatedAt >= directSlideUpdatedAt && bridgeSlideUpdatedAt > 0
+    bridgeSlideUpdatedAt >= feedSlideUpdatedAt && bridgeSlideUpdatedAt > 0
       ? "bridge"
-      : directSlideUpdatedAt > 0
-        ? "direct"
+      : feedSlideUpdatedAt > 0
+        ? "feed"
         : null;
   const activePpSlide: PPSlidePayload | null =
     ppSource === "bridge"
       ? syncedPpSlide
-      : ppSource === "direct"
+      : ppSource === "feed"
         ? ppCurrentSlide
         : null;
 
-  // PP is "connected" if gateway bridge is sending slides OR direct connection works
-  const ppIsConnected = ppSource !== null || pp.status === "connected";
+  // A retained preview must not hide a reported transport failure.
+  const ppIsConnected = pp.status === "connected" || (!ppEnabled && ppSource !== null);
 
   const togglePP = useCallback(() => {
     if (!canEditRundown) return;
@@ -2393,15 +2387,13 @@ function RundownPage() {
                           }`}
                         />
                         <span className="text-[10px] text-board-muted">
-                          {ppSource === "bridge"
-                            ? "Connected via Gateway Bridge"
-                            : ppSource === "direct"
-                              ? `Connected to ${ppHost}`
+                          {pp.status === "error"
+                            ? pp.error ?? "Venue Bridge disconnected"
+                            : ppIsConnected
+                              ? "Connected through venue Bridge"
                               : pp.status === "connecting"
                                 ? "Connecting..."
-                                : pp.status === "error"
-                                  ? "Cannot reach PP directly — use Gateway Bridge"
-                                  : "Waiting for Gateway Bridge..."}
+                                : "Waiting for venue Bridge..."}
                         </span>
                       </div>
 
@@ -2495,7 +2487,7 @@ function RundownPage() {
                           </p>
                           <p className="text-[9px] text-board-muted/50 mt-1.5">
                             {ppSource === "bridge"
-                              ? "Gateway Bridge preview"
+                              ? "Rundown preview"
                               : "Direct ProPresenter preview"}
                           </p>
                         </div>
@@ -2512,7 +2504,7 @@ function RundownPage() {
                               </p>
                               <div className="text-[9px] text-board-muted/50 font-mono space-y-0.5">
                                 <p>
-                                  WS:{" "}
+                                  Bridge:{" "}
                                   {pp.debugInfo.wsConnected ? "open" : "closed"}{" "}
                                   | msgs: {pp.debugInfo.wsMessagesReceived}
                                 </p>
@@ -2521,7 +2513,7 @@ function RundownPage() {
                                     className="truncate max-w-full"
                                     title={pp.debugInfo.lastWsMessage}
                                   >
-                                    Last WS:{" "}
+                                    Last event:{" "}
                                     {pp.debugInfo.lastWsMessage.slice(0, 80)}
                                   </p>
                                 )}

@@ -28,7 +28,7 @@ export class BridgeProxy {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
 
-  constructor(orgId: string) {
+  constructor(orgId: string, private readonly role: "client" | "propresenter-viewer" = "client") {
     this.orgId = orgId;
   }
 
@@ -38,7 +38,7 @@ export class BridgeProxy {
     this.shouldReconnect = true;
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${protocol}://${window.location.host}/api/bridge/${this.orgId}/ws?role=client`;
+    const url = `${protocol}://${window.location.host}/api/bridge/${this.orgId}/ws?role=${this.role}`;
 
     this.ws = new WebSocket(url);
 
@@ -224,6 +224,19 @@ export function getSharedBridgeProxy(orgId: string): BridgeProxy {
     proxy = new BridgeProxy(orgId);
     proxy.connect();
     sharedBridgeProxies.set(orgId, proxy);
+  }
+  return proxy;
+}
+
+const sharedProPresenterProxies = new Map<string, BridgeProxy>();
+
+/** Separate read-only transport: viewing slides must not grant device control. */
+export function getSharedProPresenterProxy(orgId: string): BridgeProxy {
+  let proxy = sharedProPresenterProxies.get(orgId);
+  if (!proxy) {
+    proxy = new BridgeProxy(orgId, "propresenter-viewer");
+    proxy.connect();
+    sharedProPresenterProxies.set(orgId, proxy);
   }
   return proxy;
 }

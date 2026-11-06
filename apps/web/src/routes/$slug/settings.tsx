@@ -1581,7 +1581,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
           <IntegrationCard
             name="ProPresenter"
             icon={<SlidersHorizontal className="w-4 h-4" />}
-            description="Connect directly on the same network, or use the ShowPilot Gateway Bridge remotely"
+            description="Use the venue Bridge to connect ProPresenter and share its live slide feed."
             connected={rundownAdapter === "propresenter"}
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}

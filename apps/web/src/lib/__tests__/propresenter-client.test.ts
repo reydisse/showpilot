@@ -1,38 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProPresenterClient, type PPConnectionStatus } from "@/lib/propresenter-client";
-
-afterEach(() => {
-  vi.unstubAllGlobals();
+import { expect, it } from "vitest";
+import { parseProPresenterFeedEvent } from "../propresenter-client";
+it("distinguishes explicit clear from invalid or partial events", () => {
+  expect(parseProPresenterFeedEvent("null", 1)).toEqual({ kind: "clear" });
+  expect(parseProPresenterFeedEvent('{"text":""}', 1)).toEqual({ kind: "clear" });
+  for (const value of ["broken", "{}", '{"status":"offline"}', '{"text":null}']) expect(parseProPresenterFeedEvent(value, 1)).toBeNull();
 });
-
-describe("ProPresenterClient", () => {
-  it("does not open the legacy Stage Display WebSocket on a shared API port", async () => {
-    const websocket = vi.fn();
-    vi.stubGlobal("WebSocket", websocket);
-    const statuses: PPConnectionStatus[] = [];
-    const slides: string[] = [];
-    const client = new ProPresenterClient({
-      host: "192.168.1.20",
-      port: 1025,
-      onSlideChange: (slide) => {
-        if (slide) slides.push(slide.text);
-      },
-      onStatusChange: (status) => statuses.push(status),
-    });
-
-    client.connect(async () => ({
-      text: "Welcome",
-      notes: "",
-      presentationName: "Service",
-      slideIndex: 0,
-      isScripture: false,
-      receivedAt: Date.now(),
-    }), 1025);
-    await vi.waitFor(() => expect(slides).toEqual(["Welcome"]));
-
-    expect(websocket).not.toHaveBeenCalled();
-    expect(statuses).toContain("connected");
-    expect(client.getDebugInfo().pollingActive).toBe(true);
-    client.disconnect();
-  });
+it("retains current/next identity and permits only public slide fields", () => {
+  const event = parseProPresenterFeedEvent(JSON.stringify({ text: "Current", nextText: "Upcoming", slideId: "one", nextSlideId: "two", pn: "Service", password: "never-forward", credentials: { secret: "private" } }), 12);
+  expect(event).toMatchObject({ kind: "slide", slide: { text: "Current", nextText: "Upcoming", slideId: "one", nextSlideId: "two", presentationName: "Service", receivedAt: 12 } });
+  expect(JSON.stringify(event)).not.toMatch(/never-forward|private|credentials|password/);
 });
