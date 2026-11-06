@@ -213,6 +213,37 @@ Do not restore a pre-digest Worker after this conversion. The hash cannot be
 converted back to the issued token. Keep a compatible rollback build, and test
 an existing kiosk display and Companion control with the saved device tokens.
 
+### Bridge connection audit protocol
+
+The Worker and bundled native Bridge require device-policy protocol 2. The
+native Bridge waits for a socket-bound receipt before a command opens or
+reopens TCP, OSC, UDP or direct HTTP control. Wake-on-LAN requests a receipt
+for each transient broadcast socket. The relay records the authenticated
+operator or automation execution from the original command, never attribution
+or destinations supplied in the receipt request. Existing connections continue
+without this extra round trip. Automatic local ProPresenter connections also
+wait for an installation-attributed audit receipt, without sending passwords.
+An audit failure, denial or missing receipt prevents the connection.
+
+Release the Worker and both Desktop/Bridge bundles together during a planned
+maintenance window. Older native agents receive HTTP 426, and restored older
+sockets close with 4406. The policy-2 agent also cannot connect to a policy-1
+Worker. Do not perform this transition mid-show. Keep a matching Worker/native
+pair for rollback, subject to the storage compatibility restrictions below.
+This protocol adds no signing secret or database migration.
+
+After building the web application and native sidecar, rehearse the actual
+browser-to-Worker-to-native-to-device path against disposable local data:
+
+```sh
+node apps/web/scripts/smoke-bridge-command-connections.mjs apps/bridge-desktop/src-tauri/binaries/showpilot-bridge-aarch64-apple-darwin
+```
+
+Use the corresponding compiled executable path on other platforms. The check
+opens a local TCP fixture, verifies operator attribution and connection reuse,
+drops the socket, verifies a second attributed connection, then removes the
+approval and checks that subsequent traffic is blocked.
+
 ### Organization credential encryption
 
 Credential-valued organization settings now encrypt on write. The Settings

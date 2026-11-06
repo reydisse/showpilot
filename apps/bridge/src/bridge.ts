@@ -57,6 +57,10 @@ interface DisconnectDeviceMessage {
   target: string;
 }
 
+type ConnectionApprovalRequest =
+  | { type: "command-connection-requested"; id: string }
+  | { type: "automatic-connection-requested"; target: string; apiPort: number };
+
 interface BridgeRoleMessage {
   type: "bridge-role";
   role: "active" | "standby";
@@ -165,7 +169,7 @@ export function bridgeWebSocketOptions(
   wsUrlObject.searchParams.delete("key");
   return {
     url: wsUrlObject.toString(),
-    options: { headers: { "x-showpilot-bridge-policy": "1", ...(key ? { "x-showpilot-api-key": key } : {}) } },
+    options: { headers: { "x-showpilot-bridge-policy": "2", ...(key ? { "x-showpilot-api-key": key } : {}) } },
   };
 }
 
@@ -182,6 +186,12 @@ export class Bridge {
   private role: "waiting" | "active" | "standby" = "waiting";
   private activeInstallation: BridgeRoleMessage["activeInstallation"] = null;
   private messageWork: Promise<void> = Promise.resolve();
+  private pendingConnectionApproval: {
+    socket: WebSocket;
+    request: ConnectionApprovalRequest;
+    requestId: string;
+    finish: (approved: boolean) => void;
+  } | null = null;
   private approvedTargets = new Set<string>();
   private connectionEndpoints = new Map<string, BridgeEndpoint[]>();
   private url: string;
@@ -251,6 +261,7 @@ export class Bridge {
   }
 
   private async disconnectDevices(): Promise<void> {
+    this.pendingConnectionApproval?.finish(false);
     // Stop device output and polling when this installation becomes standby.
     for (const conn of this.ppConnections.values()) conn.disconnect();
     for (const conn of this.tcpConnections.values()) conn.disconnect();
@@ -297,6 +308,18 @@ export class Bridge {
     this.ws.on("message", (data) => {
       try {
         const parsed: unknown = JSON.parse(data.toString());
+        // The command queue waits for this receipt. Process only its exact,
+        // socket-bound acknowledgement outside that queue to avoid deadlock.
+        if (isRecord(parsed) && (parsed.type === "command-connection-approved" || parsed.type === "automatic-connection-approved")) {
+          const pending = this.pendingConnectionApproval;
+          const matches = pending?.request.type === "command-connection-requested"
+            ? parsed.type === "command-connection-approved" && parsed.id === pending.request.id
+            : parsed.type === "automatic-connection-approved";
+          if (pending?.socket === socket && matches && parsed.requestId === pending.requestId) {
+            pending.finish(parsed.approved === true);
+          }
+          return;
+        }
         const message = parseIncomingMessage(parsed);
         if (message) {
           this.messageWork = this.messageWork.then(async () => {
@@ -435,19 +458,19 @@ export class Bridge {
 
       switch (msg.protocol) {
         case "tcp-command":
-          response = await this.executeTcpCommand(msg.target, msg.command);
+          response = await this.executeTcpCommand(msg);
           break;
         case "pjlink":
           response = await this.executePjlinkCommand(msg.target, msg.command);
           break;
         case "osc":
-          await this.executeOscCommand(msg.target, msg.command);
+          await this.executeOscCommand(msg);
           break;
         case "http-command":
-          response = await this.executeHttpCommand(msg.target, msg.command);
+          response = await this.executeHttpCommand(msg);
           break;
         case "udp":
-          await this.executeUdpCommand(msg.target, msg.command);
+          await this.executeUdpCommand(msg);
           break;
         case "visca-ip":
           await this.executeViscaCommand(msg.target, msg.command);
@@ -466,7 +489,7 @@ export class Bridge {
           await this.executeObsCommand(msg.target, msg.command);
           break;
         case "wol":
-          await this.executeWol(msg.command);
+          await this.executeWol(msg);
           break;
         default:
           throw new Error(`Unknown protocol: ${msg.protocol}`);
@@ -885,9 +908,16 @@ export class Bridge {
       console.log("[pp-bridge] Waiting for administrator approval of the configured ProPresenter ports.");
       return;
     }
-    // Report local automatic connections without sending their password to
-    // the cloud. The relay derives installation attribution from this socket.
-    this.send({ type: "automatic-connection-requested", target, apiPort: settings.apiPort ?? 1025 });
+    // Wait until the relay records the authenticated installation. Local
+    // ProPresenter passwords never leave the native process in this request.
+    try {
+      await this.requestConnectionApproval({ type: "automatic-connection-requested", target, apiPort: settings.apiPort ?? 1025 });
+      await this.authorizeDestination({ type: "connect-device", protocol: "propresenter", target, settings });
+    } catch {
+      console.error("[pp-bridge] Automatic connection was not approved and recorded. Check Bridge connectivity and destination approvals.");
+      this.send({ type: "device-status", target, connected: false });
+      return;
+    }
     await this.connectProPresenter(target, settings);
   }
 
@@ -953,17 +983,42 @@ export class Bridge {
     }
   }
 
-  private async executeTcpCommand(
-    target: string,
-    command: string,
-  ): Promise<string> {
+  private async requestCommandConnection(msg: CommandMessage): Promise<void> {
+    await this.requestConnectionApproval({ type: "command-connection-requested", id: msg.id });
+    await this.authorizeDestination(msg);
+  }
+
+  private async requestConnectionApproval(request: ConnectionApprovalRequest): Promise<void> {
+    const socket = this.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN || this.role !== "active") throw new Error("Bridge connection approval unavailable");
+    const requestId = crypto.randomUUID();
+    const approved = await new Promise<boolean>(resolve => {
+      const finish = (allowed: boolean) => {
+        clearTimeout(timer);
+        this.pendingConnectionApproval = null;
+        resolve(allowed);
+      };
+      const timer = setTimeout(() => finish(false), 3000);
+      this.pendingConnectionApproval = { socket, request, requestId, finish };
+      try { socket.send(JSON.stringify({ ...request, requestId })); }
+      catch { finish(false); }
+    });
+    if (!approved || this.ws !== socket || socket.readyState !== WebSocket.OPEN || this.role !== "active") {
+      throw new Error("Device connection was not approved and recorded. Retry after checking Bridge connectivity and destination approvals.");
+    }
+  }
+
+  private async executeTcpCommand(msg: CommandMessage): Promise<string> {
+    const { target, command } = msg;
     let conn = this.tcpConnections.get(target);
     if (!conn || !conn.isConnected()) {
-      // Auto-connect
+      await this.requestCommandConnection(msg);
+      conn?.disconnect();
       const { host, port } = networkAddress(target);
       conn = new TcpConnection();
       await conn.connect(host, port);
       this.tcpConnections.set(target, conn);
+      this.sendStatus();
     }
     return await conn.sendCommand(command);
   }
@@ -974,16 +1029,17 @@ export class Bridge {
     return await connection.sendCommand(command);
   }
 
-  private async executeOscCommand(
-    target: string,
-    command: string,
-  ): Promise<void> {
+  private async executeOscCommand(msg: CommandMessage): Promise<void> {
+    const { target, command } = msg;
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
+      await this.requestCommandConnection(msg);
+      conn?.disconnect();
       const { host, port } = networkAddress(target);
       conn = new UdpConnection();
       await conn.connect(host, port);
       this.udpConnections.set(target, conn);
+      this.sendStatus();
     }
 
     // Parse OSC command: "/address type:value type:value"
@@ -1082,16 +1138,17 @@ export class Bridge {
     this.oscMixerStates.delete(target);
   }
 
-  private async executeUdpCommand(
-    target: string,
-    command: string,
-  ): Promise<void> {
+  private async executeUdpCommand(msg: CommandMessage): Promise<void> {
+    const { target, command } = msg;
     let conn = this.udpConnections.get(target);
     if (!conn || !conn.isConnected()) {
+      await this.requestCommandConnection(msg);
+      conn?.disconnect();
       const { host, port } = networkAddress(target);
       conn = new UdpConnection();
       await conn.connect(host, port);
       this.udpConnections.set(target, conn);
+      this.sendStatus();
     }
 
     // Command is hex string for VISCA, or raw bytes
@@ -1117,10 +1174,13 @@ export class Bridge {
     );
   }
 
-  private async executeHttpCommand(
-    target: string,
-    command: string,
-  ): Promise<string> {
+  private async executeHttpCommand(msg: CommandMessage): Promise<string> {
+    const { target, command } = msg;
+    if (!this.httpDeviceSettings.has(target)) {
+      await this.requestCommandConnection(msg);
+      this.httpDeviceSettings.set(target, {});
+      this.sendStatus();
+    }
     const settings = this.httpDeviceSettings.get(target) ?? {};
     const authToken = typeof settings.authToken === "string" ? settings.authToken : undefined;
 
@@ -1156,10 +1216,11 @@ export class Bridge {
     return await res.text();
   }
 
-  private async executeWol(command: string): Promise<void> {
+  private async executeWol(msg: CommandMessage): Promise<void> {
     // command = MAC address "AA:BB:CC:DD:EE:FF"
-    const mac = command.replace(/[:-]/g, "");
-    if (mac.length !== 12) throw new Error("Invalid MAC address");
+    const mac = msg.command.replace(/[:-]/g, "");
+    if (!/^[0-9a-f]{12}$/i.test(mac)) throw new Error("Invalid MAC address");
+    await this.requestCommandConnection(msg);
 
     const macBytes = Buffer.from(mac, "hex");
     // Magic packet: 6x 0xFF + 16x MAC
@@ -1170,9 +1231,10 @@ export class Bridge {
     }
 
     const conn = new UdpConnection();
-    await conn.connect("255.255.255.255", 9);
-    await conn.send(packet);
-    conn.disconnect();
+    try {
+      await conn.connect("255.255.255.255", 9);
+      await conn.send(packet);
+    } finally { conn.disconnect(); }
   }
 
   // ─── Helpers ────────────────────────────────────────────

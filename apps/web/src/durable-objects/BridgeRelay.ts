@@ -59,7 +59,7 @@ interface SocketAttachment {
   credentialId?: string;
   installationId?: string;
   installationLabel?: string;
-  targetPolicyVersion?: 1;
+  targetPolicyVersion?: 2;
   timecodeTarget?: TimecodeTarget;
   authClaim?: LiveSessionAuthorityClaim;
 }
@@ -98,11 +98,28 @@ export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
 interface PendingDispatch {
   resolve: (result: BridgeDispatchResult) => void;
   timer: ReturnType<typeof setTimeout>;
+  connection?: CommandConnection;
 }
 
 interface PendingClientCommand {
   socket: WebSocket;
   clientId: string;
+  timer: ReturnType<typeof setTimeout>;
+  connection?: CommandConnection;
+}
+
+interface CommandConnection {
+  target: string;
+  protocol: "tcp-command" | "osc" | "udp" | "http-command" | "wol";
+  actor: BridgeTargetActor;
+  requested: boolean;
+}
+
+function commandConnection(message: { type: string; [key: string]: unknown }, actor: BridgeTargetActor): CommandConnection | undefined {
+  if (message.type !== "command" || typeof message.target !== "string"
+    || (message.protocol !== "tcp-command" && message.protocol !== "osc" && message.protocol !== "udp"
+      && message.protocol !== "http-command" && message.protocol !== "wol")) return;
+  return { target: message.target, protocol: message.protocol, actor, requested: false };
 }
 
 export interface BridgeDispatchResult {
@@ -156,7 +173,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     bridgeInfo: bridgeInfo ?? undefined,
     installationId: typeof value.installationId === "string" ? value.installationId : undefined,
     installationLabel: typeof value.installationLabel === "string" ? value.installationLabel : undefined,
-    targetPolicyVersion: value.targetPolicyVersion === 1 ? 1 : undefined,
+    targetPolicyVersion: value.targetPolicyVersion === 2 ? 2 : undefined,
     credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
     timecodeTarget: isRecord(value.timecodeTarget)
       && value.timecodeTarget.orgId === value.orgId
@@ -178,7 +195,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
 
 function bridgeAuditAction(type: string): BridgeAuditAction | null {
   switch (type) {
-    case "automatic-connection-requested": return "connect-device";
+    case "automatic-connection-requested": case "command-connection-requested": return "connect-device";
     case "bridge-status": case "command-response": case "device-event":
     case "device-status": case "pong": case "timecode-feed": return type;
     default: return null;
@@ -220,8 +237,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             ws.close(4403, "Reconnect with installation credentials");
             continue;
           }
-          if (attachment.targetPolicyVersion !== 1) {
-            ws.close(4406, "Update the Bridge to support approved device destinations");
+          if (attachment.targetPolicyVersion !== 2) {
+            ws.close(4406, "Update the Bridge to support approved and attributed device connections");
             continue;
           }
           // Re-save only parsed fields so pre-upgrade event snapshots cannot
@@ -300,7 +317,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const authClaim = this.readAuthorityClaim(url);
         if (role === "bridge") {
           if (!credentialId || !(await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId))) return new Response("Unauthorized", { status: 401 });
-          if (request.headers.get("x-showpilot-bridge-policy") !== "1") return new Response("Update ShowPilot Desktop or Bridge to support approved device destinations.", { status: 426 });
+          if (request.headers.get("x-showpilot-bridge-policy") !== "2") return new Response("Update ShowPilot Desktop or Bridge to support approved and attributed device connections.", { status: 426 });
         } else if (role !== "client" || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, "devices:access"))) {
           return new Response("Unauthorized", { status: 401 });
         }
@@ -312,7 +329,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           role: role === "bridge" ? "bridge" : "client",
           orgId: this.orgId,
           ...(role === "bridge"
-            ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 1 as const }
+            ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 2 as const }
             : {
                 authClaim: authClaim ?? undefined,
               }),
@@ -540,12 +557,12 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           return { result: Promise.resolve({ success: false, error: error instanceof BridgeTargetError ? error.message : "Bridge destination approval could not be verified." }) };
         }
       }
-      return { result: this.beginDispatch(socket, message) };
+      return { result: this.beginDispatch(socket, message, actor) };
     });
     return operation.result;
   }
 
-  private beginDispatch(bridgeSocket: WebSocket, message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
+  private beginDispatch(bridgeSocket: WebSocket, message: BridgeDispatchMessage, actor: BridgeTargetActor): Promise<BridgeDispatchResult> {
     if (message.type === "disconnect-device") {
       try {
         bridgeSocket.send(JSON.stringify(message));
@@ -567,7 +584,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         pending.delete(key);
         resolve({ success: false, error: message.type === "command" ? "Device command timed out" : "Device connection timed out" });
       }, message.type === "command" ? 10_000 : 8_000);
-      pending.set(key, { resolve, timer });
+      pending.set(key, { resolve, timer, connection: commandConnection(message, actor) });
       try {
         bridgeSocket.send(JSON.stringify(message));
       } catch {
@@ -670,7 +687,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       if (wasBridge) this.broadcastStatus();
       this.clientSessions.delete(ws);
       for (const [operationId, owner] of this.pendingClientCommands) {
-        if (owner.socket === ws) this.pendingClientCommands.delete(operationId);
+        if (owner.socket === ws) {
+          clearTimeout(owner.timer);
+          this.pendingClientCommands.delete(operationId);
+        }
       }
     }
   }
@@ -684,16 +704,42 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   private async handleBridgeMessage(msg: BridgeMessage): Promise<void> {
     switch (msg.type) {
+      case "command-connection-requested": {
+        if (typeof msg.id !== "string" || typeof msg.requestId !== "string" || msg.requestId.length > 128) break;
+        const owner = this.pendingClientCommands.get(msg.id);
+        const context = owner?.connection ?? this.pendingCommands.get(msg.id)?.connection;
+        let approved = false;
+        if (context && !context.requested) {
+          context.requested = true;
+          try {
+            // Never trust native-supplied destinations or attribution. Resolve
+            // from the already-authorized command, and log before permitting I/O.
+            const claim = owner ? parseSocketAttachment(owner.socket.deserializeAttachment())?.authClaim : null;
+            if (owner && (!claim || !await hasLivePermissionAuthority(this.env.DB, claim, "devices:access"))) {
+              throw new Error("Device access changed");
+            }
+            await authorizeBridgeTarget(this.env.DB, this.orgId, {
+              type: "connect-device", target: context.target, protocol: context.protocol, settings: {},
+            }, context.actor);
+            // The command deadline can expire while D1 is writing the audit.
+            approved = owner ? this.pendingClientCommands.get(msg.id) === owner
+              : this.pendingCommands.get(msg.id)?.connection === context;
+          } catch { /* Missing authority, audit storage, or approval fails closed. */ }
+        }
+        this.bridgeWs?.send(JSON.stringify({ type: "command-connection-approved", id: msg.id, requestId: msg.requestId, approved }));
+        break;
+      }
       case "automatic-connection-requested": {
-        if (typeof msg.target !== "string" || !this.activeInstallation) break;
+        if (typeof msg.target !== "string" || typeof msg.requestId !== "string" || !msg.requestId || msg.requestId.length > 128 || !this.activeInstallation) break;
+        let approved = false;
         try {
           await authorizeBridgeTarget(this.env.DB, this.orgId, {
             type: "connect-device", protocol: "propresenter", target: msg.target,
             settings: { apiPort: msg.apiPort },
           }, { source: "automation", actorUserId: null, executionId: `installation:${this.activeInstallation.installationId}:${crypto.randomUUID()}` });
-        } catch {
-          this.bridgeWs?.send(JSON.stringify({ type: "disconnect-device", target: msg.target }));
-        }
+          approved = true;
+        } catch { /* No native connection may start until its audit is saved. */ }
+        this.bridgeWs?.send(JSON.stringify({ type: "automatic-connection-approved", requestId: msg.requestId, approved }));
         break;
       }
       case "bridge-status":
@@ -730,6 +776,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           }
           const owner = this.pendingClientCommands.get(msg.id);
           if (owner) {
+            clearTimeout(owner.timer);
             this.pendingClientCommands.delete(msg.id);
             try {
               owner.socket.send(JSON.stringify({
@@ -844,10 +891,17 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       case "command": {
         if (typeof msg.id !== "string" || !msg.id) return;
         const operationId = `client_${crypto.randomUUID()}`;
-        this.pendingClientCommands.set(operationId, { socket: clientWs, clientId: msg.id });
+        const timer = setTimeout(() => {
+          this.pendingClientCommands.delete(operationId);
+          try { clientWs.send(JSON.stringify({ type: "command-response", id: msg.id, success: false, error: "Device command timed out" })); }
+          catch { /* The client may already have disconnected. */ }
+        }, 10_000);
+        this.pendingClientCommands.set(operationId, { socket: clientWs, clientId: msg.id, timer,
+          connection: commandConnection(msg, { source: "operator", actorUserId }) });
         try {
           this.bridgeWs.send(JSON.stringify({ type: "command", id: operationId, protocol: msg.protocol, target: msg.target, command: msg.command }));
         } catch {
+          clearTimeout(timer);
           this.pendingClientCommands.delete(operationId);
           try {
             clientWs.send(JSON.stringify({
@@ -890,6 +944,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   private failPendingClientCommands(error: string): void {
     for (const owner of this.pendingClientCommands.values()) {
+      clearTimeout(owner.timer);
       try {
         owner.socket.send(JSON.stringify({
           type: "command-response",
@@ -924,7 +979,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       bridgeInfo: this.bridgeInfo,
       installationId: this.activeInstallation?.installationId,
       installationLabel: this.activeInstallation?.label,
-      targetPolicyVersion: 1,
+      targetPolicyVersion: 2,
       timecodeTarget: this.timecodeTarget ?? undefined,
       ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);

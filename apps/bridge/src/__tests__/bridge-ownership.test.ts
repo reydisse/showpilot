@@ -4,7 +4,8 @@ import net from "node:net";
 import dgram from "node:dgram";
 import { once } from "node:events";
 import WebSocket, { WebSocketServer } from "ws";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { UdpConnection } from "../protocols/udp";
 import { Bridge } from "../bridge";
 import { resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 
@@ -244,7 +245,11 @@ it("requires both configured ProPresenter ports, then stops its polling when the
   expect(stageRequests).toBe(0);
   const automatic = next(socket, "automatic-connection-requested");
   await policy(socket, endpoints);
-  expect(await automatic).toEqual({ type: "automatic-connection-requested", target, apiPort: api.port });
+  const request = await automatic;
+  expect(request).toEqual({ type: "automatic-connection-requested", target, apiPort: api.port, requestId: expect.any(String) });
+  expect(apiRequests).toBe(0);
+  expect(stageRequests).toBe(0);
+  send(socket, { type: "automatic-connection-approved", requestId: request.requestId, approved: true });
   await barrier(socket);
   await expect.poll(() => Object.keys(bridge.getStatus().propresenter)).toContain(target);
   expect(apiRequests).toBeGreaterThan(0);
@@ -256,4 +261,155 @@ it("requires both configured ProPresenter ports, then stops its polling when the
   const counts = [apiRequests, stageRequests];
   await new Promise(resolve => setTimeout(resolve, 1000));
   expect([apiRequests, stageRequests]).toEqual(counts);
+});
+
+it("waits for a matching connection audit receipt, reuses TCP, and audits a dropped retained socket again", async () => {
+  const tcp = net.createServer();
+  tcp.listen(0, "127.0.0.1");
+  await once(tcp, "listening");
+  const connections: net.Socket[] = [];
+  tcp.on("connection", socket => {
+    connections.push(socket);
+    socket.on("data", () => socket.write("OK\r"));
+  });
+  cleanups.push(() => new Promise<void>(resolve => { for (const socket of connections) socket.destroy(); tcp.close(() => resolve()); }));
+  const address = tcp.address();
+  if (!address || typeof address === "string") throw new Error("No TCP address");
+  const target = `127.0.0.1:${address.port}`;
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "tcp-command", target }));
+  const requests: Record<string, unknown>[] = [];
+  socket.on("message", data => {
+    const value = JSON.parse(String(data));
+    if (value.type === "command-connection-requested") requests.push(value);
+  });
+  const command = { type: "command", protocol: "tcp-command", target, command: "fixture\r" };
+  const requested = next(socket, "command-connection-requested");
+  const response = next(socket, "command-response");
+  send(socket, { ...command, id: "first" });
+  const request = await requested;
+  expect(request).toEqual({ type: "command-connection-requested", id: "first", requestId: expect.any(String) });
+  expect(connections).toHaveLength(0);
+  send(socket, { ...request, type: "command-connection-approved", requestId: "wrong-receipt", approved: true });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  expect(connections).toHaveLength(0);
+  send(socket, { ...request, type: "command-connection-approved", approved: true });
+  expect(await response).toMatchObject({ id: "first", success: true });
+  const reused = next(socket, "command-response");
+  send(socket, { ...command, id: "reuse" });
+  expect(await reused).toMatchObject({ success: true });
+  expect(requests).toHaveLength(1);
+  const closed = once(connections[0], "close");
+  connections[0].destroy(); await closed;
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const reopen = next(socket, "command-connection-requested");
+  const reopened = next(socket, "command-response");
+  send(socket, { ...command, id: "reopen" });
+  const newRequest = await reopen;
+  expect(connections).toHaveLength(1);
+  expect(newRequest.requestId).not.toBe(request.requestId);
+  send(socket, { ...newRequest, type: "command-connection-approved", approved: true });
+  expect(await reopened).toMatchObject({ id: "reopen", success: true });
+  expect(connections).toHaveLength(2);
+  expect(requests).toHaveLength(2);
+});
+
+it.each(["osc", "udp"])("requires an audit receipt for implicit %s connections and sends no packet on denial", async protocol => {
+  const { target, packets } = await udp();
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol, target }));
+  const command = { type: "command", protocol, target, command: protocol === "osc" ? "/fixture i:1" : "0102" };
+  for (const approved of [false, true]) {
+    const request = next(socket, "command-connection-requested");
+    const response = next(socket, "command-response");
+    send(socket, { ...command, id: `request-${approved}` });
+    const requested = await request;
+    expect(packets).toHaveLength(0);
+    send(socket, { ...requested, type: "command-connection-approved", approved });
+    expect(await response).toMatchObject({ success: approved });
+  }
+  await expect.poll(() => packets.length).toBe(1);
+});
+
+it("fails a missing audit receipt without opening UDP and ignores a late receipt", async () => {
+  const { target, packets } = await udp();
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "udp", target }));
+  const requested = next(socket, "command-connection-requested");
+  const response = next(socket, "command-response");
+  send(socket, { type: "command", id: "timeout", protocol: "udp", target, command: "0102" });
+  const request = await requested;
+  expect(await response).toMatchObject({ success: false, error: expect.stringContaining("not approved and recorded") });
+  send(socket, { ...request, type: "command-connection-approved", approved: true });
+  await barrier(socket);
+  expect(packets).toHaveLength(0);
+});
+
+it("cancels a pending connection when the cloud socket closes", async () => {
+  const { target, packets } = await udp();
+  const { bridge, socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "udp", target }));
+  const requested = next(socket, "command-connection-requested");
+  send(socket, { type: "command", id: "disconnect", protocol: "udp", target, command: "0102" });
+  await requested;
+  socket.close();
+  await expect.poll(() => bridge.getStatus().role).toBe("waiting");
+  expect(packets).toHaveLength(0);
+});
+
+it("audits a direct HTTP target before its first request and reuses the configured target", async () => {
+  let count = 0;
+  const target = await httpServer((_request, response) => { count++; response.end("OK"); });
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "http-command", target: target.url }));
+  const command = { type: "command", protocol: "http-command", target: target.url, command: "GET /fixture" };
+  const requested = next(socket, "command-connection-requested");
+  const response = next(socket, "command-response");
+  send(socket, { ...command, id: "http-first" });
+  const request = await requested;
+  expect(count).toBe(0);
+  send(socket, { ...request, type: "command-connection-approved", approved: true });
+  expect(await response).toMatchObject({ success: true });
+  const reused = next(socket, "command-response");
+  send(socket, { ...command, id: "http-reuse" });
+  expect(await reused).toMatchObject({ success: true });
+  expect(count).toBe(2);
+});
+
+it("does not connect automatic ProPresenter when its audit is denied", async () => {
+  let requests = 0;
+  const target = await httpServer((_request, response) => { requests++; response.end("{}"); });
+  const { bridge, socket } = await fixture({ host: "127.0.0.1", port: target.port, apiPort: target.port, password: "never-forward" });
+  const destination = `propresenter:127.0.0.1:${target.port}`;
+  const requested = next(socket, "automatic-connection-requested");
+  const selected = role(socket, "active", resolveBridgeEndpoints({ type: "connect-device", protocol: "propresenter", target: destination, settings: { apiPort: target.port } }));
+  const request = await requested;
+  expect(JSON.stringify(request)).not.toContain("never-forward");
+  send(socket, { type: "automatic-connection-approved", requestId: request.requestId, approved: false });
+  await selected;
+  await barrier(socket);
+  expect(requests).toBe(0);
+  expect(bridge.getStatus().propresenter).toEqual({});
+});
+
+it("requires a fresh receipt for each Wake-on-LAN socket and never broadcasts on denial", async () => {
+  // Do not broadcast wake packets onto the developer's real venue network.
+  const connect = vi.spyOn(UdpConnection.prototype, "connect").mockResolvedValue();
+  const transmit = vi.spyOn(UdpConnection.prototype, "send").mockResolvedValue();
+  cleanups.push(() => { connect.mockRestore(); transmit.mockRestore(); });
+  const { socket } = await fixture();
+  const command = { type: "command", protocol: "wol", target: "wol", command: "AA:BB:CC:DD:EE:FF" };
+  await role(socket, "active", resolveBridgeEndpoints(command));
+  for (const [index, approved] of [false, true, true].entries()) {
+    const requested = next(socket, "command-connection-requested");
+    const response = next(socket, "command-response");
+    send(socket, { ...command, id: `wake-${index}` });
+    const request = await requested;
+    expect(connect).toHaveBeenCalledTimes(Math.max(0, index - 1));
+    send(socket, { ...request, type: "command-connection-approved", approved });
+    expect(await response).toMatchObject({ success: approved });
+  }
+  expect(connect).toHaveBeenCalledTimes(2);
+  expect(connect).toHaveBeenCalledWith("255.255.255.255", 9);
+  expect(transmit).toHaveBeenCalledTimes(2);
 });

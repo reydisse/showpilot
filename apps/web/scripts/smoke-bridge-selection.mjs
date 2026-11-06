@@ -18,7 +18,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     const key = (await browser("eval", "[...document.querySelectorAll('code')].map(el => el.textContent).find(text => /^sp_[a-f0-9]{64}$/.test(text))")).result;
     assert.match(key, /^sp_[a-f0-9]{64}$/);
     await click("Dismiss key");
-    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "1" } });
+    const socket = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" } });
     sockets.push(socket);
     let currentRole;
     await new Promise((resolve, reject) => {
