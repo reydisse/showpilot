@@ -1819,7 +1819,7 @@ function RundownPage() {
       <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
         <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <div className="min-w-0 flex-1 basis-full sm:basis-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
               Rundown
             </p>
             <h1 className="truncate font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">
@@ -1966,12 +1966,12 @@ function RundownPage() {
                 </Button>
               </>
             ) : (
-              <span className="hidden rounded-lg border border-board-border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-board-muted sm:inline">
+              <span className="hidden rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-board-muted sm:inline">
                 View only
               </span>
             )}
           </div>
-          <p className="basis-full truncate text-[11px] text-board-muted sm:hidden">
+          <p className="basis-full truncate text-xs text-board-muted sm:hidden">
             {formatDisplayDate(serviceDate)}
             {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
             {selectedShowCall
@@ -2078,7 +2078,7 @@ function RundownPage() {
                   ) : (
                     <Square className="w-3.5 h-3.5 text-board-muted" />
                   )}
-                  <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                  <span className="text-xs font-medium text-board-muted uppercase tracking-widest">
                     {timer.playback === "stop"
                       ? "Stopped"
                       : timer.playback === "play"
@@ -2086,7 +2086,7 @@ function RundownPage() {
                         : "Paused"}
                   </span>
                   {isOvertime && (
-                    <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
+                    <span className="text-xs font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
                       Overtime
                     </span>
                   )}
@@ -2139,7 +2139,7 @@ function RundownPage() {
                   <p className="text-xs text-board-muted mt-2">
                     Next:{" "}
                     <span className="text-board-text/70">{nextItem.title}</span>
-                    <span className="text-board-muted/50 ml-1">
+                    <span className="text-board-muted ml-1">
                       ({formatDuration(nextItem.duration)})
                     </span>
                   </p>
@@ -2212,7 +2212,7 @@ function RundownPage() {
               {/* Add / Subtract time (OnTime-style) */}
               {canControlRundown && (
                 <div className="rounded-xl border border-board-border bg-board-card p-3">
-                  <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
+                  <p className="text-xs font-medium text-board-muted uppercase tracking-widest mb-2">
                     Adjust Time
                   </p>
                   {/* Preset buttons */}
@@ -2221,7 +2221,7 @@ function RundownPage() {
                       onClick={() => handleAdjustTime(-60_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 1 minute from current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Minus className="w-3 h-3" /> 1m
                     </Button>
@@ -2229,7 +2229,7 @@ function RundownPage() {
                       onClick={() => handleAdjustTime(-15_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 15 seconds from current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Minus className="w-3 h-3" /> 15s
                     </Button>
@@ -2237,7 +2237,7 @@ function RundownPage() {
                       onClick={() => handleAdjustTime(15_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 15 seconds to current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Plus className="w-3 h-3" /> 15s
                     </Button>
@@ -2245,7 +2245,7 @@ function RundownPage() {
                       onClick={() => handleAdjustTime(60_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 1 minute to current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Plus className="w-3 h-3" /> 1m
                     </Button>
@@ -2271,7 +2271,7 @@ function RundownPage() {
                       onChange={(e) => setCustomAdjust(e.target.value)}
                       placeholder="secs or m:ss"
                       aria-label="Custom time adjustment"
-                      className="min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+                      className="min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
                     />
                     <Button variant="ghost"
                       onClick={() =>
@@ -2294,7 +2294,7 @@ function RundownPage() {
               {canEditRundown && (
                 <div className="rounded-xl border border-board-border bg-board-card p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
+                    <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
                       Stage Message
                     </p>
                     <label className="flex items-center gap-1.5 cursor-pointer">
@@ -2305,14 +2305,14 @@ function RundownPage() {
                         className="w-3 h-3 rounded border-board-border accent-amber-500"
                       />
                       <span
-                        className={`text-[10px] font-medium uppercase tracking-wider ${messagePriority ? "text-amber-400" : "text-board-muted/50"}`}
+                        className={`text-xs font-medium uppercase tracking-wider ${messagePriority ? "text-amber-400" : "text-board-muted"}`}
                       >
                         Priority
                       </span>
                     </label>
                   </div>
                   {messagePriority && (
-                    <p className="text-[10px] text-amber-400/60 mb-2">
+                    <p className="text-xs text-amber-400 mb-2">
                       Message shown large, timer shown small on kiosk
                     </p>
                   )}
@@ -2325,7 +2325,7 @@ function RundownPage() {
                         e.key === "Enter" && handleSendMessage()
                       }
                       placeholder="Message to stage display..."
-                      className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+                      className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
                     />
                     <Button variant="ghost"
                       onClick={handleSendMessage}
@@ -2347,7 +2347,7 @@ function RundownPage() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <Tv className="w-3.5 h-3.5 text-purple-400" />
-                      <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
+                      <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
                         ProPresenter
                       </p>
                     </div>
@@ -2355,7 +2355,7 @@ function RundownPage() {
                       <>
                         <Button variant="ghost"
                           onClick={togglePP}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppEnabled
                               ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
                               : "bg-board-bg text-board-muted hover:bg-board-border"
@@ -2372,7 +2372,7 @@ function RundownPage() {
                           onClick={togglePPOnKiosk}
                           disabled={ppOutputPending}
                           aria-busy={ppOutputPending}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppOnKiosk
                               ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
                               : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
@@ -2413,7 +2413,7 @@ function RundownPage() {
                                   : "bg-gray-500"
                           }`}
                         />
-                        <span className="text-[10px] text-board-muted">
+                        <span className="text-xs text-board-muted">
                           {pp.status === "error"
                             ? pp.error ?? "Venue Bridge disconnected"
                             : ppIsConnected
@@ -2435,7 +2435,7 @@ function RundownPage() {
                                   void handleProPresenterCommand("previous")
                                 }
                                 disabled={ppCmdPending !== null}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                                 title="Previous slide"
                               >
                                 <SkipBack className="w-3 h-3" />
@@ -2447,7 +2447,7 @@ function RundownPage() {
                                   void handleProPresenterCommand("next")
                                 }
                                 disabled={ppCmdPending !== null}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-[10px] font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                                 title="Next slide"
                               >
                                 Next
@@ -2459,7 +2459,7 @@ function RundownPage() {
                                   void handleProPresenterCommand("clear")
                                 }
                                 disabled={ppCmdPending !== null}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-[10px] font-medium text-red-400/70 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-xs font-medium text-red-400 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
                                 title="Clear slide layer"
                               >
                                 <X className="w-3 h-3" />
@@ -2469,7 +2469,7 @@ function RundownPage() {
                             {ppCmdError && (
                               <p
                                 role="alert"
-                                className="text-[9px] text-red-400/80 mt-1 font-mono"
+                                className="text-xs text-red-400 mt-1 font-mono"
                                 title={ppCmdError}
                               >
                                 {ppCmdError}
@@ -2479,14 +2479,14 @@ function RundownPage() {
                               <p
                                 role="status"
                                 aria-live="polite"
-                                className="text-[9px] text-green-400/80 mt-1"
+                                className="text-xs text-green-400 mt-1"
                               >
                                 {ppCmdNotice}
                               </p>
                             )}
                           </div>
                         ) : (
-                          <p className="text-[9px] text-board-muted/40 mb-2">
+                          <p className="text-xs text-board-muted mb-2">
                             {!ppCuesEnabled
                               ? 'Enable "Send cues" in Settings → ProPresenter to control slides'
                               : "Set API Port in Settings → ProPresenter to control slides"}
@@ -2500,7 +2500,7 @@ function RundownPage() {
                         >
                           {activePpSlide.presentationName && (
                             <p
-                              className={`text-[10px] font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400/70" : "text-blue-400/70"}`}
+                              className={`text-xs font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400" : "text-blue-400"}`}
                             >
                               {activePpSlide.presentationName}
                             </p>
@@ -2512,7 +2512,7 @@ function RundownPage() {
                               ? activePpSlide.text.slice(0, 120) + "..."
                               : activePpSlide.text}
                           </p>
-                          <p className="text-[9px] text-board-muted/50 mt-1.5">
+                          <p className="text-xs text-board-muted mt-1.5">
                             {ppSource === "bridge"
                               ? "Rundown preview"
                               : "Direct ProPresenter preview"}
@@ -2520,16 +2520,16 @@ function RundownPage() {
                         </div>
                       ) : (
                         <div>
-                          <p className="text-[10px] text-board-muted/40 italic">
+                          <p className="text-xs text-board-muted italic">
                             Waiting for slide content from ProPresenter...
                           </p>
                           {/* Debug info — helps troubleshoot why slides aren't appearing */}
                           {pp.debugInfo && (
                             <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">
-                              <p className="text-[9px] font-medium text-board-muted/60 uppercase tracking-wider">
+                              <p className="text-xs font-medium text-board-muted uppercase tracking-wider">
                                 Debug
                               </p>
-                              <div className="text-[9px] text-board-muted/50 font-mono space-y-0.5">
+                              <div className="text-xs text-board-muted font-mono space-y-0.5">
                                 <p>
                                   Bridge:{" "}
                                   {pp.debugInfo.wsConnected ? "open" : "closed"}{" "}
@@ -2569,7 +2569,7 @@ function RundownPage() {
                   )}
 
                   {!ppEnabled && (
-                    <p className="text-[10px] text-board-muted/40">
+                    <p className="text-xs text-board-muted">
                       Stream lyrics & scripture from ProPresenter to stage
                       display
                     </p>
@@ -2580,7 +2580,7 @@ function RundownPage() {
               {/* Shortcuts */}
               {canControlRundown && (
                 <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
-                  <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest mb-2">
+                  <p className="text-xs font-medium text-board-muted uppercase tracking-widest mb-2">
                     Shortcuts
                   </p>
                   <RundownShortcutList />
@@ -2611,11 +2611,11 @@ function RundownPage() {
 
                 {items.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                    <Clock className="w-10 h-10 text-board-muted/20" />
+                    <Clock className="w-10 h-10 text-board-muted" />
                     <p className="text-sm text-board-muted">
                       No items in the rundown
                     </p>
-                    <p className="text-xs text-board-muted/50">
+                    <p className="text-xs text-board-muted">
                       {canEditRundown
                         ? 'Click "Add Item" or "Load" to get started'
                         : "No rundown items are available for this date"}
@@ -2665,7 +2665,7 @@ function RundownPage() {
                                 onTouchMove={handleItemTouchMove}
                                 onTouchEnd={handleItemTouchEnd}
                                 onTouchCancel={handleItemDragEnd}
-                                className="rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
+                                className="rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted hover:text-board-text"
                                 title="Drag to reorder"
                               >
                                 <GripVertical className="w-3.5 h-3.5" />
@@ -2740,14 +2740,14 @@ function RundownPage() {
                             isCurrent
                               ? "bg-fire-500/8"
                               : item.status === "complete"
-                                ? "bg-board-card/15 opacity-50"
+                                ? "bg-board-card/15"
                                 : "bg-board-card/30 hover:bg-board-card/50"
                           }`}
                         >
                           {/* Left binder bar (OnTime-style) */}
                           <div
                             className={`rundown-row-binder w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
-                              isCurrent ? "text-white" : "text-white/70"
+                              isCurrent ? "text-black" : "text-white"
                             }`}
                           >
                             <span className="text-xs font-bold tabular-nums">
@@ -2778,7 +2778,7 @@ function RundownPage() {
                                   className={`rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
                                     isDraggingItem
                                       ? "text-fire-400 bg-fire-500/10"
-                                      : "text-board-muted/40 hover:text-board-text hover:bg-board-border/30"
+                                      : "text-board-muted hover:text-board-text hover:bg-board-border/30"
                                   } transition-colors`}
                                   title="Drag to reorder"
                                 >
@@ -2788,7 +2788,7 @@ function RundownPage() {
 
                               {/* Duration */}
                               <span
-                                className={`rundown-row-duration shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}
+                                className={`rundown-row-duration shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted"}`}
                               >
                                 {formatDuration(item.duration)}
                               </span>
@@ -2822,7 +2822,7 @@ function RundownPage() {
                                 </div>
                                 {/* Assignee / notes inline */}
                                 {(item.assignee || item.notes) && (
-                                  <p className="text-xs text-board-muted/40 truncate mt-0.5 pl-6">
+                                  <p className="text-xs text-board-muted truncate mt-0.5 pl-6">
                                     {item.assignee}
                                     {item.assignee && item.notes ? " · " : ""}
                                     {item.notes}
@@ -2832,7 +2832,7 @@ function RundownPage() {
                                 {(item.scheduledStart || item.actualStart) && (
                                   <div className="flex flex-wrap items-center gap-2 mt-0.5 pl-6">
                                     {item.scheduledStart && (
-                                      <span className="text-xs text-board-muted/50 tabular-nums font-mono">
+                                      <span className="text-xs text-board-muted tabular-nums font-mono">
                                         {formatTimeInput(
                                           item.scheduledStart,
                                           deviceTimeZone,
@@ -2849,10 +2849,10 @@ function RundownPage() {
                                                   itemOverrunMs(item);
                                                 return overrun !== null &&
                                                   overrun > 30000
-                                                  ? "text-red-400/70"
-                                                  : "text-green-400/70";
+                                                  ? "text-red-400"
+                                                  : "text-green-400";
                                               })()
-                                            : "text-fire-400/70"
+                                            : "text-fire-400"
                                         }`}
                                       >
                                         {formatTimeInput(
@@ -2880,7 +2880,7 @@ function RundownPage() {
                                   className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                     isItemOvertime
                                       ? "bg-red-500/20 text-red-400 animate-pulse"
-                                      : "bg-green-500/15 text-green-400/80"
+                                      : "bg-green-500/15 text-green-400"
                                   }`}
                                 >
                                   {formatOffset(elapsed - item.duration)}
@@ -3161,7 +3161,7 @@ function AddItemModal({
                   : workspaceCopy("e.g. Worship Set", workspaceTerms)
               }
               autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
           {type !== "header" && (
@@ -3176,7 +3176,7 @@ function AddItemModal({
               value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="5:00"
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
                 />
               </div>
               <div>
@@ -3192,7 +3192,7 @@ function AddItemModal({
                     "e.g. Pastor James",
                     workspaceTerms,
                   )}
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
             </div>
@@ -3208,7 +3208,7 @@ function AddItemModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Production notes..."
                 rows={2}
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
+                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
               />
             </div>
           )}
@@ -3223,7 +3223,7 @@ function AddItemModal({
             <Button variant="ghost"
               type="submit"
               disabled={!title.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               Add
             </Button>
@@ -3324,7 +3324,7 @@ function EditItemModal({
                   : workspaceCopy("e.g. Worship Set", workspaceTerms)
               }
               autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
           {type !== "header" && (
@@ -3339,7 +3339,7 @@ function EditItemModal({
               value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="5:00"
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
                 />
               </div>
               <div>
@@ -3355,7 +3355,7 @@ function EditItemModal({
                     "e.g. Pastor James",
                     workspaceTerms,
                   )}
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
             </div>
@@ -3371,7 +3371,7 @@ function EditItemModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Production notes..."
                 rows={2}
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
+                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
               />
             </div>
           )}
@@ -3386,7 +3386,7 @@ function EditItemModal({
             <Button variant="ghost"
               type="submit"
               disabled={!title.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               Save
             </Button>
@@ -3556,7 +3556,7 @@ function LoadRundownModal({
                       <p className="text-sm font-medium text-board-text">
                         {d.name || formatDate(d.date)}
                       </p>
-                      <p className="text-[10px] text-board-muted mt-0.5">
+                      <p className="text-xs text-board-muted mt-0.5">
                         {formatDate(d.date)}
                         {d.scheduledStartTime
                           ? ` · ${formatTimeInput(d.scheduledStartTime, timeZone)}`
@@ -3588,7 +3588,7 @@ function LoadRundownModal({
                     <p className="text-sm font-medium text-board-text">
                       {s.name}
                     </p>
-                    <p className="text-[10px] text-board-muted mt-0.5">
+                    <p className="text-xs text-board-muted mt-0.5">
                       {s.itemCount} items
                       {s.serviceName ? ` · ${s.serviceName}` : ""}
                       {s.scheduledStartTime
@@ -3660,7 +3660,7 @@ function SaveRundownModal({
                 workspaceTerms,
               )}
               autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
             />
           </div>
           <div>
@@ -3678,7 +3678,7 @@ function SaveRundownModal({
                 "Sunday Morning Service",
                 workspaceTerms,
               )}
-              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text placeholder:text-board-muted/50 focus:border-fire-500 focus:outline-none"
+              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text placeholder:text-board-muted focus:border-fire-500 focus:outline-none"
             />
           </div>
           <div>
@@ -3695,7 +3695,7 @@ function SaveRundownModal({
               className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text focus:border-fire-500 focus:outline-none"
             />
           </div>
-          <p className="text-[10px] text-board-muted">
+          <p className="text-xs text-board-muted">
             Saves the current rundown items as a reusable template. All items
             will be reset to "upcoming" status.
           </p>
@@ -3710,7 +3710,7 @@ function SaveRundownModal({
             <Button variant="ghost"
               type="submit"
               disabled={!name.trim() || saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               {saving ? "Saving..." : "Save"}
             </Button>

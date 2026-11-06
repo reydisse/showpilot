@@ -36,7 +36,7 @@ export function TimecodeDisplay({
         <div
           data-timecode-display="large"
           className={`font-mono tabular-nums sm:tracking-wider text-center w-full ${
-            running ? "text-fire-500" : "text-board-muted/50"
+            running ? "text-fire-500" : "text-board-muted"
           }`}
           style={{ fontSize: "clamp(1.2rem, 6vw, 5rem)" }}
         >
@@ -60,7 +60,7 @@ export function TimecodeDisplay({
                 : paused ? "Paused · position held" : "Stopped · position held"}
           </span>
           {state?.source && (
-            <span className="text-board-muted/50">
+            <span className="text-board-muted">
               {state.source === "internal-freerun"
                 ? "Internal"
                 : state.source === "mtc"
@@ -88,7 +88,7 @@ export function TimecodeDisplay({
       <span
         data-timecode-display="compact"
         className={`font-mono text-sm tabular-nums tracking-wide ${
-          running ? "text-fire-500" : "text-board-muted/50"
+          running ? "text-fire-500" : "text-board-muted"
         }`}
       >
         {display}
