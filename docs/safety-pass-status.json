@@ -1684,7 +1684,8 @@
       "status": "in_progress",
       "evidence": [
         "2026-11-06 follow-up finding: navigating directly to /$slug/dashboard/devices/$deviceId in a disposable browser still renders the parent Devices list. routeTree.gen.ts nests this route under devices.tsx, whose component has no Outlet. The device-error rehearsal uses the actual inline panel; fixing detail/parent navigation remains part of this pending product-wide audit.",
-        "Shared route deadlines now end stalled navigation with recovery, and ignore cancelled/expired late results. smoke-route-loading.mjs verified Board and Timecode first navigation/retry without a document reload, plus leaving a pending Chat navigation without accepting its late result. This is partial navigation evidence: the Devices parent/detail Outlet finding and the remaining pages/settings-section audit are still outstanding."
+        "Shared route deadlines now end stalled navigation with recovery, and ignore cancelled/expired late results. smoke-route-loading.mjs verified Board and Timecode first navigation/retry without a document reload, plus leaving a pending Chat navigation without accepting its late result. This is partial navigation evidence: the Devices parent/detail Outlet finding and the remaining pages/settings-section audit are still outstanding.",
+        "2026-11-06 Devices navigation: reproduced a detail URL rendering the parent library. Devices now has an outlet-only permission layout and separate index route, so only the requested controls mount. URL-owned selection restores Back/history, invalid IDs show recovery, and route reads forward cancellation. The legacy graphics overlay redirects before library loading to the protected canonical renderer; its unused single-graphic RPC is removed. Full combined suite 1835 unit + 658 Worker tests, typecheck and production build passed. smoke-nested-navigation.mjs passed actual login, two devices, direct and same-document navigation, history, missing IDs, 320/768/1440px back-button hit tests, overlay output with unchanged Program, anonymous denial and device permission rejection. smoke-device-connection-errors.mjs passed real Worker/fixture Bridge outage and recovery on the detail route and verifies one new connection, not duplicate library/detail controls. smoke-legacy-display-read.mjs passed on the combined build after incorporating #153. No migration or deployment. Remaining sidebar/settings routes still need the full navigation audit."
       ]
     },
     {
@@ -1707,7 +1708,8 @@
       "evidence": [
         "Graphics polling, library mutations and Template Studio scene/Program operations now surface timestamped failures with bounded confirmation and safe recovery. See row 246 and PRs #144-145 plus the Template Studio follow-up. Other catalogued mutation paths remain unverified.",
         "Cue-sheet refreshes now time out, preserve confirmed data and unsaved notes, expose timestamped failures and support read-only Retry. Socket opening and snapshot recovery are also bounded; actual Worker outage, delayed responses and show-switch isolation passed in smoke-cue-sheet-recovery.mjs, with two-tab regression and full suite 1814 unit + 648 Worker plus typecheck/build. This verifies cue-sheet reload recovery only. Initial route loaders, note-write deadlines, column mutations and the other listed product paths remain incomplete.",
-        "Cue-sheet note and all column write failures now have bounded confirmation, retained captured operations, timestamped error and explicit retry. Atomic receipts and compare-before-write checks prevent duplicated adds, stale overwrites and deletion resurrection. Conflict replacement is confirmed and other note cells remain editable. Full suite 1820 unit + 658 Worker, typecheck/build and the real write/outage/two-tab browser rehearsals passed. Other catalogued mutation paths and navigation draft protection remain outstanding; this broad requirement stays in progress."
+        "Cue-sheet note and all column write failures now have bounded confirmation, retained captured operations, timestamped error and explicit retry. Atomic receipts and compare-before-write checks prevent duplicated adds, stale overwrites and deletion resurrection. Conflict replacement is confirmed and other note cells remain editable. Full suite 1820 unit + 658 Worker, typecheck/build and the real write/outage/two-tab browser rehearsals passed. Other catalogued mutation paths and navigation draft protection remain outstanding; this broad requirement stays in progress.",
+        "Follow-up inspection: canonical overlay polling still starts a request every 500ms without a deadline or overlap control, and display-session checks can remain pending indefinitely. These need bounded recovery and stale-response protection in a follow-up; the navigation change does not claim to fix them."
       ]
     },
     {
@@ -1725,8 +1727,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 271,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Device detail now has a named, keyboard-focusable 44px Back link that restores the selected device; missing details offer the same library recovery. smoke-nested-navigation.mjs hit-tests it at 320/768/1440px and verifies Back and browser history without reloading. Other navigation homes, orphan routes and sidebar work remain pending."
+      ]
     },
     {
       "id": "c6f73a41301a6641",
@@ -1838,8 +1842,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 284,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "The obsolete operator overlay route now redirects to the same protected /overlay/:orgSlug renderer used by display links, with no graphics library rendered over output and no Program mutation. The duplicate polling renderer and its sole read RPC are removed; smoke-nested-navigation.mjs and smoke-legacy-display-read.mjs pass. Broader terminology/surface deduplication remains open."
+      ]
     },
     {
       "id": "4e2cdcca026fe871",

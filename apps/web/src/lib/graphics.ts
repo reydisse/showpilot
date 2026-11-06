@@ -260,13 +260,3 @@ export const setActiveGraphic = createServerFn({ method: "POST" })
     const prisma = getPrisma();
     await writeActiveIds(prisma, data.orgId, data.graphicId ? [data.graphicId] : []);
   });
-
-/** Returns the first active graphic (legacy single-value readers). */
-export const getActiveGraphic = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
-    await assertGraphicPermission(data.orgId, "lowerthird:view");
-    const prisma = getPrisma();
-    const { templates } = await resolveActive(prisma, data.orgId);
-    return templates[0] ?? null;
-  });

@@ -1,26 +1,29 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ArrowLeft, Wifi, WifiOff, AlertTriangle, Loader2 } from "lucide-react";
 import { getDevice } from "@/lib/data";
 import { useDeviceModule } from "@/hooks/useDeviceModule";
 import { DeviceControlPanel } from "@/components/devices/DeviceControlPanel";
 
 export const Route = createFileRoute("/$slug/dashboard/devices/$deviceId")({
-  loader: async ({ context, params }) => {
-    const { withPermission } = await import("@/lib/route-permissions");
-    await withPermission(context.role, "devices:access", params.slug, context.orgId);
-    const device = await getDevice({ data: { orgId: context.orgId, id: params.deviceId } });
-    if (!device) throw new Error("Device not found");
+  loader: async ({ context, params, abortController }) => {
+    const device = await getDevice({ data: { orgId: context.orgId, id: params.deviceId }, signal: abortController.signal });
+    if (!device) throw notFound();
     return { device };
   },
-  component: DeviceDetailPage,
+  component: DeviceDetailRoute,
+  notFoundComponent: DeviceNotFound,
 });
 
-function DeviceDetailPage() {
+function DeviceDetailRoute() {
   const { device } = Route.useLoaderData();
+  return <DeviceDetailPage key={device.id} device={device} />;
+}
+
+function DeviceDetailPage({ device }: { device: NonNullable<Awaited<ReturnType<typeof getDevice>>> }) {
   const { slug } = Route.useParams();
-  const context = Route.useRouteContext() as { orgId?: string };
+  const { orgId } = Route.useRouteContext();
   const { module, status, feedbacks, definition, error, errorAt, connect, disconnect } =
-    useDeviceModule(device, context.orgId);
+    useDeviceModule(device, orgId);
 
   return (
     <div className="h-full min-h-0 overflow-auto bg-board-bg p-4 md:p-6">
@@ -30,7 +33,9 @@ function DeviceDetailPage() {
           <Link
             to="/$slug/dashboard/devices"
             params={{ slug }}
-            className="rounded-lg border border-board-border bg-board-card p-2 text-board-muted hover:text-board-text transition-colors"
+            search={{ device: device.id }}
+            aria-label="Back to devices"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-board-border bg-board-card p-2 text-board-muted outline-none hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -79,6 +84,15 @@ function DeviceDetailPage() {
       />
     </div>
   );
+}
+
+function DeviceNotFound() {
+  const { slug } = Route.useParams();
+  return <section className="space-y-4 p-4 md:p-6">
+    <h1 className="text-lg font-semibold text-board-text">Device unavailable</h1>
+    <p className="text-sm text-board-muted">This device may have been removed, or the link is incorrect.</p>
+    <Link to="/$slug/dashboard/devices" params={{ slug }} className="inline-flex min-h-11 items-center rounded-lg border border-board-border px-4 text-sm text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Back to devices</Link>
+  </section>;
 }
 
 function ConnectionBadge({ status }: { status: string }) {
