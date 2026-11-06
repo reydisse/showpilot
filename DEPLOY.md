@@ -681,14 +681,38 @@ byte-range reads. Single ranges and If-Range support browser seeking. Invalid
 or unsatisfiable ranges return 416. Deletes are confirmed and idempotent. The UI
 keeps failed uploads and deletions retryable and aborts requests when unmounted.
 
-The chosen cue design is one explicitly enabled playback window per selected
-output, with the relay waiting for actual playback/stop acknowledgments. Playing
-in every operator/display tab could duplicate audio. A separate native Bridge
-player would introduce another codec/rendering stack before the shared web
-player exists. The dedicated window uses the same authenticated library on web
-and Desktop. Its ownership protocol, autoplay enablement, timecode dispatch,
-receipt/retry behavior and `media-play`/`media-stop` editor fields remain pending.
-The library alone does not complete Phase 2.5's media catalog requirement.
+`media-play` and `media-stop` target a named output in a selected show. In Timecode,
+open **Media outputs**, choose a name, then open its window on the playback
+computer and click **Enable output**. Use that same name in the Play and Stop
+cue fields. Play selects a library file and volume; Stop clears the named
+output. Wait for upcoming clips to prepare before starting the clock. Files
+remain private, and the output requires member timecode permission.
+
+One explicitly enabled window owns each output name in each show, with up to
+eight independent names per show. Fullscreen contains only the media, without
+the operator header or native video controls. The shared web player avoids
+duplicate audio from operator tabs and a second native codec stack. Its socket
+cannot claim timecode control or receive the operator timeline. Display passes
+cannot enable playback. The player preloads up to two upcoming clips in memory,
+with a 190 MiB total buffer limit including in-flight downloads. No media is
+persisted in browser storage. Preparation failures are visible and retryable.
+
+The relay waits for actual decoded playback progress or paused, unloaded media
+before acknowledging a cue. Checking `currentSrc` is insufficient for Stop:
+Chromium can retain the old URL after unloading. Play and Stop use the same
+ordered output queue; separate outputs run independently. Per-cue disable,
+skip, manual fire, reviewed re-fire and the automation kill switch all apply.
+Durable receipts survive relay hibernation. Retrying an uncertain execution
+queries its original output instead of replaying it. An unknown result or a
+changed output session requires operator review and re-arm. Late acknowledgments
+never silently convert a failed timeline row into success.
+
+The output has a 15-second heartbeat lease and uses a monotonic deadline based
+on server round trips. Disconnect or lease expiry stops playback and clears
+the buffer. Reconnect requires explicit Enable again. Disable also cancels an
+in-flight Enable, including delayed browser autoplay probes and permission
+checks. This output is cloud coordinated; it does not claim offline playback
+or frame-accurate delivery on an unprepared computer.
 
 After building web, run `node apps/web/scripts/smoke-media-library.mjs`. The
 disposable local rehearsal uploads a real WAV and a browser-encoded WebM,
@@ -696,8 +720,18 @@ verifies decoding, playback, seeking, private reads, rejected cross-origin
 deletion, confirmed removal, offline retry, restart persistence and a 320px
 layout. Preview audio is muted during the test. Worker tests use real R2 and
 cover partial/overlong input, upload deadlines, concurrent writes, access loss,
-organization isolation, pagination and ranges. This is local evidence only;
-the media library has not been deployed.
+organization isolation, pagination and ranges.
+
+Also run `node apps/web/scripts/smoke-media-cues.mjs` against the built app. It
+creates a silent WAV and a browser-encoded WebM, adds Play and Stop through the
+editor, verifies timed playback/stop acknowledgments, video decoding and clear,
+fullscreen, duplicate ownership refusal, reviewed re-fire, disabled-output
+failure and retry, and stop/re-enable behavior after a real Worker outage.
+It checks the editor and output at 320px. The separate media Worker suite covers
+receipt recovery, cross-show isolation, ordered outputs, revocation, heartbeat
+expiry and late Enable cancellation. These checks prove local browser and relay
+behavior, not a physical audio system or every platform's codec support.
+The media feature has not been deployed to production.
 
 ### Native configuration credential migration
 

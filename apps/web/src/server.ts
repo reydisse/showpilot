@@ -250,7 +250,7 @@ const appServer = {
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
-      if (!["ws", "state", "events", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
+      if (!["ws", "media-ws", "state", "events", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);

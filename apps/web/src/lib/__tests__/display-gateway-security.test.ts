@@ -113,4 +113,20 @@ describe("public display Worker boundary", () => {
     mocks.target.mockResolvedValue(null);
     expect((await server.fetch(new Request("https://app.example/api/timecode/org-1/state?display=1&showId=missing", { headers }), bindings, {})).status).toBe(404);
   });
+
+  it("requires member timecode permission for media outputs even with a valid display pass", async () => {
+    const pass = await issueDisplayPass("org-1", "timer", bindings.KIOSK_SECRET);
+    const headers = { "x-showpilot-display-pass": pass.token, Upgrade: "websocket" };
+    const url = "https://app.example/api/timecode/org-1/media-ws?display=1&authUserId=forged&authSessionId=forged&access=write";
+    expect((await server.fetch(new Request(url, { headers }), bindings, {})).status).toBe(401);
+    signedInOperator();
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["rundown:read"] });
+    expect((await server.fetch(new Request(url, { headers }), bindings, {})).status).toBe(401);
+    expect(mocks.relay).not.toHaveBeenCalled();
+    signedInOperator();
+    expect((await server.fetch(new Request(url, { headers }), bindings, {})).status).toBe(200);
+    const forwarded: Request = mocks.relay.mock.calls[0][0];
+    expect(new URL(forwarded.url).pathname).toBe("/media-ws");
+    expect(Object.fromEntries(new URL(forwarded.url).searchParams)).toEqual({ orgId: "org-1", showId: "show-1", serviceDate: "2026-11-05", access: "write", authUserId: "real-operator", authSessionId: "real-session" });
+  });
 });

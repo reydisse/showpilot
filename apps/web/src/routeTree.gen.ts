@@ -43,6 +43,7 @@ import { Route as AuthSetupRouteImport } from './routes/_auth/setup'
 import { Route as AuthVerifyEmailRouteImport } from './routes/_auth/verify-email'
 import { Route as CheckinSlugRouteImport } from './routes/checkin/$slug'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
+import { Route as MediaOrgSlugRouteImport } from './routes/media/$orgSlug'
 import { Route as OverlayOrgSlugRouteImport } from './routes/overlay/$orgSlug'
 import { Route as TimerOrgSlugRouteImport } from './routes/timer/$orgSlug'
 import { Route as SlugDashboardAudioRouteImport } from './routes/$slug/dashboard/audio'
@@ -258,6 +259,11 @@ const CheckinSlugRoute = CheckinSlugRouteImport.update({
 const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
   id: '/invite/$invitationId',
   path: '/invite/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MediaOrgSlugRoute = MediaOrgSlugRouteImport.update({
+  id: '/media/$orgSlug',
+  path: '/media/$orgSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OverlayOrgSlugRoute = OverlayOrgSlugRouteImport.update({
@@ -546,6 +552,7 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/media/$orgSlug': typeof MediaOrgSlugRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
@@ -627,6 +634,7 @@ export interface FileRoutesByTo {
   '/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/media/$orgSlug': typeof MediaOrgSlugRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
@@ -711,6 +719,7 @@ export interface FileRoutesById {
   '/_auth/verify-email': typeof AuthVerifyEmailRoute
   '/checkin/$slug': typeof CheckinSlugRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/media/$orgSlug': typeof MediaOrgSlugRoute
   '/overlay/$orgSlug': typeof OverlayOrgSlugRoute
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug/': typeof SlugIndexRoute
@@ -795,6 +804,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
+    | '/media/$orgSlug'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug/'
@@ -876,6 +886,7 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
+    | '/media/$orgSlug'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug'
@@ -959,6 +970,7 @@ export interface FileRouteTypes {
     | '/_auth/verify-email'
     | '/checkin/$slug'
     | '/invite/$invitationId'
+    | '/media/$orgSlug'
     | '/overlay/$orgSlug'
     | '/timer/$orgSlug'
     | '/$slug/'
@@ -1022,6 +1034,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   CheckinSlugRoute: typeof CheckinSlugRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
+  MediaOrgSlugRoute: typeof MediaOrgSlugRoute
   OverlayOrgSlugRoute: typeof OverlayOrgSlugRoute
   TimerOrgSlugRoute: typeof TimerOrgSlugRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -1292,6 +1305,13 @@ declare module '@tanstack/react-router' {
       path: '/invite/$invitationId'
       fullPath: '/invite/$invitationId'
       preLoaderRoute: typeof InviteInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/media/$orgSlug': {
+      id: '/media/$orgSlug'
+      path: '/media/$orgSlug'
+      fullPath: '/media/$orgSlug'
+      preLoaderRoute: typeof MediaOrgSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/overlay/$orgSlug': {
@@ -1763,6 +1783,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   CheckinSlugRoute: CheckinSlugRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
+  MediaOrgSlugRoute: MediaOrgSlugRoute,
   OverlayOrgSlugRoute: OverlayOrgSlugRoute,
   TimerOrgSlugRoute: TimerOrgSlugRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

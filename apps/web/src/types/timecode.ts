@@ -1,6 +1,7 @@
 // ─── SMPTE Frame Rates ──────────────────────────────────────
 
 import type { NamedTimerSample } from "@/lib/named-timers";
+import type { MediaOutputSnapshot } from "@/lib/media-output";
 import type { MidiControllerSnapshot } from "@/lib/midi-controller";
 
 export type FrameRate = 24 | 25 | 29.97 | 30;
@@ -50,6 +51,7 @@ export interface TimecodeShow {
 export interface TimecodeState {
   /** Wall-clock countdown outputs, independent of the timecode transport. */
   namedTimers?: NamedTimerSample;
+  mediaOutputs?: MediaOutputSnapshot[];
   /** Stable input format awaiting an explicit timeline reformat. Operator-only. */
   incomingFormat?: { id: string; format: TimecodeFormat } | null;
   /** Persisted review reason. triggersEnabled remains the automation gate. */
@@ -118,6 +120,8 @@ export type AutomationActionType =
   | "stage-message"
   | "timer-start"
   | "timer-stop"
+  | "media-play"
+  | "media-stop"
   | "crew-message"
   | "triggers-disable"
   | "triggers-enable"
