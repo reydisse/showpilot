@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import {
@@ -15,6 +15,7 @@ import {
 import { getRequestOrgAccess } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { z } from "zod";
+import { refreshOrgReadAuthority } from "./relay-read-invalidation.server";
 
 const capabilitySchema = z.union([z.enum(ACCESS_CAPABILITY_IDS), z.literal("custom")]);
 const customPermissionsSchema = z.array(z.string().refine(isGrantablePermission)).max(32).optional();
@@ -170,7 +171,7 @@ export const getAccessManagementSnapshot = createServerFn({ method: "GET" })
     });
   });
 
-export async function grantMemberAccessForActor(input: {
+export const grantMemberAccessForActor = createServerOnlyFn(async (input: {
   orgId: string;
   actor: AccessGrantActor;
   userId: string;
@@ -179,7 +180,7 @@ export async function grantMemberAccessForActor(input: {
   duration: AccessGrantDuration;
   reason: string;
   database?: AccessGrantWriteDatabase;
-}) {
+}) => {
   const database = input.database ?? getD1();
   const authority = await resolveAccessGrantAuthority(
     database,
@@ -241,6 +242,7 @@ export async function grantMemberAccessForActor(input: {
   if (!changedOneRow(insert)) {
     throw new Error(`${target.user.name} already has ${capabilityLabel} access.`);
   }
+  await refreshOrgReadAuthority(input.orgId, input.userId);
 
   const durationLabel = expiresOn ? "for the current duty week" : "until it is revoked";
   await createGrantNotification(
@@ -251,7 +253,7 @@ export async function grantMemberAccessForActor(input: {
     notificationPath,
   );
   return { id: grantId };
-}
+});
 
 export const grantMemberAccess = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
@@ -280,12 +282,12 @@ export const grantMemberAccess = createServerFn({ method: "POST" })
     });
   });
 
-export async function revokeMemberAccessForActor(input: {
+export const revokeMemberAccessForActor = createServerOnlyFn(async (input: {
   orgId: string;
   actor: AccessGrantActor;
   grantId: string;
   database?: AccessGrantWriteDatabase;
-}) {
+}) => {
   const database = input.database ?? getD1();
   const authority = await resolveAccessGrantAuthority(
     database,
@@ -319,6 +321,7 @@ export async function revokeMemberAccessForActor(input: {
      WHERE id = ? AND orgId = ? AND revokedAt IS NULL`,
   ).bind(input.actor.userId, grant.id, input.orgId).run();
   if (!changedOneRow(update)) throw new Error("This access grant is no longer active.");
+  await refreshOrgReadAuthority(input.orgId, grant.userId);
 
   const capability = getAccessCapability(grant.capability);
   await createGrantNotification(
@@ -329,7 +332,7 @@ export async function revokeMemberAccessForActor(input: {
     "",
   );
   return { ok: true as const };
-}
+});
 
 export const revokeMemberAccess = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>

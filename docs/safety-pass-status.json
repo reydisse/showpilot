@@ -615,12 +615,13 @@
       "phase": "1",
       "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
       "line": 116,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
-        "Partial: all six relays now cache member read authority in hibernation-safe socket attachments for 60 seconds and refresh out of band by DO alarm after 30 seconds. Broadcast loops use synchronous sends and fail closed on expired leases; writes retain live D1 checks. Chat composes refresh deadlines with guest expiry and external gateway polling, including non-production rooms. Invalid graphics/cue-sheet/chat member upgrades are rejected.",
-        "apps/web/src/lib/__tests__/relay-read-cache.worker.test.ts: 22 real Worker tests cover alarm renewal, revoked membership after hibernation, expired sessions via refresh RPC, delayed alarms, and zero D1 queries for ten feeds to four timecode readers.",
-        "2026-11-05: full web suite passed (1287 unit, 199 Worker tests), typecheck and build passed. Three added expired-delivery cases then passed in the 22-test focused suite. Built-app chat and display-access smoke scripts passed with disposable local fixtures.",
-        "Remaining: connect permission-changing mutations to the refreshReadAuthority RPCs. Worker upgrade caching is tracked separately. This requirement remains pending."
+        "All six relays cache member read authority in hibernation-safe socket attachments for 60 seconds and refresh by DO alarm after 30 seconds. Broadcast loops use synchronous sends and fail closed on expired leases; writes retain live D1 checks. Chat composes refresh deadlines with guest expiry and external gateway polling.",
+        "relay-read-invalidation.server.ts pushes post-commit changes to org graphics/cue-sheet/Bridge rooms, all indexed production/planning/direct-message chat rooms, and stable-show/legacy rundown and timecode rooms. Better Auth member/role hooks, session deletion, shared web/mobile access grants, and rundown PIN settings invoke it. Failed pushes are logged while bounded leases remain enforced.",
+        "relay-read-cache.worker.test.ts: 22 real Worker tests cover alarm renewal, hibernation, revoked membership, expired sessions, delayed alarms, invalid member upgrades, and zero D1 queries for ten feeds to four timecode readers. relay-read-invalidation.worker.test.ts: real D1 revocation reaches ten rooms across two shows and three chat rooms while another member stays connected.",
+        "2026-11-05: full web suite passed (1287 unit, 204 Worker tests), typecheck and production build passed. A subsequent grant-mutation ordering assertion passed in the seven-test focused service suite. smoke-permission-push.mjs used real login, logout, role-change and member-removal endpoints against the built app: all revoked idle sockets closed; retained chat/incident permissions stayed connected. All fixtures were disposable and local.",
+        "The separate Worker upgrade-cache/read-replica/Prisma requirement remains pending."
       ]
     },
     {

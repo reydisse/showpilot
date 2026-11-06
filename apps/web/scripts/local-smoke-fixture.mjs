@@ -12,7 +12,7 @@ import { hashPassword } from "better-auth/crypto";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
@@ -86,6 +86,11 @@ export async function withLocalSmokeFixture(check, { secondShow = false } = {}) 
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-member','display-smoke','smoke-operator','owner',CURRENT_TIMESTAMP);
+  ${secondOperator ? `
+  INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-second-operator','Second fixture operator','second@display-smoke.invalid',1,CURRENT_TIMESTAMP);
+  INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-second-account','smoke-second-operator','credential','smoke-second-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
+  INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-second-member','display-smoke','smoke-second-operator','owner',CURRENT_TIMESTAMP);
+  ` : ""}
   INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-show','display-smoke','${date}','Display test show');
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');

@@ -27,6 +27,7 @@ import {
 } from "@/lib/webhook-events";
 import { hashRundownPin } from "@/lib/rundown-pin-crypto";
 import { RUNDOWN_PIN_SETTING_KEY } from "@/lib/rundown-pin";
+import { refreshOrgReadAuthority } from "./relay-read-invalidation.server";
 
 export { appendWebhookEvent, sanitizePayloadSummary } from "@/lib/webhook-events";
 export type { WebhookEventInput, WebhookEventLogItem } from "@/lib/webhook-events";
@@ -160,6 +161,7 @@ export const updateRundownPinProtection = createServerFn({ method: "POST" })
       await prisma.appSetting.deleteMany({
         where: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY },
       });
+      await refreshOrgReadAuthority(data.orgId);
       return { enabled: false as const };
     }
 
@@ -169,6 +171,7 @@ export const updateRundownPinProtection = createServerFn({ method: "POST" })
       update: { value },
       create: { orgId: data.orgId, key: RUNDOWN_PIN_SETTING_KEY, value },
     });
+    await refreshOrgReadAuthority(data.orgId);
     return { enabled: true as const };
   });
 
