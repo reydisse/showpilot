@@ -15,6 +15,7 @@ export interface RundownTimer {
 }
 export type RundownTransportCommand =
   | {type:'timer-start';itemId?:string}
+  | {type:'timer-goto';itemId:string}
   | {type:'timer-resume'|'timer-pause'|'timer-stop'|'timer-next'|'timer-prev'}
   | {type:'timer-adjust';deltaMs:number}
   | {type:'timer-mode';mode:RundownTimer['mode']};

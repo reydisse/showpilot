@@ -13,6 +13,31 @@ function fixture() {
 }
 
 describe("shared cloud and local rundown transport", () => {
+  it("resumes only the same paused item and starts a different item from zero", () => {
+    const paused = { ...fixture(), timer: { ...fixture().timer, playback: "pause" as const, currentItemId: "welcome", elapsed: 42000, pausedAt: start } };
+    expect(applyRundownTransport(paused, { type: "timer-start", itemId: "welcome" }, start + 1000)?.timer.elapsed).toBe(42000);
+    expect(applyRundownTransport(paused, { type: "timer-start", itemId: "message" }, start + 1000)?.timer.elapsed).toBe(0);
+  });
+
+  it("jumps to a completed named item with fresh timing and preserves skipped rows", () => {
+    const state = fixture();
+    const playing = applyRundownTransport(state, { type: "timer-start", itemId: "message" }, start)!;
+    playing.items[1] = { ...playing.items[1], status: "complete", actualStart: "old-start", actualEnd: "old-end" };
+    const result = applyRundownTransport(playing, { type: "timer-goto", itemId: "welcome" }, start + 2000)!;
+    expect(result.timer).toMatchObject({ currentItemId: "welcome", playback: "play", elapsed: 0, startedAt: start + 2000 });
+    expect(result.items[1]).toMatchObject({ status: "live", actualStart: new Date(start + 2000).toISOString(), actualEnd: null });
+    expect(result.items[3].status).toBe("complete");
+    expect(result.items[0]).toEqual(state.items[0]);
+    expect(result.items[2]).toEqual(state.items[2]);
+    expect(playing.items[1].actualStart).toBe("old-start");
+  });
+
+  it("requires a valid explicit item for a jump, including when a current item exists", () => {
+    for (const itemId of [undefined, "", " ", 7, "x".repeat(201)]) expect(parseRundownTransport("timer-goto", { itemId })).toBeNull();
+    expect(parseRundownTransport("timer-goto", { itemId: " welcome " })).toEqual({ type: "timer-goto", itemId: "welcome" });
+    for (const itemId of ["heading", "missing"]) expect(applyRundownTransport(fixture(), { type: "timer-goto", itemId }, start)).toBeNull();
+  });
+
   it("preserves held time and adjustments through pause, resume, next, previous and show completion", () => {
     let state: { items: Array<{ id: string; title: string; type: string; status: "upcoming" | "live" | "complete"; duration: number; actualStart?: string | null; actualEnd?: string | null }>; timer: RundownTimer } = fixture();
     const command = (action: string, seconds: number, payload?: unknown) => {

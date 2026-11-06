@@ -898,7 +898,7 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
-      case "timer-start": case "timer-resume": case "timer-pause": case "timer-stop":
+      case "timer-goto": case "timer-start": case "timer-resume": case "timer-pause": case "timer-stop":
       case "timer-next": case "timer-prev": case "timer-adjust": case "timer-mode": {
         const command = parseRundownTransport(action, payload);
         if (!command) return false;
