@@ -32,6 +32,7 @@ import { automationDispatchFrame, deviceTimingForEvent, MAX_AUTOMATION_LEAD_MS, 
 import { startPositionProblem, timecodeStartPositionSchema } from "@/lib/timecode-start";
 import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
+import { proPresenterPayloadProblem, runProPresenterCue } from "@/lib/automation-propresenter";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
 import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
@@ -63,6 +64,9 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "lyrics-clear",
   "pp-trigger-slide",
   "pp-trigger-next",
+  "pp-trigger-previous",
+  "pp-trigger-prop",
+  "pp-clear-props",
   "pp-trigger-clear",
   "custom-webhook",
 ]);
@@ -1017,6 +1021,8 @@ export class TimecodeRelay extends DurableObject {
           typeof event.label !== "string" || event.label.length > 200 ||
           !event.payload || typeof event.payload !== "object"
         ) break;
+        const problem = proPresenterPayloadProblem(event.action, event.payload);
+        if (problem) throw new TimecodeCommandRejection(problem);
         event.id = event.id || crypto.randomUUID();
         if (this.events.some((existing) => existing.id === event.id)) {
           // A save retry may follow a lost echo. Return the canonical timeline.
@@ -1081,6 +1087,8 @@ export class TimecodeRelay extends DurableObject {
             valid = false;
             break;
           }
+          const problem = proPresenterPayloadProblem(candidate.action, candidate.payload);
+          if (problem) throw new TimecodeCommandRejection(problem);
           const next: AutomationEvent = {
             ...(candidate as AutomationEvent),
             id: candidate.id || crypto.randomUUID(),
@@ -1121,6 +1129,9 @@ export class TimecodeRelay extends DurableObject {
           if (!parsed.success) throw new TimecodeCommandRejection("Invalid cue changes. Check the timecode, tolerance and action fields.");
           const updates = parsed.data;
           if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
+          const candidate = { ...this.events[idx], ...updates };
+          const problem = proPresenterPayloadProblem(candidate.action, candidate.payload);
+          if (problem) throw new TimecodeCommandRejection(problem);
           Object.assign(this.events[idx], updates);
           // Recalculate triggerFrame if timecode changed
           if (updates.triggerTimecode) {
@@ -1412,25 +1423,49 @@ export class TimecodeRelay extends DurableObject {
       logResult(type, "success", `${type} action executed.`);
     };
 
-    const executeProPresenterCommand = async (
-      command: "trigger-slide" | "next" | "clear",
-    ) => {
+    const executeProPresenterCommand = async () => {
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
       const status = await relay.getBridgeStatus();
       assertCanDispatch();
-      const target = typeof event.payload.target === "string"
-        ? event.payload.target
-        : status.connectedTargets.find((candidate) => candidate.startsWith("propresenter:"));
-      if (!target) throw new Error("ProPresenter is not connected through Venue Bridge.");
-      const result = await relay.dispatchBridgeMessage({
-        type: "command",
-        id: event.executionId ?? crypto.randomUUID(),
-        protocol: "propresenter",
-        target,
-        command: JSON.stringify({ action: command, ...event.payload }),
-      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
-      signal.throwIfAborted();
-      if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
+      const targets = status.connectedTargets.filter(candidate => candidate.startsWith("propresenter:"));
+      const target = typeof event.payload.target === "string" && event.payload.target.trim()
+        ? event.payload.target.trim()
+        : targets.length === 1 ? targets[0] : undefined;
+      if (!status.bridgeOnline || !target || !targets.includes(target)) {
+        throw new Error("Choose one connected ProPresenter target through Venue Bridge.");
+      }
+      const installationId = status.activeInstallation?.installationId;
+      if (!installationId) throw new Error("Venue Bridge installation is unavailable.");
+      const executionId = event.executionId ?? crypto.randomUUID();
+      let outputDispatched = false;
+      try {
+        await runProPresenterCue({
+          action: event.action, payload: event.payload, signal, assertCanDispatch,
+          send: async (command, step) => {
+            const current = await relay.getBridgeStatus();
+            assertCanDispatch();
+            if (!current.bridgeOnline || !current.connectedTargets.includes(target)
+              || current.activeInstallation?.installationId !== installationId) {
+              throw new Error("ProPresenter connection changed during the cue. Check the output before retrying.");
+            }
+            if (command.action !== "resolve-prop") outputDispatched = true;
+            const result = await relay.dispatchBridgeMessage({
+              type: "command", id: `${executionId}:${step}`, protocol: "propresenter", target,
+              command: JSON.stringify(command),
+            }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId }, installationId);
+            assertCanDispatch();
+            if (!result.success) throw new Error(result.error ?? "ProPresenter command failed.");
+            return result.response;
+          },
+        });
+      } catch (error) {
+        // A cancelled multi-step cue may already have cleared props. Never
+        // silently reschedule it after the kill switch is released.
+        if (outputDispatched && error instanceof AutomationCancelled) {
+          throw new Error("ProPresenter cue interrupted after dispatch. Check the output before retrying.", { cause: error });
+        }
+        throw error;
+      }
     };
 
     const executeDeviceCommand = async () => {
@@ -1544,15 +1579,12 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "pp-trigger-slide":
-        await executeProPresenterCommand("trigger-slide");
-        break;
-
       case "pp-trigger-next":
-        await executeProPresenterCommand("next");
-        break;
-
+      case "pp-trigger-previous":
       case "pp-trigger-clear":
-        await executeProPresenterCommand("clear");
+      case "pp-trigger-prop":
+      case "pp-clear-props":
+        await executeProPresenterCommand();
         break;
 
       case "custom-webhook": {

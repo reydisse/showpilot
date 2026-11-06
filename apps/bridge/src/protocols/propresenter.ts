@@ -81,6 +81,7 @@ export class ProPresenterBridge {
   private static readonly POLL_INTERVAL_MS = 400;
   private ws: WebSocket | null = null;
   private options: PPBridgeOptions;
+  private activeApiPort: number | undefined;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
   private destroyed = false;
@@ -289,26 +290,50 @@ export class ProPresenterBridge {
       }
       return JSON.stringify(await this.queryPresentation(presentationUuid));
     }
+    if (action === "resolve-prop") {
+      const propName = structured?.propName;
+      if (typeof propName !== "string" || !propName.trim() || propName.trim().length > 200) {
+        throw new Error("A ProPresenter prop name is required");
+      }
+      const props = await this.requestJson("/v1/props");
+      if (!Array.isArray(props)) throw new Error("ProPresenter returned an invalid props list");
+      const matches: string[] = [];
+      for (const prop of props) {
+        if (!prop || typeof prop !== "object" || !("id" in prop)) continue;
+        const id: unknown = prop.id;
+        if (id && typeof id === "object" && "name" in id && "uuid" in id
+          && id.name === propName.trim() && typeof id.uuid === "string" && id.uuid) matches.push(id.uuid);
+      }
+      if (matches.length !== 1) throw new Error(matches.length ? "Multiple ProPresenter props have this name. Rename them before retrying." : "ProPresenter prop not found. Check its exact name.");
+      return JSON.stringify({ propUuid: matches[0] });
+    }
     const ports = this.getApiPorts();
     const endpoints = this.commandEndpoints(action, structured ?? undefined);
 
     for (const port of ports) {
       const base = `http://${this.options.host}:${port}`;
       for (const { path, method } of endpoints) {
+        let response: Response;
         try {
-          const res = await fetch(`${base}${path}`, {
+          response = await fetch(`${base}${path}`, {
             method,
             redirect: "error",
             signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(3000)]),
           });
-          if (res.ok) return;
-        } catch {
-          // Keep trying fallbacks.
+        } catch (cause) {
+          // A lost response does not prove that Previous/Next was not applied.
+          // Never send a second mutation to a fallback endpoint in that case.
+          throw new Error(`ProPresenter ${action} was not acknowledged. Check the output before retrying.`, { cause });
+        }
+        await response.body?.cancel();
+        if (response.ok) { this.activeApiPort = port; return; }
+        if (response.status !== 404 && response.status !== 405) {
+          throw new Error(`ProPresenter ${action} failed (${response.status}). Check the output before retrying.`);
         }
       }
     }
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (!structured && endpoints.length === 0 && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(command);
       return;
     }
@@ -320,7 +345,11 @@ export class ProPresenterBridge {
     for (const port of this.getApiPorts()) {
       try {
         const response = await fetch(`http://${this.options.host}:${port}${path}`, { signal: AbortSignal.any([this.shutdown.signal, AbortSignal.timeout(4_000)]), redirect: "error" });
-        if (response.ok) return response.json();
+        if (response.ok) {
+          const data: unknown = await response.json();
+          this.activeApiPort = port;
+          return data;
+        }
       } catch {}
     }
     throw new Error(`ProPresenter did not answer ${path}`);
@@ -634,6 +663,7 @@ export class ProPresenterBridge {
           });
           if (!res.ok) continue;
           reachable = true;
+          this.activeApiPort = port;
           const payload = (await res.json()) as Record<string, unknown>;
           // An empty current slide is authoritative; do not resurrect it from a fallback.
           const pair = parseSlidePair(payload);
@@ -811,6 +841,15 @@ export class ProPresenterBridge {
         ];
       case "clear":
         return [{ path: "/v1/clear/layer/slide", method: "GET" }];
+      case "clear-props":
+        return [{ path: "/v1/clear/layer/props", method: "GET" }];
+      case "trigger-prop": {
+        const uuid = payload?.propUuid;
+        if (typeof uuid !== "string" || !uuid.trim() || uuid.length > 200) {
+          throw new Error("A resolved ProPresenter prop UUID is required");
+        }
+        return [{ path: `/v1/prop/${encodeURIComponent(uuid)}/trigger`, method: "GET" }];
+      }
       case "trigger-slide": {
         const uuid = typeof payload?.presentationUuid === "string" ? payload.presentationUuid : "";
         const index = typeof payload?.slideIndex === "number" && Number.isInteger(payload.slideIndex) && payload.slideIndex >= 0 ? payload.slideIndex : null;
@@ -824,7 +863,7 @@ export class ProPresenterBridge {
   }
 
   private getApiPorts(): number[] {
-    const ports = [this.options.apiPort ?? 1025, this.options.port].filter(
+    const ports = [this.activeApiPort ?? this.options.apiPort ?? 1025, this.options.apiPort ?? 1025, this.options.port].filter(
       (port) => Number.isFinite(port) && port > 0,
     ) as number[];
     return Array.from(new Set(ports));

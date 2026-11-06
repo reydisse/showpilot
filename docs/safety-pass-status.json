@@ -1273,8 +1273,15 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 212,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: added pp-trigger-previous, pp-trigger-prop and pp-clear-props across the action type, relay, output ordering, editor and timeline. Prop name validation runs on add/update/atomic replacement; exact-name lookup rejects missing or duplicate names before output. The cue clears only props, waits 200 ms after clear acknowledgment, then triggers the resolved UUID. No Clear All command is generated.",
+        "TimecodeRelay constructs canonical command fields, so JSON action/UUID overrides cannot change the selected event. Each prop step has a unique receipt ID within one ordered execution. BridgeRelay checks the reviewed installation inside its dispatch lock; disconnect, automation kill and timeout prevent later prop steps. Cancellation after any output dispatch stays failed instead of silently rescheduling. REST output requires acknowledgment; network failures and HTTP 5xx do not retry a mutation through another endpoint or Stage Display socket.",
+        "Actual Worker/socket tests cover automatic firing, failed resolve/clear/trigger with explicit retry, per-event disable, reviewed re-fire for all three new actions, payload override rejection, output ordering, ambiguous target refusal, changed-installation refusal and target disconnect. Unit tests cover cancellation during the 200 ms delay, late clear acknowledgment after the 10 s deadline, malformed resolution data and retained editor drafts.",
+        "Validation: full web suite passed 1530 unit + 470 Worker tests, migrations/client boundaries, web tsc and production build. Main bundle 492414 raw / 156035 gzip bytes. Bridge suite passed 153 tests and TypeScript build. Logs: /tmp/showpilot-props-web-tests-final.log, /tmp/showpilot-props-tsc-final.log, /tmp/showpilot-props-build-final.log, /tmp/showpilot-props-bridge-final.log.",
+        "Built-app browser rehearsal passed login -> named prop editor -> real TimecodeRelay -> real BridgeRelay -> compiled ProPresenter adapter -> local HTTP simulator, then Previous and Clear Props. Observed only /v1/props, /v1/clear/layer/props, /v1/prop/fixture-prop/trigger and /v1/presentation/active/previous/trigger. Clear-to-trigger gap 208 ms. 320 px editor screenshot inspected. Re-run: node apps/web/scripts/smoke-propresenter-cues.mjs after web and Bridge builds. Log /tmp/showpilot-props-browser-final.log; screenshot /tmp/showpilot-props-320.png.",
+        "Not merged or deployed; matching Worker and Bridge rollout and physical ProPresenter rehearsal remain pending. This verifies the ProPresenter catalog requirement locally, not the complete Phase 2.5 catalog, Phase 2 gate, or release."
+      ]
     },
     {
       "id": "39df5e5f388ce2e4",

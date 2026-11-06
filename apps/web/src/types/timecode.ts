@@ -115,6 +115,9 @@ export type AutomationActionType =
   | "lyrics-clear"
   | "pp-trigger-slide"
   | "pp-trigger-next"
+  | "pp-trigger-previous"
+  | "pp-trigger-prop"
+  | "pp-clear-props"
   | "pp-trigger-clear"
   | "custom-webhook";
 

@@ -685,10 +685,13 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   /** Internal Worker RPC used by permission-checked native device controls. */
-  async dispatchBridgeMessage(message: BridgeDispatchMessage, actor: BridgeTargetActor): Promise<BridgeDispatchResult> {
+  async dispatchBridgeMessage(message: BridgeDispatchMessage, actor: BridgeTargetActor, expectedInstallationId?: string): Promise<BridgeDispatchResult> {
     const operation = await this.ownership.run(async () => {
       const socket = this.bridgeWs;
       if (!socket || !this.bridgeOnline) return { result: Promise.resolve({ success: false, error: "Venue Bridge is offline" }) };
+      if (expectedInstallationId !== undefined && this.bridges.get(socket)?.installationId !== expectedInstallationId) {
+        return { result: Promise.resolve({ success: false, error: "Active Venue Bridge changed. Check the output before retrying." }) };
+      }
       if (!await this.authorizeBridgeWrite(socket, message.type, "to-bridge", actor.actorUserId ?? undefined)) return { result: Promise.resolve({ success: false, error: "Venue Bridge credential is unavailable" }) };
       if (message.type !== "disconnect-device") {
         try { await authorizeBridgeTarget(this.env.DB, this.orgId, message, actor); }

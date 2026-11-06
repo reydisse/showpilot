@@ -427,6 +427,42 @@ Stage Display is ready only after authentication succeeds. REST-only operation
 and fallback from an unavailable Stage Display socket remain supported; an
 explicit Stage Display authentication rejection is reported as a failure.
 
+### ProPresenter automation cues
+
+The catalog adds `pp-trigger-previous`, `pp-trigger-prop` and `pp-clear-props`.
+Prop cues accept an exact `propName` and an optional connected `target`. The
+editor supplies named fields. With multiple ProPresenter targets connected,
+choose one explicitly.
+
+A prop cue resolves the name to one UUID before changing output, clears only
+`/v1/clear/layer/props`, waits 200 ms after acknowledgment, then triggers that
+UUID. Missing and duplicate names fail before clearing. The sequence uses the
+[documented ProPresenter API](https://openapi.propresenter.com/), never Clear All.
+Its steps remain ordered with other ProPresenter cues, use distinct receipt IDs,
+and stay bound to the reviewed Bridge installation. Cancellation after an output
+command leaves the cue failed for explicit retry. Disabled cues cannot fire;
+re-firing an acknowledged cue requires the existing Re-arm confirmation.
+
+Use a matching Bridge build with the Worker update. An older Bridge cannot
+resolve prop names, so the new prop cue will fail before clearing. Configure the
+correct API port: reads can discover a working fallback port, but a lost output
+acknowledgment is never retried against another endpoint. A Stage Display socket
+write is not accepted as acknowledgment of a REST output command.
+
+After building web and Bridge, run:
+
+```sh
+node apps/web/scripts/smoke-propresenter-cues.mjs
+```
+
+This uses disposable local accounts, actual browser saves and Fire controls,
+both production relay implementations, the compiled ProPresenter adapter and a
+local HTTP simulator. It checks all three actions and the props editor at 320px.
+The transport fixture acknowledges Bridge roles and routes commands to the
+adapter; it does not simulate physical ProPresenter rendering. Complete a venue
+rehearsal before claiming physical-device acceptance. This catalog slice is not
+a production release and does not complete the rest of Phase 2.5.
+
 ### Native configuration credential migration
 
 Desktop, Bridge Desktop and standalone Bridge now store both the installation
