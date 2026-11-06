@@ -210,7 +210,10 @@ it("fires at the compensated crossing exactly once while preserving nominal time
   await test.command("update-event", {
     id: cue.id,
     updates: { leadMs: 500, deviceLatencyMs: 60000, dispatchFrame: 0 },
-  });
+  }, 400);
+  const unchanged = (await test.events())[0];
+  expect(unchanged.leadMs).not.toBe(500);
+  await test.command("update-event", { id: cue.id, updates: { leadMs: 500 } });
   expect((await test.events())[0]).toMatchObject({
     fired: true,
     leadMs: 500,

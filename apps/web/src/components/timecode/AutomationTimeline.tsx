@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Pencil,
 } from "lucide-react";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { framesToTimecode, timecodeToString } from "@/lib/timecode";
@@ -32,6 +33,7 @@ interface AutomationTimelineProps {
   onRearmEvent: (id: string, expected: ReturnType<typeof cueReviewState>) => void;
   onSetEventEnabled: (id: string, enabled: boolean) => void;
   connected: boolean;
+  onEditEvent?: (event: AutomationEvent) => void;
 }
 
 const ACTION_ICONS: Record<string, React.ElementType> = {
@@ -118,6 +120,7 @@ export function AutomationTimeline({
   onRearmEvent,
   onSetEventEnabled,
   connected,
+  onEditEvent,
 }: AutomationTimelineProps) {
   const currentFrame = state?.totalFrames ?? 0;
   const dropFrame = state?.format.dropFrame === "df";
@@ -249,6 +252,8 @@ export function AutomationTimeline({
                 <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">
                   <input type="checkbox" checked={event.enabled} disabled={!connected} onChange={(change) => onSetEventEnabled(event.id, change.target.checked)} aria-label={`Enable ${event.label}`} />Enabled
                 </label>
+                {onEditEvent && <button type="button" aria-label={`Edit ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
+                  onClick={() => onEditEvent(event)} className="flex min-h-11 min-w-11 items-center gap-1 rounded-lg px-3 text-xs text-board-text focus-visible:ring-2 disabled:opacity-40"><Pencil className="h-4 w-4" />Edit</button>}
                 {!event.fired && !event.skipped && event.executionStatus !== "failed" && <button type="button" aria-label={`Fire ${event.label}`} disabled={!connected || !event.enabled || event.executionStatus === "dispatching" || state?.triggersEnabled === false}
                   onClick={() => onFireEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-fire-500 focus-visible:ring-2 disabled:opacity-40">Fire</button>}
                 {!event.fired && !event.skipped && <button type="button" aria-label={`Skip ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}

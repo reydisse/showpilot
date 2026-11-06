@@ -143,6 +143,8 @@ export type AutomationActionType =
   | "custom-webhook";
 
 export interface AutomationEvent {
+  /** Server-owned identity of the last definition edit or execution reset. */
+  editRevision?: string;
   id: string;
   triggerTimecode: TimecodeValue;
   triggerFrame: number;

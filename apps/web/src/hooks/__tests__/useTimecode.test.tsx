@@ -568,3 +568,36 @@ describe("timecode connection honesty", () => {
     await rejected;
   });
 });
+
+it("confirms an edit only after a new revision echoes its changes", async () => {
+  const { result } = hook(); const socket = Socket.instances[0];
+  const existing: AutomationEvent = { ...event, id: "cue", fired: false, triggerFrame: 300, editRevision: "before" };
+  act(() => { hydrate(socket); socket.receive({ type: "events-update", events: [existing] }); });
+  let confirmed = false;
+  let saving = Promise.resolve();
+  act(() => { saving = result.current.updateEvent(existing, { label: "Changed" }, state.format).then(() => { confirmed = true; }); });
+  expect(JSON.parse(socket.sent.at(-1) ?? "{}")).toMatchObject({ action: "update-event", payload: { id: "cue", expected: { revision: "before", executionId: null, fired: false, skipped: false }, expectedFormat: state.format } });
+  await act(async () => {
+    socket.receive({ type: "events-update", events: [{ ...existing, label: "Changed" }] });
+    socket.receive({ type: "events-update", events: [{ ...existing, editRevision: "other" }] });
+  });
+  expect(confirmed).toBe(false);
+  await act(async () => { socket.receive({ type: "events-update", events: [{ ...existing, label: "Changed", editRevision: "after" }] }); await saving; });
+  expect(confirmed).toBe(true);
+});
+
+it.each(["disconnect", "rejection", "timeout"])("rejects an unconfirmed edit on %s without retrying it", async reason => {
+  const { result } = hook(); const socket = Socket.instances[0];
+  const existing: AutomationEvent = { ...event, id: "cue", fired: false, triggerFrame: 300, editRevision: "before" };
+  act(() => hydrate(socket));
+  let saving = Promise.resolve();
+  act(() => { saving = result.current.updateEvent(existing, { label: "Changed" }, state.format); });
+  const rejected = expect(saving).rejects.toThrow(reason === "disconnect" ? "disconnected" : reason === "rejection" ? "Cue changed" : "not confirmed");
+  await act(async () => {
+    if (reason === "disconnect") socket.close();
+    else if (reason === "rejection") socket.receive({ type: "command-rejected", action: "update-event", error: "Cue changed" });
+    else vi.advanceTimersByTime(5000);
+    await rejected;
+  });
+  expect(socket.sent.map(item => JSON.parse(item)).filter(item => item.action === "update-event")).toHaveLength(1);
+});

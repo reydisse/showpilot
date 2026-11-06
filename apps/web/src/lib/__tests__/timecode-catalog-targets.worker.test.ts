@@ -80,7 +80,8 @@ it("validates jump details on every timeline write and honors disable, retry and
     await test.command("update-event", { id: cue.id, updates: { payload: { itemId } } }, 400);
     await test.command("replace-event-group", { sourceKey: "jump", events: [{ ...cue, payload: { itemId } }] }, 400);
   }
-  await test.command("update-event", { id: cue.id, updates: { enabled: true, payload: { itemId: "missing" } } });
+  await test.command("set-event-enabled", { id: cue.id, enabled: true });
+  await test.command("update-event", { id: cue.id, updates: { payload: { itemId: "missing" } } });
   await test.command("fire-event", { id: cue.id });
   expect((await test.events())[0].fired).toBe(false);
   await test.command("update-event", { id: cue.id, updates: { payload: cue.payload } });
@@ -114,7 +115,7 @@ it("sends only a dedicated blackout, with captured latency, and waits for its ac
   await test.command("add-event", { ...cue, id: "blackout", action: "lighting-blackout", enabled: false, toleranceFrames: 0, leadMs: 100, triggerTimecode: { ...atZero, seconds: 1 }, targetActionId: "restore", payload: { actionId: "recall_scene", params: { scene: "bright" } } });
   await test.command("fire-event", { id: "blackout" }, 400);
   expect(messages).toEqual([]);
-  await test.command("update-event", { id: "blackout", updates: { enabled: true } });
+  await test.command("set-event-enabled", { id: "blackout", enabled: true });
   await test.command("start");
   await test.command("feed-tc", { timecode: { ...atZero, frames: 20 }, format });
   expect(messages).toEqual([]);

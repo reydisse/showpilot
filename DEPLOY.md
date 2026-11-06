@@ -542,6 +542,32 @@ cover request cancellation, controller note mapping, display-only visitors,
 keyboard focus guards and song-loader validation. Physical footswitch hardware
 has not been exercised in this check.
 
+### Editing automation cues
+
+The timeline Edit button opens the existing cue form with its saved time, label,
+tolerance, lead and action details. Action type stays fixed. Action details stay
+unchanged unless the operator selects **Change action details**, so renaming a
+media cue does not require selecting its file again. Saving waits for a matching
+relay revision. A lost connection or rejection retains the draft; it never
+retries an edit automatically.
+
+The relay accepts only definition fields. Identity, source key, enable state,
+derived timing and execution history cannot be patched. Invalid patches fail
+atomically. Edits recalculate timing, but never re-arm or fire a cue. The UI sends
+the reviewed definition revision, execution state and frame rate; stale reviews
+are rejected. The dialog keeps a stale draft until the operator explicitly
+reloads the latest cue. Dispatching cues cannot be edited.
+
+Timecode validation runs while typing and uses the current frame rate. Webhook
+cues have a URL field; saved URL changes must pass the public HTTPS validator.
+DNS resolution, webhook HMAC and the remaining fixed-schema hardening are still
+Phase 3 work. This does not complete the structured fields for every action.
+
+Run `node apps/web/scripts/smoke-cue-editing.mjs` against the built app. It uses
+disposable accounts and a real local relay to check save acknowledgement,
+identity and execution history, invalid timecode, concurrent changes, offline
+draft retention, a 320px dialog and webhook URL validation.
+
 ### Named countdown timers
 
 `timer-start` accepts `{name, durationMs}` and starts or restarts one named

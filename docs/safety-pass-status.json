@@ -1453,16 +1453,20 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 234,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: Timeline Edit reuses the cue form and awaits a matching relay revision. Strict update-event allowlist rejects identity, source, execution and derived timing fields atomically; payload changes retain action-specific validation and webhook URL validation. Review tokens reject changed definitions, execution attempts and frame rates. Worker tests cover fired-history preservation, persistence, stale reviews, in-flight edits, forged fields and unsafe URLs. smoke-cue-editing.mjs passed against the built app: unchanged cue ID and execution receipt, 320px fit, stale-draft retention/reload and offline-draft recovery. Full web suite passed 1623 unit and 611 Worker tests; typecheck and build passed."
+      ]
     },
     {
       "id": "a6cf92a2ef2366ae",
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 235,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06: Inline timecode validation now disables submission immediately and names the current rate as fps plus NDF/DF. Webhook URLs have a structured validated field. Unit and built-browser checks passed. Remaining generic JSON actions, device/song/section selectors and global frame-rate wording are not complete."
+      ]
     },
     {
       "id": "7f9c61a0bfafbe23",
