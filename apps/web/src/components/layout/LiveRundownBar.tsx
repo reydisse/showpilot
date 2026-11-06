@@ -34,7 +34,7 @@ function Bar({ children }: { children: ReactNode }) {
 }
 
 function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, refresh }: LiveRundownBarProps & { target: ActiveTarget; targetFresh: boolean; refresh: ReactNode }) {
-  const { items, timer, serviceName, connected, hydrated, sendCommand, lastError } = useRundownSync(orgId, target.serviceDate, target.showId);
+  const { items, timer, serviceName, connected, hydrated, sendCommand, lastError, lastErrorAt, retryConnection } = useRundownSync(orgId, target.serviceDate, target.showId);
   const [now, setNow] = useState(Date.now());
   const [hasRun, setHasRun] = useState(false);
   const live = connected && hydrated && targetFresh;
@@ -82,7 +82,8 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
       </div>}
     </div>
     {connectionNotice && <p role="status" aria-live="polite" className="mt-1 text-xs text-amber-200">{connectionNotice}</p>}
-    {lastError && <p role="alert" className="mt-1 break-words text-xs text-red-300">{lastError}</p>}
+    {lastError && <p role="alert" className="mt-1 break-words text-xs text-red-300">{lastError} {lastErrorAt != null && <time dateTime={new Date(lastErrorAt).toISOString()}>{new Date(lastErrorAt).toLocaleTimeString()}</time>}</p>}
+    {!connected && lastError && <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={retryConnection}>Reconnect rundown</Button>}
     {refresh}
   </Bar>;
 }

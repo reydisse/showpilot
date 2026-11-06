@@ -425,6 +425,8 @@ function RundownPage() {
     ppOutputEnabled: ppOnKiosk,
     stageMessage: syncedStageMessage,
     lastError: syncError,
+    lastErrorAt: syncErrorAt,
+    retryConnection: reconnectRundown,
     saving: syncSaving,
     connected: syncConnected,
     unconfirmedCount,
@@ -1970,20 +1972,23 @@ function RundownPage() {
               ? "Show unchanged."
               : saveError
                 ? "Not saved."
-                : "Live conflict."}
+                : "Rundown sync."}
           </span>
           <span className="min-w-0">
             {selectionError || saveError || syncError}
+            {!selectionError && !saveError && syncErrorAt !== null && <time className="ml-2 whitespace-nowrap" dateTime={new Date(syncErrorAt).toISOString()}>{new Date(syncErrorAt).toLocaleTimeString()}</time>}
           </span>
         </div>
       )}
 
       {canControlRundown && <RundownShortcutBanner />}
       {(!syncConnected || unconfirmedCount > 0) && (
-        <div role="status" aria-live="polite" className="shrink-0 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
-          {syncConnected
+        <div role="status" aria-live="polite" className="shrink-0 flex flex-wrap items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
+          <span className="min-w-0 flex-1 basis-full sm:basis-0">{syncConnected
             ? `Syncing ${unconfirmedCount} ${unconfirmedCount === 1 ? "change" : "changes"}…`
-            : `Offline, ${unconfirmedCount} changes queued. Transport is unavailable until live state reconnects.`}
+            : !syncHydrated && !syncError ? "Connecting to live rundown…"
+            : `Offline, ${unconfirmedCount} changes queued. Transport is unavailable until live state reconnects.`}</span>
+          {!syncConnected && (syncHydrated || syncError) && <Button type="button" variant="outline" className="min-h-11" onClick={reconnectRundown}>Reconnect rundown</Button>}
         </div>
       )}
       {/* Page body — flex-col container, never scrolls itself */}
