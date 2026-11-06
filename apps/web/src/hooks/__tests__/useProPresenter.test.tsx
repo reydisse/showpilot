@@ -39,7 +39,7 @@ it("uses the authorized venue feed without opening a direct Stage Display socket
   const { result } = await mount();
   expect(result.current.currentSlide?.text).toBe("Opening");
   expect(result.current.status).toBe("connected");
-  expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith({ data: { orgId: "org-one" } });
+  expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith({ data: { orgId: "org-one" }, signal: expect.any(AbortSignal) });
   expect(WebSocket).not.toHaveBeenCalled();
 });
 
@@ -96,4 +96,123 @@ it("stops hidden polling, ignores the previous organization's pending response a
   await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
   expect(mocks.refresh).toHaveBeenCalledTimes(count);
   expect(mocks.event).toBeNull();
+});
+
+it("bounds a stalled feed, preserves a timestamp through retry, and ignores the late response", async () => {
+  const { result, changed } = await mount();
+  let finish!: (state: ProPresenterFeedState) => void;
+  mocks.refresh.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  const signal = mocks.refresh.mock.calls[1][0].signal;
+  await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+  expect(signal.aborted).toBe(true);
+  expect(result.current.status).toBe("error");
+  expect(result.current.errorAt).toBe(Date.now());
+  expect(result.current.currentSlide?.text).toBe("Opening");
+  let recover!: (state: ProPresenterFeedState) => void;
+  mocks.refresh.mockImplementationOnce(() => new Promise(resolve => { recover = resolve; }));
+  const failureAt = result.current.errorAt;
+  act(() => result.current.connect());
+  expect(result.current.errorAt).toBe(failureAt);
+  expect(result.current.refreshing).toBe(true);
+  await act(async () => { recover(snapshot()); finish(snapshot("Stale lyric")); });
+  expect(result.current.status).toBe("connected");
+  expect(result.current.error).toBeNull();
+  expect(result.current.errorAt).toBeNull();
+  expect(result.current.currentSlide?.text).toBe("Opening");
+  expect(changed).toHaveBeenCalledTimes(1);
+});
+
+it("backs off rejected reads and resets the interval after confirmed recovery", async () => {
+  mocks.refresh.mockRejectedValue(new Error("network unavailable"));
+  const { result } = await mount();
+  expect(result.current.errorAt).toBe(Date.now());
+  await act(async () => { await vi.advanceTimersByTimeAsync(3999); });
+  expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  mocks.refresh.mockResolvedValue(snapshot());
+  await act(async () => { await vi.advanceTimersByTimeAsync(7999); });
+  expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(result.current.status).toBe("connected");
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(mocks.refresh).toHaveBeenCalledTimes(4);
+});
+
+it("does not let an offline response clear the slide even if it carries a clear event", async () => {
+  const { result, changed } = await mount();
+  mocks.refresh.mockResolvedValue({ ...snapshot(), status: "error", bridgeOnline: false, event: { kind: "clear" }, error: "Venue offline" });
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(result.current.status).toBe("error");
+  expect(result.current.errorAt).toBe(Date.now());
+  expect(result.current.currentSlide?.text).toBe("Opening");
+  expect(changed).toHaveBeenCalledTimes(1);
+});
+
+it("cancels a hidden request, retains push updates, and makes one new read on return", async () => {
+  const { result } = await mount();
+  let finish!: (state: ProPresenterFeedState) => void;
+  mocks.refresh.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  const signal = mocks.refresh.mock.calls[1][0].signal;
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  expect(signal.aborted).toBe(true);
+  expect(result.current.refreshing).toBe(false);
+  act(() => mocks.event?.(target, "slide", JSON.stringify({ text: "Hidden live lyric" })));
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); finish(snapshot("Stale")); });
+  expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  expect(result.current.currentSlide?.text).toBe("Hidden live lyric");
+  mocks.refresh.mockResolvedValue(snapshot("Confirmed on return"));
+  vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  expect(mocks.refresh).toHaveBeenCalledTimes(3);
+  expect(result.current.currentSlide?.text).toBe("Confirmed on return");
+});
+
+it("cancels reads superseded by push events and ignores their later failures", async () => {
+  const { result } = await mount();
+  let reject!: (cause: Error) => void;
+  mocks.refresh.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  const signal = mocks.refresh.mock.calls[1][0].signal;
+  act(() => mocks.device?.(target, false));
+  expect(signal.aborted).toBe(true);
+  expect(result.current.errorAt).toBe(Date.now());
+  act(() => mocks.event?.(target, "slide", JSON.stringify({ text: "Confirmed push" })));
+  await act(async () => reject(new Error("Old read failure")));
+  expect(result.current.status).toBe("connected");
+  expect(result.current.error).toBeNull();
+  expect(result.current.currentSlide?.text).toBe("Confirmed push");
+});
+
+it("clears the old target immediately, aborts its read and ignores its callbacks", async () => {
+  const { result, rerender } = await mount();
+  const oldEvent = mocks.event;
+  let finish!: (state: ProPresenterFeedState) => void;
+  mocks.refresh.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  const signal = mocks.refresh.mock.calls[1][0].signal;
+  mocks.refresh.mockImplementationOnce(() => new Promise(() => {}));
+  rerender({ ...options, host: "second-venue.local" });
+  expect(signal.aborted).toBe(true);
+  expect(result.current.currentSlide).toBeNull();
+  act(() => oldEvent?.(target, "slide", JSON.stringify({ text: "Old target" })));
+  await act(async () => finish(snapshot("Old HTTP")));
+  expect(result.current.currentSlide).toBeNull();
+});
+
+it("disabling detaches the feed and re-enabling confirms the preview again without clearing output", async () => {
+  const { result, changed, rerender } = await mount();
+  rerender({ ...options, enabled: false });
+  expect(result.current.status).toBe("disconnected");
+  expect(result.current.error).toBeNull();
+  expect(mocks.event).toBeNull();
+  expect(changed).toHaveBeenCalledTimes(1);
+  rerender(options);
+  await act(async () => {});
+  expect(result.current.status).toBe("connected");
+  expect(changed).toHaveBeenCalledTimes(2);
+  expect(changed).not.toHaveBeenCalledWith(null);
 });
