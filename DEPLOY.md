@@ -245,8 +245,8 @@ Neither plaintext settings nor encrypted envelopes are broadcast to operators.
 This transport uses no new Worker secret and does not replace TLS.
 
 Device JSON encryption, masked device read/add/update responses and private
-ProPresenter delivery are described below. Native configuration-file migration
-is still pending; transport encryption alone does not complete the rollout.
+ProPresenter delivery and native configuration-file migration are described
+below. Transport encryption alone does not complete the rollout.
 
 After building the web application and native sidecar, rehearse the actual
 browser-to-Worker-to-native-to-device path against disposable local data:
@@ -271,7 +271,7 @@ controls. Blank replacement fields preserve existing credentials. Clearing
 requires confirmation. Single and bulk generic save responses are masked too.
 Internal chat, Slack-signature, ProPresenter and mobile consumers can read the
 encrypted values. Device JSON storage and protected native credential delivery
-are implemented below; native configuration-file migration remains pending.
+and native configuration-file migration are implemented below.
 
 Before deploying, apply `0050_credential_backfill_cursor.sql` and provision the
 Worker secret `CREDENTIAL_ENCRYPTION_KEYS`. It is JSON with an `active` key ID
@@ -376,9 +376,48 @@ node apps/web/scripts/smoke-propresenter-private.mjs apps/bridge-desktop/src-tau
 ```
 
 The fixture uses a local password-protected Stage Display server, not physical
-ProPresenter hardware. H8 remains pending: manually entered ProPresenter
-passwords in older native configuration files still need OS-vault migration.
-Live credential replacement/reconnection also needs verification before release.
+ProPresenter hardware. H8 remains pending: live credential replacement and
+reconnection still need verification before release.
+
+### Native configuration credential migration
+
+Desktop, Bridge Desktop and standalone Bridge now store both the installation
+key and any locally entered ProPresenter password in one OS-vault entry. The
+JSON file contains a reference and `credentialFormat: showpilot-bridge-v1`,
+with neither secret. The format identifies a JSON credential bundle instead
+of the old key-only vault value.
+
+Loading an old plaintext file or key-only vault reference migrates it before
+returning the configuration. Migration writes a fresh vault entry, atomically
+replaces the sanitized file, then retires the previous entry. Failed vault or
+file writes retain the previous configuration. Missing or malformed vault data
+fails closed. No new plaintext fallback is created.
+
+Bridge Desktop returns only a configured flag for the saved ProPresenter
+password. Blank input preserves it for the same site, organization, host and
+Stage Display port. Replacement clears the draft after successful saving.
+Select “Remove the saved password when I save” and save to remove it. Changing
+the destination does not carry the saved password into the new destination.
+
+Older native builds cannot read this vault format. Keep a compatible native
+build for rollback; do not restore plaintext configuration backups. Locked or
+unavailable OS stores must be unlocked before migrating or saving.
+
+Run the real OS-store probes on an unlocked test machine:
+
+```sh
+cargo test --locked --manifest-path packages/native-credentials/Cargo.toml -- --include-ignored
+pnpm --filter @showpilot/bridge build
+node apps/bridge/scripts/check-credential-store.mjs
+pnpm --filter @showpilot/bridge-desktop build
+node apps/bridge-desktop/scripts/smoke-private-config.mjs
+```
+
+The first two probes use disposable OS-vault entries and test migration,
+replacement, clearing and recovery. The standalone probe also loads the
+configuration in a second process. The final browser check uses the built UI
+with simulated native IPC, covering blank saves, failed drafts, explicit
+removal and responsive layout. It does not replace the native Rust/OS tests.
 
 ### Applying a migration to production
 

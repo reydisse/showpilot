@@ -34,3 +34,6 @@ select { width: 100%; padding: 10px 11px; border: 1px solid #353535; border-radi
 .update-card { display: grid; gap: 10px; }.update-card h1 { margin: 0; }.update-card p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }.update-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; }.update-button svg { width: 14px; }.update-message { color: #c9c9c9 !important; }
 footer { margin-top: 18px; color: #666; font-size: 10px; text-align: center; }
 @media (max-width: 600px) { body { min-width: 0; }.shell { padding: 20px 16px; }.two-fields { grid-template-columns: 1fr; } }
+
+.credential-clear { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.credential-clear input { width: 18px; height: 18px; margin: 0; accent-color: var(--fire); }

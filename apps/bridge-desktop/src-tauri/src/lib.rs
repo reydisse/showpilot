@@ -41,10 +41,34 @@ struct BridgeConfig {
     propresenter_port: Option<u16>,
     #[serde(default)]
     propresenter_api_port: Option<u16>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     propresenter_password: Option<String>,
+    #[serde(default, skip_serializing)]
+    clear_propresenter_password: bool,
     #[serde(default)]
     midi_input_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicBridgeConfig {
+    #[serde(flatten)]
+    config: BridgeConfig,
+    propresenter_password_configured: bool,
+}
+
+fn public_bridge_config(mut config: BridgeConfig) -> PublicBridgeConfig {
+    let configured = config
+        .propresenter_password
+        .as_ref()
+        .is_some_and(|value| !value.is_empty());
+    config.key.clear();
+    config.propresenter_password = None;
+    config.clear_propresenter_password = false;
+    PublicBridgeConfig {
+        config,
+        propresenter_password_configured: configured,
+    }
 }
 
 struct BridgeProcess {
@@ -319,31 +343,44 @@ fn engine_info(app: tauri::AppHandle) -> EngineInfo {
 }
 
 #[tauri::command]
-fn get_bridge_config(app: tauri::AppHandle) -> Result<Option<BridgeConfig>, String> {
-    Ok(read_bridge_config(&app)?.map(|mut config| {
-        config.key.clear();
-        config
-    }))
+fn get_bridge_config(app: tauri::AppHandle) -> Result<Option<PublicBridgeConfig>, String> {
+    Ok(read_bridge_config(&app)?.map(public_bridge_config))
 }
 
-fn resolve_saved_key(app: &tauri::AppHandle, config: &mut BridgeConfig) -> Result<(), String> {
-    if config.key.is_empty() {
-        let saved = read_bridge_config(app)?;
-        showpilot_native_credentials::reuse_key(
-            &config.site,
-            &config.org,
-            &mut config.key,
-            saved
-                .as_ref()
-                .map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())),
-        )?;
+fn resolve_saved_credentials(
+    config: &mut BridgeConfig,
+    saved: Option<&BridgeConfig>,
+) -> Result<(), String> {
+    showpilot_native_credentials::reuse_key(
+        &config.site,
+        &config.org,
+        &mut config.key,
+        saved.map(|saved| (saved.site.as_str(), saved.org.as_str(), saved.key.as_str())),
+    )?;
+    if config.clear_propresenter_password {
+        config.propresenter_password = None;
+    } else if config
+        .propresenter_password
+        .as_ref()
+        .is_none_or(|value| value.is_empty())
+    {
+        config.propresenter_password = saved
+            .filter(|saved| {
+                config.site.trim().trim_end_matches('/') == saved.site.trim().trim_end_matches('/')
+                    && config.org.trim() == saved.org.trim()
+                    && config.propresenter_host == saved.propresenter_host
+                    && config.propresenter_port.unwrap_or(50001)
+                        == saved.propresenter_port.unwrap_or(50001)
+            })
+            .and_then(|saved| saved.propresenter_password.clone());
     }
+    config.clear_propresenter_password = false;
     Ok(())
 }
 
 #[tauri::command]
 fn save_bridge_config(app: tauri::AppHandle, mut config: BridgeConfig) -> Result<(), String> {
-    resolve_saved_key(&app, &mut config)?;
+    resolve_saved_credentials(&mut config, read_bridge_config(&app)?.as_ref())?;
     validate_bridge_config(&config)?;
     showpilot_native_credentials::save(&bridge_config_path(&app)?, CREDENTIAL_SERVICE, &config)
 }
@@ -487,7 +524,7 @@ fn start_bridge(
     mut config: BridgeConfig,
     runtime: tauri::State<'_, BridgeRuntime>,
 ) -> Result<BridgeStatus, String> {
-    resolve_saved_key(&app, &mut config)?;
+    resolve_saved_credentials(&mut config, read_bridge_config(&app)?.as_ref())?;
     save_bridge_config(app.clone(), config.clone())?;
     runtime.auto_restart.store(true, Ordering::Relaxed);
     let mut process = runtime
@@ -883,6 +920,52 @@ mod tests {
         BridgeConnection,
     };
 
+    #[test]
+    fn public_configuration_never_returns_saved_credentials() {
+        let mut saved = config("https://app.example", "venue", "sp_private_key");
+        saved.propresenter_password = Some("private-stage-password".into());
+        let public = serde_json::to_value(super::public_bridge_config(saved)).unwrap();
+        assert_eq!(public["key"], "");
+        assert_eq!(public["propresenterPasswordConfigured"], true);
+        assert!(public.get("propresenterPassword").is_none());
+        assert!(!public.to_string().contains("private"));
+    }
+
+    #[test]
+    fn saved_password_preservation_replacement_and_clear_are_scoped() {
+        let mut saved = config("https://app.example", "venue", "sp_private_key");
+        saved.propresenter_host = Some("192.0.2.1".into());
+        saved.propresenter_password = Some("saved-stage-password".into());
+        let mut draft = super::public_bridge_config(saved.clone()).config;
+        super::resolve_saved_credentials(&mut draft, Some(&saved)).unwrap();
+        assert_eq!(draft.propresenter_password, saved.propresenter_password);
+        assert_eq!(draft.key, saved.key);
+        draft.propresenter_password = Some("replacement".into());
+        super::resolve_saved_credentials(&mut draft, Some(&saved)).unwrap();
+        assert_eq!(draft.propresenter_password.as_deref(), Some("replacement"));
+        draft.clear_propresenter_password = true;
+        super::resolve_saved_credentials(&mut draft, Some(&saved)).unwrap();
+        assert!(draft.propresenter_password.is_none());
+        assert!(!draft.clear_propresenter_password);
+        for field in ["site", "org", "host", "port"] {
+            let mut draft = super::public_bridge_config(saved.clone()).config;
+            draft.key = "sp_new_key".into();
+            match field {
+                "site" => draft.site = "https://other.example".into(),
+                "org" => draft.org = "other".into(),
+                "host" => draft.propresenter_host = Some("192.0.2.2".into()),
+                _ => draft.propresenter_port = Some(50002),
+            }
+            super::resolve_saved_credentials(&mut draft, Some(&saved)).unwrap();
+            assert!(draft.propresenter_password.is_none());
+        }
+        let mut draft = super::public_bridge_config(saved.clone()).config;
+        draft.site.push('/');
+        draft.propresenter_port = Some(50001);
+        super::resolve_saved_credentials(&mut draft, Some(&saved)).unwrap();
+        assert_eq!(draft.propresenter_password, saved.propresenter_password);
+    }
+
     fn config(site: &str, org: &str, key: &str) -> BridgeConfig {
         BridgeConfig {
             site: site.into(),
@@ -892,6 +975,7 @@ mod tests {
             propresenter_port: None,
             propresenter_api_port: None,
             propresenter_password: None,
+            clear_propresenter_password: false,
             midi_input_name: None,
         }
     }
