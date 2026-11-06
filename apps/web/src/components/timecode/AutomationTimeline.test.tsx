@@ -27,6 +27,17 @@ function setup(events: AutomationEvent[], connected = true, clock = state) {
 }
 
 describe("automation safety controls", () => {
+  it("shows the nominal time and compensation while choosing Next by dispatch time", () => {
+    setup([
+      cue("Nominal first", { triggerFrame: 40 }),
+      cue("Send first", { triggerTimecode: { hours: 0, minutes: 0, seconds: 2, frames: 0 }, triggerFrame: 60, dispatchFrame: 36, leadMs: 600, deviceLatencyMs: 200 }),
+    ]);
+    expect(screen.getByRole("button", { name: "Fire next" }).getAttribute("title")).toBe("Fire Send first now");
+    expect(screen.getByText("00:00:02:00")).toBeTruthy();
+    expect(screen.getByText("Send 00:00:01:06")).toBeTruthy();
+    expect(screen.getByText(/Lead 600 ms \+ device 200 ms/)).toBeTruthy();
+  });
+
   it("offers the earliest ready cue and keeps Fire, Skip and Re-arm separate", () => {
     const props = setup([
       cue("Past"), cue("Disabled", { triggerFrame: 40, enabled: false }),
