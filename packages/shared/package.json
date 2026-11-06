@@ -20,6 +20,14 @@
     "./bridge-settings": {
       "types": "./src/bridge-settings.d.mts",
       "import": "./src/bridge-settings.mjs"
+    },
+    "./rundown-transport": {
+      "types": "./src/rundown-transport.d.mts",
+      "import": "./src/rundown-transport.mjs"
+    },
+    "./local-rundown": {
+      "types": "./src/local-rundown.d.mts",
+      "import": "./src/local-rundown.mjs"
     }
   }
 }

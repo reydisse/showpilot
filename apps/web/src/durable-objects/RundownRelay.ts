@@ -1,3 +1,5 @@
+import { parseLocalRundownJournal, reconcileLocalRundown } from "@showpilot/shared/local-rundown";
+import { applyRundownTransport, parseRundownTransport } from "@showpilot/shared/rundown-transport";
 import { readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageStatements, samePersistedRundownItem, type RundownDatabase, type RundownStatement } from "@/lib/rundown-item-storage.server";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
@@ -227,7 +229,7 @@ export class RundownRelay extends DurableObject {
       || action === "reorder"
       || action === "reset"
       || action === "clear-all";
-    const persistsTimer = persistsFullItems || action.startsWith("timer-");
+    const persistsTimer = persistsFullItems || action.startsWith("timer-") || action === "reconcile-local";
     const persistsMessage = action === "stage-message" || action === "stage-clear";
     const persistsMeta = action === "update-meta"
       || action === "seed" && this.state.serviceName !== undefined;
@@ -881,205 +883,29 @@ export class RundownRelay extends DurableObject {
         break;
       }
 
-      case "timer-start": {
-        const itemId =
-          (payload?.itemId as string) ?? this.state.timer.currentItemId;
-        const requestedItem = this.state.items.find((item) => item.id === itemId);
-        if (!itemId || !requestedItem || requestedItem.type === "header") return false;
-        {
-          const now = Date.now();
-          const nowIso = new Date(now).toISOString();
-
-          if (
-            this.state.timer.currentItemId &&
-            this.state.timer.currentItemId !== itemId
-          ) {
-            const prev = this.state.items.find(
-              (i) => i.id === this.state.timer.currentItemId
-            );
-            if (prev) {
-              prev.status = "complete";
-              if (!prev.actualEnd) {
-                prev.actualEnd = nowIso;
-              }
-            }
-          }
-
-          const item = this.state.items.find((i) => i.id === itemId);
-          if (item) {
-            item.status = "live";
-            if (!item.actualStart) {
-              item.actualStart = nowIso;
-            }
-          }
-
-          this.state.timer = {
-            playback: "play",
-            currentItemId: itemId,
-            elapsed: this.state.timer.pausedAt
-              ? this.state.timer.elapsed
-              : 0,
-            startedAt: now,
-            pausedAt: null,
-            mode: this.state.timer.mode,
-          };
-        }
+      case "reconcile-local": {
+        const journal = parseLocalRundownJournal(payload, Date.now());
+        if (!journal || !this.state.showId || !this.state.serviceDate) return false;
+        const result = reconcileLocalRundown(this.state, {
+          orgId: this.orgId,
+          showId: this.state.showId,
+          serviceDate: this.state.serviceDate,
+          revision: this.state.revision,
+        }, journal);
+        if (!result.ok) return false;
+        this.state.items = result.state.items;
+        this.state.timer = result.state.timer;
         break;
       }
 
-      case "timer-resume": {
-        // Resume from pause — preserves accumulated elapsed, restarts clock
-        if (this.state.timer.playback === "pause") {
-          this.state.timer.playback = "play";
-          this.state.timer.startedAt = Date.now();
-          this.state.timer.pausedAt = null;
-        }
-        break;
-      }
-
-      case "timer-pause": {
-        if (this.state.timer.playback === "play") {
-          const now = Date.now();
-          const additionalElapsed = this.state.timer.startedAt
-            ? now - this.state.timer.startedAt
-            : 0;
-          this.state.timer.elapsed += additionalElapsed;
-          this.state.timer.playback = "pause";
-          this.state.timer.pausedAt = now;
-          this.state.timer.startedAt = null;
-        }
-        break;
-      }
-
-      case "timer-stop": {
-        if (this.state.timer.currentItemId) {
-          const item = this.state.items.find(
-            (i) => i.id === this.state.timer.currentItemId
-          );
-          if (item) {
-            item.status = "complete";
-            if (!item.actualEnd) {
-              const nowIso = new Date().toISOString();
-              item.actualEnd = nowIso;
-            }
-          }
-        }
-        this.state.timer = {
-          playback: "stop",
-          currentItemId: null,
-          elapsed: 0,
-          startedAt: null,
-          pausedAt: null,
-          mode: this.state.timer.mode,
-        };
-        break;
-      }
-
-      case "timer-next": {
-        const now = Date.now();
-        const nowIso = new Date(now).toISOString();
-        const currentIdx = this.state.items.findIndex(
-          (i) => i.id === this.state.timer.currentItemId
-        );
-        if (currentIdx >= 0) {
-          const curItem = this.state.items[currentIdx];
-          curItem.status = "complete";
-          if (!curItem.actualEnd) {
-            curItem.actualEnd = nowIso;
-          }
-        }
-        // Section bands are not running order — advancing onto one would
-        // put a heading "live" and stop the clock on a real segment.
-        const nextItem = this.state.items.find(
-          (item, i) =>
-            i > currentIdx && item.status !== "complete" && item.type !== "header"
-        );
-        if (nextItem) {
-          nextItem.status = "live";
-          if (!nextItem.actualStart) {
-            nextItem.actualStart = nowIso;
-          }
-          this.state.timer = {
-            playback: "play",
-            currentItemId: nextItem.id,
-            elapsed: 0,
-            startedAt: now,
-            pausedAt: null,
-            mode: this.state.timer.mode,
-          };
-        } else {
-          this.state.timer = {
-            playback: "stop",
-            currentItemId: null,
-            elapsed: 0,
-            startedAt: null,
-            pausedAt: null,
-            mode: this.state.timer.mode,
-          };
-        }
-        break;
-      }
-
-      case "timer-prev": {
-        const now = Date.now();
-        const nowIso = new Date(now).toISOString();
-        const curIdx = this.state.items.findIndex(
-          (i) => i.id === this.state.timer.currentItemId
-        );
-        // Step back over any section bands sitting between the two
-        // segments, for the same reason as timer-next.
-        let prevIdx = curIdx - 1;
-        while (prevIdx >= 0 && this.state.items[prevIdx].type === "header") prevIdx--;
-        if (curIdx > 0 && prevIdx >= 0) {
-          if (curIdx >= 0) {
-            const curItem = this.state.items[curIdx];
-            curItem.status = "upcoming";
-            // Clear actualStart so the item can be re-timed cleanly
-            curItem.actualStart = null;
-            curItem.actualEnd = null;
-          }
-          const prevItem = this.state.items[prevIdx];
-          prevItem.status = "live";
-          if (!prevItem.actualStart) {
-            prevItem.actualStart = nowIso;
-          }
-          this.state.timer = {
-            playback: "play",
-            currentItemId: prevItem.id,
-            elapsed: 0,
-            startedAt: now,
-            pausedAt: null,
-            mode: this.state.timer.mode,
-          };
-        }
-        break;
-      }
-
-      case "timer-adjust": {
-        // Add/subtract time from running timer — syncs to all clients
-        // Positive deltaMs = add time (reduce elapsed), negative = subtract time
-        // Negative elapsed = extra time added beyond item duration
-        const deltaMs = payload?.deltaMs;
-        if (typeof deltaMs !== "number" || !Number.isFinite(deltaMs) || Math.abs(deltaMs) > 86_400_000) {
-          return false;
-        }
-        if (this.state.timer.playback === "stop") return false;
-
-        if (this.state.timer.playback === "play" && this.state.timer.startedAt) {
-          const currentElapsed = this.state.timer.elapsed + (Date.now() - this.state.timer.startedAt);
-          this.state.timer.elapsed = currentElapsed - deltaMs;
-          this.state.timer.startedAt = Date.now();
-        } else if (this.state.timer.playback === "pause") {
-          this.state.timer.elapsed = this.state.timer.elapsed - deltaMs;
-        }
-        break;
-      }
-
-      case "timer-mode": {
-        if (payload?.mode !== "count-up" && payload?.mode !== "count-down" && payload?.mode !== "clock") {
-          return false;
-        }
-        this.state.timer.mode = payload.mode;
+      case "timer-start": case "timer-resume": case "timer-pause": case "timer-stop":
+      case "timer-next": case "timer-prev": case "timer-adjust": case "timer-mode": {
+        const command = parseRundownTransport(action, payload);
+        if (!command) return false;
+        const next = applyRundownTransport(this.state, command, Date.now());
+        if (!next) return false;
+        this.state.items = next.items;
+        this.state.timer = next.timer;
         break;
       }
 

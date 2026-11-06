@@ -55,6 +55,14 @@ export function parseRundownRelayHttpCommand(value: unknown): RundownRelayHttpCo
   if (value.expiresAt !== undefined && (typeof value.expiresAt !== "number"
     || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < 0)) return null;
 
+  // An offline journal must name its exact base and stable retry ID. It may
+  // never take the permissive legacy path used by commands without revisions.
+  if (action === "reconcile-local" && (!isRecord(value.payload)
+    || typeof value.payload.sessionId !== "string"
+    || value.id !== `local:${value.payload.sessionId}`
+    || value.expectedRevision === undefined
+    || value.expectedRevision !== value.payload.baseRevision)) return null;
+
   return {
     action,
     ...(value.expiresAt === undefined ? {} : { expiresAt: value.expiresAt }),

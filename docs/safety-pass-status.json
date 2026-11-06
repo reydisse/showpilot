@@ -1183,7 +1183,11 @@
       "section": "2.3 Local show mode, minimum viable first (audit C5)",
       "line": 198,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial local-mode implementation: shared rundown transport reducer now drives cloud commands and local-journal reconstruction. Reconciliation requires matching org/show/date, the exact cached base revision, a stable local session command ID, and current control authority. Device actions are rejected from replay; the reconciled timer is held for operator review.",
+        "Worker verification covers persisted item timing and held timer through eviction, idempotent retry, concurrent cloud revision conflict, rejection of missing guards/wrong scope/device replay, and D1 failure rollback with a successful retry. Full local web suite passed 1441 unit and 406 Worker tests; web/shared typechecks and production build passed.",
+        "Still pending: prepared native show/device cache, local command execution with approved targets, offline UI, and reconnect review/handoff. The existing offline shell is still rehearsal-only; this backend work does not make local mode complete."
+      ]
     },
     {
       "id": "bddfdd87fdf233ea",
