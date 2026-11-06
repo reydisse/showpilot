@@ -5,126 +5,171 @@ export type { CueSheetEvent, CueNoteEvent, IncidentEvent } from "@/lib/cue-sheet
 
 interface Options {
   orgId: string;
+  /** Changing the selected show invalidates that view's outstanding refresh. */
+  scope?: string;
   onNote: (event: CueNoteEvent) => void;
-  onColumns: () => void;
   onIncident?: (event: IncidentEvent) => void;
-  /** Reload this view's authorized D1 data, rejecting if it could not refresh. */
-  onRefresh: () => Promise<void>;
+  /** Abort fetches and check the signal before applying refreshed data. */
+  onRefresh: (signal: AbortSignal) => Promise<void>;
+}
+type SyncStatus = "connecting" | "reconnecting" | "refreshing" | "connected";
+interface SyncState {
+  status: SyncStatus;
+  error: { message: string; occurredAt: number } | null;
 }
 
-/** D1 owns the sheet. The socket detects missing notifications and makes the
- * caller refresh its scoped data; it never replays edits or keeps a room warm.
- */
+/** D1 owns the sheet. Recovery only reads scoped data; it never replays edits. */
 export function useCueSheetSync(options: Options) {
-  const { orgId } = options;
+  const { orgId, scope } = options;
   const handlers = useRef(options);
   handlers.current = options;
-  const [connected, setConnected] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [state, setState] = useState<SyncState>({ status: "connecting", error: null });
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     let disposed = false;
     let attempts = 0;
-    let reconnect: ReturnType<typeof setTimeout> | null = null;
-    let refreshRetry: ReturnType<typeof setTimeout> | null = null;
-    const refreshTimers = new Set<ReturnType<typeof setTimeout>>();
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
+    let releaseConnection = () => {};
+    let retryConnection = () => {};
     const sequence = new RelaySequenceTracker();
-    setConnected(false); setSyncError(null);
+    const fail = (message: string) => setState({ status: "reconnecting", error: { message, occurredAt: Date.now() } });
+    setState({ status: "connecting", error: null });
 
     const connect = () => {
       if (disposed) return;
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const socket = new WebSocket(`${protocol}://${window.location.host}/api/cue-sheet/${encodeURIComponent(orgId)}/ws`);
+      clearTimeout(reconnect);
+      releaseConnection();
+      setState(previous => ({ ...previous, status: previous.error ? "reconnecting" : "connecting" }));
+      const schedule = () => { reconnect = setTimeout(connect, Math.min(1000 * 2 ** Math.min(attempts++, 4), 15000)); };
+      let socket: WebSocket;
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        socket = new WebSocket(`${protocol}://${window.location.host}/api/cue-sheet/${encodeURIComponent(orgId)}/ws`);
+      } catch {
+        fail("Live connection could not open. Retrying automatically.");
+        retryConnection = connect; schedule(); return;
+      }
       wsRef.current = socket;
       let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
-      let refreshing = false;
+      let refreshRetry: ReturnType<typeof setTimeout> | undefined;
+      let request: { controller: AbortController; timeout?: ReturnType<typeof setTimeout> } | null = null;
       let refreshAgain = false;
+      let awaitingSnapshot = true;
+      let synchronized = false;
       let buffered: CueSheetEvent[] = [];
       const current = () => !disposed && wsRef.current === socket;
+      const cancelRead = () => {
+        const pending = request; request = null;
+        clearTimeout(pending?.timeout); pending?.controller.abort();
+      };
+      releaseConnection = () => {
+        if (wsRef.current === socket) wsRef.current = null;
+        clearTimeout(hydrateTimeout); clearTimeout(refreshRetry); cancelRead();
+        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+        socket.close(); sequence.disconnect();
+      };
+      const disconnect = (message: string) => {
+        if (!current()) return;
+        releaseConnection(); fail(message); schedule();
+      };
       const deliver = (message: CueSheetEvent) => {
         if (message.type === "note") handlers.current.onNote(message);
-        else if (message.type === "columns") handlers.current.onColumns();
-        else handlers.current.onIncident?.(message);
+        else if (message.type === "incident") handlers.current.onIncident?.(message);
       };
       const refresh = async () => {
-        if (!current() || refreshing) return;
-        refreshing = true; buffered = []; setConnected(false); setSyncError(null);
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        if (refreshRetry) clearTimeout(refreshRetry);
+        if (!current() || request || awaitingSnapshot) return;
+        const pending = { controller: new AbortController(), timeout: undefined as ReturnType<typeof setTimeout> | undefined };
+        request = pending; buffered = []; synchronized = false;
+        setState(previous => ({ ...previous, status: "refreshing" }));
+        clearTimeout(refreshRetry);
         try {
           await Promise.race([
-            handlers.current.onRefresh(),
-            new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Refresh timed out. Try again.")), 10_000); refreshTimers.add(timeout); }),
+            handlers.current.onRefresh(pending.controller.signal),
+            new Promise<never>((_, reject) => {
+              pending.timeout = setTimeout(() => {
+                reject(new Error("Refresh timed out. Try again.")); pending.controller.abort();
+              }, 10_000);
+            }),
           ]);
-          if (!current() || refreshAgain) return;
+          if (!current() || request !== pending || refreshAgain || awaitingSnapshot) return;
           for (const message of buffered) deliver(message);
-          buffered = []; setConnected(true); setSyncError(null);
+          buffered = []; synchronized = true; attempts = 0;
+          setState({ status: "connected", error: null });
         } catch (error) {
-          if (!current()) return;
-          setSyncError(error instanceof Error ? error.message : "Could not refresh live changes. Try again.");
-          refreshRetry = setTimeout(() => { void refresh(); }, 5000);
+          if (!current() || request !== pending) return;
+          fail(error instanceof Error ? error.message : "Could not refresh live changes. Try again.");
+          refreshRetry = setTimeout(() => { void refresh(); }, Math.min(5000 * 2 ** Math.min(attempts++, 3), 30_000));
         } finally {
-          refreshing = false;
-          if (timeout) { clearTimeout(timeout); refreshTimers.delete(timeout); }
-          if (current() && refreshAgain) { refreshAgain = false; void refresh(); }
+          clearTimeout(pending.timeout);
+          if (request === pending) {
+            request = null;
+            if (current() && refreshAgain && !awaitingSnapshot) { refreshAgain = false; void refresh(); }
+          }
         }
       };
-      retryRef.current = () => { void refresh(); };
-      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) socket.close(); }, 5000); };
-      socket.onopen = () => { if (current()) { attempts = 0; awaitHydrate(); } };
+      retryConnection = () => {
+        if (current() && socket.readyState === WebSocket.OPEN && !awaitingSnapshot) void refresh();
+        else connect();
+      };
+      const awaitHydrate = () => {
+        clearTimeout(hydrateTimeout);
+        hydrateTimeout = setTimeout(() => disconnect("Live connection timed out. Retrying automatically."), 5000);
+      };
+      // Bound CONNECTING too; some networks never dispatch open/error/close.
+      awaitHydrate();
+      socket.onopen = () => { if (current()) awaitHydrate(); };
       socket.onmessage = event => {
         if (!current()) return;
         try {
           const message: unknown = JSON.parse(event.data);
           if (message && typeof message === "object" && "type" in message && message.type === "hydrate") {
-            clearTimeout(hydrateTimeout);
+            clearTimeout(hydrateTimeout); awaitingSnapshot = false;
             const { changed } = sequence.snapshot(message);
-            // Also closes the race between the route loader and WS admission.
-            if (refreshing) refreshAgain ||= changed;
-            else void refresh();
+            if (request) refreshAgain ||= changed;
+            else { refreshAgain = false; void refresh(); }
             return;
           }
           const result = cueSheetEventSchema.safeParse(message);
           if (!result.success) return;
           const decision = sequence.delta(message);
           if (decision === "refresh") {
-            setConnected(false); awaitHydrate();
+            synchronized = false; awaitingSnapshot = true; refreshAgain = true;
+            setState(previous => ({ ...previous, status: "refreshing" })); awaitHydrate();
             socket.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence }));
           }
           if (decision !== "apply") return;
-          if (refreshing) {
+          if (result.data.type === "columns") {
+            // Columns have no delta payload; D1 must confirm them before Synced.
+            if (request) refreshAgain = true;
+            else void refresh();
+            return;
+          }
+          if (request) {
             buffered.push(result.data);
-            if (buffered.length > 1000) socket.close(); // Rehydrate instead of retaining an unbounded backlog.
-          } else deliver(result.data);
-        } catch { socket.close(); }
+            if (buffered.length > 1000) disconnect("Live changes need a fresh snapshot. Reconnecting.");
+          } else if (synchronized) deliver(result.data);
+        } catch { disconnect("Live changes could not be read. Reconnecting."); }
       };
-      socket.onclose = () => {
-        clearTimeout(hydrateTimeout);
-        if (!current()) return;
-        sequence.disconnect(); setConnected(false); wsRef.current = null;
-        if (refreshRetry) clearTimeout(refreshRetry);
-        reconnect = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 15000));
-      };
-      socket.onerror = () => socket.close();
+      socket.onclose = () => disconnect("Live connection lost. Retrying automatically.");
+      socket.onerror = () => disconnect("Live connection failed. Retrying automatically.");
     };
+    retryRef.current = () => retryConnection();
     connect();
     return () => {
-      disposed = true;
-      if (reconnect) clearTimeout(reconnect);
-      if (refreshRetry) clearTimeout(refreshRetry);
-      for (const timer of refreshTimers) clearTimeout(timer);
-      wsRef.current?.close(); wsRef.current = null;
-      retryRef.current = () => {};
+      disposed = true; clearTimeout(reconnect); releaseConnection(); retryRef.current = () => {};
     };
-  }, [orgId]);
+  }, [orgId, scope]);
 
-  // This notification is published only after the mutation commits to D1.
+  // Publication follows the D1 commit. A lost notification is recovered by the
+  // next read, never by replaying the write or rejecting an already saved note.
   const publish = useCallback((event: CueSheetEvent) => {
     const socket = wsRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event));
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    try { socket.send(JSON.stringify(event)); }
+    catch { socket.close(); }
   }, []);
   const retrySync = useCallback(() => retryRef.current(), []);
-  return { connected, publish, syncError, retrySync };
+  return { connected: state.status === "connected", status: state.status, publish, syncError: state.error?.message ?? null, syncErrorAt: state.error?.occurredAt ?? null, retrySync };
 }
