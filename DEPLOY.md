@@ -597,6 +597,35 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Graphics output recovery
+
+The Graphics library coordinates live-output reads and writes. Reads use an
+eight-second deadline, cancellation, hidden-tab suspension and capped backoff.
+Live-output reads use primary D1, including when no recent-write cookie exists.
+A write invalidates any older read, pauses polling until its acknowledgement or
+ten-second deadline, and resumes with confirmed output. Old replies cannot
+replace a newer action or cross organizations. An uncertain write retains its
+timestamped warning and reconciles through reads without automatically repeating
+the action.
+
+During a read outage, badges and counts identify the last confirmed on-air state.
+Per-graphic changes wait for fresh state; explicit Clear All remains available as
+a stop action, even when the last confirmed output is empty. Clear All returns
+observed server state, including any publication
+that arrived after the clear, instead of assuming empty output. Existing callers
+that ignore its return value continue to work. Clear and per-graphic controls have
+44px touch targets.
+
+Run `node apps/web/scripts/smoke-graphics-output-recovery.mjs` after building.
+It stops/restarts a disposable Worker, delivers an older completed read after a
+newer Hide, loses a successful mutation response after D1 commit, checks recovery
+without replay, and verifies the 320px warning, output card and Clear control.
+Seven hook tests cover lifecycle ordering, deadlines, scope isolation and access;
+three real D1 tests cover Clear acknowledgements, concurrent publication,
+organization authorization and primary reads without a recent-write cookie.
+No migration is required. Graphics library creation/editing/deletion/import error
+handling remains separate follow-up work.
+
 ### ProPresenter command confirmation
 
 Rundown slide and kiosk-output actions now share a synchronous pending guard and
