@@ -12,6 +12,7 @@ export class MidiInputFixture extends EventTarget {
 
 export class MidiAccessFixture extends EventTarget {
   readonly inputs = new Map<string, MidiInputFixture>();
+  readonly outputs = new Map<string, MidiOutputFixture>();
   readonly sysexEnabled = false;
   constructor(...inputs: MidiInputFixture[]) {
     super();
@@ -27,4 +28,12 @@ export class MidiAccessFixture extends EventTarget {
     this.inputs.delete(input.id);
     if (notify) this.dispatchEvent(new Event("statechange"));
   }
+}
+
+export class MidiOutputFixture extends EventTarget {
+  readonly manufacturer = "ShowPilot fixture";
+  state: MIDIPortDeviceState = "connected";
+  readonly messages: number[][] = [];
+  constructor(readonly id: string, readonly name = id) { super(); }
+  send(bytes: number[]) { this.messages.push([...bytes]); }
 }

@@ -59,6 +59,7 @@ it("rejects every mutation from a second socket or another authenticated HTTP se
   expect((await sameLogin.command("add-event", cue)).status).toBe(200);
   const before = await contents(test);
   const mutations = [
+    ["pause"], ["save-controller", { revision: 0, config: { input: null, output: null, feedback: "none", bindings: [] } }],
     ["fire-next"], ["fire-event", { id: cue.id }], ["skip-event", { id: cue.id }], ["rearm-event", { id: cue.id }],
     ["mtc-transport", { state: "stopped" }], ["start"], ["stop"], ["feed-tc", { timecode: cue.triggerTimecode, format: { frameRate: 30, dropFrame: "ndf" } }],
     ["set-timecode", { timecode: cue.triggerTimecode }], ["set-source", { source: "mtc" }],

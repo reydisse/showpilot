@@ -1061,10 +1061,11 @@
       "line": 185,
       "status": "in_progress",
       "evidence": [
-        "Manual cue prerequisite: show-bound fire-next/fire-event/skip-event/rearm-event commands and timeline controls share a canonical Next selection. They honor controller ownership, automation disable and per-cue disable; Skip persists without claiming acknowledgement; confirmed single-cue Re-arm compares the reviewed attempt and never fires immediately.",
-        "pnpm --filter @showpilot/web test passed: 1417 unit and 392 real Worker tests. Web tsc --noEmit and production build passed. Worker tests exercise actual lyrics/lower-third output, restart persistence, no duplicate in-flight dispatch, stale confirmations, failed-cue exclusion and server-owned skip state. UI tests cover confirmation, cancellation and offline/disabled/dispatching guards.",
-        "node apps/web/scripts/smoke-manual-cues.mjs passed against the built app with real login/D1/relay: Fire Next excludes disabled/skipped cues, output follows manual Fire, clock stays fixed, Re-arm cancellation/confirmation preserves output, stale reviews are blocked, automation switch disables firing, another show stays unchanged, timeline controls fit 320/768/2560px with 44px targets.",
-        "Still incomplete: per-show MIDI learn/mapping persistence, controller input listener, complete transport mappings, feedback, banks and faders. These commands are the shared manual action contract for that controller implementation; this requirement is not marked verified."
+        "Browser controller implementation: show-bound revision-checked mappings hydrate only to operators; separate Web MIDI listener, explicit per-tab/show/revision arming, notes/CC learning, 64-cue banks, APC mini mk2 output feedback, controller start/stop/pause/reset/seek/fire-next/fire/skip/rearm, and scrub/offset/jog faders. Live route navigation preserves the controller without remounting routed screens. Reload, changed mapping revision, show switch, and control loss disarm it.",
+        "Final web unit suite: 1430 tests passed; full Worker suite: 396 passed. Web typecheck and production build passed. Unit/Worker tests cover schema validation, duplicate mappings, save races, show isolation, display redaction, eviction, Pause and late feeds, no paused standby promotion, held-pad suppression, disarmed output ownership, fractional trim, delayed seek acknowledgements, single clock loop during seeking, and cancellation of queued fader motion.",
+        "Built-app smoke-midi-controller.mjs passed with real login/D1/relay and simulated MIDI: 77 learned/preset mappings persisted, learning never fires, explicit arming, 65 cues across banks, real lyrics output, LED bytes, Re-arm cancellation/confirmation, Pause/Resume, seek/scrub/jog/offset, changed-ID reconnect, pending fader cancellation on unplug, 320/768/2560px targets, reload disarmed, simultaneous MTC plus controller, and MTC source retained through Pause/Resume.",
+        "smoke-midi-reconnect.mjs passed against the same built app, covering DAW transport, stale-frame watchdog, USB recovery and separate controller traffic. One earlier concurrent controller rehearsal timed out selecting an action; the isolated expanded rerun passed, and diagnostic page-state capture remains in the script. A full-suite show-scope eviction timeout was addressed by stopping the fixture feed before eviction; full Worker rerun passed.",
+        "Limits: MIDI is simulated at the browser boundary, not physical USB/DAW/APC gear. The original APC mini LED protocol is not yet verified; feedback currently targets APC mini mk2. Native controller forwarding through Bridge remains for desktop webviews without Web MIDI. Those limits are not treated as completed hardware/native acceptance."
       ]
     },
     {
@@ -1072,36 +1073,55 @@
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 186,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Browser controller implementation: show-bound revision-checked mappings hydrate only to operators; separate Web MIDI listener, explicit per-tab/show/revision arming, notes/CC learning, 64-cue banks, APC mini mk2 output feedback, controller start/stop/pause/reset/seek/fire-next/fire/skip/rearm, and scrub/offset/jog faders. Live route navigation preserves the controller without remounting routed screens. Reload, changed mapping revision, show switch, and control loss disarm it.",
+        "Final web unit suite: 1430 tests passed; full Worker suite: 396 passed. Web typecheck and production build passed. Unit/Worker tests cover schema validation, duplicate mappings, save races, show isolation, display redaction, eviction, Pause and late feeds, no paused standby promotion, held-pad suppression, disarmed output ownership, fractional trim, delayed seek acknowledgements, single clock loop during seeking, and cancellation of queued fader motion.",
+        "Built-app smoke-midi-controller.mjs passed with real login/D1/relay and simulated MIDI: 77 learned/preset mappings persisted, learning never fires, explicit arming, 65 cues across banks, real lyrics output, LED bytes, Re-arm cancellation/confirmation, Pause/Resume, seek/scrub/jog/offset, changed-ID reconnect, pending fader cancellation on unplug, 320/768/2560px targets, reload disarmed, simultaneous MTC plus controller, and MTC source retained through Pause/Resume.",
+        "smoke-midi-reconnect.mjs passed against the same built app, covering DAW transport, stale-frame watchdog, USB recovery and separate controller traffic. One earlier concurrent controller rehearsal timed out selecting an action; the isolated expanded rerun passed, and diagnostic page-state capture remains in the script. A full-suite show-scope eviction timeout was addressed by stopping the fixture feed before eviction; full Worker rerun passed.",
+        "Limits: MIDI is simulated at the browser boundary, not physical USB/DAW/APC gear. The original APC mini LED protocol is not yet verified; feedback currently targets APC mini mk2. Native controller forwarding through Bridge remains for desktop webviews without Web MIDI. Those limits are not treated as completed hardware/native acceptance."
+      ]
     },
     {
       "id": "c8c6c71467842b5f",
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 187,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Browser controller implementation: show-bound revision-checked mappings hydrate only to operators; separate Web MIDI listener, explicit per-tab/show/revision arming, notes/CC learning, 64-cue banks, APC mini mk2 output feedback, controller start/stop/pause/reset/seek/fire-next/fire/skip/rearm, and scrub/offset/jog faders. Live route navigation preserves the controller without remounting routed screens. Reload, changed mapping revision, show switch, and control loss disarm it.",
+        "Final web unit suite: 1430 tests passed; full Worker suite: 396 passed. Web typecheck and production build passed. Unit/Worker tests cover schema validation, duplicate mappings, save races, show isolation, display redaction, eviction, Pause and late feeds, no paused standby promotion, held-pad suppression, disarmed output ownership, fractional trim, delayed seek acknowledgements, single clock loop during seeking, and cancellation of queued fader motion.",
+        "Built-app smoke-midi-controller.mjs passed with real login/D1/relay and simulated MIDI: 77 learned/preset mappings persisted, learning never fires, explicit arming, 65 cues across banks, real lyrics output, LED bytes, Re-arm cancellation/confirmation, Pause/Resume, seek/scrub/jog/offset, changed-ID reconnect, pending fader cancellation on unplug, 320/768/2560px targets, reload disarmed, simultaneous MTC plus controller, and MTC source retained through Pause/Resume.",
+        "smoke-midi-reconnect.mjs passed against the same built app, covering DAW transport, stale-frame watchdog, USB recovery and separate controller traffic. One earlier concurrent controller rehearsal timed out selecting an action; the isolated expanded rerun passed, and diagnostic page-state capture remains in the script. A full-suite show-scope eviction timeout was addressed by stopping the fixture feed before eviction; full Worker rerun passed.",
+        "Limits: MIDI is simulated at the browser boundary, not physical USB/DAW/APC gear. The original APC mini LED protocol is not yet verified; feedback currently targets APC mini mk2. Native controller forwarding through Bridge remains for desktop webviews without Web MIDI. Those limits are not treated as completed hardware/native acceptance."
+      ]
     },
     {
       "id": "7022902a11231afb",
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 188,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Browser controller implementation: show-bound revision-checked mappings hydrate only to operators; separate Web MIDI listener, explicit per-tab/show/revision arming, notes/CC learning, 64-cue banks, APC mini mk2 output feedback, controller start/stop/pause/reset/seek/fire-next/fire/skip/rearm, and scrub/offset/jog faders. Live route navigation preserves the controller without remounting routed screens. Reload, changed mapping revision, show switch, and control loss disarm it.",
+        "Final web unit suite: 1430 tests passed; full Worker suite: 396 passed. Web typecheck and production build passed. Unit/Worker tests cover schema validation, duplicate mappings, save races, show isolation, display redaction, eviction, Pause and late feeds, no paused standby promotion, held-pad suppression, disarmed output ownership, fractional trim, delayed seek acknowledgements, single clock loop during seeking, and cancellation of queued fader motion.",
+        "Built-app smoke-midi-controller.mjs passed with real login/D1/relay and simulated MIDI: 77 learned/preset mappings persisted, learning never fires, explicit arming, 65 cues across banks, real lyrics output, LED bytes, Re-arm cancellation/confirmation, Pause/Resume, seek/scrub/jog/offset, changed-ID reconnect, pending fader cancellation on unplug, 320/768/2560px targets, reload disarmed, simultaneous MTC plus controller, and MTC source retained through Pause/Resume.",
+        "smoke-midi-reconnect.mjs passed against the same built app, covering DAW transport, stale-frame watchdog, USB recovery and separate controller traffic. One earlier concurrent controller rehearsal timed out selecting an action; the isolated expanded rerun passed, and diagnostic page-state capture remains in the script. A full-suite show-scope eviction timeout was addressed by stopping the fixture feed before eviction; full Worker rerun passed.",
+        "Limits: MIDI is simulated at the browser boundary, not physical USB/DAW/APC gear. The original APC mini LED protocol is not yet verified; feedback currently targets APC mini mk2. Native controller forwarding through Bridge remains for desktop webviews without Web MIDI. Those limits are not treated as completed hardware/native acceptance."
+      ]
     },
     {
       "id": "28d3921718dcd50b",
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 189,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
-        "Web MTC now observes MIDI statechange plus a 2s rescan, preserves selected ID/name/manufacturer through unplug/replug, drops partial pre-disconnect frames, and leaves other MIDI listeners intact. The selector retains disconnected selections and reports age of the last relay-received MTC frame.",
-        "pnpm --filter @showpilot/web test: 1403 unit tests and 379 real Worker tests passed; web tsc --noEmit and production build passed. midi-reconnect.test.ts covers event and polling recovery, ambiguous device identities, unrelated controller traffic, cancellation, cleanup, and invalid MIDI/SMPTE input. Selector tests cover permission retry, selection recovery and frame age.",
-        "node apps/web/scripts/smoke-midi-reconnect.mjs passed against the built app and disposable local D1: real login/control/relay; synthetic MIDI disconnect holds the clock with no stale feed, rescan recovers a changed ID, fresh frames resume, other listeners survive, Stop detaches; MIDI panel checked at 320/768/2560px.",
-        "Not complete: per-show controller mappings and their reconnect persistence are part of the remaining controller work; physical MIDI gear has not been exercised. Browser smoke simulates MIDI ports, not USB hardware or permission prompts."
+        "Browser controller implementation: show-bound revision-checked mappings hydrate only to operators; separate Web MIDI listener, explicit per-tab/show/revision arming, notes/CC learning, 64-cue banks, APC mini mk2 output feedback, controller start/stop/pause/reset/seek/fire-next/fire/skip/rearm, and scrub/offset/jog faders. Live route navigation preserves the controller without remounting routed screens. Reload, changed mapping revision, show switch, and control loss disarm it.",
+        "Final web unit suite: 1430 tests passed; full Worker suite: 396 passed. Web typecheck and production build passed. Unit/Worker tests cover schema validation, duplicate mappings, save races, show isolation, display redaction, eviction, Pause and late feeds, no paused standby promotion, held-pad suppression, disarmed output ownership, fractional trim, delayed seek acknowledgements, single clock loop during seeking, and cancellation of queued fader motion.",
+        "Built-app smoke-midi-controller.mjs passed with real login/D1/relay and simulated MIDI: 77 learned/preset mappings persisted, learning never fires, explicit arming, 65 cues across banks, real lyrics output, LED bytes, Re-arm cancellation/confirmation, Pause/Resume, seek/scrub/jog/offset, changed-ID reconnect, pending fader cancellation on unplug, 320/768/2560px targets, reload disarmed, simultaneous MTC plus controller, and MTC source retained through Pause/Resume.",
+        "smoke-midi-reconnect.mjs passed against the same built app, covering DAW transport, stale-frame watchdog, USB recovery and separate controller traffic. One earlier concurrent controller rehearsal timed out selecting an action; the isolated expanded rerun passed, and diagnostic page-state capture remains in the script. A full-suite show-scope eviction timeout was addressed by stopping the fixture feed before eviction; full Worker rerun passed.",
+        "Limits: MIDI is simulated at the browser boundary, not physical USB/DAW/APC gear. The original APC mini LED protocol is not yet verified; feedback currently targets APC mini mk2. Native controller forwarding through Bridge remains for desktop webviews without Web MIDI. Those limits are not treated as completed hardware/native acceptance."
       ]
     },
     {

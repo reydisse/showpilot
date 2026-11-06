@@ -51,6 +51,33 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("accumulates jog seeks while earlier stopped-clock acknowledgements are still in flight", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => hydrate(socket));
+    act(() => { result.current.setTimecode(framesToTimecode(45, state.format)); result.current.adjustTimecode(1); });
+    act(() => socket.receive({ type: "tc-update", state: { ...state, totalFrames: 45, timecode: framesToTimecode(45, state.format) } }));
+    act(() => result.current.adjustTimecode(1));
+    expect(socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "set-timecode").map(message => message.payload.timecode)).toEqual([45,46,47].map(frame => framesToTimecode(frame, state.format)));
+  });
+
+  it("retains source ownership on Pause, flushes buffered frames, and resumes at the held frame", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
+    act(() => { hydrate(socket); result.current.startFreerun(); });
+    act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, running: true } }); });
+    act(() => result.current.pauseGenerator());
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "pause" });
+    const paused = { ...state, totalFrames: 90, timecode: framesToTimecode(90, state.format), signal: { status: "paused", lastFeedAt: 1 } } as const;
+    act(() => { socket.receive({ type: "tc-update", state: paused }); vi.advanceTimersByTime(1000); });
+    expect(result.current.isMaster).toBe(true);
+    expect(socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc")).toHaveLength(0);
+    act(() => result.current.startFreerun());
+    act(() => socket.receive({ type: "tc-update", state: { ...paused, running: true, signal: { status: "waiting", lastFeedAt: null } } }));
+    expect(start).toHaveBeenLastCalledWith(90);
+    act(() => vi.advanceTimersByTime(100));
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "feed-tc", payload: { totalFrames: 90 } });
+  });
+
   it("shows control separately from generator ownership and rejects edits while another tab controls the show", async () => {
     const { result } = hook();
     const socket = Socket.instances[0];
