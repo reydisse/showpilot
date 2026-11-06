@@ -188,3 +188,61 @@ it("saves named Start and Stop with structured fields, inline duration validatio
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[1][0]).toMatchObject({ action: "timer-stop", payload: { name: "Speaker countdown" }, label: "Stop Speaker countdown" });
 });
+
+it("edits metadata without forcing media reselection and preserves a rejected draft", async () => {
+  const editing = { ...baseEditingCue(), action: "media-play" as const, payload: { mediaId: "saved-media-123456", etag: "original-etag", output: "Program", volume: 0.75 } };
+  const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("The cue changed while you were editing."); });
+  render(<AutomationEventEditor connected editing={editing} format={format} onAdd={save} />);
+  expect(screen.getByRole("combobox")).toHaveProperty("disabled", true);
+  fireEvent.change(screen.getByLabelText("Label"), { target: { value: "Changed label" } });
+  fireEvent.change(screen.getByLabelText("Tolerance (frames)"), { target: { value: "7" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(save).toHaveBeenCalledOnce();
+  expect(save.mock.calls[0][0]).toMatchObject({ id: editing.id, label: "Changed label", payload: editing.payload, toleranceFrames: 7 });
+  expect(screen.getByRole("alert").textContent).toContain("cue changed");
+  expect(screen.getByLabelText("Label")).toHaveProperty("value", "Changed label");
+});
+
+function baseEditingCue(): import("@/types/timecode").AutomationEvent {
+  return { id: "existing", label: "Saved cue", action: "crew-message", payload: { message: "Original message" }, enabled: false, fired: true,
+    executionId: "execution", triggerFrame: 300, triggerTimecode: { hours: 0, minutes: 0, seconds: 10, frames: 0 }, toleranceFrames: 4 };
+}
+
+it("changes action details only when requested and holds the form until acknowledgement", async () => {
+  const editing = baseEditingCue();
+  let confirm = () => {};
+  const save = vi.fn((_event: NewAutomationEvent) => new Promise<void>(resolve => { confirm = resolve; }));
+  render(<AutomationEventEditor connected editing={editing} format={format} onAdd={save} />);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Change action details" }));
+  expect(screen.getByLabelText("Crew message")).toHaveProperty("value", "Original message");
+  fireEvent.change(screen.getByLabelText("Crew message"), { target: { value: "Stand by camera 2" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(save.mock.calls[0][0]).toMatchObject({ id: editing.id, payload: { message: "Stand by camera 2" } });
+  expect(screen.getByRole("button", { name: "Waiting for relay…" }).closest("fieldset")).toHaveProperty("disabled", true);
+  await act(async () => confirm());
+  expect(screen.getByLabelText("Crew message")).toHaveProperty("value", "Stand by camera 2");
+});
+
+it.each(["abc", "99:99:99:99", "00:00:01:30"])("validates invalid timecode %s inline before submission", value => {
+  const save = vi.fn(async () => {});
+  render(<AutomationEventEditor connected editing={baseEditingCue()} format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("Timecode (HH:MM:SS:FF)"), { target: { value } });
+  expect(screen.getByRole("alert").textContent).toContain("30 fps NDF");
+  expect(screen.getByLabelText("Timecode (HH:MM:SS:FF)").getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveProperty("disabled", true);
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("offers a validated webhook URL field instead of JSON", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("Timecode (HH:MM:SS:FF)"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "custom-webhook" } });
+  expect(document.querySelector("textarea")).toBeNull();
+  const url = screen.getByLabelText("Webhook URL");
+  fireEvent.change(url, { target: { value: "https://127.0.0.1/hook" } });
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  fireEvent.change(url, { target: { value: "https://example.com/hook" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action: "custom-webhook", payload: { url: "https://example.com/hook" } });
+});

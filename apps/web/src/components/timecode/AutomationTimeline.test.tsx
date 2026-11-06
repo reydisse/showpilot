@@ -20,7 +20,7 @@ function cue(id: string, changes: Partial<AutomationEvent> = {}): AutomationEven
 function setup(events: AutomationEvent[], connected = true, clock = state) {
   const props = {
     events, state: clock, connected, onRemoveEvent: vi.fn(), onResetEvents: vi.fn(),
-    onRetryEvent: vi.fn(), onSetEventEnabled: vi.fn(), onFireEvent: vi.fn(), onFireNext: vi.fn(), onSkipEvent: vi.fn(), onRearmEvent: vi.fn(),
+    onEditEvent: vi.fn(), onRetryEvent: vi.fn(), onSetEventEnabled: vi.fn(), onFireEvent: vi.fn(), onFireNext: vi.fn(), onSkipEvent: vi.fn(), onRearmEvent: vi.fn(),
   };
   const view = render(<AutomationTimeline {...props} />);
   return { ...props, rerender: (changes: Partial<typeof props>) => view.rerender(<AutomationTimeline {...props} {...changes} />) };
@@ -164,4 +164,20 @@ it("orders simultaneous controls like the scheduler, with the same Next cue", ()
   expect(screen.getAllByRole("button", { name: /^Fire (Resume|Pause|Output)$/ }).map(button => button.getAttribute("aria-label")))
     .toEqual(["Fire Resume", "Fire Pause", "Fire Output"]);
   expect(events.map(event => event.id)).toEqual(["Output", "Pause", "Resume"]);
+});
+
+
+it("offers a reachable Edit action and blocks it during dispatch or disconnection", () => {
+  const saved = cue("Saved", { fired: true, executionId: "receipt" });
+  const props = setup([saved]);
+  const edit = screen.getByRole("button", { name: "Edit Saved" });
+  expect(edit.className).toContain("min-h-11");
+  expect(edit.className).toContain("min-w-11");
+  fireEvent.click(edit);
+  expect(props.onEditEvent).toHaveBeenCalledExactlyOnceWith(saved);
+  props.rerender({ events: [{ ...saved, executionStatus: "dispatching" }] });
+  expect(edit).toHaveProperty("disabled", true);
+  props.rerender({ connected: false });
+  expect(edit).toHaveProperty("disabled", true);
+  expect(props.onFireEvent).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { parseNamedTimerDuration } from "@/lib/named-timers";
+import { parseNamedTimerDuration, formatNamedTimerRemaining } from "@/lib/named-timers";
 import { MediaCueFields } from "./MediaCueFields";
 import type { MediaAsset } from "@/lib/media-library";
 import { isTriggerControlAction } from "@/lib/automation-execution";
@@ -13,13 +13,15 @@ import { createBrowserId } from "@/lib/browser-id";
 import type { NewAutomationEvent } from "@/hooks/useTimecode";
 import { Plus } from "lucide-react";
 import type {
-  AutomationActionType,
+  AutomationActionType, AutomationEvent,
 } from "@/types/timecode";
-import { isValidTimecode, isValidTimecodeTolerance, parseTimecodeString } from "@/lib/timecode";
+import { timecodeToString, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeTolerance, parseTimecodeString } from "@/lib/timecode";
 
 interface AutomationEventEditorProps {
   onAdd: (event: NewAutomationEvent) => Promise<void>;
   connected: boolean;
+  editing?: AutomationEvent;
+  blockedReason?: string;
   loadTargets?: LoadAutomationTargets;
   timerNames?: string[];
   orgId?: string;
@@ -66,64 +68,73 @@ const ACTION_OPTIONS: {
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [], orgId }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [], orgId, editing, blockedReason }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();
-  const [tcString, setTcString] = useState("");
-  const [action, setAction] = useState<AutomationActionType>("lower-third-show");
-  const [label, setLabel] = useState("");
-  const [payloadJson, setPayloadJson] = useState("{}");
-  const [crewMessage, setCrewMessage] = useState("");
+  const text = (key: string, fallback = "") => typeof editing?.payload[key] === "string" ? editing.payload[key] : fallback;
+  const [changeDetails, setChangeDetails] = useState(!editing);
+  const [tcString, setTcString] = useState(editing ? timecodeToString(editing.triggerTimecode, format.dropFrame === "df") : "");
+  const [action, setAction] = useState<AutomationActionType>(editing?.action ?? "lower-third-show");
+  const [label, setLabel] = useState(editing?.label ?? "");
+  const [payloadJson, setPayloadJson] = useState(JSON.stringify(editing?.payload ?? {}));
+  const [crewMessage, setCrewMessage] = useState(text("message"));
   const crewMessageId = useId();
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
   const namedTimer = action === "timer-start" || action === "timer-stop";
   const mediaAction = action === "media-play" || action === "media-stop";
-  const [mediaOutput, setMediaOutput] = useState("Program");
+  const [mediaOutput, setMediaOutput] = useState(text("output", "Program"));
   const [mediaAsset, setMediaAsset] = useState<MediaAsset | null>(null);
-  const [mediaVolume, setMediaVolume] = useState("100");
+  const [mediaVolume, setMediaVolume] = useState(typeof editing?.payload.volume === "number" ? String(editing.payload.volume * 100) : "100");
   const mediaVolumeValid = mediaVolume.trim() !== "" && Number.isInteger(Number(mediaVolume)) && Number(mediaVolume) >= 0 && Number(mediaVolume) <= 100;
   const timerNameId = useId();
   const timerDurationId = useId();
-  const [timerName, setTimerName] = useState("");
-  const [timerDuration, setTimerDuration] = useState("5:00");
+  const [timerName, setTimerName] = useState(text("name"));
+  const [timerDuration, setTimerDuration] = useState(typeof editing?.payload.durationMs === "number" ? formatNamedTimerRemaining(editing.payload.durationMs) : "5:00");
   const timerDurationMs = parseNamedTimerDuration(timerDuration);
   const controlsTriggers = isTriggerControlAction(action);
   const stepsLyrics = action === "lyrics-next-section" || action === "lyrics-previous-section";
   const propNameId = useId();
   const targetId = useId();
-  const [propName, setPropName] = useState("");
-  const [propTarget, setPropTarget] = useState("");
+  const [propName, setPropName] = useState(text("propName"));
+  const [propTarget, setPropTarget] = useState(text("target"));
   const structuredProPresenter = action === "pp-trigger-prop" || action === "pp-clear-props" || action === "pp-trigger-previous";
   const toleranceId = useId();
   const leadId = useId();
-  const [leadText, setLeadText] = useState("0");
+  const [leadText, setLeadText] = useState(String(editing?.leadMs ?? 0));
   const leadMs = Number(leadText);
   const leadValid = leadText.trim() !== "" && isValidTimingMs(leadMs);
   const leadError = `Cue lead must be a whole number from 0 to ${MAX_AUTOMATION_LEAD_MS} milliseconds.`;
-  const [toleranceText, setToleranceText] = useState(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES));
+  const [toleranceText, setToleranceText] = useState(String(editing?.toleranceFrames ?? DEFAULT_TIMECODE_TOLERANCE_FRAMES));
   const toleranceFrames = Number(toleranceText);
   const toleranceValid = toleranceText.trim() !== "" && isValidTimecodeTolerance(toleranceFrames);
   const toleranceError = `Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`;
+  const [webhookUrl, setWebhookUrl] = useState(text("url"));
+  const webhookId = useId();
+  const timecodeId = useId();
+  const labelId = useId();
+  const parsedTimecode = parseTimecodeString(tcString);
+  const timecodeValid = parsedTimecode !== null && isValidTimecode(parsedTimecode, format);
+  const formatLabel = `${format.frameRate} fps ${format.dropFrame.toUpperCase()}`;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const attemptRef = useRef<{ signature: string; id: string } | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!connected || saving) return;
+    if (!connected || saving || blockedReason) return;
     setError("");
     if (!toleranceValid) { setError(toleranceError); return; }
     if (!leadValid) { setError(leadError); return; }
 
     const tc = parseTimecodeString(tcString);
     if (!tc || !isValidTimecode(tc, format)) {
-      setError(`Invalid timecode for ${format.frameRate}fps ${format.dropFrame.toUpperCase()}.`);
+      setError(`Invalid timecode for ${formatLabel}.`);
       return;
     }
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers || action === "lyrics-clear" ? {} : usesTargetPicker
+      const parsed: unknown = editing && !changeDetails ? editing.payload : action === "custom-webhook" ? { ...(editing?.payload ?? {}), url: webhookUrl.trim() } : mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers || action === "lyrics-clear" ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -135,7 +146,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       return;
     }
 
-    if (usesTargetPicker && !targetSelection) { setError("Choose a target before saving this cue."); return; }
+    if (changeDetails && usesTargetPicker && !targetSelection) { setError("Choose a target before saving this cue."); return; }
+    if (changeDetails && action === "custom-webhook" && !isSafeAutomationWebhookUrl(payload.url)) { setError("Enter a public HTTPS webhook URL."); return; }
     const payloadProblem = automationPayloadProblem({ action, payload });
     if (payloadProblem) { setError(payloadProblem); return; }
     const draft: NewAutomationEvent = {
@@ -152,7 +164,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
     if (attemptRef.current?.signature !== signature) attemptRef.current = { signature, id: createBrowserId() };
     setSaving(true);
     try {
-      await onAdd({ ...draft, id: attemptRef.current.id });
+      await onAdd({ ...draft, id: editing?.id ?? attemptRef.current.id });
+      if (editing) return;
       setTcString(""); setLabel(""); setPayloadJson("{}"); setCrewMessage(""); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
@@ -167,30 +180,36 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       onSubmit={handleSubmit}
       className="rounded-xl border border-board-border bg-board-card p-4 space-y-3"
     >
-      <fieldset disabled={!connected || saving} className="min-w-0 space-y-3 disabled:opacity-60">
+      <fieldset disabled={!connected || saving || Boolean(blockedReason)} className="min-w-0 space-y-3 disabled:opacity-60">
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
-        Add Automation Event
+        {editing ? "Edit Automation Event" : "Add Automation Event"}
       </h3>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
+          <label htmlFor={timecodeId} className="text-xs text-board-muted uppercase tracking-wider mb-1 block">
             Timecode (HH:MM:SS:FF)
           </label>
           <input
             type="text"
+            id={timecodeId}
+            aria-invalid={tcString.length > 0 && !timecodeValid}
+            aria-describedby={`${timecodeId}-format`}
             value={tcString}
             onChange={(e) => setTcString(e.target.value)}
             placeholder="00:05:00:00"
             className={`${INPUT_CLASS} font-mono`}
             required
           />
+          <p id={`${timecodeId}-format`} className="mt-1 text-xs text-board-muted">{formatLabel}</p>
+          {tcString.length > 0 && !timecodeValid && <p role="alert" className="mt-1 text-xs text-red-400">Enter a valid timecode for {formatLabel}.</p>}
         </div>
         <div>
           <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
             Action
           </label>
           <select
+            disabled={Boolean(editing)}
             value={action}
             onChange={(e) => { setAction(e.target.value as AutomationActionType); setTargetSelection(null); }}
             className={INPUT_CLASS}
@@ -205,11 +224,13 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       </div>
 
       <div>
-        <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
+        <label htmlFor={labelId} className="text-xs text-board-muted uppercase tracking-wider mb-1 block">
           Label
         </label>
         <input
           type="text"
+          id={labelId}
+          maxLength={200}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder={workspaceCopy(
@@ -241,7 +262,12 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {mediaAction ? <MediaCueFields key={action} orgId={orgId} play={action === "media-play"} output={mediaOutput} onOutput={setMediaOutput} asset={mediaAsset} onAsset={setMediaAsset} volume={mediaVolume} onVolume={setMediaVolume} /> : namedTimer ? <div className="space-y-3">
+      {editing && <label className="flex min-h-11 items-center gap-2 text-sm text-board-text"><input type="checkbox" checked={changeDetails} onChange={event => setChangeDetails(event.target.checked)} />Change action details</label>}
+      {!changeDetails ? <p className="text-sm text-board-muted">The cue keeps its saved action details. Editing does not fire or re-arm it.</p> : action === "custom-webhook" ? <div className="space-y-2">
+        <label htmlFor={webhookId} className="block text-xs text-board-muted">Webhook URL</label>
+        <input id={webhookId} type="url" required value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} className={INPUT_CLASS} placeholder="https://hooks.example.com/show" />
+        {webhookUrl.length > 0 && !isSafeAutomationWebhookUrl(webhookUrl) && <p role="alert" className="text-xs text-red-400">Enter a public HTTPS webhook URL without credentials or a custom port.</p>}
+      </div> : mediaAction ? <MediaCueFields key={action} orgId={orgId} play={action === "media-play"} output={mediaOutput} onOutput={setMediaOutput} asset={mediaAsset} onAsset={setMediaAsset} volume={mediaVolume} onVolume={setMediaVolume} /> : namedTimer ? <div className="space-y-3">
         <div><label htmlFor={timerNameId} className="mb-1 block text-xs text-board-muted">Timer name</label>
           <input id={timerNameId} list={`${timerNameId}-options`} value={timerName} onChange={event => setTimerName(event.target.value)} maxLength={80} required className={INPUT_CLASS} placeholder="Speaker countdown" />
           <datalist id={`${timerNameId}-options`}>{timerNames.map(name => <option key={name} value={name} />)}</datalist>
@@ -284,7 +310,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
           className={`${INPUT_CLASS} font-mono text-xs resize-none`}
         />
         <p className="mt-1 text-[10px] leading-4 text-board-muted">
-          {action === "stage-message" ? 'Use {"message":"Stand by"}.' : action === "rundown-adjust" ? 'Use {"deltaMs":30000} to add 30 seconds.' : action === "device-action" || action === "lighting-scene" ? "Include the device/action identifiers configured in Devices." : action === "custom-webhook" ? 'Use {"url":"https://…"}.' : "No details are required for this action."}
+          {action === "stage-message" ? 'Use {"message":"Stand by"}.' : action === "rundown-adjust" ? 'Use {"deltaMs":30000} to add 30 seconds.' : action === "device-action" || action === "lighting-scene" ? "Include the device/action identifiers configured in Devices." : "No details are required for this action."}
         </p>
       </div>}
 
@@ -292,14 +318,15 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
 
       <button
         type="submit"
-        disabled={!toleranceValid || !leadValid || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)}
+        disabled={!timecodeValid || !toleranceValid || !leadValid || (changeDetails && ((action === "custom-webhook" && !isSafeAutomationWebhookUrl(webhookUrl)) || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)))}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
-        {saving ? "Waiting for relay…" : "Add Event"}
+        {saving ? "Waiting for relay…" : editing ? "Save changes" : "Add Event"}
       </button>
       </fieldset>
-      {!connected && <p role="status" className="text-xs text-amber-200">Reconnect to add this event. Your draft is kept here.</p>}
+      {!connected && <p role="status" className="text-xs text-amber-200">Reconnect to save this event. Your draft is kept here.</p>}
+      {connected && blockedReason && <p role="status" className="text-xs text-amber-200">{blockedReason}</p>}
     </form>
   );
 }

@@ -19,7 +19,11 @@ import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSele
 import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
 import { AutomationEventEditor } from "@/components/timecode/AutomationEventEditor";
 import { createBrowserId } from "@/lib/browser-id";
-import { timecodeToFrames } from "@/lib/timecode";
+import { sameTimecodeFormat, timecodeToFrames } from "@/lib/timecode";
+import { automationEditReview, automationEditReviewMatches } from "@/lib/automation-edit";
+import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { SongCueLoader } from "@/components/timecode/SongCueLoader";
 import { demoEventsForWorkspace } from "@/lib/seed-timecode-demo";
 import { getOrgSettings } from "@/lib/settings";
@@ -86,6 +90,11 @@ function TimecodePage() {
   const [demoLoaded, setDemoLoaded] = useState(false);
   const [demoPending, setDemoPending] = useState(false);
   const [songLoaderOpen, setSongLoaderOpen] = useState(false);
+  const [editing, setEditing] = useState<{ event: AutomationEvent; format: TimecodeFormat; showId: string; generation: number } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const currentEdit = editing?.showId === timecode.showId ? events.find(event => event.id === editing.event.id) : undefined;
+  const editChanged = editing && (!currentEdit || !automationEditReviewMatches(currentEdit, automationEditReview(editing.event))
+    || !state || !sameTimecodeFormat(editing.format, state.format));
 
   async function loadDemo() {
     if (!connected || state?.running || events.length > 0 || demoPending) return;
@@ -169,6 +178,7 @@ function TimecodePage() {
           onSkipEvent={skipEvent}
           onRearmEvent={rearmEvent}
           onSetEventEnabled={setEventEnabled}
+          onEditEvent={event => { if (state && timecode.showId) setEditing({ event: structuredClone(event), format: { ...state.format }, showId: timecode.showId, generation: 0 }); }}
           connected={connected && control !== "other"}
         />
 
@@ -205,6 +215,30 @@ function TimecodePage() {
       {songLoaderOpen ? (
         <SongCueLoader orgId={orgId} connected={connected} running={Boolean(state?.running) || generatorPending !== null} defaultTarget={lyricsTarget(settings["lyrics-output"])} format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }} onClose={() => setSongLoaderOpen(false)} onLoad={async (loaded) => { const sourceKey = loaded[0]?.sourceKey; if (!sourceKey) throw new Error("No mapped song cues to load."); await replaceEventGroup(sourceKey, loaded); }} />
       ) : null}
+      <Dialog open={editing !== null} onOpenChange={open => { if (!open && !editSaving) setEditing(null); }}>
+        <DialogContent showCloseButton={false} className="max-h-[90dvh] max-w-2xl overflow-y-auto border-board-border bg-board-bg text-board-text">
+          <DialogTitle>Edit cue</DialogTitle>
+          <DialogDescription>Update this cue without deleting it. Its enable state and execution history are preserved. Use Re-arm to make a completed cue available again.</DialogDescription>
+          {editing && <>
+            {editChanged && <div role="status" className="space-y-2 text-sm text-amber-200">
+              <p>{currentEdit ? "This cue or the frame rate changed. Your draft is kept here; reload and review the latest cue before saving." : "This cue was removed from the selected show. Your draft is kept here."}</p>
+              {currentEdit && state && <Button variant="outline" disabled={editSaving} onClick={() => setEditing({ ...editing, event: structuredClone(currentEdit), format: { ...state.format }, generation: editing.generation + 1 })}>Reload latest cue</Button>}
+            </div>}
+            <AutomationEventEditor key={`${editing.event.id}:${editing.generation}`} editing={editing.event} orgId={orgId} format={editing.format}
+              connected={connected} loadTargets={loadTargets}
+              blockedReason={editChanged ? "Review the changed cue above before saving." : control === "other" ? "Take timecode control before saving." : currentEdit?.executionStatus === "dispatching" ? "Wait for the cue acknowledgement before editing." : undefined}
+              onAdd={async draft => {
+                if (editing.showId !== timecode.showId) throw new Error("The selected show changed. Return to the original show to review this draft.");
+                setEditSaving(true);
+                try {
+                  await timecode.updateEvent(editing.event, { label: draft.label, triggerTimecode: draft.triggerTimecode, toleranceFrames: draft.toleranceFrames, leadMs: draft.leadMs, payload: draft.payload }, editing.format);
+                  setEditing(null);
+                } finally { setEditSaving(false); }
+              }} />
+          </>}
+          <Button variant="outline" disabled={editSaving} onClick={() => setEditing(null)}>Cancel editing</Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

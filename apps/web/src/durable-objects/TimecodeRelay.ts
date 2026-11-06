@@ -35,6 +35,7 @@ import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMEC
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
 import { lyricsControlSchema, lyricsReviewMatches } from "@/lib/lyrics-control";
+import { automationTimecodeSchema, automationEventChangesSchema, automationEditReviewSchema, automationEditReviewMatches } from "@/lib/automation-edit";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { NamedTimerStore } from "@/lib/named-timer-store.server";
 import { MediaOutputManager, isMediaOutputSocket } from "@/lib/media-output.server";
@@ -96,28 +97,13 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
 const toleranceFramesSchema = z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES);
 const leadMsSchema = z.number().int().min(0).max(MAX_AUTOMATION_LEAD_MS);
-const eventUpdateSchema = z.object({
-  action: z.enum([...SUPPORTED_ACTIONS]).optional(),
-  label: z.string().max(200).optional(),
-  enabled: z.boolean().optional(),
-  payload: z.record(z.string(), z.unknown()).optional(),
-  triggerTimecode: z.object({
-    hours: z.number().int().min(0).max(23), minutes: z.number().int().min(0).max(59),
-    seconds: z.number().int().min(0).max(59), frames: z.number().int().min(0).max(29),
-  }).optional(),
-  toleranceFrames: toleranceFramesSchema.optional(),
-  leadMs: leadMsSchema.optional(),
-  targetDeviceId: z.string().max(200).optional(),
-  targetActionId: z.string().max(200).optional(),
-  rundownItemId: z.string().max(200).optional(),
-  category: z.string().max(200).optional(),
-});
 
 const cueReviewSchema = z.object({
   executionId: z.string().nullable(), fired: z.boolean(), skipped: z.boolean(),
 }).strict();
 
 function resetCueExecution(event: AutomationEvent): void {
+  event.editRevision = crypto.randomUUID();
   event.fired = false;
   delete event.skipped;
   event.executionStatus = "scheduled";
@@ -591,7 +577,7 @@ export class TimecodeRelay extends DurableObject {
         if (source !== "mtc" && source !== "ltc-bridge") return this.targetJson({ error: "Invalid Bridge timecode source" }, { status: 400 });
         if (source === "mtc" && this.bridgeTransport === "stopped") return this.targetJson({ ok: true, held: true });
         const format = body.payload?.format;
-        const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
+        const tc = automationTimecodeSchema.safeParse(body.payload?.timecode);
         if (!isValidTimecodeFormat(format) || !tc.success || !tc.data || !isValidTimecode(tc.data, format)) {
           return this.targetJson({ error: "Invalid Bridge timecode" }, { status: 400 });
         }
@@ -1101,6 +1087,7 @@ export class TimecodeRelay extends DurableObject {
           this.broadcastEvents();
           break;
         }
+        event.editRevision = crypto.randomUUID();
         event.enabled = event.enabled !== false;
         delete event.skipped;
         event.fired = false;
@@ -1173,6 +1160,7 @@ export class TimecodeRelay extends DurableObject {
             executionDurationMs: undefined,
             executionRetryable: undefined,
             executionStatus: "scheduled",
+            editRevision: crypto.randomUUID(),
             executionError: undefined,
             executedAt: undefined,
             toleranceFrames: parseTolerance(candidate.toleranceFrames),
@@ -1191,32 +1179,33 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "update-event": {
-        if (!payload?.id) break;
-        const idx = this.events.findIndex(
-          (e) => e.id === (payload.id as string)
-        );
-        if (idx >= 0) {
-          if (this.events[idx].executionStatus === "dispatching") break;
-          const parsed = eventUpdateSchema.safeParse(payload.updates ?? {});
-          if (!parsed.success) throw new TimecodeCommandRejection("Invalid cue changes. Check the timecode, tolerance and action fields.");
-          const updates = parsed.data;
-          if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
-          const candidate = { ...this.events[idx], ...updates };
-          const problem = automationPayloadProblem(candidate);
-          if (problem) throw new TimecodeCommandRejection(problem);
-          Object.assign(this.events[idx], updates);
-          // Recalculate triggerFrame if timecode changed
-          if (updates.triggerTimecode) {
-            this.events[idx].triggerFrame = timecodeToFrames(
-              this.events[idx].triggerTimecode,
-              this.state.format
-            );
-          }
-          this.applyEventTiming(this.events[idx]);
-          this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-          await this.persist();
-          this.broadcastEvents();
+        const event = this.events.find(candidate => candidate.id === payload?.id);
+        if (!event) throw new TimecodeCommandRejection("This cue is no longer in the timeline. Keep your draft and review the current show.");
+        if (event.executionStatus === "dispatching") throw new TimecodeCommandRejection("Wait for this cue's acknowledgement before editing it.");
+        const parsed = automationEventChangesSchema.safeParse(payload?.updates);
+        if (!parsed.success || Object.keys(parsed.data).length === 0) throw new TimecodeCommandRejection("Invalid cue changes. Edit only its label, timecode, tolerance, lead or action details.");
+        if (payload?.expected !== undefined) {
+          const review = automationEditReviewSchema.safeParse(payload.expected);
+          if (!review.success || !automationEditReviewMatches(event, review.data)) throw new TimecodeCommandRejection("The cue changed while you were editing. Keep your draft and review the latest cue before saving.");
         }
+        if (payload?.expectedFormat !== undefined && (!isValidTimecodeFormat(payload.expectedFormat) || !sameTimecodeFormat(payload.expectedFormat, this.state.format))) {
+          throw new TimecodeCommandRejection("The timeline frame rate changed. Review the cue time before saving.");
+        }
+        const updates = parsed.data;
+        if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) throw new TimecodeCommandRejection("The cue time is not valid at the current frame rate.");
+        const candidate = { ...event, ...updates };
+        if (updates.payload && event.action === "custom-webhook" && !isSafeAutomationWebhookUrl(updates.payload.url)) {
+          throw new TimecodeCommandRejection("Custom webhook target must be a public HTTPS URL.");
+        }
+        const problem = automationPayloadProblem(candidate);
+        if (problem) throw new TimecodeCommandRejection(problem);
+        Object.assign(event, updates);
+        event.editRevision = crypto.randomUUID();
+        if (updates.triggerTimecode) event.triggerFrame = timecodeToFrames(updates.triggerTimecode, this.state.format);
+        this.applyEventTiming(event);
+        this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+        await this.persist();
+        this.broadcastEvents();
         break;
       }
 
