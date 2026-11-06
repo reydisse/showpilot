@@ -1,3 +1,5 @@
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
 import { DeleteSavedTemplateButton } from "@/components/rundown/DeleteSavedTemplateButton";
 import { restoreRundownItem } from "@/lib/rundown-undo";
@@ -10,7 +12,7 @@ import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { nextPlayableItem } from "@/lib/rundown-transport";
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   Play,
   Pause,
@@ -1498,12 +1500,24 @@ function RundownPage() {
     setRemovedItem(null);
   };
 
+  const pendingRowFocus = useRef<{ id: string; direction: "up" | "down" } | null>(null);
+  useEffect(() => {
+    const pending = pendingRowFocus.current;
+    if (!pending) return;
+    pendingRowFocus.current = null;
+    const row = Array.from(document.querySelectorAll<HTMLElement>("[data-rundown-item-id]")).find(element => element.dataset.rundownItemId === pending.id);
+    const preferred = row?.querySelector<HTMLButtonElement>(`button[title="Move ${pending.direction}"]`);
+    const fallback = row?.querySelector<HTMLButtonElement>(`button[title="Move ${pending.direction === "up" ? "down" : "up"}"]`);
+    (preferred && !preferred.disabled ? preferred : fallback && !fallback.disabled ? fallback : row?.querySelector<HTMLButtonElement>('button[title="Edit"]'))?.focus();
+  }, [items]);
+
   const handleMoveItem = (id: string, direction: "up" | "down") => {
     if (!canEditRundown) return;
     const idx = items.findIndex((item) => item.id === id);
     if (idx < 0) return;
     const newIdx = direction === "up" ? idx - 1 : idx + 1;
     if (newIdx < 0 || newIdx >= items.length) return;
+    pendingRowFocus.current = { id, direction };
     const reordered = [...items];
     [reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]];
     const normalized = reordered.map((item, sortOrder) => ({
@@ -1796,12 +1810,15 @@ function RundownPage() {
           deviceTimeZone,
         );
   const activeStageMessage = decodeStageMessage(syncedStageMessage);
+  useEffect(() => {
+    if (!loading && window.location.hash === "#rundown-runsheet") document.getElementById("rundown-runsheet")?.focus();
+  }, [loading, showId]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="rundown-page h-full flex flex-col overflow-hidden">
       <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
         <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-full sm:basis-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
               Rundown
             </p>
@@ -1817,7 +1834,7 @@ function RundownPage() {
               {` · ${items.length} items · ${formatDuration(totalDuration)}`}
             </p>
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
             <RundownUnlock orgId={orgId} pinAccess={rundownAccess.pin} />
             {selectedShowIsLive ? (
               <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-green-500/25 bg-green-500/10 px-3 text-xs font-semibold text-green-300">
@@ -1825,7 +1842,7 @@ function RundownPage() {
                 Live output
               </span>
             ) : canEditRundown && showId ? (
-              <button
+              <Button variant="ghost"
                 type="button"
                 onClick={() => setShowTakeLiveConfirmation(true)}
                 disabled={selectionBusy}
@@ -1833,9 +1850,9 @@ function RundownPage() {
               >
                 <Tv className="h-4 w-4" />
                 Take live
-              </button>
+              </Button>
             ) : null}
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={() => setShowOptionsModal(true)}
               disabled={selectionBusy}
@@ -1849,18 +1866,18 @@ function RundownPage() {
               ) : (
                 <ChevronDown className="h-3.5 w-3.5 text-board-muted" />
               )}
-            </button>
+            </Button>
             {canEditRundown ? (
               <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
+                    <Button variant="ghost"
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
                       title="Rundown actions"
                       aria-label="Rundown actions"
                     >
                       <MoreHorizontal className="w-4 h-4" />
-                    </button>
+                    </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
                     <DropdownMenuItem
@@ -1931,7 +1948,7 @@ function RundownPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                <button
+                <Button variant="ghost"
                   onClick={() => setShowAddForm(true)}
                   aria-label="Add item"
                   className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0 sm:px-2.5 sm:pr-3.5"
@@ -1946,7 +1963,7 @@ function RundownPage() {
                   <span className="hidden whitespace-nowrap font-[family-name:var(--font-display)] text-sm font-bold tracking-tight sm:inline">
                     Add Item
                   </span>
-                </button>
+                </Button>
               </>
             ) : (
               <span className="hidden rounded-lg border border-board-border px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-board-muted sm:inline">
@@ -2010,7 +2027,7 @@ function RundownPage() {
             <p className="text-sm text-red-400 flex-1">
               Export failed: {exportError}
             </p>
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={() => setExportError(null)}
               aria-label="Dismiss export error"
@@ -2018,7 +2035,7 @@ function RundownPage() {
               className="p-1 rounded text-red-400 hover:text-red-200 transition-colors"
             >
               <X className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           </div>
         )}
 
@@ -2029,7 +2046,7 @@ function RundownPage() {
             <p className="text-sm font-medium text-amber-300 flex-1">
               {activeStageMessage.text}
             </p>
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={handleClearMessage}
               aria-label="Clear operator message"
@@ -2037,7 +2054,7 @@ function RundownPage() {
               className="p-1 rounded text-amber-400 hover:text-amber-200 transition-colors"
             >
               <X className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           </div>
         )}
 
@@ -2046,7 +2063,7 @@ function RundownPage() {
             Loading rundown...
           </div>
         ) : (
-          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-6 py-5 max-w-[1400px] mx-auto w-full min-h-0">
+          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-4 py-5 sm:px-6 max-w-[1400px] mx-auto w-full min-h-0">
             {/* Left: Timer + Controls + Message */}
             <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
               {/* Timer */}
@@ -2133,23 +2150,23 @@ function RundownPage() {
               {canControlRundown && (
                 <div className="flex gap-2">
                   {timer.playback === "play" ? (
-                    <button
+                    <Button variant="ghost"
                       disabled={!transportAvailable}
                       onClick={handlePause}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
                     >
                       <Pause className="w-4 h-4" /> Pause
-                    </button>
+                    </Button>
                   ) : timer.playback === "pause" ? (
-                    <button
+                    <Button variant="ghost"
                       disabled={!transportAvailable}
                       onClick={handleResume}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
                     >
                       <Play className="w-4 h-4" /> Resume
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button variant="ghost"
                       onClick={() => {
                         const first = items.find(
                           (i) => i.status !== "complete" && i.type !== "header",
@@ -2160,10 +2177,10 @@ function RundownPage() {
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
                     >
                       <Play className="w-4 h-4" /> Start
-                    </button>
+                    </Button>
                   )}
 
-                  <button
+                  <Button variant="ghost"
                     onClick={handlePrev}
                     disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
@@ -2171,8 +2188,8 @@ function RundownPage() {
                     aria-label="Previous rundown item"
                   >
                     <SkipBack className="w-4 h-4" />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="ghost"
                     onClick={handleNext}
                     disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
@@ -2180,15 +2197,15 @@ function RundownPage() {
                     aria-label="Next rundown item"
                   >
                     <SkipForward className="w-4 h-4" />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="ghost"
                     onClick={handleStop}
                     disabled={!transportAvailable || timer.playback === "stop"}
                     className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
                     aria-label="Stop rundown"
                   >
                     <Square className="w-4 h-4" />
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -2200,42 +2217,42 @@ function RundownPage() {
                   </p>
                   {/* Preset buttons */}
                   <div className="flex gap-1.5 mb-2">
-                    <button
+                    <Button variant="ghost"
                       onClick={() => handleAdjustTime(-60_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 1 minute from current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Minus className="w-3 h-3" /> 1m
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="ghost"
                       onClick={() => handleAdjustTime(-15_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Subtract 15 seconds from current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Minus className="w-3 h-3" /> 15s
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="ghost"
                       onClick={() => handleAdjustTime(15_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 15 seconds to current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Plus className="w-3 h-3" /> 15s
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="ghost"
                       onClick={() => handleAdjustTime(60_000)}
                       disabled={!transportAvailable || timer.playback === "stop"}
                       aria-label="Add 1 minute to current item"
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-[11px] hover:bg-board-border/50 transition-colors disabled:opacity-40"
                     >
                       <Plus className="w-3 h-3" /> 1m
-                    </button>
+                    </Button>
                   </div>
                   {/* Custom time input */}
                   <div className="flex gap-1.5">
-                    <button
+                    <Button variant="ghost"
                       onClick={() =>
                         handleAdjustTime(-parseAdjustInput(customAdjust))
                       }
@@ -2247,16 +2264,16 @@ function RundownPage() {
                       title="Subtract custom time"
                     >
                       <Minus className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                     <input
                       type="text"
                       value={customAdjust}
                       onChange={(e) => setCustomAdjust(e.target.value)}
                       placeholder="secs or m:ss"
                       aria-label="Custom time adjustment"
-                      className="flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
+                      className="min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
                     />
-                    <button
+                    <Button variant="ghost"
                       onClick={() =>
                         handleAdjustTime(parseAdjustInput(customAdjust))
                       }
@@ -2268,7 +2285,7 @@ function RundownPage() {
                       title="Add custom time"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -2310,14 +2327,14 @@ function RundownPage() {
                       placeholder="Message to stage display..."
                       className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/40 focus:outline-none focus:border-fire-500/50 transition-colors"
                     />
-                    <button
+                    <Button variant="ghost"
                       onClick={handleSendMessage}
                       disabled={!message.trim()}
                       className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${messagePriority ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/35" : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"}`}
                       aria-label="Send stage message"
                     >
                       <Send className="w-4 h-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -2336,7 +2353,7 @@ function RundownPage() {
                     </div>
                     {canEditRundown && (
                       <>
-                        <button
+                        <Button variant="ghost"
                           onClick={togglePP}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium uppercase tracking-wider transition-colors ${
                             ppEnabled
@@ -2350,8 +2367,8 @@ function RundownPage() {
                             <WifiOff className="w-3 h-3" />
                           )}
                           {ppEnabled ? "Streaming" : "Off"}
-                        </button>
-                        <button
+                        </Button>
+                        <Button variant="ghost"
                           onClick={togglePPOnKiosk}
                           disabled={ppOutputPending}
                           aria-busy={ppOutputPending}
@@ -2376,7 +2393,7 @@ function RundownPage() {
                             : ppOnKiosk
                               ? "On Kiosk"
                               : "Kiosk Off"}
-                        </button>
+                        </Button>
                       </>
                     )}
                   </div>
@@ -2412,7 +2429,7 @@ function RundownPage() {
                         (ppCuesEnabled && ppApiPort ? (
                           <div className="mb-2">
                             <div className="flex items-center gap-1.5">
-                              <button
+                              <Button variant="ghost"
                                 type="button"
                                 onClick={() =>
                                   void handleProPresenterCommand("previous")
@@ -2423,8 +2440,8 @@ function RundownPage() {
                               >
                                 <SkipBack className="w-3 h-3" />
                                 Prev
-                              </button>
-                              <button
+                              </Button>
+                              <Button variant="ghost"
                                 type="button"
                                 onClick={() =>
                                   void handleProPresenterCommand("next")
@@ -2435,8 +2452,8 @@ function RundownPage() {
                               >
                                 Next
                                 <SkipForward className="w-3 h-3" />
-                              </button>
-                              <button
+                              </Button>
+                              <Button variant="ghost"
                                 type="button"
                                 onClick={() =>
                                   void handleProPresenterCommand("clear")
@@ -2447,7 +2464,7 @@ function RundownPage() {
                               >
                                 <X className="w-3 h-3" />
                                 Clear
-                              </button>
+                              </Button>
                             </div>
                             {ppCmdError && (
                               <p
@@ -2572,14 +2589,15 @@ function RundownPage() {
             </div>
 
             {/* Right: Runsheet */}
-            <div className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar">
-              <div className="min-w-[760px] flex flex-col min-h-full">
+            <section id="rundown-runsheet" tabIndex={-1} aria-label="Rundown items" className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar rounded focus-visible:outline-2 focus-visible:outline-fire-500">
+              <div className="flex min-w-0 flex-col min-h-full">
+                <p id="rundown-reorder-help" className="sr-only">Drag the handle to reorder, or use the Move up and Move down buttons with a keyboard.</p>
                 {/* Runsheet header — sticky within its own scroll container */}
-                <div className="flex items-center justify-between mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
-                  <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
+                  <h2 className="text-xs font-medium text-board-muted uppercase tracking-widest">
                     Runsheet
                   </h2>
-                  <div className="flex items-center gap-4 text-[10px] tabular-nums text-board-muted whitespace-nowrap">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-board-muted">
                     <span>{items.length} items</span>
                     {completedDuration > 0 && (
                       <span>
@@ -2625,16 +2643,17 @@ function RundownPage() {
                           <div
                             key={item.id}
                             data-rundown-item-id={item.id}
+                            data-editable={canEditRundown}
                             onDragOver={(event) =>
                               handleItemDragOver(event, item.id)
                             }
                             onDrop={(event) => handleItemDrop(event, item.id)}
-                            className={`group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
+                            className={`rundown-section-row group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
                               isDraggingItem ? "opacity-60" : ""
                             } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
                           >
                             {canEditRundown && (
-                              <div
+                              <Button variant="ghost" size="icon" type="button" aria-label={`Reorder ${item.title || "item"}`} aria-describedby="rundown-reorder-help"
                                 draggable
                                 onDragStart={(event) =>
                                   handleItemDragStart(event, item.id)
@@ -2646,49 +2665,49 @@ function RundownPage() {
                                 onTouchMove={handleItemTouchMove}
                                 onTouchEnd={handleItemTouchEnd}
                                 onTouchCancel={handleItemDragEnd}
-                                className="shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
+                                className="rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted/40 hover:text-board-text"
                                 title="Drag to reorder"
                               >
                                 <GripVertical className="w-3.5 h-3.5" />
-                              </div>
+                                </Button>
                             )}
-                            <p className="flex-1 min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
+                            <p className="rundown-row-title flex-1 min-w-0 break-words text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
                               {item.title || "Section"}
                             </p>
                             {canEditRundown && (
-                              <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
-                                <button
+                              <div className="rundown-row-actions flex flex-wrap shrink-0 items-center gap-0.5">
+                                <Button variant="ghost"
                                   onClick={() => setEditingItem(item)}
                                   className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
-                                  title="Edit"
+                                  title="Edit" aria-label={`Edit ${item.title || "item"}`}
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button variant="ghost"
                                   onClick={() => handleMoveItem(item.id, "up")}
                                   disabled={idx === 0}
                                   className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                  title="Move up"
+                                  title="Move up" aria-label={`Move up ${item.title || "item"}`}
                                 >
                                   <ChevronUp className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button variant="ghost"
                                   onClick={() =>
                                     handleMoveItem(item.id, "down")
                                   }
                                   disabled={idx === items.length - 1}
                                   className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                  title="Move down"
+                                  title="Move down" aria-label={`Move down ${item.title || "item"}`}
                                 >
                                   <ChevronDown className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button variant="ghost"
                                   onClick={() => handleRemoveItem(item.id)}
                                   className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                  title="Delete"
+                                  title="Delete" aria-label={`Delete ${item.title || "item"}`}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                </Button>
                               </div>
                             )}
                           </div>
@@ -2706,6 +2725,7 @@ function RundownPage() {
                         <div
                           key={item.id}
                           data-rundown-item-id={item.id}
+                            data-editable={canEditRundown}
                           onDragOver={(event) =>
                             handleItemDragOver(event, item.id)
                           }
@@ -2726,11 +2746,11 @@ function RundownPage() {
                         >
                           {/* Left binder bar (OnTime-style) */}
                           <div
-                            className={`w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
+                            className={`rundown-row-binder w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
                               isCurrent ? "text-white" : "text-white/70"
                             }`}
                           >
-                            <span className="text-[10px] font-bold tabular-nums">
+                            <span className="text-xs font-bold tabular-nums">
                               {itemNumbers.get(item.id) ?? idx + 1}
                             </span>
                             {item.status === "live" && (
@@ -2741,9 +2761,9 @@ function RundownPage() {
                           {/* Content area */}
                           <div className="flex-1 min-w-0 flex flex-col">
                             {/* Main row */}
-                            <div className="flex items-center gap-3 px-3 py-2">
+                            <div className="rundown-row-main flex items-center gap-3 px-3 py-2">
                               {canEditRundown && (
-                                <div
+                                <Button variant="ghost" size="icon" type="button" aria-label={`Reorder ${item.title || "item"}`} aria-describedby="rundown-reorder-help"
                                   draggable
                                   onDragStart={(event) =>
                                     handleItemDragStart(event, item.id)
@@ -2755,7 +2775,7 @@ function RundownPage() {
                                   onTouchMove={handleItemTouchMove}
                                   onTouchEnd={handleItemTouchEnd}
                                   onTouchCancel={handleItemDragEnd}
-                                  className={`shrink-0 p-1 -ml-1 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
+                                  className={`rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
                                     isDraggingItem
                                       ? "text-fire-400 bg-fire-500/10"
                                       : "text-board-muted/40 hover:text-board-text hover:bg-board-border/30"
@@ -2763,23 +2783,23 @@ function RundownPage() {
                                   title="Drag to reorder"
                                 >
                                   <GripVertical className="w-3.5 h-3.5" />
-                                </div>
+                                </Button>
                               )}
 
                               {/* Duration */}
                               <span
-                                className={`shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}
+                                className={`rundown-row-duration shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted/60"}`}
                               >
                                 {formatDuration(item.duration)}
                               </span>
 
                               {/* Divider */}
                               <div
-                                className={`w-px h-7 shrink-0 ${isCurrent ? "bg-fire-500/30" : "bg-board-border/30"}`}
+                                className={`rundown-row-divider w-px h-7 shrink-0 ${isCurrent ? "bg-fire-500/30" : "bg-board-border/30"}`}
                               />
 
                               {/* Title section */}
-                              <div className="flex-1 min-w-0">
+                              <div className="rundown-row-title flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <Icon
                                     className={`w-3.5 h-3.5 shrink-0 ${
@@ -2789,7 +2809,7 @@ function RundownPage() {
                                     }`}
                                   />
                                   <p
-                                    className={`text-sm font-medium truncate ${
+                                    className={`rundown-item-title text-sm font-medium truncate ${
                                       isCurrent
                                         ? "text-fire-400"
                                         : item.status === "complete"
@@ -2802,7 +2822,7 @@ function RundownPage() {
                                 </div>
                                 {/* Assignee / notes inline */}
                                 {(item.assignee || item.notes) && (
-                                  <p className="text-[10px] text-board-muted/40 truncate mt-0.5 pl-6">
+                                  <p className="text-xs text-board-muted/40 truncate mt-0.5 pl-6">
                                     {item.assignee}
                                     {item.assignee && item.notes ? " · " : ""}
                                     {item.notes}
@@ -2810,9 +2830,9 @@ function RundownPage() {
                                 )}
                                 {/* Time display: scheduled start and actual times */}
                                 {(item.scheduledStart || item.actualStart) && (
-                                  <div className="flex items-center gap-2 mt-0.5 pl-6">
+                                  <div className="flex flex-wrap items-center gap-2 mt-0.5 pl-6">
                                     {item.scheduledStart && (
-                                      <span className="text-[10px] text-board-muted/50 tabular-nums font-mono">
+                                      <span className="text-xs text-board-muted/50 tabular-nums font-mono">
                                         {formatTimeInput(
                                           item.scheduledStart,
                                           deviceTimeZone,
@@ -2822,7 +2842,7 @@ function RundownPage() {
                                     )}
                                     {item.actualStart && (
                                       <span
-                                        className={`text-[10px] tabular-nums font-mono ${
+                                        className={`text-xs tabular-nums font-mono ${
                                           item.status === "complete"
                                             ? (() => {
                                                 const overrun =
@@ -2857,7 +2877,7 @@ function RundownPage() {
                               {/* Offset chip (OnTime-style) */}
                               {isCurrent && elapsed > 0 && (
                                 <span
-                                  className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                                  className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                     isItemOvertime
                                       ? "bg-red-500/20 text-red-400 animate-pulse"
                                       : "bg-green-500/15 text-green-400/80"
@@ -2867,60 +2887,56 @@ function RundownPage() {
                                 </span>
                               )}
 
-                              {/* Playback actions (always visible on touch/tables, hover for larger screens) */}
+                              {/* Row actions stay visible for pointer, keyboard and touch operators */}
                               {canEditRundown && (
                                 <div
-                                  className={`flex items-center gap-0.5 shrink-0 ${
-                                    isCurrent
-                                      ? "opacity-100"
-                                      : "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"
-                                  } transition-opacity`}
+                                  className="rundown-row-actions flex flex-wrap items-center gap-0.5 shrink-0"
                                 >
                                   {!isCurrent && item.status !== "complete" && (
-                                    <button
+                                    <Button variant="ghost"
                                       disabled={!transportAvailable}
                                       onClick={() => handleStart(item.id)}
                                       className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors"
-                                      title="Start"
+                                      title="Start" aria-label={`Start ${item.title || "item"}`}
                                     >
                                       <Play className="w-3.5 h-3.5" />
-                                    </button>
+                                    </Button>
                                   )}
-                                  <button
+                                  <Button variant="ghost"
                                     onClick={() => setEditingItem(item)}
                                     className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
-                                    title="Edit"
+                                    title="Edit" aria-label={`Edit ${item.title || "item"}`}
                                   >
                                     <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
+                                  </Button>
+                                  <Button variant="ghost"
                                     onClick={() =>
                                       handleMoveItem(item.id, "up")
                                     }
                                     disabled={idx === 0}
                                     className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                    title="Move up"
+                                    title="Move up" aria-label={`Move up ${item.title || "item"}`}
                                   >
                                     <ChevronUp className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
+                                  </Button>
+                                  <Button variant="ghost"
                                     onClick={() =>
                                       handleMoveItem(item.id, "down")
                                     }
                                     disabled={idx === items.length - 1}
                                     className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                    title="Move down"
+                                    title="Move down" aria-label={`Move down ${item.title || "item"}`}
                                   >
                                     <ChevronDown className="w-3.5 h-3.5" />
-                                  </button>
+                                  </Button>
                                   {!isCurrent && (
-                                    <button
+                                    <Button variant="ghost"
                                       onClick={() => handleRemoveItem(item.id)}
                                       className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                      title="Delete"
+                                      title="Delete" aria-label={`Delete ${item.title || "item"}`}
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    </Button>
                                   )}
                                 </div>
                               )}
@@ -2943,7 +2959,7 @@ function RundownPage() {
                   </div>
                 )}
               </div>
-            </div>
+            </section>
           </div>
         )}
 
@@ -3035,8 +3051,8 @@ function RundownPage() {
         {removedItem?.scope === rundownScope && (
           <div role="status" className="fixed bottom-5 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-xl border border-board-border bg-board-card px-4 py-2 shadow-xl">
             <span className="min-w-0 truncate text-sm text-board-text">Removed {removedItem.item.title}</span>
-            <button type="button" disabled={!canEditRundown} onClick={undoRemoveItem} className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-fire-500">Undo</button>
-            <button type="button" onClick={() => setRemovedItem(null)} aria-label="Dismiss item deletion" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted"><X className="h-4 w-4" /></button>
+            <Button variant="ghost" type="button" disabled={!canEditRundown} onClick={undoRemoveItem} className="min-h-11 shrink-0 rounded-lg px-3 text-sm font-semibold text-fire-500">Undo</Button>
+            <Button variant="ghost" type="button" onClick={() => setRemovedItem(null)} aria-label="Dismiss item deletion" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted"><X className="h-4 w-4" /></Button>
           </div>
         )}
         {endShowDialog}
@@ -3079,6 +3095,7 @@ function AddItemModal({
   ) => void;
   onClose: () => void;
 }) {
+  const fieldId = useId();
   const workspaceTerms = useWorkspaceTerms();
   const [title, setTitle] = useState("");
   const [type, setType] = useState<ItemType>("segment");
@@ -3100,40 +3117,42 @@ function AddItemModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-5">
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-md sm:max-w-md shadow-2xl">
+        <DialogTitle className="text-lg font-semibold text-board-text mb-5">
           {type === "header" ? "Add section" : "Add rundown item"}
-        </h2>
+        </DialogTitle>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
               Type
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
                 const config = TYPE_CONFIG[t];
                 const Icon = config.icon;
                 return (
-                  <button
+                  <Button variant="ghost"
                     key={t}
                     type="button"
                     onClick={() => setType(t)}
+                    aria-pressed={type === t}
                     className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
                   >
                     <Icon className="w-3 h-3" />
                     {config.label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
           </div>
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor={`${fieldId}-title`} className="block text-sm text-board-muted mb-1.5">
               Title
             </label>
             <input
               type="text"
+              id={`${fieldId}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
@@ -3148,24 +3167,26 @@ function AddItemModal({
           {type !== "header" && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm text-board-muted mb-1.5">
+                <label htmlFor={`${fieldId}-duration`} className="block text-sm text-board-muted mb-1.5">
                   Duration (mm:ss)
                 </label>
                 <input
                   type="text"
-                  value={duration}
+                  id={`${fieldId}-duration`}
+              value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="5:00"
                   className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="block text-sm text-board-muted mb-1.5">
+                <label htmlFor={`${fieldId}-assignee`} className="block text-sm text-board-muted mb-1.5">
                   Assignee
                 </label>
                 <input
                   type="text"
-                  value={assignee}
+                  id={`${fieldId}-assignee`}
+              value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
                   placeholder={workspaceCopy(
                     "e.g. Pastor James",
@@ -3178,11 +3199,12 @@ function AddItemModal({
           )}
           {type !== "header" && (
             <div>
-              <label className="block text-sm text-board-muted mb-1.5">
+              <label htmlFor={`${fieldId}-notes`} className="block text-sm text-board-muted mb-1.5">
                 Notes
               </label>
               <textarea
-                value={notes}
+                id={`${fieldId}-notes`}
+              value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Production notes..."
                 rows={2}
@@ -3191,24 +3213,24 @@ function AddItemModal({
             </div>
           )}
           <div className="flex gap-3 pt-2">
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={onClose}
               className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button variant="ghost"
               type="submit"
               disabled={!title.trim()}
               className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               Add
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3234,6 +3256,7 @@ function EditItemModal({
   ) => void;
   onClose: () => void;
 }) {
+  const fieldId = useId();
   const workspaceTerms = useWorkspaceTerms();
   const [title, setTitle] = useState(item.title);
   const [type, setType] = useState<ItemType>(item.type);
@@ -3257,40 +3280,42 @@ function EditItemModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-5">
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-md sm:max-w-md shadow-2xl">
+        <DialogTitle className="text-lg font-semibold text-board-text mb-5">
           Edit Item
-        </h2>
+        </DialogTitle>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
               Type
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
                 const config = TYPE_CONFIG[t];
                 const Icon = config.icon;
                 return (
-                  <button
+                  <Button variant="ghost"
                     key={t}
                     type="button"
                     onClick={() => setType(t)}
+                    aria-pressed={type === t}
                     className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
                   >
                     <Icon className="w-3 h-3" />
                     {config.label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
           </div>
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor={`${fieldId}-title`} className="block text-sm text-board-muted mb-1.5">
               Title
             </label>
             <input
               type="text"
+              id={`${fieldId}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
@@ -3305,24 +3330,26 @@ function EditItemModal({
           {type !== "header" && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm text-board-muted mb-1.5">
+                <label htmlFor={`${fieldId}-duration`} className="block text-sm text-board-muted mb-1.5">
                   Duration (mm:ss)
                 </label>
                 <input
                   type="text"
-                  value={duration}
+                  id={`${fieldId}-duration`}
+              value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   placeholder="5:00"
                   className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="block text-sm text-board-muted mb-1.5">
+                <label htmlFor={`${fieldId}-assignee`} className="block text-sm text-board-muted mb-1.5">
                   Assignee
                 </label>
                 <input
                   type="text"
-                  value={assignee}
+                  id={`${fieldId}-assignee`}
+              value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
                   placeholder={workspaceCopy(
                     "e.g. Pastor James",
@@ -3335,11 +3362,12 @@ function EditItemModal({
           )}
           {type !== "header" && (
             <div>
-              <label className="block text-sm text-board-muted mb-1.5">
+              <label htmlFor={`${fieldId}-notes`} className="block text-sm text-board-muted mb-1.5">
                 Notes
               </label>
               <textarea
-                value={notes}
+                id={`${fieldId}-notes`}
+              value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Production notes..."
                 rows={2}
@@ -3348,24 +3376,24 @@ function EditItemModal({
             </div>
           )}
           <div className="flex gap-3 pt-2">
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={onClose}
               className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button variant="ghost"
               type="submit"
               disabled={!title.trim()}
               className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               Save
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3462,13 +3490,13 @@ function LoadRundownModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl w-full max-w-lg mx-4 shadow-2xl overflow-hidden">
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-0 max-w-lg sm:max-w-lg shadow-2xl">
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <h2 className="text-lg font-semibold text-board-text">
+          <DialogTitle className="text-lg font-semibold text-board-text">
             Load Rundown
-          </h2>
-          <button
+          </DialogTitle>
+          <Button variant="ghost"
             type="button"
             onClick={onClose}
             aria-label="Close load rundown"
@@ -3476,13 +3504,13 @@ function LoadRundownModal({
             className="p-1 rounded text-board-muted hover:text-board-text transition-colors"
           >
             <X className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-6 mb-3">
-          <button
-            onClick={() => setTab("dates")}
+        <div className="flex flex-wrap gap-1 px-4 sm:px-6 mb-3">
+          <Button variant="ghost"
+            onClick={() => setTab("dates")} aria-pressed={tab === "dates"}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               tab === "dates"
                 ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
@@ -3491,9 +3519,9 @@ function LoadRundownModal({
           >
             <Calendar className="w-3 h-3" />
             Previous Dates
-          </button>
-          <button
-            onClick={() => setTab("saved")}
+          </Button>
+          <Button variant="ghost"
+            onClick={() => setTab("saved")} aria-pressed={tab === "saved"}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               tab === "saved"
                 ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
@@ -3502,7 +3530,7 @@ function LoadRundownModal({
           >
             <FileText className="w-3 h-3" />
             Saved Templates
-          </button>
+          </Button>
         </div>
 
         <div className="px-6 pb-5 max-h-[400px] overflow-auto">
@@ -3518,7 +3546,7 @@ function LoadRundownModal({
             ) : (
               <div className="space-y-1.5">
                 {dates.map((d) => (
-                  <button
+                  <Button variant="ghost"
                     key={d.showId}
                     onClick={() => handleLoadFromDate(d.date, d.showId)}
                     disabled={loadingItems}
@@ -3537,7 +3565,7 @@ function LoadRundownModal({
                       </p>
                     </div>
                     <FolderOpen className="w-4 h-4 text-board-muted" />
-                  </button>
+                  </Button>
                 ))}
               </div>
             )
@@ -3552,7 +3580,7 @@ function LoadRundownModal({
                   key={s.id}
                   className="flex items-center gap-2 px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors"
                 >
-                  <button
+                  <Button variant="ghost"
                     onClick={() => handleLoadFromSaved(s.id)}
                     disabled={loadingItems}
                     className="flex-1 text-left disabled:opacity-50"
@@ -3568,15 +3596,15 @@ function LoadRundownModal({
                         : ""}{" "}
                       · saved {new Date(s.createdAt).toLocaleDateString()}
                     </p>
-                  </button>
+                  </Button>
                   <DeleteSavedTemplateButton name={s.name} onDelete={() => handleDeleteSaved(s.id)} />
                 </div>
               ))}
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3613,11 +3641,11 @@ function SaveRundownModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-        <h2 className="text-lg font-semibold text-board-text mb-4">
+    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-sm sm:max-w-sm shadow-2xl">
+        <DialogTitle className="text-lg font-semibold text-board-text mb-4">
           Save Rundown Template
-        </h2>
+        </DialogTitle>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
@@ -3672,23 +3700,23 @@ function SaveRundownModal({
             will be reset to "upcoming" status.
           </p>
           <div className="flex gap-3 pt-1">
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={onClose}
               className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button variant="ghost"
               type="submit"
               disabled={!name.trim() || saving}
               className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               {saving ? "Saving..." : "Save"}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

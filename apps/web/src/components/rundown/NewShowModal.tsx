@@ -1,3 +1,5 @@
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useState, type FormEvent } from "react";
@@ -71,28 +73,18 @@ export function NewShowModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-      onMouseDown={(event) => {
-        if (!pending && event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-show-title"
-        className="w-full max-w-md rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl"
-      >
+    <Dialog open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl sm:max-w-md">
         <div className="mb-5 flex items-center justify-between">
           <div>
-            <h2 id="new-show-title" className="text-base font-semibold text-board-text">
+            <DialogTitle className="text-base font-semibold text-board-text">
               New show
-            </h2>
+            </DialogTitle>
             <p className="mt-1 text-xs text-board-muted">
               Add another show without leaving the rundown.
             </p>
           </div>
-          <button
+          <Button variant="ghost"
             type="button"
             onClick={onClose}
             disabled={pending}
@@ -100,7 +92,7 @@ export function NewShowModal({
             aria-label="Close new show"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -130,7 +122,7 @@ export function NewShowModal({
             <span className="mt-1 block text-[11px]">Leave blank to use the organization default.</span>
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs text-board-muted">
               <span className="mb-1.5 block">Date</span>
               <input
@@ -182,23 +174,23 @@ export function NewShowModal({
           ) : null}
 
           <div className="flex gap-3 pt-1">
-            <button
+            <Button variant="ghost"
               type="button"
               onClick={onClose}
               disabled={pending}
               className="flex-1 rounded-xl border border-board-border px-4 py-2.5 text-sm text-board-muted hover:bg-board-border disabled:opacity-50"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button variant="ghost"
               disabled={pending || !serviceDate || !startTime}
               className="flex-1 rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
             >
               {pending ? "Creating..." : "Create show"}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
