@@ -621,6 +621,46 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Template Studio scene and Program confirmation
+
+Template Studio now uses the Graphics output hook for bounded reads, publication
+and Clear. It retains last-confirmed Program state during an outage, timestamps
+unconfirmed actions and reconciles through reads without replaying Take Live.
+Clear stays reachable when the last confirmed output is empty. Take Live, Clear,
+saved-scene deletion, preview replacement and preview-layer deletion require
+confirmation. Preview and saved-scene changes do not alter Program.
+
+Scene create/update/delete use the same captured-request endpoint and atomic
+receipts as graphic-library mutations. Retry preserves the original content,
+creation time and scene ID. A late retry cannot overwrite a later edit or restore
+a deleted scene. Scene-list reads use primary D1 and are invalidated after writes
+so an older read cannot replace the refreshed library. The old scene save/delete
+server functions were removed after migrating their caller; reload cached clients.
+
+Publication now records receipt ownership inside the D1 transaction. Every
+immutable-row insert and Program-pointer change requires that ownership. A
+recorded request can acknowledge its first publication but cannot publish again,
+even when two copies were prepared concurrently and one arrives after a newer
+Program. Changed content under the same request ID is rejected. The existing
+array publication markers are preserved for rollback recognition; new metadata
+lives under `graphic-publish-receipt:`. Old markers without metadata cannot be
+replayed or used to confirm new content. No migration is required.
+
+Run `node apps/web/scripts/smoke-template-studio-recovery.mjs` after building.
+It loses scene Create/Update/Delete and Program replies after real D1 commits,
+checks same-request retry and unchanged Program during preview/library actions,
+cancels confirmations, stops/restarts the disposable Worker, and checks controls
+at 320x480, 768x900 and 1440x900. The phone inspector has named inputs, 44px hit
+areas and a reachable close button. The Studio header scrolls on small screens
+so it cannot cover Clear Program in short windows. Success feedback expires; failure notices
+remain until recovery or an explicit operator action.
+
+Hook tests cover stalled/lost/superseded publication responses. Real D1 tests
+reproduce the delayed-duplicate publication race, preserve old markers, verify
+atomic failure rollback and exercise scene retry, deletion and organization
+isolation. Saved-scene malformed-content recovery and the broader operator-path
+and product-wide UX audits remain separate work. Nothing here deploys the app.
+
 ### Graphics library confirmation
 
 Graphics create, edit, delete, ProPresenter import and Template Studio's Save
@@ -656,7 +696,8 @@ organization permissions and receipts surviving later edits/deletes.
 
 No migration is required. All callers were migrated and the old add/update/delete
 server functions removed; cached browsers must reload with this release. Template
-Studio scene/publication mutations and other operator error paths remain pending.
+Studio scene/publication confirmation is covered above; other operator error
+paths remain pending.
 
 ### Graphics output recovery
 

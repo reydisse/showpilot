@@ -70,6 +70,9 @@ const libraryOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create"), content: graphicContentSchema }),
   z.object({ kind: z.literal("update"), id: idSchema, content: graphicContentSchema }),
   z.object({ kind: z.literal("delete"), id: idSchema }),
+  z.object({ kind: z.literal("create-scene"), id: z.string().uuid(), name: labelSchema, items: z.array(compositionItemSchema).min(1).max(50) }),
+  z.object({ kind: z.literal("update-scene"), id: idSchema, name: labelSchema, items: z.array(compositionItemSchema).min(1).max(50) }),
+  z.object({ kind: z.literal("delete-scene"), id: idSchema }),
 ]);
 export type GraphicLibraryOperation = z.infer<typeof libraryOperationSchema>;
 
@@ -87,7 +90,7 @@ const SCENE_KEY_PREFIX = "graphic-scene:";
 
 export const getGraphicScenes = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<SavedGraphicScene[]> => {
+  .handler(async ({ data }): Promise<SavedGraphicScene[]> => withPrimaryDatabase(async () => {
     await assertGraphicPermission(data.orgId, "lowerthird:view");
     const rows = await getPrisma().appSetting.findMany({
       where: { orgId: data.orgId, key: { startsWith: SCENE_KEY_PREFIX } },
@@ -101,45 +104,7 @@ export const getGraphicScenes = createServerFn({ method: "GET" })
         return [];
       }
     }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  });
-
-export const saveGraphicScene = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({
-    orgId: idSchema,
-    sceneId: idSchema.optional(),
-    name: labelSchema,
-    items: z.array(compositionItemSchema).min(1).max(50),
-  }), data))
-  .handler(async ({ data }): Promise<SavedGraphicScene> => {
-    await assertGraphicPermission(data.orgId, "lowerthird:configure");
-    const prisma = getPrisma();
-    const id = data.sceneId ?? crypto.randomUUID();
-    const key = `${SCENE_KEY_PREFIX}${id}`;
-    const existing = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key } } });
-    let createdAt = new Date().toISOString();
-    if (existing) {
-      try {
-        const parsed = savedSceneSchema.safeParse(JSON.parse(existing.value));
-        if (parsed.success) createdAt = parsed.data.createdAt;
-      } catch {
-        // Replace an unreadable record while preserving a valid scene contract.
-      }
-    }
-    const scene: SavedGraphicScene = { id, name: data.name, items: data.items, createdAt, updatedAt: new Date().toISOString() };
-    await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key } },
-      create: { orgId: data.orgId, key, value: JSON.stringify(scene) },
-      update: { value: JSON.stringify(scene) },
-    });
-    return scene;
-  });
-
-export const deleteGraphicScene = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, sceneId: idSchema }), data))
-  .handler(async ({ data }) => {
-    await assertGraphicPermission(data.orgId, "lowerthird:configure");
-    await getPrisma().appSetting.deleteMany({ where: { orgId: data.orgId, key: `${SCENE_KEY_PREFIX}${data.sceneId}` } });
-  });
+  }));
 
 // ─── Active Graphics (via AppSetting) ───────────────────────
 //
