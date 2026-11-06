@@ -2311,7 +2311,7 @@ function RundownPage() {
                 <div
                   className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}
                 >
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2">
                       <Tv className="w-3.5 h-3.5 text-purple-400" />
                       <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
@@ -2322,7 +2322,7 @@ function RundownPage() {
                       <>
                         <Button variant="ghost"
                           onClick={togglePP}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
+                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppEnabled
                               ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
                               : "bg-board-bg text-board-muted hover:bg-board-border"
@@ -2333,13 +2333,13 @@ function RundownPage() {
                           ) : (
                             <WifiOff className="w-3 h-3" />
                           )}
-                          {ppEnabled ? "Streaming" : "Off"}
+                          {ppEnabled ? pp.isStreaming ? "Streaming" : "Reconnecting" : "Off"}
                         </Button>
                         <Button variant="ghost"
                           onClick={togglePPOnKiosk}
                           disabled={ppOutputPending}
                           aria-busy={ppOutputPending}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
+                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppOnKiosk
                               ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
                               : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
@@ -2382,7 +2382,7 @@ function RundownPage() {
                         />
                         <span className="text-xs text-board-muted">
                           {pp.status === "error"
-                            ? pp.error ?? "Venue Bridge disconnected"
+                            ? "Reconnecting, showing last confirmed slide"
                             : ppIsConnected
                               ? "Connected through venue Bridge"
                               : pp.status === "connecting"
@@ -2390,6 +2390,8 @@ function RundownPage() {
                                 : "Waiting for venue Bridge..."}
                         </span>
                       </div>
+
+                      <ReadFailureNotice error={pp.error && pp.errorAt !== null ? { message: pp.error, occurredAt: pp.errorAt } : null} refreshing={pp.refreshing} retry={pp.connect} label="Reconnect ProPresenter feed" />
 
                       {/* PP Control Buttons */}
                       {canEditRundown &&
