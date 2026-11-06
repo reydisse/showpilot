@@ -53,6 +53,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
       assert.equal(await evaluate('window.routeDocument'), 'same-document');
       if (path === 'timecode') {
         await page('Emulation.setDeviceMetricsOverride', { width: 320, height: 480, deviceScaleFactor: 1, mobile: false });
+        await poll(() => evaluate(`!!document.querySelector('button[aria-label="Open menu"]')`), 'mobile layout committed');
         // CDP acknowledges the viewport change before responsive layout and hit
         // testing settle. Measure after paint, then allow scrolling to settle.
         const bounds = await evaluate(`(async () => {
@@ -75,6 +76,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
         await poll(() => evaluate('window.heldReads.length >= 2'), 'second attempt held');
         await errorReady();
         await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+        await poll(() => evaluate(`!document.querySelector('button[aria-label="Open menu"]')`), 'desktop layout committed');
       }
       await release();
       assert.equal(await evaluate(`!!document.querySelector('.route-recovery')`), true, 'late response must not dismiss the failed route');

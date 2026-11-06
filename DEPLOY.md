@@ -644,6 +644,23 @@ Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
 regression. Both use disposable local accounts and data. No migration or native
 build is required; these changes are not deployed by a feature-branch push.
 
+### Workspace and Settings navigation
+
+Settings keeps the workspace sidebar on desktop and the existing menu drawer on
+phones/tablets. Back returns to the preceding resolved workspace URL, preserving
+its search and hash. Switching Settings sections does not change that destination.
+The destination belongs to the current organization and is held only in the live
+workspace shell. Direct entry or reload has no preceding in-app page and offers
+Back to Show Flow instead. Fullscreen mode still hides the sidebar.
+
+After building, run `node apps/web/scripts/smoke-navigation-audit.mjs`. With a
+disposable owner account, it clicks all 21 sidebar destinations and all 13 Settings
+sections, checking the rendered content and an unchanged document marker. It also
+checks separate Show Flow, calendar and rundown-editor views, Planning Room return
+state, direct-entry recovery, and Settings navigation at 320/768/1024/1440px. These
+checks do not establish that every form in each screen is responsive; the broader
+Phase 2 audit remains open. No migration or native release is required.
+
 ### Overlay feed and display-link recovery
 
 Overlay reads have an eight-second deadline, one active request, cancellation and

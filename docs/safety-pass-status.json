@@ -1682,11 +1682,12 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 267,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
         "2026-11-06 follow-up finding: navigating directly to /$slug/dashboard/devices/$deviceId in a disposable browser still renders the parent Devices list. routeTree.gen.ts nests this route under devices.tsx, whose component has no Outlet. The device-error rehearsal uses the actual inline panel; fixing detail/parent navigation remains part of this pending product-wide audit.",
         "Shared route deadlines now end stalled navigation with recovery, and ignore cancelled/expired late results. smoke-route-loading.mjs verified Board and Timecode first navigation/retry without a document reload, plus leaving a pending Chat navigation without accepting its late result. This is partial navigation evidence: the Devices parent/detail Outlet finding and the remaining pages/settings-section audit are still outstanding.",
-        "2026-11-06 Devices navigation: reproduced a detail URL rendering the parent library. Devices now has an outlet-only permission layout and separate index route, so only the requested controls mount. URL-owned selection restores Back/history, invalid IDs show recovery, and route reads forward cancellation. The legacy graphics overlay redirects before library loading to the protected canonical renderer; its unused single-graphic RPC is removed. Full combined suite 1835 unit + 658 Worker tests, typecheck and production build passed. smoke-nested-navigation.mjs passed actual login, two devices, direct and same-document navigation, history, missing IDs, 320/768/1440px back-button hit tests, overlay output with unchanged Program, anonymous denial and device permission rejection. smoke-device-connection-errors.mjs passed real Worker/fixture Bridge outage and recovery on the detail route and verifies one new connection, not duplicate library/detail controls. smoke-legacy-display-read.mjs passed on the combined build after incorporating #153. No migration or deployment. Remaining sidebar/settings routes still need the full navigation audit."
+        "2026-11-06 Devices navigation: reproduced a detail URL rendering the parent library. Devices now has an outlet-only permission layout and separate index route, so only the requested controls mount. URL-owned selection restores Back/history, invalid IDs show recovery, and route reads forward cancellation. The legacy graphics overlay redirects before library loading to the protected canonical renderer; its unused single-graphic RPC is removed. Full combined suite 1835 unit + 658 Worker tests, typecheck and production build passed. smoke-nested-navigation.mjs passed actual login, two devices, direct and same-document navigation, history, missing IDs, 320/768/1440px back-button hit tests, overlay output with unchanged Program, anonymous denial and device permission rejection. smoke-device-connection-errors.mjs passed real Worker/fixture Bridge outage and recovery on the detail route and verifies one new connection, not duplicate library/detail controls. smoke-legacy-display-read.mjs passed on the combined build after incorporating #153. No migration or deployment. Remaining sidebar/settings routes still need the full navigation audit.",
+        "2026-11-06 complete sidebar/Settings navigation rehearsal: smoke-navigation-audit.mjs clicks every one of the 21 owner sidebar destinations and all 13 Settings sections against the built Worker with disposable data. It requires each distinct page/section heading or chat content, preserves a document marker, and handles Board/Check-in standalone views via real browser Back. All routes and sections already rendered correctly on the preceding build; no new router workaround was needed. The new Settings shell keeps workspace navigation and returns to the preceding resolved page including the selected Planning Room after section changes. Direct entry has a Show Flow fallback. Settings sections also pass at 320/768/1024px, with reachable 44px Back and a working mobile drawer. Browser errors are empty; 1852 unit + 658 Worker tests, typecheck and production build passed. No deployment. The existing smoke-route-loading.mjs regression also passed real held responses, repeated timeout/retry, cancelled navigation and a paused page-code download. Its mobile hit test now waits for the media-query React commit after resize; an initial immediate measurement failed, and the diagnostic rerun plus final synchronized rerun passed."
       ]
     },
     {
@@ -1732,7 +1733,8 @@
       "line": 271,
       "status": "in_progress",
       "evidence": [
-        "Device detail now has a named, keyboard-focusable 44px Back link that restores the selected device; missing details offer the same library recovery. smoke-nested-navigation.mjs hit-tests it at 320/768/1440px and verifies Back and browser history without reloading. Other navigation homes, orphan routes and sidebar work remain pending."
+        "Device detail now has a named, keyboard-focusable 44px Back link that restores the selected device; missing details offer the same library recovery. smoke-nested-navigation.mjs hit-tests it at 320/768/1440px and verifies Back and browser history without reloading. Other navigation homes, orphan routes and sidebar work remain pending.",
+        "2026-11-06 Settings no longer hides the desktop workspace sidebar. Back remembers the previous resolved in-app URL, including search/hash, without being overwritten by Settings section changes or another organization. The browser rehearsal verifies Planning Room restoration, mobile drawer navigation, direct-entry fallback, and reachable Back at 320/768/1024px. Other orphan routes, permission/module affordances and sidebar scroll cues remain open."
       ]
     },
     {
@@ -1740,8 +1742,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 272,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 source plus built-browser verification: Show Flow renders .show-page-root, Schedule renders its calendar including month navigation and the fixture show, and Rundown renders #rundown-runsheet with its editor. smoke-navigation-audit.mjs navigates through actual sidebar Links without reload and asserts the correct heading and unique controls/container while rejecting the other screen containers. The old identical-screen finding is not present in this branch. Phone calendar navigation remains a separate pending requirement under the responsive audit."
+      ]
     },
     {
       "id": "0a1f89cd52023114",
@@ -1861,7 +1865,8 @@
       "line": 285,
       "status": "in_progress",
       "evidence": [
-        "Overlay monitor controls and preview were verified at 320x480, 768x900 and 1440x900. The monitor header occupies separate layout space, preserves a usable preview and has reachable 44px Retry; screenshot inspection caught and corrected an unlayered CSS reset overriding padding. Clean output retains the 1920x1080 broadcast composition scaled by LtStage. Other screens, including Devices mobile search and schedule calendar navigation, still require the broad responsive audit."
+        "Overlay monitor controls and preview were verified at 320x480, 768x900 and 1440x900. The monitor header occupies separate layout space, preserves a usable preview and has reachable 44px Retry; screenshot inspection caught and corrected an unlayered CSS reset overriding padding. Clean output retains the 1920x1080 broadcast composition scaled by LtStage. Other screens, including Devices mobile search and schedule calendar navigation, still require the broad responsive audit.",
+        "2026-11-06 Settings navigation verified at 320/768/1024/1440px: all 13 sections render through the desktop rail or actual mobile selector, Back fits and is hit-testable at >=44px, and the drawer can leave Settings. Inspected the 320px screenshot. This verifies navigation, not all controls/forms in those sections; the full responsive audit remains open."
       ]
     },
     {
