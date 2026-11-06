@@ -46,12 +46,12 @@ export function deviceTimingForEvent(
   event: AutomationEvent,
   devices: readonly DeviceTiming[],
 ): DeviceTiming | undefined {
-  if (event.action !== "device-action" && event.action !== "lighting-scene")
+  if (event.action !== "device-action" && event.action !== "lighting-scene" && event.action !== "lighting-blackout")
     return undefined;
   const id = automationDeviceId(event);
   if (id) return devices.find((device) => device.id === id);
   const lighting = devices.filter((device) => device.category === "lighting");
-  return event.action === "lighting-scene" && lighting.length === 1
+  return (event.action === "lighting-scene" || event.action === "lighting-blackout") && lighting.length === 1
     ? lighting[0]
     : undefined;
 }

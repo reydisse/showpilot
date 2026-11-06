@@ -1271,8 +1271,12 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 211,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Named rundown jumps: TimecodeRelay executes rundown-goto-item through the shared timer-goto transition used by cloud and native offline journals. The editor selects a named playable item from the current show; the timeline renders the action. A jump restarts at zero, resets selected-item timing and completes the previous item. Headers, removed items and foreign-show items fail without changing current output.",
+        "Worker regression tests cover actual show-scoped relays, invalid payloads on add/update/group replacement, disabled events, failed-target retry, reviewed re-fire and duplicate feed suppression. Shared transport tests cover paused/same-item restart and the prior bug that carried 42 seconds into a different item.",
+        "Local verification: 1537 web unit tests and 478 Worker tests passed; web typecheck and production build passed. smoke-catalog-targets.mjs saved and fired the cue through built Chromium UI and real local relays, confirmed selected item/message, elapsed zero and row statuses, and captured the named selector at 320px. The rebuilt Apple Silicon sidecar passed check-local-show.mjs including a paused 42-second item, timer-goto and revision-checked journal reconciliation. Matching native/web rollout and physical full-show rehearsal remain pending."
+      ]
     },
     {
       "id": "adee1ff82ac4b72a",
@@ -1310,8 +1314,12 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 215,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Dedicated lighting-blackout action has relay execution, timeline rendering, a named capability-filtered lighting selector and payload validation. The resolver forces actionId blackout and empty params despite supplied scene/action overrides, requires org-scoped enabled lighting capability, captures device latency and pins one Bridge installation through connect/command acknowledgment.",
+        "Real Worker tests cover captured latency and target identity, failure ACK, retry, reviewed re-fire, disabled cues, and rejection of foreign, missing, disabled, non-lighting, unsupported or ambiguous devices. Server target listing tests prove org/permission scope and return names/IDs without credentials. UI tests exercise selection, timeout/Retry and stale responses after show changes.",
+        "Local verification: 1537 web unit tests, 478 Worker tests, 153 Bridge tests, web typecheck and web/Bridge builds passed. smoke-catalog-targets.mjs saved/fired via Chromium and real local relays, routed the command through the compiled DMX adapter to loopback Art-Net, observed all 512 channels at zero and restored channel 1 to 180. The 320px selector fits. Physical hardware and production rollout remain pending."
+      ]
     },
     {
       "id": "b3d37b204d4fe3ad",

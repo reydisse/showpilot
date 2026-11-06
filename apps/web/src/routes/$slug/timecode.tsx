@@ -1,5 +1,8 @@
+import { getBlackoutTargets } from "@/lib/automation-targets";
+import { getRundownState } from "@/lib/rundown";
+import type { AutomationTargetKind } from "@/components/timecode/AutomationTargetPicker";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { FileDown, Music2 } from "lucide-react";
 import { useShowTimecode, TimecodeShowPicker, TimecodeControlNotice } from "@/components/timecode/TimecodeContext";
@@ -60,6 +63,14 @@ function TimecodePage() {
     setTriggersEnabled,
     mtcSupported,
   } = timecode;
+
+  const selectedShow = timecode.shows.find(show => show.id === timecode.showId);
+  const loadTargets = useCallback(async (kind: AutomationTargetKind) => {
+    if (kind === "lighting-blackout") return getBlackoutTargets({ data: { orgId } });
+    if (!selectedShow) throw new Error("Select a show before choosing a rundown item.");
+    const rundown = await getRundownState({ data: { orgId, showId: selectedShow.id, serviceDate: selectedShow.serviceDate } });
+    return rundown.items.filter(item => item.type !== "header").map(item => ({ id: item.id, label: item.title }));
+  }, [orgId, selectedShow]);
 
   const [demoLoaded, setDemoLoaded] = useState(false);
   const [demoPending, setDemoPending] = useState(false);
@@ -156,8 +167,10 @@ function TimecodePage() {
         )}
         {/* Add event */}
         <AutomationEventEditor
+          key={`${orgId}:${timecode.showId}`}
+          loadTargets={loadTargets}
           onAdd={addEvent}
-          connected={connected}
+          connected={connected && control !== "other"}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
         />
 

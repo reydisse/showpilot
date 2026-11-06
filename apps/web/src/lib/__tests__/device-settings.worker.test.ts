@@ -18,6 +18,7 @@ vi.mock("@tanstack/react-start", () => {
 import { addDevice, getDevice, getDevices, updateDevice } from "../data";
 import { handleMobileApi } from "../mobile-api.server";
 import { resolveTimecodeDeviceAction } from "../timecode-device-actions";
+import { getBlackoutTargets } from "../automation-targets";
 const binding = env.CREDENTIAL_ENCRYPTION_KEYS;
 afterEach(() => { env.CREDENTIAL_ENCRYPTION_KEYS = binding; });
 async function fixture() {
@@ -29,6 +30,27 @@ async function fixture() {
 async function stored(id: string, orgId: string) {
   return (await env.DB.prepare("SELECT settings FROM device WHERE id=? AND orgId=?").bind(id, orgId).first<string>("settings"))!;
 }
+
+it("lists only this organization's enabled blackout-capable lighting names without settings", async () => {
+  const mine = await fixture();
+  const other = await fixture();
+  for (const [id, orgId, adapter, category, enabled] of [
+    ["artnet", mine.orgId, "dmx-artnet", "lighting", 1],
+    ["sacn", mine.orgId, "dmx-sacn", "lighting", 1],
+    ["off", mine.orgId, "dmx-artnet", "lighting", 0],
+    ["video", mine.orgId, "dmx-artnet", "video", 1],
+    ["unsupported", mine.orgId, "atem", "lighting", 1],
+    ["foreign", other.orgId, "dmx-artnet", "lighting", 1],
+  ] as const) {
+    await env.DB.prepare("INSERT INTO device (id,orgId,name,adapterType,category,settings,enabled,createdAt,updatedAt) VALUES (?,?,?,?,?,'{\"password\":\"private-fixture\"}',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+      .bind(`${mine.orgId}-${id}`, orgId, id, adapter, category, enabled).run();
+  }
+  auth.userId = mine.userId;
+  expect(await getBlackoutTargets({ data: { orgId: mine.orgId } })).toEqual([
+    { id: `${mine.orgId}-artnet`, label: "artnet" }, { id: `${mine.orgId}-sacn`, label: "sacn" },
+  ]);
+  await expect(getBlackoutTargets({ data: { orgId: other.orgId } })).rejects.toThrow();
+});
 
 it("encrypts actual web writes and masks list, detail and creation returns, including nested legacy credentials", async () => {
   const device = await fixture();

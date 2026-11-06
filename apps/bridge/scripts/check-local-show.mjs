@@ -335,16 +335,23 @@ try {
   const unknown = await request(uncertainAction);
   assert.equal(unknown.results.at(-1).result, "unknown");
   assert.equal(commands, 2);
+  await request({ operation: "transport", sessionId: "fixture-session", requestId: "pause-for-jump", expectedSequence: 3, action: "timer-pause" });
+  await request({ operation: "transport", sessionId: "fixture-session", requestId: "adjust-for-jump", expectedSequence: 4, action: "timer-adjust", payload: { deltaMs: -42000 } });
+  const jumped = await request({ operation: "transport", sessionId: "fixture-session", requestId: "named-jump", expectedSequence: 5, action: "timer-goto", payload: { itemId: "first" } });
+  assert.equal(jumped.timer.currentItemId, "first");
+  assert.equal(jumped.timer.playback, "play");
+  assert.equal(jumped.timer.elapsed, 0);
   const finished = await request({
     operation: "finish",
     sessionId: "fixture-session",
-    expectedSequence: 3,
+    expectedSequence: 6,
   });
   assert.equal(finished.mode, "finished");
   assert.equal(finished.timer.playback, "pause");
   const journal = parseLocalRundownJournal(finished.journal, Date.now());
   assert.ok(journal);
-  assert.equal(journal.operations.length, 1);
+  assert.equal(journal.operations.length, 4);
+  assert.equal(journal.operations.at(-1).command.type, "timer-goto");
   assert.equal(
     reconcileLocalRundown(
       prepared,
