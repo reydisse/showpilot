@@ -128,6 +128,8 @@ export interface AutomationEvent {
   payload: Record<string, unknown>;
   label: string;
   fired: boolean;
+  /** Operator skipped this cue without acknowledging any external action. */
+  skipped?: boolean;
   enabled: boolean;
   /** Startup/resync matching only; normal forward crossings ignore this value.
    * Defaults to DEFAULT_TIMECODE_TOLERANCE_FRAMES. Also bounds transient retries. */
@@ -206,6 +208,10 @@ export const TIMECODE_COMMANDS = [
   "remove-event",
   "reset-events",
   "retry-event",
+  "fire-event",
+  "fire-next",
+  "skip-event",
+  "rearm-event",
   "set-event-enabled",
   "set-triggers-enabled",
   "set-lyrics",

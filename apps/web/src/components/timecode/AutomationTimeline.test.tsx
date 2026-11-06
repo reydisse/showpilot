@@ -17,16 +17,68 @@ function cue(id: string, changes: Partial<AutomationEvent> = {}): AutomationEven
     toleranceFrames: 5, payload: {}, ...changes,
   };
 }
-function setup(events: AutomationEvent[], connected = true) {
+function setup(events: AutomationEvent[], connected = true, clock = state) {
   const props = {
-    events, state, connected, onRemoveEvent: vi.fn(), onResetEvents: vi.fn(),
-    onRetryEvent: vi.fn(), onSetEventEnabled: vi.fn(),
+    events, state: clock, connected, onRemoveEvent: vi.fn(), onResetEvents: vi.fn(),
+    onRetryEvent: vi.fn(), onSetEventEnabled: vi.fn(), onFireEvent: vi.fn(), onFireNext: vi.fn(), onSkipEvent: vi.fn(), onRearmEvent: vi.fn(),
   };
-  render(<AutomationTimeline {...props} />);
-  return props;
+  const view = render(<AutomationTimeline {...props} />);
+  return { ...props, rerender: (changes: Partial<typeof props>) => view.rerender(<AutomationTimeline {...props} {...changes} />) };
 }
 
 describe("automation safety controls", () => {
+  it("offers the earliest ready cue and keeps Fire, Skip and Re-arm separate", () => {
+    const props = setup([
+      cue("Past"), cue("Disabled", { triggerFrame: 40, enabled: false }),
+      cue("Skipped", { triggerFrame: 50, skipped: true }),
+      cue("Failed", { triggerFrame: 60, executionStatus: "failed" }),
+      cue("Pending", { triggerFrame: 70, executionStatus: "dispatching" }),
+      cue("First ready", { triggerFrame: 80 }), cue("Later", { triggerFrame: 90 }),
+    ]);
+    expect(screen.getByRole("button", { name: "Fire next" }).getAttribute("title")).toBe("Fire First ready now");
+    fireEvent.click(screen.getByRole("button", { name: "Fire next" }));
+    expect(props.onFireNext).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Fire Later" }));
+    expect(props.onFireEvent).toHaveBeenCalledWith("Later");
+    fireEvent.click(screen.getByRole("button", { name: "Skip First ready" }));
+    expect(props.onSkipEvent).toHaveBeenCalledWith("First ready");
+    expect(props.onRearmEvent).not.toHaveBeenCalled();
+    expect(props.onRetryEvent).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Fire Skipped" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fire Failed" })).toBeNull();
+  });
+
+  it("confirms a single Re-arm without firing and preserves the reviewed attempt", () => {
+    const props = setup([cue("Used", { fired: true, executionId: "attempt-one", executionStatus: "acknowledged" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Re-arm Used" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(props.onRearmEvent).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Re-arm Used" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Re-arm cue" }));
+    expect(props.onRearmEvent).toHaveBeenCalledExactlyOnceWith("Used", { executionId: "attempt-one", fired: true, skipped: false });
+    expect(props.onFireEvent).not.toHaveBeenCalled();
+    expect(props.onRetryEvent).not.toHaveBeenCalled();
+    expect(props.onResetEvents).not.toHaveBeenCalled();
+  });
+
+  it("blocks a stale Re-arm confirmation when another attempt finishes during review", () => {
+    const original = cue("Used", { fired: true, executionId: "attempt-one" });
+    const props = setup([original]);
+    fireEvent.click(screen.getByRole("button", { name: "Re-arm Used" }));
+    props.rerender({ events: [{ ...original, executionId: "attempt-two" }] });
+    expect(screen.getByText(/The cue changed/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Re-arm cue" }));
+    expect(props.onRearmEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(["offline", "automation off", "disabled", "dispatching"])("blocks manual firing when %s", (reason) => {
+    const props = setup([cue("Ready", { triggerFrame: 80, enabled: reason !== "disabled", executionStatus: reason === "dispatching" ? "dispatching" : "scheduled" })], reason !== "offline", { ...state, triggersEnabled: reason !== "automation off" });
+    fireEvent.click(screen.getByRole("button", { name: "Fire next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fire Ready" }));
+    expect(props.onFireNext).not.toHaveBeenCalled();
+    expect(props.onFireEvent).not.toHaveBeenCalled();
+  });
+
   it("requires confirmation for reset and deletion", () => {
     const props = setup([cue("Welcome")]);
     fireEvent.click(screen.getByRole("button", { name: "Reset All" }));

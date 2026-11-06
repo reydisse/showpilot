@@ -13,6 +13,7 @@ import { timecodeToFrames } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
 import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
+import type { cueReviewState } from "@/lib/automation-cues";
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
 
 interface UseTimecodeOptions {
@@ -53,6 +54,10 @@ export interface UseTimecodeReturn {
   removeEvent: (id: string) => void;
   resetEvents: () => void;
   retryEvent: (id: string) => void;
+  fireEvent: (id: string) => void;
+  fireNext: () => void;
+  skipEvent: (id: string) => void;
+  rearmEvent: (id: string, expected: ReturnType<typeof cueReviewState>) => void;
   setEventEnabled: (id: string, enabled: boolean) => void;
   setTriggersEnabled: (enabled: boolean, expectedHoldId?: string) => void;
   setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
@@ -414,6 +419,12 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const removeEvent = useCallback((id: string) => { sendCommand("remove-event", { id }); }, [sendCommand]);
   const resetEvents = useCallback(() => { sendCommand("reset-events"); }, [sendCommand]);
   const retryEvent = useCallback((id: string) => { sendCommand("retry-event", { id }); }, [sendCommand]);
+  const fireEvent = useCallback((id: string) => { sendCommand("fire-event", { id }); }, [sendCommand]);
+  const fireNext = useCallback(() => { sendCommand("fire-next"); }, [sendCommand]);
+  const skipEvent = useCallback((id: string) => { sendCommand("skip-event", { id }); }, [sendCommand]);
+  const rearmEvent = useCallback((id: string, expected: ReturnType<typeof cueReviewState>) => {
+    sendCommand("rearm-event", { id, expected, confirmed: true });
+  }, [sendCommand]);
   const setEventEnabled = useCallback((id: string, value: boolean) => { sendCommand("set-event-enabled", { id, enabled: value }); }, [sendCommand]);
   const setTriggersEnabled = useCallback((value: boolean, expectedHoldId?: string) => {
     sendCommand("set-triggers-enabled", { enabled: value, ...(expectedHoldId ? { expectedHoldId, confirmed: true } : {}) });
@@ -427,7 +438,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     control: visibleState ? control : null, claimControl, releaseControl,
     events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
     startFreerun, stopGenerator, startMtc, stopMtc: stopGenerator, setTimecode, setFormat,
-    addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, setEventEnabled,
+    addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, fireEvent, fireNext, skipEvent, rearmEvent, setEventEnabled,
     setTriggersEnabled, setLyrics, clearLyrics, mtcSupported,
   };
 }

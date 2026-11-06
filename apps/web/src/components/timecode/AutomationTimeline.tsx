@@ -15,6 +15,7 @@ import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { timecodeToString } from "@/lib/timecode";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { cueReviewState, cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
 
 interface AutomationTimelineProps {
   events: AutomationEvent[];
@@ -22,6 +23,10 @@ interface AutomationTimelineProps {
   onRemoveEvent: (id: string) => void;
   onResetEvents: () => void;
   onRetryEvent: (id: string) => void;
+  onFireEvent: (id: string) => void;
+  onFireNext: () => void;
+  onSkipEvent: (id: string) => void;
+  onRearmEvent: (id: string, expected: ReturnType<typeof cueReviewState>) => void;
   onSetEventEnabled: (id: string, enabled: boolean) => void;
   connected: boolean;
 }
@@ -76,24 +81,31 @@ export function AutomationTimeline({
   onRemoveEvent,
   onResetEvents,
   onRetryEvent,
+  onFireEvent,
+  onFireNext,
+  onSkipEvent,
+  onRearmEvent,
   onSetEventEnabled,
   connected,
 }: AutomationTimelineProps) {
   const currentFrame = state?.totalFrames ?? 0;
-  const isRunning = state?.running ?? false;
   const dropFrame = state?.format.dropFrame === "df";
-  const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire"; event: AutomationEvent } | { kind: "reset" } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire" | "rearm"; event: AutomationEvent } | { kind: "reset" } | null>(null);
   const ordered = [...events].sort((a, b) => a.triggerFrame - b.triggerFrame);
-  const missed = (event: AutomationEvent) => event.enabled && !event.fired
+  const missed = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
     && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
     && event.triggerFrame + event.toleranceFrames < currentFrame;
   const needsAttention = ordered.filter((event) => event.executionStatus === "failed" || missed(event));
-  const nextId = ordered.find((event) => event.enabled && !event.fired && event.executionStatus !== "failed" && event.triggerFrame >= currentFrame)?.id;
+  const next = nextAutomationEvent(events, currentFrame);
+  const nextId = next?.id;
+  const reviewed = confirmation && "event" in confirmation ? events.find(event => event.id === confirmation.event.id) : null;
+  const rearmChanged = confirmation?.kind === "rearm" && (!reviewed || reviewed.executionStatus === "dispatching"
+    || !cueReviewMatches(reviewed, cueReviewState(confirmation.event)));
 
   return (
     <div className="rounded-xl border border-board-border bg-board-card">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-board-border">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-board-border">
         <div className="flex items-center gap-2">
           <Clock className="w-4 h-4 text-board-muted" />
           <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
@@ -103,6 +115,9 @@ export function AutomationTimeline({
             {events.length} event{events.length !== 1 ? "s" : ""}
           </span>
         </div>
+        <button type="button" onClick={onFireNext} disabled={!connected || !next || state?.triggersEnabled === false}
+          title={next ? `Fire ${next.label} now` : "No upcoming cue is ready"}
+          className="min-h-11 rounded-lg border border-fire-500/30 px-3 text-sm text-fire-500 disabled:opacity-40">Fire next</button>
         {events.length > 0 && (
           <button
             onClick={() => setConfirmation({ kind: "reset" })}
@@ -119,7 +134,7 @@ export function AutomationTimeline({
         <section aria-label="Missed or failed cues" className="border-b border-red-400/30 bg-red-500/5 p-4">
           <h4 className="text-sm font-semibold text-red-300">Missed / failed cues ({needsAttention.length})</h4>
           <ul className="mt-2 space-y-1">
-            {needsAttention.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-sm text-board-text"><span>{event.label} · {event.executionStatus === "failed" ? "Failed" : "Missed"}</span><button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => onRetryEvent(event.id)} className="min-h-11 rounded-lg px-3 text-amber-200 disabled:opacity-40" aria-label={`Retry ${event.label}`}>Retry</button></li>)}
+            {needsAttention.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-sm text-board-text"><span>{event.label} · {event.executionStatus === "failed" ? "Failed" : "Missed"}{event.skipped ? " · Skipped" : ""}</span><button type="button" disabled={!connected || !event.enabled || event.skipped || state?.triggersEnabled === false} onClick={() => onRetryEvent(event.id)} className="min-h-11 rounded-lg px-3 text-amber-200 disabled:opacity-40" aria-label={`Retry ${event.label}`}>Retry</button></li>)}
           </ul>
         </section>
       )}
@@ -182,7 +197,7 @@ export function AutomationTimeline({
                 {/* Label */}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-board-text">{event.label}</span>
-                  <span className="block text-xs text-board-muted">{!event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : isNext ? (isRunning ? "Next" : "Next when started") : "Scheduled"}</span>
+                  <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : isNext ? "Next" : "Scheduled"}</span>
                   {event.executionStatus === "failed" && event.executionError ? (
                     <span className="mt-0.5 block text-xs text-red-400">
                       {event.executionError}
@@ -194,6 +209,12 @@ export function AutomationTimeline({
                 <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">
                   <input type="checkbox" checked={event.enabled} disabled={!connected} onChange={(change) => onSetEventEnabled(event.id, change.target.checked)} aria-label={`Enable ${event.label}`} />Enabled
                 </label>
+                {!event.fired && !event.skipped && event.executionStatus !== "failed" && <button type="button" aria-label={`Fire ${event.label}`} disabled={!connected || !event.enabled || event.executionStatus === "dispatching" || state?.triggersEnabled === false}
+                  onClick={() => onFireEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-fire-500 focus-visible:ring-2 disabled:opacity-40">Fire</button>}
+                {!event.fired && !event.skipped && <button type="button" aria-label={`Skip ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
+                  onClick={() => onSkipEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-board-muted focus-visible:ring-2 disabled:opacity-40">Skip</button>}
+                {(event.fired || event.skipped || event.executionStatus === "failed") && <button type="button" aria-label={`Re-arm ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
+                  onClick={() => setConfirmation({ kind: "rearm", event: { ...event } })} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-board-muted focus-visible:ring-2 disabled:opacity-40">Re-arm</button>}
                 {event.fired && <button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => setConfirmation({ kind: "refire", event })} className="min-h-11 rounded-lg px-3 text-xs text-board-muted disabled:opacity-50">Re-fire</button>}
 
                 {/* Delete */}
@@ -215,12 +236,14 @@ export function AutomationTimeline({
       <ConfirmDialog
         open={confirmation !== null}
         onOpenChange={(open) => { if (!open) setConfirmation(null); }}
-        title={confirmation?.kind === "reset" ? "Reset all automation cues?" : confirmation?.kind === "refire" ? "Fire this cue again?" : "Delete this automation cue?"}
-        description={confirmation?.kind === "reset" ? "This re-arms every cue. Previously fired actions may run again when their timecode is crossed." : confirmation?.kind === "refire" ? `Run ${confirmation.event.label} again now? Check the output before repeating a device action.` : `Remove ${confirmation && "event" in confirmation ? confirmation.event.label : "this cue"} from the timeline?`}
-        confirmLabel={confirmation?.kind === "reset" ? "Reset all" : confirmation?.kind === "refire" ? "Fire again" : "Delete cue"}
+        title={confirmation?.kind === "reset" ? "Reset all automation cues?" : confirmation?.kind === "rearm" ? "Re-arm this cue?" : confirmation?.kind === "refire" ? "Fire this cue again?" : "Delete this automation cue?"}
+        description={confirmation?.kind === "reset" ? "This re-arms every cue. Previously fired actions may run again when their timecode is crossed." : confirmation?.kind === "rearm" ? rearmChanged ? "The cue changed. Close this dialog and review its latest status." : `Make ${confirmation.event.label} available again? This clears its attempt status without firing it now. Check the output before repeating an action.` : confirmation?.kind === "refire" ? `Run ${confirmation.event.label} again now? Check the output before repeating a device action.` : `Remove ${confirmation && "event" in confirmation ? confirmation.event.label : "this cue"} from the timeline?`}
+        confirmLabel={confirmation?.kind === "reset" ? "Reset all" : confirmation?.kind === "rearm" ? "Re-arm cue" : confirmation?.kind === "refire" ? "Fire again" : "Delete cue"}
+        confirmDisabled={!connected || Boolean(rearmChanged)}
         onConfirm={() => {
           if (!connected || !confirmation) return;
           if (confirmation.kind === "reset") onResetEvents();
+          else if (confirmation.kind === "rearm") { if (!rearmChanged) onRearmEvent(confirmation.event.id, cueReviewState(confirmation.event)); }
           else if (confirmation.kind === "refire") onRetryEvent(confirmation.event.id);
           else onRemoveEvent(confirmation.event.id);
         }}

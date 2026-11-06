@@ -31,6 +31,7 @@ import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
+import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
 
 interface Env {
   CREDENTIAL_ENCRYPTION_KEYS?: string;
@@ -80,6 +81,23 @@ const eventUpdateSchema = z.object({
   rundownItemId: z.string().max(200).optional(),
   category: z.string().max(200).optional(),
 });
+
+const cueReviewSchema = z.object({
+  executionId: z.string().nullable(), fired: z.boolean(), skipped: z.boolean(),
+}).strict();
+
+function resetCueExecution(event: AutomationEvent): void {
+  event.fired = false;
+  delete event.skipped;
+  event.executionStatus = "scheduled";
+  event.executionAttempts = 0;
+  delete event.executionId;
+  delete event.executionStartedAt;
+  delete event.executionDurationMs;
+  delete event.executionRetryable;
+  delete event.executionError;
+  delete event.executedAt;
+}
 
 class AutomationRejection extends Error {
   readonly retryable: boolean;
@@ -882,6 +900,7 @@ export class TimecodeRelay extends DurableObject {
           break;
         }
         event.enabled = event.enabled !== false;
+        delete event.skipped;
         event.fired = false;
         event.executionAttempts = 0;
         delete event.executionId;
@@ -940,6 +959,7 @@ export class TimecodeRelay extends DurableObject {
             ...(candidate as AutomationEvent),
             id: candidate.id || crypto.randomUUID(),
             fired: false,
+            skipped: undefined,
             enabled: candidate.enabled !== false,
             executionAttempts: 0,
             executionId: undefined,
@@ -1026,15 +1046,48 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
+      case "fire-next":
+      case "fire-event": {
+        if (!this.state.triggersEnabled) throw new TimecodeCommandRejection("Enable automation before firing a cue.");
+        const event = action === "fire-next" ? nextAutomationEvent(this.events, this.state.totalFrames)
+          : this.events.find(candidate => candidate.id === payload?.id);
+        if (!event) throw new TimecodeCommandRejection(action === "fire-next" ? "No upcoming cue is ready to fire." : "This cue is no longer in the show.");
+        if (!event.enabled || event.skipped || event.fired || event.executionStatus === "failed" || event.executionStatus === "dispatching") {
+          throw new TimecodeCommandRejection("This cue is not ready to fire. Review its status before retrying or re-arming it.");
+        }
+        await this.runEvent(event);
+        await this.persist();
+        this.broadcastState();
+        break;
+      }
+
+      case "skip-event":
+      case "rearm-event": {
+        const event = this.events.find(candidate => candidate.id === payload?.id);
+        if (!event) throw new TimecodeCommandRejection("This cue is no longer in the show.");
+        if (event.executionStatus === "dispatching") throw new TimecodeCommandRejection("Wait for this cue's acknowledgement before changing it.");
+        if (action === "skip-event") {
+          if (event.fired) throw new TimecodeCommandRejection("This cue already fired. Skipping cannot undo its output.");
+          event.skipped = true;
+        } else {
+          const expected = cueReviewSchema.safeParse(payload?.expected);
+          if (payload?.confirmed !== true || !expected.success || !cueReviewMatches(event, expected.data)) {
+            throw new TimecodeCommandRejection("The cue changed. Review its current status before re-arming it.");
+          }
+          resetCueExecution(event);
+        }
+        await this.persist();
+        this.broadcastEvents();
+        this.broadcastState();
+        break;
+      }
+
       case "retry-event": {
         if (!this.state.triggersEnabled || typeof payload?.id !== "string") break;
         const event = this.events.find((candidate) => candidate.id === payload.id);
         if (!event?.enabled || event.executionStatus === "dispatching") break;
-        event.fired = false;
-        event.executionAttempts = 0;
-        event.executionStatus = "scheduled";
-        delete event.executionId;
-        delete event.executionStartedAt;
+        if (event.skipped) throw new TimecodeCommandRejection("Re-arm this skipped cue before retrying it.");
+        resetCueExecution(event);
         await this.runEvent(event);
         await this.persist();
         this.broadcastState();
@@ -1043,16 +1096,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "reset-events":
         if (this.events.some((event) => event.executionStatus === "dispatching")) break;
-        for (const event of this.events) {
-          event.fired = false;
-          event.executionStatus = "scheduled";
-          event.executionAttempts = 0;
-          delete event.executionId;
-          delete event.executionStartedAt;
-          delete event.executionDurationMs;
-          delete event.executionError;
-          delete event.executedAt;
-        }
+        for (const event of this.events) resetCueExecution(event);
         this.previousFeedFrame = null;
         await this.persist();
         this.broadcastEvents();
@@ -1092,7 +1136,7 @@ export class TimecodeRelay extends DurableObject {
     if (!this.state.triggersEnabled || !this.state.running) return false;
     const executions: Promise<void>[] = [];
     for (const event of this.events) {
-      if (!event.enabled || event.fired || event.executionStatus === "dispatching") continue;
+      if (!event.enabled || event.fired || event.skipped || event.executionStatus === "dispatching") continue;
       const attempts = event.executionAttempts ?? 0;
       // Retries retain Phase 0's time/frame cap. Matching tolerance never
       // expands the crossing window during continuous forward playback.
@@ -1170,7 +1214,7 @@ export class TimecodeRelay extends DurableObject {
       if (requiresLiveFeed && (!this.state.running || (lastFeed !== null && Date.now() - lastFeed >= FEED_STALL_MS))) {
         throw new AutomationCancelled("Timecode signal lost before dispatch.");
       }
-      if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || !this.events.includes(event)) {
+      if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || event.skipped || !this.events.includes(event)) {
         throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
       }
     };
