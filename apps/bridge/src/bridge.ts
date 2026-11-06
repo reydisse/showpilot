@@ -474,6 +474,9 @@ export class Bridge {
     const effective = msg.type === "command" && connected ? [...endpoints, ...connected] : endpoints;
     if (!effective.every(endpoint => this.approvedTargets.has(endpointKey(endpoint)))) throw new BridgeTargetError("unapproved-target");
     if (connected && msg.type === "connect-device"
+      // ProPresenter replaces its instance after comparing private settings,
+      // suppressing old callbacks until the replacement has an actual result.
+      && msg.protocol !== "propresenter"
       && connected.map(endpointKey).join() !== endpoints.map(endpointKey).join()) {
       await this.handleDisconnectDevice({ target: msg.target });
     }
@@ -963,12 +966,6 @@ export class Bridge {
     target: string,
     settings?: Record<string, unknown>,
   ): Promise<void> {
-    const existing = this.ppConnections.get(target);
-    if (existing) {
-      await existing.waitUntilReady();
-      return;
-    }
-
     const endpoints = resolveBridgeEndpoints({ type: "connect-device", protocol: "propresenter", target, settings });
     const ppHost = endpoints[0].host;
     const ppPort = endpoints[0].port;
@@ -978,6 +975,17 @@ export class Bridge {
     }
 
     const password = typeof settings?.password === "string" ? settings.password : "";
+    const existing = this.ppConnections.get(target);
+    if (existing?.matchesConnection({ host: ppHost, port: ppPort, apiPort: ppApiPort, password })) {
+      await existing.waitUntilReady();
+      return;
+    }
+    if (existing) {
+      // Detach before closing so old status/slide callbacks cannot resolve the
+      // replacement connection or clear its last confirmed browser preview.
+      this.ppConnections.delete(target);
+      existing.disconnect();
+    }
     const pp = new ProPresenterBridge({
       host: ppHost,
       port: ppPort,
@@ -985,6 +993,7 @@ export class Bridge {
         Number.isFinite(ppApiPort) && ppApiPort > 0 ? ppApiPort : undefined,
       password,
       onSlideChange: (data) => {
+        if (this.ppConnections.get(target) !== pp) return;
         if (!data) {
           console.log("[pp-bridge] Clearing forwarded slide");
           this.send({
@@ -1007,6 +1016,7 @@ export class Bridge {
         });
       },
       onStatusChange: (connected) => {
+        if (this.ppConnections.get(target) !== pp) return;
         this.send({ type: "device-status", target, connected });
       },
     });

@@ -85,7 +85,7 @@ export class ProPresenterBridge {
   private pollTimer: NodeJS.Timeout | null = null;
   private destroyed = false;
   private shutdown = new AbortController();
-  private wsConnected = false;
+  private stageState: "unused" | "pending" | "authenticated" | "unavailable" | "rejected" = "unused";
   private pollingActive = false;
   private lastPollText = "";
   private lastSlideSignature = "";
@@ -108,6 +108,18 @@ export class ProPresenterBridge {
     this.options = options;
   }
 
+  matchesConnection(options: Pick<PPBridgeOptions, "host" | "port" | "apiPort" | "password">): boolean {
+    return !this.destroyed && this.options.host === options.host && this.options.port === options.port
+      && (this.options.apiPort ?? this.options.port) === (options.apiPort ?? options.port)
+      && (this.options.password ?? "") === (options.password ?? "");
+  }
+
+  private get wsConnected(): boolean { return this.stageState === "authenticated"; }
+
+  private connectionReady(): boolean {
+    return this.wsConnected || (this.pollingActive && this.stageState !== "pending" && this.stageState !== "rejected");
+  }
+
   connect(): void {
     if (this.destroyed) return;
 
@@ -117,6 +129,7 @@ export class ProPresenterBridge {
     this.useWebSocket =
       !this.stageWebSocketDisabled
       && this.options.port !== (this.options.apiPort ?? this.options.port);
+    this.stageState = this.useWebSocket ? "pending" : "unused";
 
     if (this.useWebSocket) {
       const url = `ws://${this.options.host}:${this.options.port}/stagedisplay`;
@@ -125,10 +138,8 @@ export class ProPresenterBridge {
       this.ws = new WebSocket(url);
 
       this.ws.on("open", () => {
-        console.log("[pp-bridge] Connected to ProPresenter");
+        console.log("[pp-bridge] ProPresenter socket opened; waiting for authentication");
         this.stageSocketWarningLogged = false;
-        this.wsConnected = true;
-        this.emitStatus();
 
         // Authenticate with stage display protocol
         this.ws?.send(
@@ -150,7 +161,7 @@ export class ProPresenterBridge {
       });
 
       this.ws.on("close", () => {
-        this.wsConnected = false;
+        if (this.stageState !== "rejected") this.stageState = "unavailable";
         this.ws = null;
         this.emitStatus();
         if (!this.destroyed) {
@@ -168,6 +179,7 @@ export class ProPresenterBridge {
       });
 
       this.ws.on("error", (err) => {
+        this.stageState = "unavailable";
         if (!this.stageSocketWarningLogged) {
           console.warn(`[pp-bridge] Stage display socket unavailable (${err.message}); checking the ProPresenter API instead`);
           this.stageSocketWarningLogged = true;
@@ -198,10 +210,13 @@ export class ProPresenterBridge {
     this.stopPolling();
     if (this.ws) {
       this.ws.removeAllListeners();
+      // Closing a CONNECTING ws emits an asynchronous error. The instance is
+      // deliberately destroyed; do not leave that shutdown event unhandled.
+      this.ws.on("error", () => {});
       this.ws.close();
       this.ws = null;
     }
-    this.wsConnected = false;
+    if (this.stageState !== "rejected") this.stageState = "unavailable";
     this.emitStatus();
     for (const waiter of this.readyWaiters) {
       clearTimeout(waiter.timer);
@@ -211,7 +226,8 @@ export class ProPresenterBridge {
   }
 
   waitUntilReady(timeoutMs = 6000): Promise<void> {
-    if (this.wsConnected || this.pollingActive) return Promise.resolve();
+    if (this.connectionReady()) return Promise.resolve();
+    if (this.stageState === "rejected") return Promise.reject(new Error("ProPresenter Stage Display authentication failed"));
 
     return new Promise<void>((resolve, reject) => {
       const waiter = {
@@ -238,7 +254,7 @@ export class ProPresenterBridge {
 
   getDebugState(): PPBridgeDebugState {
     return {
-      connected: this.wsConnected || this.pollingActive,
+      connected: this.connectionReady(),
       wsConnected: this.wsConnected,
       pollingActive: this.pollingActive,
       useWebSocket: this.useWebSocket,
@@ -422,13 +438,22 @@ export class ProPresenterBridge {
 
     // Auth response
     if (acn === "ath") {
-      const ok = data.ath as boolean;
+      const ok = data.ath === true;
       console.log(`[pp-bridge] Auth: ${ok ? "success" : "FAILED"}`);
+      this.stageState = ok ? "authenticated" : "rejected";
       if (!ok) {
-        this.emitStatus();
+        for (const waiter of this.readyWaiters) {
+          clearTimeout(waiter.timer);
+          waiter.reject(new Error("ProPresenter Stage Display authentication failed"));
+        }
+        this.readyWaiters.clear();
+        this.disconnect();
       }
+      this.emitStatus();
       return;
     }
+
+    if (!this.wsConnected) return;
 
     // Timer messages — skip, not slide data
     if (acn === "tmr" || acn === "sys") return;
@@ -477,6 +502,7 @@ export class ProPresenterBridge {
         const result = await this.pollSlide();
         if (this.destroyed) return;
         this.setPollingActive(result.reachable);
+        if (!this.connectionReady()) return;
         if (!result.reachable || result.slide === undefined) {
           // Connection failures and partial/unsupported responses say nothing
           // about whether the operator cleared the current slide.
@@ -549,7 +575,7 @@ export class ProPresenterBridge {
   }
 
   private emitStatus(): void {
-    const connected = this.wsConnected || this.pollingActive;
+    const connected = this.connectionReady();
     if (connected === this.lastReportedConnected) return;
 
     this.lastReportedConnected = connected;

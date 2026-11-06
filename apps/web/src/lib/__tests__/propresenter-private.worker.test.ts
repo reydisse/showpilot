@@ -15,8 +15,8 @@ vi.mock("@tanstack/react-start", () => {
   };
   return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
 });
-import { getProPresenterConfiguration, getDesktopBridgeAccess } from "../settings";
-import { getProPresenterFeed } from "../rundown";
+import { getProPresenterConfiguration, getDesktopBridgeAccess, updateOrgCredential } from "../settings";
+import { getProPresenterFeed, testProPresenterConnection } from "../rundown";
 const secret = "private-pp-fixture";
 const target = "propresenter:venue.local:50001";
 afterEach(() => abortAllDurableObjects());
@@ -39,6 +39,28 @@ function next(socket: WebSocket, type: string): Promise<Record<string, unknown>>
     socket.addEventListener("message", handler);
   });
 }
+
+it("applies replaced and cleared credentials to an already-connected target and waits for the native result", async () => {
+  const { orgId, userId } = await fixture();
+  await env.DB.prepare("UPDATE organization SET plan='pro' WHERE id=?").bind(orgId).run();
+  const active = await openTestBridge(orgId);
+  await approveTestBridgeTarget(orgId, "propresenter", target, { apiPort: 1025 });
+  for (const password of ["replacement-secret", ""]) {
+    await updateOrgCredential({ data: { orgId, key: "propresenter-password", change: password ? { action: "replace", value: password } : { action: "clear" } } });
+    active.socket.send(JSON.stringify({ type: "device-status", target, connected: true }));
+    await expect.poll(async () => (await active.stub.getBridgeStatus()).connectedTargets).toContain(target);
+    const wire = next(active.socket, "connect-device");
+    const applying = testProPresenterConnection({ data: { orgId } });
+    const message = await wire;
+    expect(JSON.stringify(message)).not.toMatch(/replacement-secret|private-pp-fixture|spenc:/);
+    const settings = await active.recipient.open(message.protectedSettings, { orgId, installationId: active.credential.installationId, protocol: "propresenter", target });
+    expect(settings.password).toBe(password);
+    active.socket.send(JSON.stringify({ type: "device-status", target, connected: password !== "" }));
+    expect(await applying).toMatchObject({ ok: password !== "" });
+  }
+  await env.DB.prepare("UPDATE member SET role='pm' WHERE organizationId=? AND userId=?").bind(orgId, userId).run();
+  await expect(testProPresenterConnection({ data: { orgId } })).rejects.toThrow("Forbidden");
+});
 
 it("returns only public configuration to operators and keeps desktop provisioning limited to API-key managers", async () => {
   const { orgId, userId } = await fixture();

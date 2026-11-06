@@ -778,7 +778,7 @@
       "phase": "1",
       "section": "1.6 Bridge target allowlist and credential hygiene (audit H7, H8)",
       "line": 136,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
         "PARTIAL ONLY: Bridge installation API keys were hashed with one-time creation display in Phase 0. Kiosk and Companion creation now stores SHA-256 digests with unique signed token IDs; list/revoke returns contain metadata only. Only creation returns the raw token, held in component memory until dismissal or navigation. Regeneration is disabled until the current token is dismissed, recipes use placeholders afterward, and revocation requires confirmation.",
         "2026-11-05 verification: 1376 unit tests and 317 real Worker tests passed; web tsc and production build passed. Six new real D1/WebCrypto tests cover legacy migration concurrency, authentication, digest rejection, database expiry, display scope and bounded idempotent migration including inactive/revoked tokens. Four UI tests cover one-time display, remount, creation failures and confirmed revocation. Built smoke-scoped-tokens.mjs passed real login, both token creation flows, actual hash-only D1 storage, metadata-only server reads, authentication, dismissal/reload, 320/768/2560px layout and confirmed revocation. Client bundle 560603 raw / 174840 gzip under unchanged budgets.",
@@ -805,7 +805,13 @@
         "Bridge Desktop get_bridge_config now returns an empty key and only a ProPresenter-password configured flag, never the saved password. Blank input preserves the password only for the same site/org/host/Stage port. Explicit replacement and remove-on-save are supported, successful saves clear drafts, failed saves retain drafts, and destination changes do not carry the old password. Both native apps use the shared migrated vault; standalone setup public responses already redact the password.",
         "Verification: 10 shared Rust vault unit tests plus the real macOS Keychain probe passed; 15 Bridge supervisor Rust tests and 16 Desktop native Rust tests passed. The real standalone OS-store probe passed save/read, second-process configuration recovery, key rotation, password replacement/clearing, key-only vault migration, idempotent reload and fixture cleanup. Bridge 93 tests, Bridge Desktop updater 4 tests, Bridge TypeScript build and Bridge Desktop production build passed. Browser smoke-private-config.mjs exercised the built Bridge settings UI with explicitly simulated native IPC: blank preservation intent, failed draft retention, successful draft clearing, explicit clear/cancel and 320/620/2560px layout. The native implementation is covered separately by Rust and real OS-store tests.",
         "Full web run passed 1393 unit tests and 377/378 Worker tests; the unchanged 15000ms PIN crypto test timed out while both native app builds ran. After those builds completed, the unchanged full Worker rerun passed all 378 tests in 37.78 seconds. Web typecheck and diff checks passed. No timeout, assertion or production permission was relaxed. DEPLOY.md documents migration, OS-store failure behavior and the incompatible-old-native-build rollback boundary.",
-        "H8 is still pending until live saved ProPresenter configuration replacement/reconnection and the remaining read-path/combined Phase 1 gates are verified. Native OS-store verification this turn was macOS only; Windows/Linux probes are present in the unsigned test-build workflow but have not yet been rerun for this slice. No production configuration, credentials, deployment or merge was changed."
+        "H8 is still pending until live saved ProPresenter configuration replacement/reconnection and the remaining read-path/combined Phase 1 gates are verified. Native OS-store verification this turn was macOS only; Windows/Linux probes are present in the unsigned test-build workflow but have not yet been rerun for this slice. No production configuration, credentials, deployment or merge was changed.",
+        "2026-11-05 final H8 implementation verification: settings Apply & test sends the current private ProPresenter configuration even when its target is already connected. The native Bridge compares host/Stage port/API port/password and replaces only changed or destroyed instances. Detached instance callbacks cannot resolve the replacement or clear the preview. Stage Display socket-open no longer counts as ready before authentication; rejected authentication fails and stops that instance, while unavailable-socket REST fallback remains supported.",
+        "Full current web suite passed 1393 unit and 379 real Worker tests; Bridge passed 96 tests. Web and Bridge typechecks and web production build passed. Main bundle 490849 raw /155599 gzip under unchanged budgets. A real native WebSocket test covers private credential replacement, unchanged reuse, API-port replacement, empty-password clearing, bad-password rejection and recovery. Real Worker tests apply encrypted replacement/clear to an already-connected target and wait for the native result, with integration-permission denial verified.",
+        "Current built smoke-propresenter-private.mjs passed against the newly compiled ARM64 Bridge: encrypted D1 storage and native delivery, actual password authentication, restricted PM viewer, masked reads, saved password replacement, failed authentication and recovery, confirmed credential clearing, slide transitions, explicit slide clear and disconnect retention. First rehearsal reached clearing but the browser tool polling expression hit CSP; local-smoke-fixture now polls conditions through the automation channel without weakening production CSP, and the complete rerun passed.",
+        "Current source read-path audit confirmed settings management and mutation responses are masked; ordinary-member/display reads use explicit nonsecret key lists; web device detail/list/create are masked and update returns only a count; mobile device configuration emits empty credential values plus configured metadata; the raw ProPresenter/runtime provisioning getters are absent. Private server/native readers remain internal. API/kiosk/Companion secrets are hash-only with one-time creation responses and metadata-only subsequent reads, as verified by current full-suite tests.",
+        "PR106 CI 42137369918 and PR107 CI 42138586137 completed successfully. Unsigned build run 42138593528 at 7b67d6a passed the real Rust and standalone OS credential probes on Windows, Linux Secret Service, Intel Mac and Apple Silicon. Apple Silicon Desktop compilation succeeded but DMG creation failed with hdiutil Resource busy; its Bridge bundles and artifact upload passed. Remaining bundle jobs are still running and that packaging retry remains a release follow-up, not missing-secret or credential-storage evidence. No signing secrets were added.",
+        "H8 code and fixture acceptance are verified. Production key provisioning, migration/backfill execution and deployment are still unperformed and remain release work. Physical ProPresenter/OBS/PJLink and the final full-show rehearsal remain final-gate evidence, not claims made by these simulated-device checks."
       ]
     },
     {
@@ -927,8 +933,11 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 167,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Current Phase 1 tree: pnpm --filter @showpilot/web test passed migration/client boundary checks, 1393 unit tests and 379 actual Worker tests. Web and Bridge tsc --noEmit passed; Bridge tests passed 96. Web production build passed with 490849 raw /155599 gzip against unchanged 600000/175000 limits.",
+        "Native verification inherited from the preceding committed vault slice: 10 shared Rust vault unit tests, real OS-vault probes, 15 Bridge supervisor tests, 16 Desktop native tests and 4 Bridge Desktop updater tests passed. These Rust/UI files did not change in this final ProPresenter runtime slice. PR106 and PR107 CI are green. Current slice CI will be reported separately after push."
+      ]
     },
     {
       "id": "7f3337ab23bdf26b",
@@ -994,16 +1003,22 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 173,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Current full Worker suite includes timecode-jump.worker.test.ts, which rewinds an already acknowledged cue, resumes and crosses it again without changing fired=true or executionAttempts=1. It also exercises persisted jump holds, threshold crossings, stale confirmations and cancellation of queued output. The current format suite verifies transient format rejection and preservation of fired cues through explicit reformatting.",
+        "Both final built-browser rehearsals passed: smoke-timecode-jump.mjs verifies forward-jump automation hold with the clock continuing, cancellation, stale-confirmation rejection and resume without firing missed cues. smoke-timecode-format.mjs verifies four transient readings ignored, five stable readings held for review, cancel preservation, explicit reformatting, separate rearm, preserved fired cues and visible rejection of an invalid cue."
+      ]
     },
     {
       "id": "db5143676c20e424",
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 174,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Current smoke-device-credentials.mjs passed against the built Worker and compiled Bridge: real target approval, audited first connection and reconnect, revocation followed by a rejected command with no additional device traffic, encrypted device JSON, masked save/read responses and recipient-bound native delivery. Device-ID browser control reached an authenticated HTTP fixture without exposing its secret in relay messages or public responses; preserve/clear and responsive editor checks also passed.",
+        "Current full Worker/native suites cover host/port/protocol matching, both ProPresenter ports, permission checks, forged actor rejection, audit-before-I/O, missing approval rejection, active/standby isolation, hibernation, credential redaction, private per-recipient replies and masked web/mobile settings/device reads. Current ProPresenter browser rehearsal additionally proves masked configuration, no browser credential socket and no plaintext password in native relay traffic across replacement/clear/failure/recovery."
+      ]
     },
     {
       "id": "5a458d4e0212b9d4",
@@ -1033,8 +1048,11 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 177,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Phase 1 gate report, 2026-11-05: all 37 requirements have recorded implementation and verification evidence. Passing gates: full tests/typechecks, concurrent-show scoping, claim/revocation boundaries, 10 Hz broadcast query count, watchdog/handover/gap recovery, controller-only mutations, jump/format protections, target allowlists and masked credential reads, diff-based rundown persistence and second-organization onboarding.",
+        "The final review rechecked the existing gate evidence against the current full test suite and reran the built jump, format, device-credential/allowlist and private-ProPresenter rehearsals. Phase 1 changes are split into stacked reviewable PRs because their combined diff is too large for one review. They are not merged or deployed. Production migration/backfill, signing/release readiness and physical/full-show verification are not implied by this phase report. The Apple Silicon unsigned Desktop DMG packaging error remains a tracked release follow-up; all four OS-vault probes passed. Phase 2 may now begin; the overall goal remains active."
+      ]
     },
     {
       "id": "70e2973f8b44a37b",

@@ -359,6 +359,7 @@ async function connectConfiguredProPresenterBridge(
   orgId: string,
   target: NonNullable<Awaited<ReturnType<typeof readProPresenterTarget>>>,
   actorUserId: string,
+  applySavedSettings = false,
 ) {
   const bindings = env as unknown as RundownRelayEnv;
   if (!bindings.BRIDGE_RELAY) {
@@ -373,7 +374,7 @@ async function connectConfiguredProPresenterBridge(
   }
 
   const bridgeTarget = `propresenter:${target.host}:${target.stagePort}`;
-  if (!status.connectedTargets.includes(bridgeTarget)) {
+  if (applySavedSettings || !status.connectedTargets.includes(bridgeTarget)) {
     const connection = await relay.dispatchBridgeMessage(proPresenterConnection(target), { source: "operator", actorUserId });
     if (!connection.success) {
       return {
@@ -888,6 +889,7 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
         data.orgId,
         target,
         user.id,
+        true,
       );
       return connection.ok ? { ok: true } : connection;
     } catch {
