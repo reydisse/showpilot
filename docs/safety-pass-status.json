@@ -583,8 +583,12 @@
       "phase": "1",
       "section": "1.2 No claim means read only (audit C2)",
       "line": 111,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/server.ts rebuilds all six relay URLs from server-resolved identity and supported query fields; public subpaths are explicitly allowlisted.",
+        "display-gateway-security.test.ts and bridge-gateway-security.test.ts verify forged authority is discarded and member maintenance requests never reach a relay.",
+        "node apps/web/scripts/smoke-display-access.mjs: authenticated maintenance requests denied on all six live local Worker routes; display passes, expiry, private stage messages, and overlay reads pass."
+      ]
     },
     {
       "id": "f5e403df7badf18b",

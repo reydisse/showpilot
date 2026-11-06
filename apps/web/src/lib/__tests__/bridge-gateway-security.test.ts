@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 describe("Bridge credentials at the public Worker boundary", () => {
   it.each(["rundown", "timecode", "lowerthirds"])("does not authorize %s commands with a Bridge key", async (relay) => {
-    const response = await server.fetch(new Request(`https://app.example/api/${relay}/org-1/command`, {
+    const response = await server.fetch(new Request(`https://app.example/api/${relay}/org-1/${relay === "lowerthirds" ? "trigger" : "command"}`, {
       method: "POST", headers: { "x-showpilot-api-key": key }, body: "{}",
     }), bindings, {});
     expect(response.status).toBe(401); expect(mocks.relay).not.toHaveBeenCalled();

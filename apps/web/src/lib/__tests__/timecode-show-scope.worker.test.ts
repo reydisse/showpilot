@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getShowTimecodeRelay, resolveTimecodeTarget, timecodeRelayKey, timecodeTargetUrl, type TimecodeTarget } from "../timecode-target.server";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { openTestBridge } from "@/test/bridge-fixtures";
+import { seedRelayMember } from "@/test/relay-fixtures";
 
 afterEach(() => abortAllDurableObjects());
 async function shows() {
@@ -16,13 +17,16 @@ async function shows() {
 }
 async function room(target: TimecodeTarget) {
   const stub = await getShowTimecodeRelay(env, target);
+  const authority = await seedRelayMember(target.orgId);
   const url = (path: string) => {
     const url = timecodeTargetUrl(target, path);
     url.searchParams.set("access", "write");
+    url.searchParams.set("authUserId", authority.userId);
+    url.searchParams.set("authSessionId", authority.sessionId);
     return url;
   };
   return {
-    stub,
+    stub, url,
     async command(action: string, payload?: Record<string, unknown>) {
       const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action, payload }),
@@ -119,8 +123,7 @@ describe("show-scoped timecode rooms", () => {
       timecode: { hours: 0, minutes: 1, seconds: 0, frames: 0 }, format: { frameRate: 29.97, dropFrame: "df" },
     })).status).toBe(400);
     expect(await morning.state()).toMatchObject({ running: false, totalFrames: 0 });
-    const url = timecodeTargetUrl(a, "/ws");
-    url.searchParams.set("access", "write");
+    const url = morning.url("/ws");
     const response = await morning.stub.fetch(url, { headers: { Upgrade: "websocket" } });
     const socket = response.webSocket;
     if (!socket) throw new Error("Missing operator socket");

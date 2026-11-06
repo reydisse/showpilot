@@ -313,6 +313,7 @@ const appServer = {
     const bridgeMatch = url.pathname.match(/^\/api\/bridge\/([^/]+)\/(.+)$/);
     if (bridgeMatch) {
       const [, slugOrId, subpath] = bridgeMatch;
+      if (!["ws", "status"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -351,6 +352,7 @@ const appServer = {
     const rundownMatch = url.pathname.match(/^\/api\/rundown\/([^/]+)\/(.+)$/);
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
+      if (!["ws", "state", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const showId = url.searchParams.get("showId");
@@ -401,8 +403,7 @@ const appServer = {
         rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value), showId),
       );
       const stub = e.RUNDOWN_RELAY.get(id);
-      const doUrl = publicDisplayRead ? new URL("https://rundown.internal") : new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
+      const doUrl = new URL(`https://rundown.internal/${subpath}`);
       doUrl.searchParams.set("orgId", orgId);
       if (serviceDate) doUrl.searchParams.set("serviceDate", serviceDate);
       if (showId) doUrl.searchParams.set("showId", showId);
@@ -428,6 +429,7 @@ const appServer = {
     const cueMatch = url.pathname.match(/^\/api\/cue-sheet\/([^/]+)\/(.+)$/);
     if (cueMatch) {
       const [, slugOrId, subpath] = cueMatch;
+      if (!["ws", "broadcast"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -446,8 +448,7 @@ const appServer = {
       }
       const id = e.CUE_SHEET_RELAY.idFromName(orgId);
       const stub = e.CUE_SHEET_RELAY.get(id);
-      const doUrl = new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
+      const doUrl = new URL(`https://cuesheet.internal/${subpath}`);
       doUrl.searchParams.set("orgId", orgId);
       const scopes = [
         canWriteColumns ? "columns" : null,
@@ -510,6 +511,7 @@ const appServer = {
     const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
+      if (!["ws", "send", "history", "unread", "upload"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -596,14 +598,15 @@ const appServer = {
       }
 			const id = e.CHAT_RELAY.idFromName(chatRelayKey(orgId, roomId));
       const stub = e.CHAT_RELAY.get(id);
-      const doUrl = new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
+      const doUrl = new URL(`https://chat.internal/${subpath}`);
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("room", roomId);
       doUrl.searchParams.set("access", "write");
-      // These are trusted relay metadata, never client-provided identity.
-      for (const field of ["userId", "name", "role", "guestExpiresAt", "attachmentOwnerId", "authUserId", "authSessionId"]) {
-        doUrl.searchParams.delete(field);
+      if (subpath === "history") {
+        for (const field of ["limit", "beforeTimestamp", "beforeId"]) {
+          const value = url.searchParams.get(field);
+          if (value !== null) doUrl.searchParams.set(field, value);
+        }
       }
       if (guestAllowed && guestPass) {
         doUrl.searchParams.set("name", (url.searchParams.get("guestName") || "Guest crew").trim().slice(0, 60));
@@ -687,6 +690,7 @@ const appServer = {
     const ltMatch = url.pathname.match(/^\/api\/lowerthirds\/([^/]+)\/(.+)$/);
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
+      if (!["ws", "current", "trigger", "clear", "queue"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -700,8 +704,7 @@ const appServer = {
       if (!isMutation && !memberRead && !displayAuthority) return new Response("Display pass required", { status: 401, headers: { "Cache-Control": "no-store" } });
       const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
       const stub = e.LOWER_THIRDS_RELAY.get(id);
-      const doUrl = displayAuthority ? new URL("https://lowerthirds.internal") : new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
+      const doUrl = new URL(`https://lowerthirds.internal/${subpath}`);
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", canControl ? "write" : "read");
       doUrl.searchParams.delete("authDisplayExpiresAt");
