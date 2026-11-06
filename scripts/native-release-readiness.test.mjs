@@ -135,6 +135,20 @@ test("rejects untrusted origins and missing check-in window access", () => {
   assert.ok(issues.some((issue) => issue.includes("every companion window")));
 });
 
+test("rejects MIDI access from companion windows or untrusted origins", () => {
+  const mutations = [
+    desktop => desktop.midiCapabilities.windows.push("confidence-*"),
+    desktop => desktop.midiCapabilities.remote.urls.push("https://untrusted.example/*"),
+    desktop => desktop.capabilities.permissions.push("allow-midi-controller"),
+    desktop => desktop.permissions.permission[0].commands.allow.push("midi_controller_feedback"),
+    desktop => desktop.midiPermissions.permission[0].commands.allow.pop(),
+  ];
+  for (const mutate of mutations) {
+    const current = snapshot(); mutate(current.products.desktop);
+    assert.ok(findNativeReleaseIssues(current).some(issue => issue.includes("MIDI commands must be restricted")));
+  }
+});
+
 test("rejects missing DeckLink runtime signing entitlement", () => {
   const current = snapshot();
   current.products.desktop.tauri.bundle.macOS.entitlements = undefined;

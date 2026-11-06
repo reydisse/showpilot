@@ -802,6 +802,28 @@ After a web build, run `node apps/web/scripts/smoke-midi-controller.mjs`. It use
 real login, local D1, relay commands and lyrics output with simulated MIDI ports.
 Complete the physical APC/DAW/USB rehearsal before claiming hardware acceptance.
 
-This controller listener currently uses Web MIDI. Native Bridge supplies MTC;
-controller-note forwarding through Bridge is not implemented yet. Desktop
-webviews without Web MIDI therefore still need that native controller path.
+Desktop uses its native MIDI engine, including on macOS webviews without Web
+MIDI. Deploy the matching Desktop binary with the web update. Older Desktop
+builds cannot handle the new controller commands and will report a connection
+error. Browser clients continue to use Web MIDI. Native Bridge MTC remains a
+separate input; controller notes and LED feedback stay on the venue computer
+through Tauri IPC and never travel through the cloud relay.
+
+Only the main Desktop window has controller permission. Each connection has a
+fresh session ID and an eight-second lease, renewed every two seconds. Losing
+that session releases the ports and clears its lights. The UI disarms and offers
+Connect controller again. A new session requires explicit arming. Native
+selection revisions and input generations reject delayed selection replies and
+old port callbacks. Native replug uses the OS port ID, then an unambiguous name;
+the native library does not supply manufacturer metadata. Feedback accepts only
+bounded note LED messages, coalesces updates, restores lights on output replug,
+and clears owned lights before session replacement or application exit.
+
+Run `node apps/web/scripts/smoke-native-midi-controller.mjs` after the web build.
+It exercises the built UI, Tauri Channel, real local authentication and relay,
+with IPC simulated at the native boundary. On a Mac, run
+`cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml coremidi_controller_input_feedback_replug_and_session_cleanup -- --ignored --nocapture`
+to exercise actual CoreMIDI virtual ports, message filtering, input/output
+replug, LED recovery, stale revisions, session replacement, lease expiry and
+shutdown cleanup. Both macOS jobs in the unsigned workflow run this probe.
+Virtual ports do not replace the physical APC/DAW/USB acceptance rehearsal.
